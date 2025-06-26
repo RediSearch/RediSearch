@@ -9,7 +9,6 @@
 #pragma once
 
 #include "rejson_api.h"
-#include "redismodule.h"
 #include "field_spec.h"
 
 #ifdef __cplusplus

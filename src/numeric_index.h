@@ -9,7 +9,6 @@
 #ifndef __NUMERIC_INDEX_H__
 #define __NUMERIC_INDEX_H__
 
-#include <stdio.h>
 #include <stdlib.h>
 #include "rmutil/vector.h"
 #include "redisearch.h"
