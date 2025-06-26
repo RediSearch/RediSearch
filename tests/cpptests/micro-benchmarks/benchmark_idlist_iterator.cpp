@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#define MICRO_BENCHMARKS
-
 #include "benchmark/benchmark.h"
 #include "redismock/util.h"
 

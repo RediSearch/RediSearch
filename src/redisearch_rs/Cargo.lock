@@ -416,6 +416,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
+name = "encode_decode"
+version = "0.0.1"
+dependencies = [
+ "redis-module",
+]
+
+[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -430,6 +437,26 @@ dependencies = [
  "num-traits 0.1.43",
  "quote 0.3.15",
  "syn 0.11.11",
+]
+
+[[package]]
+name = "enumflags2"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
+dependencies = [
+ "enumflags2_derive",
+]
+
+[[package]]
+name = "enumflags2_derive"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
+dependencies = [
+ "proc-macro2",
+ "quote 1.0.40",
+ "syn 2.0.101",
 ]
 
 [[package]]
@@ -489,6 +516,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.71.1",
  "cc",
+ "enumflags2",
 ]
 
 [[package]]
@@ -621,7 +649,21 @@ dependencies = [
 name = "inverted_index"
 version = "0.0.1"
 dependencies = [
+ "enumflags2",
  "ffi",
+]
+
+[[package]]
+name = "inverted_index_bencher"
+version = "0.0.1"
+dependencies = [
+ "bindgen 0.71.1",
+ "buffer",
+ "criterion",
+ "ffi",
+ "inverted_index",
+ "redis-module",
+ "redis_mock",
 ]
 
 [[package]]
@@ -917,6 +959,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
+name = "pin-project"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "677f1add503faace112b9f1373e43e9e054bfdd22ff1a63c1bc485eaec6a6a8a"
+dependencies = [
+ "pin-project-internal",
+]
+
+[[package]]
+name = "pin-project-internal"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e918e4ff8c4549eb882f14b3a4bc8c8bc93de829416eacf579f1207a8fbf861"
+dependencies = [
+ "proc-macro2",
+ "quote 1.0.40",
+ "syn 2.0.101",
+]
+
+[[package]]
 name = "plotters"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1166,6 +1228,7 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "encode_decode",
  "redis-module",
  "triemap_ffi",
  "types_ffi",
@@ -1199,6 +1262,24 @@ name = "regex-syntax"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
+
+[[package]]
+name = "result_processor"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "libc",
+ "pin-project",
+]
+
+[[package]]
+name = "result_processor_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "ffi",
+ "result_processor",
+]
 
 [[package]]
 name = "ring"
@@ -1632,6 +1713,18 @@ name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+
+[[package]]
+name = "varint_bencher"
+version = "0.0.1"
+dependencies = [
+ "bindgen 0.71.1",
+ "buffer",
+ "criterion",
+ "encode_decode",
+ "libc",
+ "redis_mock",
+]
 
 [[package]]
 name = "walkdir"

@@ -146,7 +146,7 @@ void testRangeIteratorHelper(bool isMulti) {
       }
       ASSERT_NE(found_mult, -1);
       if (res->type == RSResultType_Union) {
-        res = res->agg.children[0];
+        res = res->data.agg.children[0];
       }
 
       // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,
@@ -154,7 +154,7 @@ void testRangeIteratorHelper(bool isMulti) {
 
       found_mult = -1;
       for( size_t mult = 0; mult < mult_count; ++mult) {
-        if (res->num.value == lookup[res->docId].v[mult]) {
+        if (res->data.num.value == lookup[res->docId].v[mult]) {
           ASSERT_TRUE(NumericFilter_Match(flt, lookup[res->docId].v[mult]));
           found_mult = mult;
         }
