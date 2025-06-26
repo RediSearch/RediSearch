@@ -477,11 +477,11 @@ impl From<f64> for Value {
 
         if u64_val as f64 == abs_val {
             if u64_val <= 0b111 {
-                return Value::TinyInteger(u64_val as u8);
+                Value::TinyInteger(u64_val as u8)
             } else if value.is_sign_positive() {
-                return Value::IntegerPositive(u64_val);
+                Value::IntegerPositive(u64_val)
             } else {
-                return Value::IntegerNegative(u64_val);
+                Value::IntegerNegative(u64_val)
             }
         } else {
             match value {
@@ -497,12 +497,10 @@ impl From<f64> for Value {
                         } else {
                             Value::Float32Negative(f32_value)
                         }
+                    } else if v.is_sign_positive() {
+                        Value::Float64Positive(abs_val)
                     } else {
-                        if v.is_sign_positive() {
-                            Value::Float64Positive(abs_val)
-                        } else {
-                            Value::Float64Negative(abs_val)
-                        }
+                        Value::Float64Negative(abs_val)
                     }
                 }
             }
