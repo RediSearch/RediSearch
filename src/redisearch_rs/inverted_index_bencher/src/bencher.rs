@@ -9,7 +9,7 @@
 
 use std::{collections::HashMap, io::Cursor, ptr::NonNull, time::Duration};
 
-use buffer::{Buffer, BufferReader, BufferWriter};
+use buffer::Buffer;
 use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box,
     measurement::{Measurement, WallTime},
@@ -311,14 +311,17 @@ fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
         ),
         |b| {
             b.iter_batched(
-                || TestBuffer::with_capacity((1 + delta_size + value_size) * values.len()),
+                || {
+                    Cursor::new(Vec::with_capacity(
+                        (1 + delta_size + value_size) * values.len(),
+                    ))
+                },
                 |mut buffer| {
                     for (value, delta, _) in values {
-                        let buffer_writer = BufferWriter::new(&mut buffer.0);
                         let record = inverted_index::RSIndexResult::numeric(0, *value);
 
                         let grew_size =
-                            Numeric::encode(buffer_writer, Delta::new(*delta), &record).unwrap();
+                            Numeric::encode(&mut buffer, Delta::new(*delta), &record).unwrap();
 
                         black_box(grew_size);
                     }
@@ -343,13 +346,8 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
         ),
         |b| {
             for (_, _, buffer) in values {
-                let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
-                let buffer = unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) };
-
                 b.iter(|| {
-                    let mut buffer_reader = BufferReader::new(&buffer);
-
-                    let result = Numeric.decode(&mut buffer_reader, 100);
+                    let result = Numeric.decode(buffer.as_slice(), 100);
 
                     let _ = black_box(result);
                 });
