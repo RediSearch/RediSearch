@@ -76,7 +76,7 @@ fn numeric_tiny_int() {
     }
 }
 
-/// Tests for positive integers bigger than 7 which should use the [POS_INT header](super#pos-int-type) format.
+/// Tests for positive integers bigger than 7 which should use the [INT_POS header](super#pos-int-type) format.
 #[test]
 fn numeric_pos_int() {
     let inputs = [
@@ -85,7 +85,7 @@ fn numeric_pos_int() {
             16.0,
             3,
             vec![
-                0b000_10_001, // POS_INT type, value_bytes: 0 (+1), delta_bytes: 1
+                0b000_10_001, // INT_POS type, value_bytes: 0 (+1), delta_bytes: 1
                 1,            // Delta: 1
                 16,           // Value: 16
             ],
@@ -95,7 +95,7 @@ fn numeric_pos_int() {
             256.0,
             3,
             vec![
-                0b001_10_000, // POS_INT type, value_bytes: 1 (+1), delta_bytes: 0
+                0b001_10_000, // INT_POS type, value_bytes: 1 (+1), delta_bytes: 0
                 0,            // Value 0 (LSB)
                 1,            // Value 1 (MSB) → 256 = 0x0100
             ],
@@ -105,7 +105,7 @@ fn numeric_pos_int() {
             u64::MAX as _,
             16,
             vec![
-                0b111_10_111, // POS_INT type, value_bytes: 7 (+1), delta_bytes: 7
+                0b111_10_111, // INT_POS type, value_bytes: 7 (+1), delta_bytes: 7
                 255,          // Delta
                 255,
                 255,
@@ -153,7 +153,7 @@ fn numeric_pos_int() {
     }
 }
 
-/// Tests for negative integers which should use the [NEG_INT header](super#neg-int-type) format.
+/// Tests for negative integers which should use the [INT_NEG header](super#neg-int-type) format.
 #[test]
 fn numeric_neg_int() {
     let inputs = [
@@ -162,7 +162,7 @@ fn numeric_neg_int() {
             -16.0,
             3,
             vec![
-                0b000_11_001, // NEG_INT type, value_bytes: 0 (+1), delta_bytes: 1
+                0b000_11_001, // INT_NEG type, value_bytes: 0 (+1), delta_bytes: 1
                 1,            // Delta: 1
                 16,           // Value: 16
             ],
@@ -172,7 +172,7 @@ fn numeric_neg_int() {
             -256.0,
             3,
             vec![
-                0b001_11_000, // NEG_INT type, value_bytes: 1 (+1), delta_bytes: 0
+                0b001_11_000, // INT_NEG type, value_bytes: 1 (+1), delta_bytes: 0
                 0,            // Value 0 (LSB)
                 1,            // Value 1 (MSB) → 256 = 0x0100
             ],
@@ -182,7 +182,7 @@ fn numeric_neg_int() {
             -(u64::MAX as f64),
             16,
             vec![
-                0b111_11_111, // NEG_INT type, value_bytes: 7 (+1), delta_bytes: 7
+                0b111_11_111, // INT_NEG type, value_bytes: 7 (+1), delta_bytes: 7
                 255,          // Delta
                 255,
                 255,
