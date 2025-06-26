@@ -31,7 +31,7 @@ from typing import Optional
 
 class RediSearchTester:
     """Test runner with RediSearch module version detection and VTune profiling"""
-    
+
     def __init__(self, redis_host: str = 'localhost', redis_port: int = 6379, redis_db: int = 0):
         """Initialize Redis connection and detect RediSearch module version"""
         try:
@@ -46,7 +46,7 @@ class RediSearchTester:
         except redis.ConnectionError:
             print(f"✗ Failed to connect to Redis at {redis_host}:{redis_port}")
             sys.exit(1)
-        
+
         # Detect and print RediSearch module version
         self.redisearch_version = self.detect_redisearch_version()
         if self.redisearch_version:
@@ -54,7 +54,7 @@ class RediSearchTester:
         else:
             print("✗ RediSearch module not found or not loaded")
             sys.exit(1)
-    
+
     def detect_redisearch_version(self) -> Optional[str]:
         """Detect RediSearch module version using MODULE LIST command"""
         try:
@@ -68,9 +68,9 @@ class RediSearchTester:
         except Exception as e:
             print(f"Warning: Could not detect RediSearch version: {e}")
             return None
-    
 
-    
+
+
     def get_slowlog_before_query(self) -> int:
         """Get current slowlog length to establish baseline"""
         try:
@@ -2419,6 +2419,7 @@ class RediSearchTester:
         read_counter = parsed_data.get('Read Counter')  # New format
         skip_counter = parsed_data.get('Skip Counter')  # New format
         term = parsed_data.get('Term') or parsed_data.get('term')
+        size = parsed_data.get('Size')  # May be None
 
         # Check for missing fields
         if query_type is None:
@@ -2454,6 +2455,8 @@ class RediSearchTester:
             details_parts.append(f"First Skipped To: {first_skipped_to}")
         if last_skipped_to is not None:
             details_parts.append(f"Last Skipped To: {last_skipped_to}")
+        if size is not None:
+            details_parts.append(f"Size: {size}")
 
         # Add Quick Exit for UNION iterators
         quick_exit = parsed_data.get('Quick Exit')
