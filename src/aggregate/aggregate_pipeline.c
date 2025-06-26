@@ -250,15 +250,17 @@ bool hasQuerySortby(const AGGPlan *pln) {
   rpUpstream = pushRP(&pipeline->qctx, rp, rpUpstream); \
   rp = NULL;
 
+static void initializePipeline(AggregationPipeline *pipeline, QueryError *status) {
+  pipeline->qctx.err = status;
+  pipeline->qctx.rootProc = pipeline->qctx.endProc = NULL;
+}
+
 /**
  * Builds the implicit pipeline for querying and scoring, and ensures that our
  * subsequent execution stages actually have data to operate on.
  */
 static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, ConcurrentSearchCtx *conc, AREQ *req, QueryError *Status) {
   AggregationPipeline *pipeline = &req->pipeline;
-  pipeline->qctx.sctx = pipeline->sctx;
-  pipeline->qctx.err = Status;
-
   IndexSpecCache *cache = IndexSpec_GetSpecCache(req->pipeline.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&req->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
@@ -363,7 +365,7 @@ error:
   return REDISMODULE_ERR;
 }
 
-int BuildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy) {
+int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy) {
   AGGPlan *pln = &pipeline->ap;
   int outStateflags = 0;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
@@ -526,15 +528,20 @@ error:
   return REDISMODULE_ERR;
 }
 
+int BuildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy) {
+    initializePipeline(pipeline, status);
+    return buildPipeline(pipeline, optimizer, searchOpts, status, timeoutPolicy);
+}
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  initializePipeline(&req->pipeline, status); 
   if (!(req->pipeline.reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(&req->ast, req->rootiter, &req->conc, req, status);
     if (status->code != QUERY_OK) {
       return REDISMODULE_ERR;
     }
   }
-  return BuildPipeline(&req->pipeline, req->optimizer, &req->searchopts, status, req->reqConfig.timeoutPolicy);
+  return buildPipeline(&req->pipeline, req->optimizer, &req->searchopts, status, req->reqConfig.timeoutPolicy);
 }
 
 #ifdef __cplusplus
