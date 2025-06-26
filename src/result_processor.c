@@ -99,6 +99,7 @@ typedef struct {
   ResultProcessor base;
   IndexIterator *iiter;
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
+  ConcurrentSearchCtx *conc;
 } RPIndexIterator;
 
 /* Next implementation */
@@ -110,7 +111,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
     RedisSearchCtx_LockSpecRead(RP_SCTX(base));
-    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
+    ConcurrentSearchCtx_ReopenKeys(self->conc);
   }
 
   RSIndexResult *r;
@@ -178,11 +179,12 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
+ResultProcessor *RPIndexIterator_New(IndexIterator *root, ConcurrentSearchCtx *conc) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
+  ret->conc = conc;
   ret->base.type = RP_INDEX;
   return &ret->base;
 }
@@ -998,7 +1000,7 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 
 /*********************************************************************************/
 
-ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+ResultProcessor *RPLoader_New(AggregationPipeline *pipeline, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   if (RSGlobalConfig.enableUnstableFeatures) {
     if (nkeys == 1 && !strcmp(keys[0]->path, UNDERSCORE_KEY)) {
       // Return a thin RP that doesn't actually loads anything or access to the key space
@@ -1006,13 +1008,13 @@ ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, siz
       return RPKeyNameLoader_New(keys[0]);
     }
   }
-  r->stateflags |= QEXEC_S_HAS_LOAD;
-  if (AREQ_RequestFlags(r) & QEXEC_F_RUN_IN_BACKGROUND) {
+  pipeline->stateflags |= QEXEC_S_HAS_LOAD;
+  if (pipeline->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
+    return RPSafeLoader_New(pipeline->sctx, lk, keys, nkeys, forceLoad);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
-    return RPPlainLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
+    return RPPlainLoader_New(pipeline->sctx, lk, keys, nkeys, forceLoad);
   }
 }
 
@@ -1037,8 +1039,8 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   return &sl->base_loader.base;
 }
 
-void SetLoadersForBG(AREQ *r) {
-  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
+void SetLoadersForBG(QueryProcessingCtx *qctx) {
+  ResultProcessor *cur = qctx->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
   while (cur) {
@@ -1057,11 +1059,11 @@ void SetLoadersForBG(AREQ *r) {
     cur = cur->upstream;
   }
   // Update the endProc to the new head in case it was changed
-  r->qiter.endProc = dummyHead.upstream;
+  qctx->endProc = dummyHead.upstream;
 }
 
-void SetLoadersForMainThread(AREQ *r) {
-  ResultProcessor *rp = r->qiter.endProc;
+void SetLoadersForMainThread(QueryProcessingCtx *qctx) {
+  ResultProcessor *rp = qctx->endProc;
   while (rp) {
     if (rp->type == RP_SAFE_LOADER) {
       // If the `Next` function is `rpSafeLoaderNext_Accumulate`, it means that the loader didn't
@@ -1125,12 +1127,12 @@ static void rpProfileFree(ResultProcessor *base) {
   rm_free(rp);
 }
 
-ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
 
   rpp->profileCount = 0;
   rpp->base.upstream = rp;
-  rpp->base.parent = qiter;
+  rpp->base.parent = qctx;
   rpp->base.Next = rpprofileNext;
   rpp->base.Free = rpProfileFree;
   rpp->base.type = RP_PROFILE;
@@ -1148,11 +1150,11 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   return self->profileCount;
 }
 
-void Profile_AddRPs(QueryIterator *qiter) {
-  ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
+void Profile_AddRPs(QueryProcessingCtx *qctx) {
+  ResultProcessor *cur = qctx->endProc = RPProfile_New(qctx->endProc, qctx);
   while (cur && cur->upstream && cur->upstream->upstream) {
     cur = cur->upstream;
-    cur->upstream = RPProfile_New(cur->upstream, qiter);
+    cur->upstream = RPProfile_New(cur->upstream, qctx);
     cur = cur->upstream;
   }
 }

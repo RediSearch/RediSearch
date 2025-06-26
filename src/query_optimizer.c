@@ -33,7 +33,7 @@ void QOptimizer_Parse(AREQ *req) {
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_Plan(req));
   if (arng) {
     opt->limit = arng->limit + arng->offset;
-    if (IsSearch(req) && !opt->limit) {
+    if (IsSearch(&req->pipeline) && !opt->limit) {
       opt->limit = DEFAULT_LIMIT;
     }
     if (arng->sortKeys) {

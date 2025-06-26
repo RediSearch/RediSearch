@@ -10,6 +10,7 @@
 #include "redismodule.h"
 #include "dist_plan.h"
 #include "aggregate/aggregate.h"
+#include "aggregate/aggregate_pipeline.h"
 #include "tests/cpptests/redismock/util.h"
 
 #include <vector>
@@ -47,6 +48,7 @@ static void testAverage() {
     abort();
   }
 
+  AggregationPipeline *pipeline = &r->pipeline;
   // so far, so good, eh?
   AGGPlan *plan = AREQ_Plan(r);
   rc = AGGPLN_Distribute(plan, &status);
@@ -130,7 +132,6 @@ static void testCountDistinct() {
   }
   AREQ_Free(r);
 }
-
 static void testSplit() {
   AREQ *r = AREQ_New();
   AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
