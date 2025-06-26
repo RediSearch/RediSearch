@@ -95,12 +95,12 @@ struct BenchInput {
 fn generate_test_values() -> Vec<BenchGroup> {
     let encoding_values = vec![
         BenchEncodingInputs {
-            group: "TinyInt",
+            group: "Tiny",
             values: vec![0.0, 3.0, 7.0],
             value_size_fn: |_| 0,
         },
         BenchEncodingInputs {
-            group: "PosInt",
+            group: "Integer Positive",
             values: vec![
                 // 1 byte
                 8.0,
@@ -119,7 +119,7 @@ fn generate_test_values() -> Vec<BenchGroup> {
             value_size_fn: |n| ((n + 1.0).log2() / 8.0).ceil() as _,
         },
         BenchEncodingInputs {
-            group: "NegInt",
+            group: "Integer Negative",
             values: vec![
                 // 1 byte
                 -8.0,
@@ -138,32 +138,32 @@ fn generate_test_values() -> Vec<BenchGroup> {
             value_size_fn: |n| ((n.abs() + 1.0).log2() / 8.0).ceil() as _,
         },
         BenchEncodingInputs {
-            group: "Float - Pos Inf",
+            group: "Float | Positive Infinite",
             values: vec![f64::INFINITY],
             value_size_fn: |_| 0,
         },
         BenchEncodingInputs {
-            group: "Float - Neg Inf",
+            group: "Float | Negative Infinite",
             values: vec![f64::NEG_INFINITY],
             value_size_fn: |_| 0,
         },
         BenchEncodingInputs {
-            group: "Float - Small Pos",
+            group: "Float | Small Positive",
             values: vec![7.125, 15.75, 42.5],
             value_size_fn: |_| 4,
         },
         BenchEncodingInputs {
-            group: "Float - Small Neg",
+            group: "Float | Small Negative",
             values: vec![-7.125, -15.75, -42.5],
             value_size_fn: |_| 4,
         },
         BenchEncodingInputs {
-            group: "Float - Big Pos",
+            group: "Float | Big Positive",
             values: vec![1.1, 0.3, 12.999999999999998],
             value_size_fn: |_| 8,
         },
         BenchEncodingInputs {
-            group: "Float - Big Neg",
+            group: "Float | Big Negative",
             values: vec![-1.1, -0.3, -12.999999999999998],
             value_size_fn: |_| 8,
         },
