@@ -19,11 +19,11 @@ use itertools::Itertools;
 
 use crate::ffi::{TestBuffer, encode_numeric, read_numeric};
 
-pub struct NumericBencher {
+pub struct Bencher {
     test_values: Vec<BenchGroup>,
 }
 
-impl NumericBencher {
+impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
 
