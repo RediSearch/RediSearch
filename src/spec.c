@@ -627,6 +627,49 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   return AC_OK;
 }
 
+// Parsing for Quantization parameter in SVS algorithm
+static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *quantBits) {
+  const char *quantBitsStr;
+  size_t len;
+  int rc;
+  if ((rc = AC_GetString(ac, &quantBitsStr, &len, 0)) != AC_OK) {
+    return rc;
+  }
+  if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_SCALAR))
+    *quantBits = VecSimSvsQuant_Scalar;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
+    *quantBits = VecSimSvsQuant_4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_8))
+    *quantBits = VecSimSvsQuant_8;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
+    *quantBits = VecSimSvsQuant_4x4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
+    *quantBits = VecSimSvsQuant_4x8;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
+    *quantBits = VecSimSvsQuant_4x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
+    *quantBits = VecSimSvsQuant_8x8_LeanVec;
+  else
+    return AC_ERR_ENOENT;
+  return AC_OK;
+}
+
+static int parseVectorField_GetOption(ArgsCursor *ac, VecSimOptionMode *option) {
+  const char *optionStr;
+  size_t len;
+  int rc;
+  if ((rc = AC_GetString(ac, &optionStr, &len, 0)) != AC_OK) {
+    return rc;
+  }
+  if (STR_EQCASE(optionStr, len, VECSIM_USE_SEARCH_HISTORY_ON))
+    *option = VecSimOption_ENABLE;
+  else if (STR_EQCASE(optionStr, len, VECSIM_USE_SEARCH_HISTORY_OFF))
+    *option = VecSimOption_DISABLE;
+  else
+    return AC_ERR_ENOENT;
+  return AC_OK;
+}
+
 // memoryLimit / 10 - default is 10% of global memory limit
 #define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : memoryLimit / 10)
 
@@ -682,6 +725,26 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
   return 1;
 }
 
+static int parseVectorField_validate_svs(VecSimParams *params, QueryError *status) {
+  size_t elementSize = VecSimIndex_EstimateElementSize(params);
+  // Calculating max block size (in # of vectors), according to memory limits
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
+  // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
+  if (params->algoParams.svsParams.blockSize == 0) { // indicates that block size was not set by the user
+    params->algoParams.svsParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  }
+  // Calculating index size estimation, after first vector block was allocated.
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
+  index_size_estimation += elementSize * params->algoParams.svsParams.blockSize;
+  size_t free_memory = memoryLimit - used_memory;
+  if (params->algoParams.svsParams.blockSize > maxBlockSize) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index block size", " %zu exceeded server limit (%zu with the given parameters)", params->algoParams.svsParams.blockSize, maxBlockSize);
+    return 0;
+  }
+  RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zuB, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
+  return 1;
+}
+
 int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, QueryError *status) {
   setMemoryInfo(ctx);
   bool valid = false;
@@ -689,6 +752,8 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
     valid = parseVectorField_validate_hnsw(params, status);
   } else if (VecSimAlgo_BF == params->algo) {
     valid = parseVectorField_validate_flat(params, status);
+  } else if (VecSimAlgo_SVS == params->algo) {
+    valid = parseVectorField_validate_svs(params, status);
   } else if (VecSimAlgo_TIERED == params->algo) {
     return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams, status);
   }
@@ -866,6 +931,146 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
+static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, ArgsCursor *ac, QueryError *status) {
+  int rc;
+
+  // SVS-VAMANA mandatory params.
+  bool mandtype = false;
+  bool mandsize = false;
+  bool mandmetric = false;
+
+  VecSimParams *params = tieredParams->primaryIndexParams;
+
+  // Get number of parameters
+  size_t expNumParam, numParam = 0;
+  if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
+    return 0;
+  } else if (expNumParam % 2) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad number of arguments for vector similarity index:", " got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
+    return 0;
+  } else {
+    expNumParam /= 2;
+  }
+
+  while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
+      if ((rc = parseVectorField_GetType(ac, &params->algoParams.svsParams.type)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TYPE), rc);
+        return 0;
+      } else if (params->algoParams.svsParams.type != VecSimType_FLOAT16 &&
+                 params->algoParams.svsParams.type != VecSimType_FLOAT32){
+            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Not supported data type is given. ", "Expected: FLOAT16, FLOAT32");
+            return 0;
+      }
+      mandtype = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.dim, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_DIM), rc);
+        return 0;
+      }
+      mandsize = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.svsParams.metric)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_DISTANCE_METRIC), rc);
+        return 0;
+      }
+      mandmetric = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_GRAPH_DEGREE)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.graph_max_degree, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_GRAPH_DEGREE), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_WINDOW_SIZE)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.construction_window_size, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_WINDOW_SIZE), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_NUM_THREADS)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.num_threads, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_NUM_THREADS), rc);
+        return 0;
+      } else if (params->algoParams.svsParams.num_threads > MAX_WORKER_THREADS) {
+           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "NUM_THREADS value exceeds MAX_WORKER_THREADS. ", "Not more than %d is allowed", MAX_WORKER_THREADS);
+          return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_COMPRESSION)) {
+      if ((rc = parseVectorField_GetQuantBits(ac, &params->algoParams.svsParams.quantBits)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_COMPRESSION), rc);
+        return 0;
+      }
+    }
+    else if (AC_AdvanceIfMatch(ac, VECSIM_WSSEARCH)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.search_window_size, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_WSSEARCH), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_MAX_CANDIDATE_POOL_SIZE)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.max_candidate_pool_size, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_MAX_CANDIDATE_POOL_SIZE), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_PRUNE_TO)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.prune_to, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_PRUNE_TO), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_ALPHA)) {
+      double tmpd;
+      if ((rc = AC_GetDouble(ac, &tmpd, AC_F_GE0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_ALPHA), rc);
+        return 0;
+      }
+      params->algoParams.svsParams.alpha = (float)tmpd;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_USE_SEARCH_HISTORY)) {
+      if ((rc = parseVectorField_GetOption(ac, &params->algoParams.svsParams.use_search_history)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_USE_SEARCH_HISTORY), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(ac, &params->algoParams.svsParams.epsilon, AC_F_GE0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_EPSILON), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_TRAINING_THRESHOLD)) {
+      if ((rc = AC_GetSize(ac, &tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TRAINING_THRESHOLD), rc);
+        return 0;
+      } else if (tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold < DEFAULT_BLOCK_SIZE) {
+           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Invalid TRAINING_THRESHOLD: cannot be lower than DEFAULT_BLOCK_SIZE ", "(%d)", DEFAULT_BLOCK_SIZE);
+          return 0;
+      } else if (params->algoParams.svsParams.quantBits == 0) {
+           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
+          return 0;
+      }
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_SVS, AC_GetStringNC(ac, NULL));
+      return 0;
+    }
+    numParam++;
+  }
+  if (expNumParam > numParam) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
+    return 0;
+  }
+  if (!mandtype) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_SVS, VECSIM_TYPE);
+    return 0;
+  }
+  if (!mandsize) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_SVS, VECSIM_DIM);
+    return 0;
+  }
+  if (!mandmetric) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_SVS, VECSIM_DISTANCE_METRIC);
+    return 0;
+  }
+  // Calculating expected blob size of a vector in bytes.
+  fs->vectorOpts.expBlobSize = params->algoParams.svsParams.dim * VecSimType_sizeof(params->algoParams.svsParams.type);
+
+  return parseVectorField_validate_svs(params, status);
+}
+
 // Parse the arguments of a TEXT field
 static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
@@ -1017,6 +1222,28 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
     result = parseVectorField_hnsw(fs, params, ac, status);
+  } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = 0; // Will be set to default value.
+
+    // primary index params allocated in VecSim_TieredParams_Init()
+    TieredIndexParams *params = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+    params->primaryIndexParams->algo = VecSimAlgo_SVS;
+    params->primaryIndexParams->algoParams.svsParams.blockSize = 0;
+    params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
+    params->primaryIndexParams->algoParams.svsParams.alpha = 0.0f; // SVS_VAMANA_DEFAULT_ALPHA_L2 / SVS_VAMANA_DEFAULT_ALPHA_IP
+    params->primaryIndexParams->algoParams.svsParams.graph_max_degree = 32; //SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE=32
+    params->primaryIndexParams->algoParams.svsParams.construction_window_size = 200; //SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE
+    params->primaryIndexParams->algoParams.svsParams.max_candidate_pool_size = 0;
+    params->primaryIndexParams->algoParams.svsParams.prune_to = 0;
+    params->primaryIndexParams->algoParams.svsParams.use_search_history = true; //SVS_VAMANA_DEFAULT_USE_SEARCH_HISTORY
+    params->primaryIndexParams->algoParams.svsParams.num_threads = 1; //SVS_VAMANA_DEFAULT_NUM_THREADS
+    params->primaryIndexParams->algoParams.svsParams.search_window_size = 0;
+    params->primaryIndexParams->algoParams.svsParams.epsilon = 0.0f;
+    params->primaryIndexParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = 10 * DEFAULT_BLOCK_SIZE; //SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD
+    params->primaryIndexParams->logCtx = logCtx;
+    result = parseVectorField_svs(fs, params, ac, status);
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
     return 0;
@@ -3268,7 +3495,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
   const char *x = RSValue_StringPtrLen(v, NULL);
   RedisModule_Log(RSDummyContext, "notice", "Indexes_FindMatchingSchemaRules: x=%s", x);
   const char *f = "name";
-  k = RLookup_GetKeyEx(&r->lk, f, strlen(f), RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+  k = RLookup_GetKey_ReadEx(&r->lk, f, strlen(f), RLOOKUP_F_NOFLAGS);
   if (k) {
     v = RLookup_GetItem(k, &r->row);
     x = RSValue_StringPtrLen(v, NULL);

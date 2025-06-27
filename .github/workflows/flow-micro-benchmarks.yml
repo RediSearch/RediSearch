@@ -67,6 +67,7 @@ jobs:
     secrets: inherit
     strategy:
       matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
+      fail-fast: false
     with:
       architecture: ${{ matrix.architecture }}
       instance-type: ${{ matrix.instance-type }}
@@ -100,4 +101,4 @@ jobs:
           --triggering_env redisearch-micro-benchmarks \
           --metric_name cpu_time \
           --metric_mode 'lower-better' \
-          --grafana_uid fauA6yR4k
+          --grafana_uid 8171e685-e93d-49dd-86a5-859e779d652c
