@@ -47,6 +47,8 @@
 #include "reply.h"
 #include "resp3.h"
 #include "coord/rmr/rmr.h"
+#include "shard_window_ratio.h"
+
 #include "hiredis/async.h"
 #include "coord/rmr/reply.h"
 #include "coord/rmr/redis_cluster.h"
@@ -1751,15 +1753,17 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
   // For example the command request SORTBY text_field LIMIT 2 3
   // In this case the top 5 results relevant for this sort might be the in the last 5 results of the TOPK
   long long requestedResultsCount = req->requestedResultsCount;
-  req->requestedResultsCount = MAX(knn_ctx->knn.k, requestedResultsCount);
+  // Use originalK for coordinator to ensure we can return the full requested result set
+  req->requestedResultsCount = MAX(knn_ctx->knn.originalK, requestedResultsCount);
   if(array_len(req->specialCases) > 1) {
     specialCaseCtx* optionalSortCtx = req->specialCases[0];
     if(optionalSortCtx->specialCaseType == SPECIAL_CASE_SORTBY) {
       if(strcmp(optionalSortCtx->sortby.sortKey, knn_ctx->knn.fieldName) == 0){
         // If SORTBY is done by the vector score field, the coordinator will do it and no special operation is needed.
         knn_ctx->knn.shouldSort = false;
-        // The requested results should be at most K
-        req->requestedResultsCount = MIN(knn_ctx->knn.k, requestedResultsCount);
+        // The requested results should be at most effective K (for coordinator, this is originalK)
+        size_t effectiveK = getEffectiveK(&knn_ctx->knn, false);  // false = coordinator command
+        req->requestedResultsCount = MIN(effectiveK, requestedResultsCount);
       }
     }
   }
@@ -1771,6 +1775,8 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 // was found).
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
                                         QueryError *status) {
+  // Automatically detect if this is a shard-level command (_FT.*) vs coordinator command (FT.*)
+  bool isShardCommand = isShardLevelCommand(argv, argc);
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
   dict *params = NULL;
@@ -1825,7 +1831,9 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
       goto cleanup;
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
-    ctx->knn.k = k;
+    ctx->knn.originalK = k;  // Always store original K
+    ctx->knn.shardWindowRatio = queryVectorNode.vq->shardWindowRatio;  // Store ratio for later calculation
+
     ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
     ctx->knn.pq = NULL;
     ctx->knn.queryNode = queryNode;  // take ownership
@@ -2121,7 +2129,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
-  if (!result_id || !MRReply_Type(result_id) == MR_REPLY_STRING) {
+  if (!result_id || MRReply_Type(result_id) != MR_REPLY_STRING) {
     // We crash in development env, and return NULL (such that an error is raised)
     // in production.
     RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
@@ -2302,7 +2310,9 @@ static double parseNumeric(const char *str, const char *sortKey) {
 
 static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
   // As long as we don't have k results, keep insert
-    if (heap_count(knnCtx->pq) < knnCtx->k) {
+  // For coordinator, use originalK (getEffectiveK with isShardCommand=false returns originalK)
+  size_t targetK = getEffectiveK(knnCtx, false);
+    if (heap_count(knnCtx->pq) < targetK) {
       scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
       resWrapper->result = res;
       resWrapper->score = score;
@@ -2852,8 +2862,9 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         rCtx.postProcess = (postProcessReplyCB) knnPostProcess;
         rCtx.reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
-          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
-          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
+          // Use originalK for coordinator heap to merge results back to full K
+          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.originalK));
+          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.originalK);
           rCtx.processReply = (processReplyCB) ProcessKNNSearchReply;
           break;
         }

@@ -14,6 +14,7 @@
 #include <coord/rmr/reply.h>
 #include <util/heap.h>
 #include "rmutil/rm_assert.h"
+#include "shard_window_ratio.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -84,7 +85,8 @@ typedef enum {
 } searchRequestSpecialCase;
 
 typedef struct {
-  size_t k;               // K value
+  size_t originalK;       // Original K value (always store this)
+  double shardWindowRatio; // Shard window ratio for calculating effective K
   const char* fieldName;  // Field name
   bool shouldSort;        // Should run presort before the coordinator sort
   size_t offset;          // Reply offset
@@ -135,6 +137,18 @@ bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
                              QueryError *status);
+
+/**
+ * Get the effective K value for a KNN context based on whether this is a shard command.
+ * For shard commands, applies shard window ratio optimization.
+ * For coordinator commands, returns original K.
+ */
+static inline size_t getEffectiveK(const knnContext *ctx, bool isShardCommand) {
+  if (!isShardCommand || ctx->shardWindowRatio >= 1.0) {
+    return ctx->originalK;
+  }
+  return calculateEffectiveK(ctx->originalK, ctx->shardWindowRatio);
+}
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 

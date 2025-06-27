@@ -376,6 +376,7 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   VectorQuery *vq = rm_calloc(1, sizeof(*vq));
   ret->vn.vq = vq;
   vq->type = type;
+  vq->shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
   ret->opts.flags |= QueryNode_YieldsDistance;
   switch (type) {
     case VECSIM_QT_KNN:
@@ -2143,13 +2144,37 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
   return retVal;
 }
 
+static int ValidateShardWindowRatio(const char *value, double *ratio, QueryError *status) {
+  if (!ParseDouble(value, ratio, 1)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
+      "Invalid shard window ratio value", " '%s'", value);
+    return 0;
+  }
+
+  if (*ratio < MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+      "Shard window ratio must be between %g and %g (got %g)",
+      MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, *ratio);
+    return 0;
+  }
+
+  return 1;
+}
+
 // Convert the query attribute into a raw vector param to be resolved by the vector iterator
 // down the road. return 0 in case of an unrecognized parameter.
-static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr) {
-  if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
+static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr, QueryError *status) {
+  if (STR_EQCASE(attr->name, attr->namelen, SHARD_WINDOW_RATIO_ATTR)) {
+    double ratio;
+    if (!ValidateShardWindowRatio(attr->value, &ratio, status)) {
+      return 0;
+    }
+    vq->shardWindowRatio = ratio;
+    return 1;
+  } else if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     // The name string was not copied by the parser (unlike the value) - so we copy and save it.
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
@@ -2233,7 +2258,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     res = 1;
 
   } else if (qn->type == QN_VECTOR) {
-    res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr);
+    res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr, status);
   }
 
   if (!res) {
