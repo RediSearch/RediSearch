@@ -16,7 +16,6 @@
 #include "cluster.h"
 #include <rmutil/rm_assert.h>  // Include the assertion header
 #include "../config.h"
-#include <unistd.h> /* For usleep() */
 
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
@@ -136,10 +135,13 @@ static void close_walk_cb(uv_handle_t* handle, void* arg) {
   }
 }
 
+#define THREAD_NAME_MAX_LEN 32
 /* start the event loop side thread */
 static void sideThread(void *arg) {
+  IORuntimeCtx *io_runtime_ctx = arg;
   /* Set thread name for profiling and debugging */
-  char *thread_name = REDISEARCH_MODULE_NAME "-uv";
+  char thread_name[THREAD_NAME_MAX_LEN]; // Increased buffer size to accommodate ID
+  snprintf(thread_name, sizeof(thread_name), "%s-uv-%zu", REDISEARCH_MODULE_NAME, io_runtime_ctx->queue->id);
 
 #if defined(__linux__)
   /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit
@@ -151,7 +153,6 @@ static void sideThread(void *arg) {
   RedisModule_Log(RSDummyContext, "verbose",
       "sideThread(): pthread_setname_np is not supported on this system");
 #endif
-  IORuntimeCtx *io_runtime_ctx = arg;
   // loop is initialized and handles are ready
   //io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
