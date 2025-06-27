@@ -15,11 +15,7 @@
 
 #include <algorithm>
 
-class VectorFilterTest : public ::testing::Test {
-protected:
-  void SetUp() override {
-  }
-};
+class VectorFilterTest : public ::testing::Test {};
 
 bool isValidAsVectorFilter(const char *qt, RedisSearchCtx &ctx) {
   QASTCXX ast;
@@ -30,12 +26,12 @@ bool isValidAsVectorFilter(const char *qt, RedisSearchCtx &ctx) {
 #define assertValidVectorFilter(qt, ctx) ASSERT_TRUE(isValidAsVectorFilter(qt, ctx))
 #define assertInvalidVectorFilter(qt, ctx) ASSERT_FALSE(isValidAsVectorFilter(qt, ctx))
 
-TEST_F(VectorFilterTest, testVectorFilter) {
+TEST_F(VectorFilterTest, testInvalidVectorFilter) {
   // Create an index spec with a title field and a vector field
   static const char *args[] = {
     "SCHEMA",
     "title", "text", "weight", "1.2",
-    "body", "text", "INDEXMISSING",
+    "body", "text",
     "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2",
     "v2", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
@@ -69,6 +65,22 @@ TEST_F(VectorFilterTest, testVectorFilter) {
   assertInvalidVectorFilter("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
   assertInvalidVectorFilter("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2] => {$yield_distance_as:second_score;}", ctx);
   assertInvalidVectorFilter("@v:[VECTOR_RANGE 0.01 $BLOB] VECTOR_RANGE", ctx); // Fallback VECTOR_RANGE into a term.
+
+  IndexSpec_RemoveFromGlobals(ref, false);
+}
+
+TEST_F(VectorFilterTest, testValidVectorFilter) {
+  // Create an index spec with a title field and a vector field
+  static const char *args[] = {
+    "SCHEMA",
+    "title", "text", "weight", "1.2",
+    "body", "text", "INDEXMISSING"};
+
+  QueryError err = {QUERY_OK};
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
+  ASSERT_EQ(err.code, QUERY_OK) << QueryError_GetUserError(&err);
+
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
 
   // Valid queries
   assertValidVectorFilter("hello", ctx);

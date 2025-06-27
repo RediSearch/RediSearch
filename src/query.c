@@ -1830,7 +1830,7 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
 }
 
 static int QueryNode_CheckIsValidAsVectorFilter(QueryNode *n, QueryError *status) {
-  int withChildren = 1;
+  bool withChildren = true;
   int res = REDISMODULE_OK;
   switch(n->type) {
     case QN_VECTOR:
@@ -1844,7 +1844,7 @@ static int QueryNode_CheckIsValidAsVectorFilter(QueryNode *n, QueryError *status
       break;
     case QN_NULL:
     case QN_MISSING:
-      withChildren = 0;
+      withChildren = false;
       break;
     default:
       if (n->opts.explicitWeight) {
