@@ -254,7 +254,7 @@ fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &B
             format!("Value size: {value_size}/Delta size: {delta_size}"),
         ),
         |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 || TestBuffer::with_capacity((1 + delta_size + value_size) * values.len()),
                 |mut buffer| {
                     for (value, delta, _) in values {
@@ -284,7 +284,7 @@ fn numeric_c_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &B
         ),
         |b| {
             for (_, _, buffer) in values {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || {
                         let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
                         unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) }
@@ -314,7 +314,7 @@ fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
             format!("Value size: {value_size}/Delta size: {delta_size}"),
         ),
         |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 || {
                     Cursor::new(Vec::with_capacity(
                         (1 + delta_size + value_size) * values.len(),
