@@ -21,16 +21,16 @@ static QueryNode* createTestVectorNode() {
     node->type = QN_VECTOR;
     node->vn.vq = rm_calloc(1, sizeof(VectorQuery));
     node->vn.vq->shardWindowRatio = 1.0; // Initialize with DEFAULT_SHARD_WINDOW_RATIO
+    node->vn.vq->params.params = NULL;
+    node->vn.vq->params.needResolve = NULL;
+    node->vn.vq->scoreField = NULL;
     node->opts.flags |= QueryNode_YieldsDistance; // Enable distance yielding for compatibility tests
     return node;
 }
 
 static void freeTestVectorNode(QueryNode* node) {
     if (node) {
-        if (node->vn.vq) {
-            rm_free(node->vn.vq);
-        }
-        rm_free(node);
+        QueryNode_Free(node);  
     }
 }
 

@@ -1695,6 +1695,9 @@ void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
   if (!ctx) return;
   if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
     QueryNode_Free(ctx->knn.queryNode);
+    if (ctx->knn.pq) {
+      heap_destroy(ctx->knn.pq);
+    }
   } else if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
     rm_free((void*)ctx->sortby.sortKey);
   }
@@ -2928,6 +2931,7 @@ cleanup:
   if (rCtx.reduceSpecialCaseCtxKnn &&
       rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
     heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
+    rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL; 
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
