@@ -234,22 +234,32 @@ static RLookupKey *RLookup_GetKey_common(RLookup *lookup, const char *name, size
   return NULL;
 }
 
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len, const char *field_name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, field_name, RLOOKUP_M_LOAD, flags);
+RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags) {
+  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_READ, flags);
 }
 
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name, uint32_t flags) {
+RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
+                                  uint32_t flags) {
+  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_READ, flags);
+}
+
+RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags) {
+  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_WRITE, flags);
+}
+
+RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
+                                   uint32_t flags) {
+  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_WRITE, flags);
+}
+
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
+                                uint32_t flags) {
   return RLookup_GetKey_common(lookup, name, strlen(name), field_name, RLOOKUP_M_LOAD, flags);
 }
 
-RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags) {
-  RS_ASSERT(mode != RLOOKUP_M_LOAD);
-  return RLookup_GetKey_common(lookup, name, name_len, NULL, mode, flags);
-}
-
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, uint32_t flags) {
-  RS_ASSERT(mode != RLOOKUP_M_LOAD);
-  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, mode, flags);
+RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
+                                  const char *field_name, uint32_t flags) {
+  return RLookup_GetKey_common(lookup, name, name_len, field_name, RLOOKUP_M_LOAD, flags);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -313,7 +323,7 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
   // Get the key first
   RLookupKey *k = RLookup_FindKey(lookup, name, len);
   if (!k) {
-    k = RLookup_GetKeyEx(lookup, name, len, RLOOKUP_M_WRITE, RLOOKUP_F_NAMEALLOC);
+    k = RLookup_GetKey_WriteEx(lookup, name, len, RLOOKUP_F_NAMEALLOC);
   }
   RLookup_WriteKey(k, dst, v);
 }

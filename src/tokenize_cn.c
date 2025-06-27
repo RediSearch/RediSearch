@@ -125,6 +125,7 @@ static void initToken(RSTokenizer *base, Token *t, const friso_token_t from) {
   t->stemLen = 0;
   t->flags = Token_CopyRaw | Token_CopyStem;
   t->pos = ++base->ctx.lastOffset;
+  t->allocatedTok = NULL;  // Chinese tokenizer doesn't use unicode_tolower allocation
 }
 
 static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {

@@ -11,13 +11,13 @@
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 
-#define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : p->agg.children[0])
+#define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : p->data.agg.children[0])
 
 static VecSimQueryReply_Code prepareResults(HybridIterator *hr); // forward declaration
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
-  double score1 = VECTOR_RESULT(e1)->num.value, score2 = VECTOR_RESULT(e2)->num.value;
+  double score1 = VECTOR_RESULT(e1)->data.num.value, score2 = VECTOR_RESULT(e2)->data.num.value;
   if (score1 < score2) {
     return -1;
   } else if (score1 > score2) {
@@ -50,7 +50,7 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
     // Set the item that we skipped to it in hit.
     (*hit)->docId = id;
-    (*hit)->num.value = VecSimQueryResult_GetScore(res);
+    (*hit)->data.num.value = VecSimQueryResult_GetScore(res);
     return INDEXREAD_OK;
   }
   return INDEXREAD_EOF;
@@ -65,14 +65,14 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
   VecSimQueryResult *res = VecSimQueryReply_IteratorNext(hr->iter);
   // Set the item that we read in the current RSIndexResult
   (*hit)->docId = VecSimQueryResult_GetId(res);
-  (*hit)->num.value = VecSimQueryResult_GetScore(res);
+  (*hit)->data.num.value = VecSimQueryResult_GetScore(res);
   return INDEXREAD_OK;
 }
 
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
   ResultMetrics_Concat(*vec_res, child_res); // Pass child metrics, if there are any
-  ResultMetrics_Add(*vec_res, hr->base.ownKey, RS_NumVal((*vec_res)->num.value));
+  ResultMetrics_Add(*vec_res, hr->base.ownKey, RS_NumVal((*vec_res)->data.num.value));
 
   if (hr->topResults->count < hr->query.k) {
     // Insert to heap, allocate new memory for the next result.
@@ -85,7 +85,7 @@ static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_r
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
-  *upper_bound = worst->num.value;
+  *upper_bound = worst->data.num.value;
 }
 
 static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
@@ -95,7 +95,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
   AggregateResult_AddChild(res, child_res);
   RSIndexResult *hit = IndexResult_DeepCopy(res);
   AggregateResult_Reset(res); // Reset the current result.
-  ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->num.value));
+  ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->data.num.value));
 
   if (hr->topResults->count < hr->query.k) {
     mmh_insert(hr->topResults, hit);
@@ -104,7 +104,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
-  *upper_bound = worst->agg.children[0]->num.value;
+  *upper_bound = worst->data.agg.children[0]->data.num.value;
 }
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
@@ -130,7 +130,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
   while (IITER_HAS_NEXT(hr->child)) {
     if (cur_vec_res->docId == cur_child_res->docId) {
       // Found a match - check if it should be added to the results heap.
-      if (hr->topResults->count < hr->query.k || cur_vec_res->num.value < *upper_bound) {
+      if (hr->topResults->count < hr->query.k || cur_vec_res->data.num.value < *upper_bound) {
         // Otherwise, set the vector and child results as the children the res
         // and insert result to the heap.
         insertResultToHeap(hr, cur_res, cur_child_res, &cur_vec_res, upper_bound);
@@ -188,7 +188,7 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
     if (hr->topResults->count < hr->query.k || metric < upper_bound) {
       // Populate the vector result.
       cur_vec_res->docId = cur_child_res->docId;
-      cur_vec_res->num.value = metric;
+      cur_vec_res->data.num.value = metric;
       insertResultToHeap(hr, cur_res, cur_child_res, &cur_vec_res, &upper_bound);
     }
   }
@@ -357,7 +357,7 @@ static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
 
   hr->lastDocId = (*hit)->docId;
   ResultMetrics_Reset(*hit);
-  ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
+  ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->data.num.value));
   return INDEXREAD_OK;
 }
 

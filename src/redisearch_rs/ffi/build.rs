@@ -35,17 +35,24 @@ fn main() {
         let deps = root.join("deps");
 
         let redisearch_rs = src.join("redisearch_rs").join("headers");
+        let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
 
-        [redis_modules, src, deps, redisearch_rs, vecsim]
+        [
+            redis_modules,
+            src,
+            deps,
+            redisearch_rs,
+            inverted_index,
+            vecsim,
+        ]
     };
 
-    let headers = {
-        let buffer_h = root.join("src").join("buffer.h");
-        let redisearch_h = root.join("src").join("redisearch.h");
-        let result_processor_h = root.join("src").join("result_processor.h");
-        [buffer_h, redisearch_h, result_processor_h]
-    };
+    let headers = [
+        root.join("src").join("redisearch.h"),
+        root.join("src").join("buffer.h"),
+        root.join("src").join("result_processor.h"),
+    ];
 
     let mut bindings = bindgen::Builder::default();
 

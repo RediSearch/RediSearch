@@ -510,11 +510,7 @@ impl<T> LowMemoryThinVec<T> {
         if self.is_singleton() {
             // A prerequisite of `Vec::set_len` is that `new_len` must be
             // less than or equal to capacity(). The same applies here.
-            debug_assert!(
-                len == 0,
-                "invalid set_len({}) on empty LowMemoryThinVec",
-                len
-            );
+            debug_assert!(len == 0, "invalid set_len({len}) on empty LowMemoryThinVec",);
         } else {
             // SAFETY:
             // - We're not in the singleton case.

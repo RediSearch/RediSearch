@@ -16,12 +16,12 @@
 
 #include "src/buffer.h"
 #include "src/index.h"
-#include "src/inverted_index.h"
+#include "src/inverted_index/inverted_index.h"
 #include "src/index_result.h"
 #include "src/query_parser/tokenizer.h"
 #include "src/spec.h"
 #include "src/tokenize.h"
-#include "src/varint.h"
+#include "varint.h"
 #include "src/hybrid_reader.h"
 
 #include "rmutil/alloc.h"
@@ -206,7 +206,7 @@ void TearDown() {
 }
 
 /**
- * This benchmark is used for comparing between thw two hybrid queries approaches:
+ * This benchmark is used for comparing between the two hybrid queries approaches:
  * - BATCHES - get a batch of the next top vectors in the vector index, and then filter, until we reach k results
  * - AD-HOC brute force - compute distance for every vector whose id passes the filter, then take the top k
  * To reproduce and/or run the benchmark for different configurations:
