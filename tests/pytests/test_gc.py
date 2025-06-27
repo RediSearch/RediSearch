@@ -73,20 +73,18 @@ def testNumericGCIntensive(env):
             env.assertTrue(r2 % 2 == 0 or r2 > 900)
 
 @skip(cluster=True)
-def testGeoGCIntensive(env):
+def testGeoGCIntensive(env:Env):
     NumberOfDocs = 1000
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
-    env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'g', 'geo'))
-    waitForIndex(env, 'idx')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'g', 'geo').ok()
 
     for i in range(NumberOfDocs):
-        env.assertOk(env.cmd('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 'g', '12.34,56.78'))
+        env.expect('ft.add', 'idx', 'doc%d' % i, 1.0, 'fields', 'g', '12.34,56.78').ok()
 
     for i in range(0, NumberOfDocs, 2):
-        env.assertEqual(env.cmd('ft.del', 'idx', 'doc%d' % i), 1)
+        env.expect('ft.del', 'idx', 'doc%d' % i).equal(1)
 
-    for i in range(100):
-        forceInvokeGC(env, 'idx')
+    forceInvokeGC(env)
 
     res = env.cmd(debug_cmd(), 'DUMP_NUMIDX', 'idx', 'g')
     for r1 in res:
