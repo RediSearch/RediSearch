@@ -416,32 +416,34 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
 
 
 @skip(cluster=True)
-def test_gc_oom(env):
+def test_gc_oom(env:Env):
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
     env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
     num_docs = 10
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    # Add some documents
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 't', f'name{i}').equal(1)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    waitForIndex(env, 'idx')
+    # Delete them all
     for i in range(num_docs):
         env.expect('DEL', f'doc{i}').equal(1)
 
-    set_tight_maxmemory_for_oom(env, 1)
-    forceInvokeGC(env, 'idx')
+    set_tight_maxmemory_for_oom(env)
+    forceInvokeGC(env)
 
     # Verify no bytes collected by GC
-    info = index_info(env, 'idx')
+    info = index_info(env)
     gc_dict = to_dict(info["gc_stats"])
     bytes_collected = int(gc_dict['bytes_collected'])
     env.assertEqual(bytes_collected, 0)
 
     # Increase memory and rerun GC
     set_unlimited_maxmemory_for_oom(env)
-    forceInvokeGC(env, 'idx')
+    forceInvokeGC(env)
 
     # Verify bytes collected by GC is more than 0
-    info = index_info(env, 'idx')
+    info = index_info(env)
     gc_dict = to_dict(info["gc_stats"])
     bytes_collected = int(gc_dict['bytes_collected'])
     env.assertGreater(bytes_collected, 0)

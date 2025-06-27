@@ -871,11 +871,11 @@ def set_tight_maxmemory_for_oom(env, memory_limit_per = 1.0):
     # Get current memory consumption value
     memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
     # Set memory limit to less then memory limit
-    required_memory = memory_usage * (1/memory_limit_per)
-    # Round up and add 1
-    new_memory = math.ceil(required_memory) + 1
+    required_memory = memory_usage / memory_limit_per
+    # Round and add some extra memory to avoid OOM not being triggered due to internal redis operations
+    new_memory = int(required_memory) + 200
 
-    env.expect('config', 'set', 'maxmemory',new_memory).ok()
+    env.expect('config', 'set', 'maxmemory', new_memory).ok()
 
 def set_unlimited_maxmemory_for_oom(env):
     env.expect('config', 'set', 'maxmemory', 0).ok()
