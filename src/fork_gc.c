@@ -1263,6 +1263,7 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
 
   RedisModule_FreeServerInfo(ctx, info);
 
+  RedisModule_Log(ctx, "debug", "ForkGC - checking memory: maxmemory=%zu, used_memory=%zu", maxmemory, used_memory);
   return used_memory > maxmemory;
 }
 
