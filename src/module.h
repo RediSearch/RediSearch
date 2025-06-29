@@ -13,7 +13,6 @@
 #include <query_node.h>
 #include <coord/rmr/reply.h>
 #include <util/heap.h>
-#include "rmutil/rm_assert.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -57,7 +56,7 @@ extern int RS_Initialized;
 
 #define RS_AutoMemory(ctx)                      \
 do {                                            \
-  RS_LOG_ASSERT(ctx != RSDummyContext, "");     \
+  RedisModule_Assert(ctx != RSDummyContext);    \
   RedisModule_AutoMemory(ctx);                  \
 } while (0)
 

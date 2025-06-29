@@ -13,6 +13,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/logging.h"
 #include "util/references.h"
+#include "module.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 

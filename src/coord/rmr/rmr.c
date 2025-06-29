@@ -10,6 +10,7 @@
 #include "reply.h"
 #include "reply_macros.h"
 #include "redismodule.h"
+#include "module.h"
 #include "cluster.h"
 #include "chan.h"
 #include "rq.h"

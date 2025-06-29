@@ -62,3 +62,5 @@ static double TimeSampler_IterationMS(TimeSample *ts) {
   return ((double)ts->durationNS / 1000000.0) /
          (double)(ts->num ? ts->num : 1.0);
 }
+
+#endif

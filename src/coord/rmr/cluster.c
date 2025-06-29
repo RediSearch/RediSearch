@@ -10,6 +10,7 @@
 #include "crc16.h"
 #include "crc12.h"
 #include "rmutil/rm_assert.h"
+#include "rmalloc.h"
 
 #include <stdlib.h>
 

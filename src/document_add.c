@@ -9,6 +9,7 @@
 #include "document.h"
 #include "err.h"
 #include "util/logging.h"
+#include "module.h"
 #include "rmutil/rm_assert.h"
 #include "info/info_redis/threads/current_thread.h"
 

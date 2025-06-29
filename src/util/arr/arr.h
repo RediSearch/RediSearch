@@ -224,10 +224,10 @@ static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
 #define ARR_CAP_NOSHRINK ((uint32_t)-1)
 static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   array_hdr_t *arr_hdr = array_hdr(arr);
-  RS_ASSERT(len >= 0 && "trimming len is negative");
-  RS_ASSERT((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap) && "trimming capacity is illegal");
-  RS_ASSERT((cap == ARR_CAP_NOSHRINK || cap >= len) && "trimming len is greater then capacity");
-  RS_ASSERT((len <= arr_hdr->len) && "trimming len is greater then current len");
+  RS_LOG_ASSERT(len >= 0, "trimming len is negative");
+  RS_LOG_ASSERT((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap), "trimming capacity is illegal");
+  RS_LOG_ASSERT((cap == ARR_CAP_NOSHRINK || cap >= len), "trimming len is greater then capacity");
+  RS_LOG_ASSERT((len <= arr_hdr->len), "trimming len is greater then current len");
   arr_hdr->len = len;
   if (cap != ARR_CAP_NOSHRINK) {
     arr_hdr->cap = cap;
