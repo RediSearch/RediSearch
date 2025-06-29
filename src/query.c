@@ -915,10 +915,14 @@ static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
 
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
+  IndexIterator *child = NULL;
+  if (qn) {
+    q->notSubtree = true;
+    child = Query_EvalNode(q, qn->children[0]);
+    q->notSubtree = false;
+  }
 
-  return NewNotIterator(qn ? Query_EvalNode(q, qn->children[0]) : NULL,
-                        q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout,
-                        q);
+  return NewNotIterator(child, q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1092,8 +1096,8 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     rm_free(iters);
     return ret;
   }
-
-  IndexIterator *ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_UNION, NULL, q->config);
+  int quickExit = q->notSubtree ? 1 : 0;
+  IndexIterator *ret = NewUnionIterator(iters, n, quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
   return ret;
 }
 
@@ -1480,8 +1484,8 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
       array_free(total_its);
     }
   }
-
-  ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_TAG, NULL, q->config);
+  int quickExit = q->notSubtree ? 1 : 0;
+  ret = NewUnionIterator(iters, n, quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
 
 done:
   return ret;
@@ -1607,6 +1611,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .metricRequestsP = &qast->metricRequests,
       .reqFlags = reqflags,
       .config = &qast->config,
+      .notSubtree = false,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {

@@ -40,6 +40,9 @@ typedef struct InvIndIterator {
   // Whether to skip multi values from the same doc
   bool skipMulti;
 
+  // Whether this iterator is result of a wildcard query
+  bool isWildcard;
+
   union {
     struct {
       double rangeMin;
@@ -70,7 +73,7 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
 // The returned iterator will yield "virtual" records. For term/numeric indexes, it is best to use
 // the specific functions NewInvIndIterator_TermQuery/NewInvIndIterator_NumericQuery
 QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
-                                              enum FieldExpirationPredicate predicate);
+                                              enum FieldExpirationPredicate predicate, double weight);
 
 #ifdef __cplusplus
 }
