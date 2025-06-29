@@ -129,7 +129,13 @@ def do_burst_threads_sanity(algo, data_type, test_name):
     k = 10
     expected_total_jobs = 0
 
-    additional_params = ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors] if algo == 'HNSW' else []
+    if algo == 'HNSW':
+        additional_params = ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors]
+    elif algo == 'SVS-VAMANA':
+        additional_params = ['CONSTRUCTION_WINDOW_SIZE', n_vectors, 'SEARCH_WINDOW_SIZE', n_vectors]
+    else:
+        additional_params = []
+
     # Load random vectors into redis, save the first one to use as query vector later on. We set EF_C and
     # EF_R to n_vectors to ensure that all vectors would be reachable in HNSW and avoid flakiness in search.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params)),
@@ -144,10 +150,15 @@ def do_burst_threads_sanity(algo, data_type, test_name):
     # index (id 0)
     env.assertAlmostEqual(float(res_before[2][1]), 0, 1e-5)
     waitForRdbSaveToFinish(env)
+
+    # TODO: add 'SVS-VAMANA' to tiered_algos after support of serializing svs index will be added
+    tiered_algos = {'HNSW'}
+
     for i in env.reloadingIterator():
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)
-        if algo == 'HNSW':
+        expected_algo = 'TIERED' if algo in tiered_algos else algo
+        env.assertEqual(debug_info['ALGORITHM'], expected_algo)
+        if algo in tiered_algos:
             env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0,
                             message=f"{'before loading' if i==1 else 'after loading'}")
             if i==2:  # after reloading in HNSW, we expect to run insert job for each vector
@@ -155,7 +166,7 @@ def do_burst_threads_sanity(algo, data_type, test_name):
         assertInfoField(env, 'idx', 'num_docs', n_vectors)
         env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_local_vectors)
         env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], 0)
-        if algo == 'HNSW':
+        if algo in tiered_algos:
             # Expect that 0 jobs was done before reloading, and another n_vector insert jobs during the reloading.
             env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], expected_total_jobs)
         # Run the same KNN query and see that we are getting the same results after the reload
@@ -167,10 +178,12 @@ def do_burst_threads_sanity(algo, data_type, test_name):
 # Generate test functions for each combination of algorithm and data type
 func_gen = lambda al, dt, tn: lambda: do_burst_threads_sanity(al, dt, tn)
 for algo in VECSIM_ALGOS:
-    #TODO: enable when multi is supported
-    if algo == 'SVS-VAMANA':
+    # TODO: add 'SVS-VAMANA' to tiered_algos after support of serializing svs index will be added
+    if algo == "SVS-VAMANA":
         continue
     for data_type in VECSIM_DATA_TYPES:
+        if algo == "SVS-VAMANA" and data_type not in ("FLOAT16", "FLOAT32"):
+            continue
         test_name = f"test_burst_threads_sanity_{algo}_{data_type}"
         globals()[test_name] = func_gen(algo, data_type, test_name)
 

@@ -363,6 +363,11 @@ switch (params->algo) {
       dim = params->algoParams.hnswParams.dim;
       multi = params->algoParams.hnswParams.multi;
       break;
+    case VecSimAlgo_SVS:
+      type = params->algoParams.svsParams.type;
+      dim = params->algoParams.svsParams.dim;
+      multi = params->algoParams.svsParams.multi;
+      break;
     case VecSimAlgo_BF:
       type = params->algoParams.bfParams.type;
       dim = params->algoParams.bfParams.dim;
