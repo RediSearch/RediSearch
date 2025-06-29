@@ -7,10 +7,10 @@
 extern "C" {
 #endif
 
- typedef enum {
-   HYBRID_SCORING_LINEAR,
-   HYBRID_SCORING_RRF
- } HybridScoringType;
+typedef enum {
+  HYBRID_SCORING_LINEAR,
+  HYBRID_SCORING_RRF
+} HybridScoringType;
 
 typedef struct {
   double *linearWeights;
