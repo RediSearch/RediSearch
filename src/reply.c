@@ -266,12 +266,12 @@ int RedisModule_Reply_Map(RedisModule_Reply *reply) {
   RS_LOG_ASSERT(!RedisModule_Reply_LocalIsKey(reply), "reply: should not write a map as a key");
 
   int type;
+  // Reply with a map in RESP3, and an array in RESP2 (default fallback)
+  RedisModule_ReplyWithMap(reply->ctx, REDISMODULE_POSTPONED_LEN);
   if (reply->resp3) {
-    RedisModule_ReplyWithMap(reply->ctx, REDISMODULE_POSTPONED_LEN);
     json_add(reply, true, "{ ");
     type = REDISMODULE_REPLY_MAP;
   } else {
-    RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_LEN);
     json_add(reply, true, "[ ");
     type = REDISMODULE_REPLY_ARRAY;
   }
@@ -287,6 +287,7 @@ int RedisModule_Reply_MapEnd(RedisModule_Reply *reply) {
     json_add_close(reply, " ]");
   }
   int count = _RedisModule_Reply_Pop(reply);
+  // Set the length of the map/array
   if (reply->resp3) {
     RedisModule_ReplySetMapLength(reply->ctx, count / 2);
   } else {
@@ -320,12 +321,11 @@ int RedisModule_Reply_EmptyArray(RedisModule_Reply *reply) {
 }
 
 int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply) {
+  RedisModule_ReplyWithMap(reply->ctx, 0);
   if (reply->resp3) {
     json_add(reply, false, "{}");
-    RedisModule_ReplyWithMap(reply->ctx, 0);
   } else {
     json_add(reply, false, "[]");
-    RedisModule_ReplyWithArray(reply->ctx, 0);
   }
   _RedisModule_Reply_Next(reply);
   return REDISMODULE_OK;
@@ -333,12 +333,12 @@ int RedisModule_Reply_EmptyMap(RedisModule_Reply *reply) {
 
 int RedisModule_Reply_Set(RedisModule_Reply *reply) {
   int type;
+  // Reply with a set in RESP3, and an array in RESP2 (default fallback)
+  RedisModule_ReplyWithSet(reply->ctx, REDISMODULE_POSTPONED_LEN);
   if (reply->resp3) {
-    RedisModule_ReplyWithSet(reply->ctx, REDISMODULE_POSTPONED_LEN);
     json_add(reply, true, "{ ");
     type = REDISMODULE_REPLY_SET;
   } else {
-    RedisModule_ReplyWithArray(reply->ctx, REDISMODULE_POSTPONED_LEN);
     json_add(reply, true, "[ ");
     type = REDISMODULE_REPLY_ARRAY;
   }
@@ -354,11 +354,8 @@ int RedisModule_Reply_SetEnd(RedisModule_Reply *reply) {
     json_add_close(reply, " ]");
   }
   int count = _RedisModule_Reply_Pop(reply);
-  if (reply->resp3) {
-    RedisModule_ReplySetSetLength(reply->ctx, count);
-  } else {
-    RedisModule_ReplySetArrayLength(reply->ctx, count);
-  }
+  // Set the length of the set/array
+  RedisModule_ReplySetSetLength(reply->ctx, count);
   return REDISMODULE_OK;
 }
 
