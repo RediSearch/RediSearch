@@ -12,7 +12,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
     const char *fldname = gstp->properties[ii] + 1;  // account for the @-
     size_t fldname_len = strlen(fldname);
-    srckeys[ii] = RLookup_GetKeyEx(srclookup, fldname, fldname_len, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+    srckeys[ii] = RLookup_GetKey_ReadEx(srclookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       if (loadKeys) {
         // We failed to get the key for reading, so we know getting it for loading will succeed.
@@ -26,7 +26,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
         return NULL;
       }
     }
-    dstkeys[ii] = RLookup_GetKeyEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    dstkeys[ii] = RLookup_GetKey_WriteEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
       QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", fldname);
       return NULL;
@@ -55,7 +55,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
 
     // Set the destination key for the grouper!
     uint32_t flags = pr->isHidden ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
-    RLookupKey *dstkey = RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_M_WRITE, flags);
+    RLookupKey *dstkey = RLookup_GetKey_Write(&gstp->lookup, pr->alias, flags);
     // Adding the reducer before validating the key, so we free the reducer if the key is invalid
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
@@ -113,7 +113,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, QueryAST* a
       QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }
-    RLookupKey *key = RLookup_GetKeyEx(rl, name, name_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, RLOOKUP_F_NOFLAGS);
     if (!key) {
       QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
       return NULL;
@@ -169,7 +169,7 @@ static ResultProcessor *getArrangeRP(AggregationPipeline *pipeline, QOptimizer *
 
       for (size_t ii = 0; ii < nkeys; ++ii) {
         const char *keystr = astp->sortKeys[ii];
-        RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+        RLookupKey *sortkey = RLookup_GetKey_Read(lk, keystr, RLOOKUP_F_NOFLAGS);
         if (!sortkey) {
           // if the key is not sortable, and also not loaded by another result processor,
           // add it to the loadkeys list.
@@ -234,7 +234,7 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   scargs.qdatalen = req->ast.udatalen;
   const RLookupKey *scoreKey = NULL;
   if (HasScoreInPipeline(&req->pipeline)) {
-    scoreKey = RLookup_GetKey(rl, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    scoreKey = RLookup_GetKey_Write(rl, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
   }
   ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
   return rp;
@@ -294,7 +294,7 @@ static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, Concur
     if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
       const RLookupKey *scoreKey = NULL;
       if (AREQ_RequestFlags(req) & QEXEC_F_SEND_SCORES_AS_FIELD) {
-        scoreKey = RLookup_GetKey(first, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
+        scoreKey = RLookup_GetKey_Write(first, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
       }
       rp = RPMaxScoreNormalizer_New(scoreKey);
       PUSH_RP();
@@ -346,7 +346,7 @@ int buildOutputPipeline(AggregationPipeline *pipeline, RSSearchOptions* searchOp
         // (Default mode is not any of the summarize modes, and also there is no mode explicitly specified for this field)
         continue;
       }
-      RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+      RLookupKey *kk = RLookup_GetKey_Read(lookup, ff->name, RLOOKUP_F_NOFLAGS);
       if (!kk) {
         QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
         goto error;
@@ -420,7 +420,7 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
 
         if (stp->type == PLN_T_APPLY) {
           uint32_t flags = mstp->noOverride ? RLOOKUP_F_NOFLAGS : RLOOKUP_F_OVERRIDE;
-          RLookupKey *dstkey = RLookup_GetKey(curLookup, stp->alias, RLOOKUP_M_WRITE, flags);
+          RLookupKey *dstkey = RLookup_GetKey_Write(curLookup, stp->alias, flags);
           if (!dstkey) {
             // Can only happen if we're in noOverride mode
             QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", stp->alias);
