@@ -184,7 +184,6 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
         goto done;
       }
     } else {
-      printf("Eval failed! (%s)\n", opts->evalExpr);
       if (status->code == QUERY_ENOPROPVAL) {
         QueryError_ClearError(status);
         QueryError_SetCode(status, QUERY_EDOCNOTADDED);

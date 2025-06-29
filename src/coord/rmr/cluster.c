@@ -29,7 +29,6 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   for (int sh = 0; sh < cl->topo->numShards; sh++) {
     for (int n = 0; n < cl->topo->shards[sh].numNodes; n++) {
       MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
-      // printf("Adding node %s:%d to cluster\n", node->endpoint.host, node->endpoint.port);
       MRConnManager_Add(&cl->mgr, node->id, &node->endpoint, 0);
 
       /* This node is still valid, remove it from the nodes to delete list */
@@ -103,7 +102,6 @@ void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
 
   const char *endBrace = src + srclen - 1;
   if (srclen < 3 || !*endBrace || *endBrace != '}') {
-    // printf("No closing brace found!\n");
     return;
   }
 
@@ -113,20 +111,17 @@ void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
   }
 
   if (*beginBrace != '{') {
-    // printf("No open brace found!\n");
     return;
   }
 
   mk->baseLen = beginBrace - src;
   mk->shard = beginBrace + 1;
   mk->shardLen = endBrace - mk->shard;
-  // printf("Shard key: %.*s\n", (int)mk->shardLen, mk->shard);
 }
 
 static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
   int pos = MRCommand_GetShardingKey(cmd);
   if (pos >= cmd->num) {
-    // printf("Returning NULL.. pos=%d, num=%d\n", pos, cmd->num);
     return NULL;
   }
 

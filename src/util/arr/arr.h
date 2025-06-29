@@ -33,9 +33,9 @@
 #include <sys/param.h>
 #include <stdarg.h>
 #include <stdint.h>
-#include <assert.h>
 #include <stdio.h>
 #include "rmalloc.h"
+#include "rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -83,9 +83,6 @@ static inline uint32_t array_len(array_t arr);
 /* Initialize a new array with a given element size and capacity. Should not be used directly - use
  * array_new instead */
 array_t array_new_sz(uint32_t elem_sz, uint32_t cap, uint32_t len);
-
-/* Functions declared as symbols for use in debugger */
-void array_debug(void *pp);
 
 /* Free the array, without dealing with individual elements */
 /* Function declared as a symbol to allow invocation from Rust */
@@ -227,11 +224,10 @@ static ARR_FORCEINLINE uint32_t array_len(array_t arr) {
 #define ARR_CAP_NOSHRINK ((uint32_t)-1)
 static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   array_hdr_t *arr_hdr = array_hdr(arr);
-  assert(len >= 0 && "trimming len is negative");
-  //printf("array_len %d len %d\n", array_len(arr), len);
-  assert((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap) && "trimming capacity is illegal");
-  assert((cap == ARR_CAP_NOSHRINK || cap >= len) && "trimming len is greater then capacity");
-  assert((len <= arr_hdr->len) && "trimming len is greater then current len");
+  RS_ASSERT(len >= 0 && "trimming len is negative");
+  RS_ASSERT((cap == ARR_CAP_NOSHRINK || cap > 0 || len == cap) && "trimming capacity is illegal");
+  RS_ASSERT((cap == ARR_CAP_NOSHRINK || cap >= len) && "trimming len is greater then capacity");
+  RS_ASSERT((len <= arr_hdr->len) && "trimming len is greater then current len");
   arr_hdr->len = len;
   if (cap != ARR_CAP_NOSHRINK) {
     arr_hdr->cap = cap;
@@ -256,7 +252,7 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
     arr;                                    \
   })
 
-/* Repeate the code in "blk" for each element in the array, and give it the name of "as".
+/* Repeat the code in "blk" for each element in the array, and give it the name of "as".
  * e.g:
  *  int *arr = array_new(int, 10);
  *  array_append(arr, 1);
@@ -283,16 +279,16 @@ static inline void *array_trimm(array_t arr, uint32_t len, uint32_t cap) {
   })
 
 /* Pop the top element from the array, reduce the size and return it */
-#define array_pop(arr)               \
-  ({                                 \
-    assert(array_hdr(arr)->len > 0); \
-    arr[--(array_hdr(arr)->len)];    \
+#define array_pop(arr)                  \
+  ({                                    \
+    RS_ASSERT(array_hdr(arr)->len > 0); \
+    arr[--(array_hdr(arr)->len)];       \
   })
 
 /* Remove a specified element from the array */
 #define array_del(arr, ix)                                                        \
   ({                                                                              \
-    assert(array_len(arr) > ix);                                                  \
+    RS_ASSERT(array_len(arr) > ix);                                               \
     if (array_len(arr) - 1 > ix) {                                                \
       memcpy(arr + ix, arr + ix + 1, sizeof(*arr) * (array_len(arr) - (ix + 1))); \
     }                                                                             \
