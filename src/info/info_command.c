@@ -198,6 +198,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVINT("graph_max_degree", svs_params.graph_max_degree);
           REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
           REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
+          REPLY_KVINT("search_buffer_capacity", svs_params.search_buffer_capacity);
+          REPLY_KVINT("leanvec_dim", svs_params.leanvec_dim);
           if (svs_params.quantBits != VecSimSvsQuant_NONE) {
             REPLY_KVINT("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
           }
