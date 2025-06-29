@@ -163,13 +163,14 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // print into array with a recursive function over result processors
 
       // Print profile of iterators
-      IndexIterator *root = QITR_GetRootFilter(&req->qiter);
+      QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
+      IndexIterator *root = QITR_GetRootFilter(qiter);
       // Coordinator does not have iterators
       if (root) {
         RedisModule_Reply_SimpleString(reply, "Iterators profile");
         PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
                                      .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
+        printIteratorProfile(reply, root, 0, 0, 2, AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
       }
 
       // Print profile of result processors

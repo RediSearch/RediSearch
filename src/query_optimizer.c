@@ -25,11 +25,12 @@ void QOptimizer_Free(QOptimizer *opt) {
 
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
-  opt->sctx = req->sctx;
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  opt->sctx = sctx;
   opt->conc = &req->conc;
 
   // get FieldSpec of sortby field and results limit
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_Plan(req));
   if (arng) {
     opt->limit = arng->limit + arng->offset;
     if (IsSearch(req) && !opt->limit) {
@@ -37,7 +38,7 @@ void QOptimizer_Parse(AREQ *req) {
     }
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
-      const FieldSpec *field = IndexSpec_GetFieldWithLength(req->sctx->spec, name, strlen(name));
+      const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
@@ -254,7 +255,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         opt->type = Q_OPT_NONE;
         const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
         FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
-        IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
+        IndexIterator *numericIter = NewNumericFilterIterator(AREQ_SearchCtx(req), opt->sortbyNode->nn.nf,
                                                              &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
                                                              &filterCtx);
         updateRootIter(req, root, numericIter);
@@ -268,13 +269,14 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 }
 
 void QOptimizer_UpdateTotalResults(AREQ *req) {
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_Plan(req));
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
-    req->qiter.totalResults = req->qiter.totalResults > reqOffset ?
-                              req->qiter.totalResults - reqOffset : 0;
-    if(req->qiter.totalResults > reqLimit) {
-      req->qiter.totalResults = reqLimit;
+    QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
+    qiter->totalResults = qiter->totalResults > reqOffset ?
+                              qiter->totalResults - reqOffset : 0;
+    if(qiter->totalResults > reqLimit) {
+      qiter->totalResults = reqLimit;
     }
 }
 
