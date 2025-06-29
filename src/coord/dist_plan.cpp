@@ -9,6 +9,7 @@
 
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
+#include "aggregate/aggregate_pipeline.h"
 #include "aggregate/reducer.h"
 #include "util/arr.h"
 #include "dist_plan.h"
@@ -562,7 +563,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
 
-  auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
+  auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_Plan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;

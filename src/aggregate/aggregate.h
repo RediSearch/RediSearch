@@ -101,12 +101,14 @@ typedef enum {
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
-#define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+#define HasScorer(opt) ((opt)->scorerType != SCORER_TYPE_NONE)
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
+
+
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
@@ -123,19 +125,34 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct AREQ {
+typedef struct AggregationPipeline {
   /* plan containing the logical sequence of steps */
   AGGPlan ap;
 
+  /** Context for iterating over the queries themselves */
+  QueryProcessingCtx qctx;
+
+  /** Context, owned by request */
+  RedisSearchCtx *sctx;
+
+  /** Flags indicating current execution state */
+  uint32_t stateflags;
+
+  /** Flags controlling query output */
+  uint32_t reqflags;
+
+  /** Fields to be output and otherwise processed */
+  FieldList outFields;
+
+} AggregationPipeline;
+
+typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
   size_t nargs;
 
   /** Search query string */
   const char *query;
-
-  /** Fields to be output and otherwise processed */
-  FieldList outFields;
 
   /** Options controlling search behavior */
   RSSearchOptions searchopts;
@@ -146,20 +163,11 @@ typedef struct AREQ {
   /** Root iterator. This is owned by the request */
   IndexIterator *rootiter;
 
-  /** Context, owned by request */
-  RedisSearchCtx *sctx;
-
   /** Resumable context */
   ConcurrentSearchCtx conc;
 
-  /** Context for iterating over the queries themselves */
-  QueryIterator qiter;
-
-  /** Flags controlling query output */
-  uint32_t reqflags;
-
-  /** Flags indicating current execution state */
-  uint32_t stateflags;
+  /** The pipeline for this request */
+  AggregationPipeline pipeline;
 
   int protocol; // RESP2/3
 
@@ -253,11 +261,29 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
-/**
- * Constructs the pipeline objects needed to actually start processing
- * the requests. This does not yet start iterating over the objects
- */
-int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
+  return (QEFlags)req->pipeline.reqflags;
+}
+
+static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
+  req->pipeline.reqflags |= flags;
+}
+
+static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
+  req->pipeline.reqflags &= ~flags;
+}
+
+static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
+  return &req->pipeline.qctx;
+}
+
+static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
+  return req->pipeline.sctx;
+}
+
+static inline AGGPlan *AREQ_Plan(AREQ *req) {
+  return &req->pipeline.ap;
+}
 
 /******************************************************************************
  ******************************************************************************
@@ -352,7 +378,7 @@ int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 
-#define AREQ_RP(req) (req)->qiter.endProc
+#define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
 }
