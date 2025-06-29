@@ -1075,11 +1075,12 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  IndexSpec *spec = AREQ_SearchCtx(req)->spec;
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  IndexSpec *spec = sctx->spec;
   sds *args = req->args;
   long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
 
-  arrayof(HiddenUnicodeString*) spec_prefixes = AREQ_SearchCtx(req)->spec->rule->prefixes;
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
   if (n_prefixes != array_len(spec_prefixes)) {
     return false;
   }
