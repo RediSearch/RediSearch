@@ -362,7 +362,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
             timed_out = true;
           } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-            nc->areq->qiter.err->reachedMaxPrefixExpansions = true;
+            AREQ_QueryProcessingCtx(nc->areq)->err->reachedMaxPrefixExpansions = true;
           }
         }
 
@@ -409,7 +409,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       if (!strErr
           || strcmp(strErr, "Timeout limit was reached")
           || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-        QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
+        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
       }
     }
@@ -443,7 +443,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     MRReply *fields = MRReply_MapElement(result, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
 
-    processResultFormat(&nc->areq->reqflags, rows);
+    uint32_t reqflags = (uint32_t)AREQ_RequestFlags(nc->areq);
+    processResultFormat(&reqflags, rows);
 
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;
@@ -661,7 +662,7 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   ProfilePrinterCtx *cCtx = ctx;
-  RPNet *rpnet = (RPNet *)cCtx->req->qiter.rootProc;
+  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(cCtx->req)->rootProc;
   PrintShardProfile_ctx sCtx = {
     .count = array_len(rpnet->shardsProfile),
     .replies = rpnet->shardsProfile,
@@ -690,8 +691,8 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
-  r->qiter.err = status;
-  r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
+  AREQ_QueryProcessingCtx(r)->err = status;
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   r->initClock = clock();
 
   int profileArgs = parseProfile(argv, argc, r);
@@ -718,7 +719,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     }
   }
 
-  rc = AGGPLN_Distribute(&r->ap, status);
+  rc = AGGPLN_Distribute(AREQ_Plan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   AREQDIST_UpstreamInfo us = {NULL};
@@ -729,7 +730,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
-  xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
+  xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
@@ -744,14 +745,14 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
   SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
-  r->qiter.sctx = r->sctx;
+  AREQ_QueryProcessingCtx(r)->sctx = r->sctx;
   // r->sctx->expanded should be received from shards
 
   return REDISMODULE_OK;
 }
 
 static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
-  if (r->reqflags & QEXEC_F_IS_CURSOR) {
+  if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
@@ -853,7 +854,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // rpnet now owns the command
-  MRCommand *cmd = &(((RPNet *)r->qiter.rootProc)->cmd);
+  MRCommand *cmd = &(((RPNet *)AREQ_QueryProcessingCtx(r)->rootProc)->cmd);
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
   // insert also debug params at the end

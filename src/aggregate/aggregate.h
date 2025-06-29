@@ -95,18 +95,18 @@ typedef enum {
 
 } QEFlags;
 
-#define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
-#define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
-#define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
-#define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
-#define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
+#define IsCount(r) (AREQ_RequestFlags(r) & QEXEC_F_NOROWS)
+#define IsSearch(r) (AREQ_RequestFlags(r) & QEXEC_F_IS_SEARCH)
+#define IsProfile(r) (AREQ_RequestFlags(r) & QEXEC_F_PROFILE)
+#define IsOptimized(r) (AREQ_RequestFlags(r) & QEXEC_OPTIMIZE)
+#define IsFormatExpand(r) (AREQ_RequestFlags(r) & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
-#define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
-#define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
-#define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
-#define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
+#define IsScorerNeeded(r) (AREQ_RequestFlags(r) & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
+#define HasScoreInPipeline(r) (AREQ_RequestFlags(r) & QEXEC_F_SEND_SCORES_AS_FIELD)
+#define IsInternal(r) (AREQ_RequestFlags(r) & QEXEC_F_INTERNAL)
+#define IsDebug(r) (AREQ_RequestFlags(r) & QEXEC_F_DEBUG)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
@@ -258,6 +258,30 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
  * the requests. This does not yet start iterating over the objects
  */
 int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+
+static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
+  return (QEFlags)req->reqflags;
+}
+
+static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
+  req->reqflags |= flags;
+}
+
+static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
+  req->reqflags &= ~flags;
+}
+
+static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
+  return &req->qiter;
+}
+
+static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
+  return req->sctx;
+}
+
+static inline AGGPlan *AREQ_Plan(AREQ *req) {
+  return &req->ap;
+}
 
 /******************************************************************************
  ******************************************************************************
