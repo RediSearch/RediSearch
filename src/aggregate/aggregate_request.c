@@ -1727,7 +1727,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   }
 
   // In profile mode, we need to add RP_Profile before each RP
-  QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
   if (IsProfile(req) && qiter->endProc) {
     Profile_AddRPs(qiter);
   }
