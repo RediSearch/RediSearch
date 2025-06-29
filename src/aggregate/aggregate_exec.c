@@ -142,8 +142,8 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_Double(reply, r->score);
     } else {
       RedisModule_Reply_Array(reply);
-        RedisModule_Reply_Double(reply, r->score);
-        SEReply(reply, r->scoreExplain);
+      RedisModule_Reply_Double(reply, r->score);
+      SEReply(reply, r->scoreExplain);
 	  RedisModule_Reply_ArrayEnd(reply);
     }
   }
@@ -300,42 +300,10 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
       RedisModule_Reply_Double(reply, r->score);
     } else {
       RedisModule_Reply_Array(reply);
-        RedisModule_Reply_Double(reply, r->score);
-        SEReply(reply, r->scoreExplain);
+      RedisModule_Reply_Double(reply, r->score);
+      SEReply(reply, r->scoreExplain);
 	  RedisModule_Reply_ArrayEnd(reply);
     }
-  }
-
-  // Coordinator only - handle required fields for coordinator request
-  if (options & QEXEC_F_REQUIRED_FIELDS) {
-
-    // Sortkey is the first key to reply on the required fields, if we already replied it, continue to the next one.
-    size_t currentField = options & QEXEC_F_SEND_SORTKEYS ? 1 : 0;
-    size_t requiredFieldsCount = array_len(req->requiredFields);
-    bool need_map = currentField < requiredFieldsCount;
-
-    RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
-
-    for(; currentField < requiredFieldsCount; currentField++) {
-      const RLookupKey *rlk = RLookup_GetKey_Read(cv->lastLk, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
-      const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
-      if (v && v->t == RSValue_Duo) {
-        // For duo value, we use the value here (not the other value)
-        v = RS_DUOVAL_VAL(*v);
-      }
-      RSValue rsv;
-      if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
-        double d;
-        RSValue_ToNumber(v, &d);
-        RSValue_SetNumber(&rsv, d);
-        v = &rsv;
-      }
-      if (need_map) {
-        RedisModule_Reply_CString(reply, req->requiredFields[currentField]); // key name
-      }
-      reeval_key(reply, v);
-    }
-    RedisModule_Reply_MapEnd(reply); // >required_fields
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
