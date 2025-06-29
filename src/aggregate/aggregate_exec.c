@@ -144,7 +144,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_Array(reply);
       RedisModule_Reply_Double(reply, r->score);
       SEReply(reply, r->scoreExplain);
-	  RedisModule_Reply_ArrayEnd(reply);
+  	  RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
@@ -302,7 +302,7 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
       RedisModule_Reply_Array(reply);
       RedisModule_Reply_Double(reply, r->score);
       SEReply(reply, r->scoreExplain);
-	  RedisModule_Reply_ArrayEnd(reply);
+	    RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
@@ -324,38 +324,38 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
       size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       RedisModule_Reply_Map(reply);
-        int i = 0;
-        for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-          if (!kk->name || !skipFieldIndex[i++]) {
-            continue;
-          }
-          const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-          RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
-
-          RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
-
-          SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-          flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-
-          unsigned int apiVersion = req->sctx->apiVersion;
-          if (v && v->t == RSValue_Duo) {
-            // Which value to use for duo value
-            if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-              // STRING
-              if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-                // Multi
-                v = RS_DUOVAL_OTHERVAL(*v);
-              } else {
-                // Single
-                v = RS_DUOVAL_VAL(*v);
-              }
-            } else {
-              // EXPAND
-              v = RS_DUOVAL_OTHER2VAL(*v);
-            }
-          }
-          RSValue_SendReply(reply, v, flags);
+      int i = 0;
+      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
+        if (!kk->name || !skipFieldIndex[i++]) {
+          continue;
         }
+        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
+
+        RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
+
+        SendReplyFlags flags = (req->reqflags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
+        flags |= (req->reqflags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
+
+        unsigned int apiVersion = req->sctx->apiVersion;
+        if (v && v->t == RSValue_Duo) {
+          // Which value to use for duo value
+          if (!(flags & SENDREPLY_FLAG_EXPAND)) {
+            // STRING
+            if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
+              // Multi
+              v = RS_DUOVAL_OTHERVAL(*v);
+            } else {
+              // Single
+              v = RS_DUOVAL_VAL(*v);
+            }
+          } else {
+            // EXPAND
+            v = RS_DUOVAL_OTHER2VAL(*v);
+          }
+        }
+        RSValue_SendReply(reply, v, flags);
+      }
       RedisModule_Reply_MapEnd(reply); // >attributes
     }
   }
