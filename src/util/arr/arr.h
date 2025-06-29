@@ -35,7 +35,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "rmalloc.h"
-#include "rm_assert.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
