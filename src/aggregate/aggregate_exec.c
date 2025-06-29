@@ -407,8 +407,8 @@ long calc_results_len(AREQ *req, size_t limit) {
   size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
   size_t resultFactor = getResultsFactor(req);
 
-  QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? qiter->totalResults : MIN(req->maxSearchResults, qiter->totalResults);
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? qctx->totalResults : MIN(req->maxSearchResults, qctx->totalResults);
   size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
@@ -519,15 +519,15 @@ done_2:
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
-    QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qiter->err);
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
 
     // Prepare profile printer context
     RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = qiter->err->reachedMaxPrefixExpansions,
+      .reachedMaxPrefixExpansions = qctx->err->reachedMaxPrefixExpansions,
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
     };
 
@@ -658,16 +658,16 @@ done_3:
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
-    QueryProcessingCtx *qiter2 = AREQ_QueryProcessingCtx(req);
-    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qiter2->err);
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
 
     // Prepare profile printer context
-    RedisSearchCtx *sctx2 = AREQ_SearchCtx(req);
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = qiter2->err->reachedMaxPrefixExpansions,
-      .bgScanOOM = sctx2->spec && sctx2->spec->scan_failed_OOM,
+      .reachedMaxPrefixExpansions = qctx->err->reachedMaxPrefixExpansions,
+      .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
     };
 
     if (IsProfile(req)) {
@@ -712,8 +712,8 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   };
 
   // Set the chunk size limit for the query
-  QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-  qiter->resultLimit = limit;
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  qctx->resultLimit = limit;
 
   if (reply->resp3) {
     sendChunk_Resp3(req, reply, limit, cv);
@@ -1168,8 +1168,8 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
 
   QueryError status = {0};
   AREQ *req = cursor->execState;
-  QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-  qiter->err = &status;
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  qctx->err = &status;
   AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
 
   StrongRef execution_ref;

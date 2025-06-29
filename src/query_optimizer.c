@@ -272,11 +272,11 @@ void QOptimizer_UpdateTotalResults(AREQ *req) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_Plan(req));
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
-    QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-    qiter->totalResults = qiter->totalResults > reqOffset ?
-                              qiter->totalResults - reqOffset : 0;
-    if(qiter->totalResults > reqLimit) {
-      qiter->totalResults = reqLimit;
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    qctx->totalResults = qctx->totalResults > reqOffset ?
+                              qctx->totalResults - reqOffset : 0;
+    if(qctx->totalResults > reqLimit) {
+      qctx->totalResults = reqLimit;
     }
 }
 

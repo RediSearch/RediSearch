@@ -331,7 +331,9 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
     // Update the request flags with any changes from parseValueFormat
-    req->reqflags = reqflags;
+    // Clear the format flags first, then set the new ones
+    AREQ_RemoveRequestFlags(req, QEXEC_FORMAT_EXPAND | QEXEC_FORMAT_DEFAULT);
+    AREQ_AddRequestFlags(req, reqflags & (QEXEC_FORMAT_EXPAND | QEXEC_FORMAT_DEFAULT));
   } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
     // Set the offset of the prefixes in the query, for further processing later
     req->prefixesOffset = ac->offset - 1;
@@ -1082,7 +1084,7 @@ static bool IsIndexCoherent(AREQ *req) {
   sds *args = req->args;
   long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
 
-  arrayof(HiddenUnicodeString*) spec_prefixes = sctx->spec->rule->prefixes;
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
   if (n_prefixes != array_len(spec_prefixes)) {
     return false;
   }
@@ -1159,7 +1161,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
   // Update the request flags with any changes from SetValueFormat
-  req->reqflags = reqflags;
+  // Clear the format flags first, then set the new ones
+  AREQ_RemoveRequestFlags(req, QEXEC_FORMAT_EXPAND | QEXEC_FORMAT_DEFAULT);
+  AREQ_AddRequestFlags(req, reqflags & (QEXEC_FORMAT_EXPAND | QEXEC_FORMAT_DEFAULT));
 
   if (!(opts->flags & Search_NoStopWords)) {
     opts->stopwords = sctx->spec->stopwords;
@@ -1461,10 +1465,10 @@ static bool hasQuerySortby(const AGGPlan *pln) {
  */
 static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
-  QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-  qiter->conc = &req->conc;
-  qiter->sctx = sctx;
-  qiter->err = Status;
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  qctx->conc = &req->conc;
+  qctx->sctx = sctx;
+  qctx->err = Status;
 
   IndexSpecCache *cache = IndexSpec_GetSpecCache(sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
@@ -1474,7 +1478,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
 
   ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
   ResultProcessor *rpUpstream = NULL;
-  qiter->rootProc = qiter->endProc = rp;
+  qctx->rootProc = qctx->endProc = rp;
   PUSH_RP();
 
   // Load results metrics according to their RLookup key.
@@ -1513,8 +1517,8 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
  */
 int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool forceLoad) {
   AGGPlan *pln = AREQ_Plan(req);
-  QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-  ResultProcessor *rp = NULL, *rpUpstream = qiter->endProc;
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  ResultProcessor *rp = NULL, *rpUpstream = qctx->endProc;
 
   RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
   // Add a LOAD step...
@@ -1580,8 +1584,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   }
 
   AGGPlan *pln = AREQ_Plan(req);
-  QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-  ResultProcessor *rp = NULL, *rpUpstream = qiter->endProc;
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  ResultProcessor *rp = NULL, *rpUpstream = qctx->endProc;
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
@@ -1727,12 +1731,12 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   }
 
   // In profile mode, we need to add RP_Profile before each RP
-  if (IsProfile(req) && qiter->endProc) {
-    Profile_AddRPs(qiter);
+  if (IsProfile(req) && qctx->endProc) {
+    Profile_AddRPs(qctx);
   }
 
   // Copy timeout policy to the parent struct of the result processors
-  qiter->timeoutPolicy = req->reqConfig.timeoutPolicy;
+  qctx->timeoutPolicy = req->reqConfig.timeoutPolicy;
 
   return REDISMODULE_OK;
 error:
@@ -1741,8 +1745,8 @@ error:
 
 void AREQ_Free(AREQ *req) {
   // First, free the result processors
-  QueryProcessingCtx *qiter = AREQ_QueryProcessingCtx(req);
-  ResultProcessor *rp = qiter->endProc;
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  ResultProcessor *rp = qctx->endProc;
   while (rp) {
     ResultProcessor *next = rp->upstream;
     rp->Free(rp);
