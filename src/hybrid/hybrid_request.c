@@ -13,14 +13,14 @@ HybridRequest *HybridRequest_New(AREQ *requests, size_t nrequests, AGGPlan *plan
     AGPLN_Init(&req->merge.ap);
     req->merge.qctx.err = status;
     req->merge.qctx.timeoutPolicy = timeoutPolicy;
-    req->merge.qctx.rootProc = req->merge->qctx.endProc = NULL;
+    req->merge.qctx.rootProc = req->merge.qctx.endProc = NULL;
     StrongRef sync_ref = DepleterSync_New();
     ResultProcessor *depleters = NULL;
     for (size_t i = 0; i < nrequests; i++) {
         AREQ *areq = &requests[i];
         ResultProcessor *rp = RPDepleter_New(StrongRef_Clone(sync_ref));
         array_ensure_append_1(depleters, rp);
-        QITR_PushRP(&areq->pipeline.qctx, rp);
+        QITR_PushRP(AREQ_QueryProcessingCtx(areq), rp);
     }
     StrongRef_Release(sync_ref);
     ResultProcessor *merger = RPHybridMerger_New(NULL, depleters, nrequests);

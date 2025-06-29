@@ -107,6 +107,8 @@ typedef enum {
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
+
+
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
@@ -259,6 +261,30 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
+static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
+  return (QEFlags)req->pipeline.reqflags;
+}
+
+static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
+  req->pipeline.reqflags |= flags;
+}
+
+static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
+  req->pipeline.reqflags &= ~flags;
+}
+
+static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
+  return &req->pipeline.qctx;
+}
+
+static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
+  return req->pipeline.sctx;
+}
+
+static inline AGGPlan *AREQ_Plan(AREQ *req) {
+  return &req->pipeline.ap;
+}
+
 /******************************************************************************
  ******************************************************************************
  ** Grouper Functions                                                        **
@@ -352,7 +378,7 @@ int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 
-#define AREQ_RP(req) (req)->pipeline.qctx.endProc
+#define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
 }

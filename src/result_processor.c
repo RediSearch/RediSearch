@@ -1218,14 +1218,14 @@ typedef struct {
 
 // Insert the result processor between the last result processor and its downstream result processor
 static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
-  ResultProcessor *cur = r->pipeline.qctx.endProc;
+  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
 
   // Search for the last result processor
   while (cur) {
     if (!cur->upstream) {
-      rp->parent = &r->pipeline.qctx;
+      rp->parent = AREQ_QueryProcessingCtx(r);
       downstream->upstream = rp;
       rp->upstream = cur;
       break;
@@ -1234,7 +1234,7 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
     cur = cur->upstream;
   }
   // Update the endProc to the new head in case it was changed
-  r->pipeline.qctx.endProc = dummyHead.upstream;
+  AREQ_QueryProcessingCtx(r)->endProc = dummyHead.upstream;
 }
 
 /** For debugging purposes

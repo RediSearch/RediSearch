@@ -220,7 +220,7 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
     scorer = DEFAULT_SCORER_NAME;
   }
   ScoringFunctionArgs scargs = {0};
-  if (req->pipeline.reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
+  if (AREQ_RequestFlags(req) & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
   }
   if (!strcmp(scorer, BM25_STD_NORMALIZED_TANH_SCORER_NAME)) {
@@ -229,7 +229,7 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   }
   ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
-  IndexSpec_GetStats(req->pipeline.sctx->spec, &scargs.indexStats);
+  IndexSpec_GetStats(AREQ_SearchCtx(req)->spec, &scargs.indexStats);
   scargs.qdata = req->ast.udata;
   scargs.qdatalen = req->ast.udatalen;
   const RLookupKey *scoreKey = NULL;
@@ -261,21 +261,21 @@ static void initializePipeline(AggregationPipeline *pipeline, QueryError *status
  */
 static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, ConcurrentSearchCtx *conc, AREQ *req, QueryError *Status) {
   AggregationPipeline *pipeline = &req->pipeline;
-  IndexSpecCache *cache = IndexSpec_GetSpecCache(req->pipeline.sctx->spec);
+  IndexSpecCache *cache = IndexSpec_GetSpecCache(AREQ_SearchCtx(req)->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
-  RLookup *first = AGPLN_GetLookup(&req->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+  RLookup *first = AGPLN_GetLookup(AREQ_Plan(req), NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);
 
   ResultProcessor *rp = RPIndexIterator_New(rootiter, conc);
   ResultProcessor *rpUpstream = NULL;
-  req->pipeline.qctx.rootProc = req->pipeline.qctx.endProc = rp;
+  AREQ_QueryProcessingCtx(req)->rootProc = AREQ_QueryProcessingCtx(req)->endProc = rp;
   PUSH_RP();
 
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.
   if (ast->metricRequests) {
-    rp = getAdditionalMetricsRP(req->pipeline.sctx, ast, first, Status);
+    rp = getAdditionalMetricsRP(AREQ_SearchCtx(req), ast, first, Status);
     if (!rp) {
       return;
     }
@@ -285,15 +285,15 @@ static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, Concur
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
-  if ((req->pipeline.reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
-      ((req->pipeline.reqflags & QEXEC_F_IS_SEARCH) && !(req->pipeline.reqflags & QEXEC_F_NOROWS) &&
-       ((req->pipeline.reqflags & QEXEC_OPTIMIZE) ? (req->optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(&req->pipeline.ap)))) {
+  if ((AREQ_RequestFlags(req) & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
+      ((AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH) && !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
+       ((AREQ_RequestFlags(req) & QEXEC_OPTIMIZE) ? (req->optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(AREQ_Plan(req))))) {
     rp = getScorerRP(req, first);
     PUSH_RP();
     const char *scorerName = req->searchopts.scorerName;
     if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
       const RLookupKey *scoreKey = NULL;
-      if (req->pipeline.reqflags & QEXEC_F_SEND_SCORES_AS_FIELD) {
+      if (AREQ_RequestFlags(req) & QEXEC_F_SEND_SCORES_AS_FIELD) {
         scoreKey = RLookup_GetKey(first, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
       }
       rp = RPMaxScoreNormalizer_New(scoreKey);
@@ -535,7 +535,7 @@ int BuildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   initializePipeline(&req->pipeline, status); 
-  if (!(req->pipeline.reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
+  if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(&req->ast, req->rootiter, &req->conc, req, status);
     if (status->code != QUERY_OK) {
       return REDISMODULE_ERR;
