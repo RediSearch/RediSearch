@@ -248,7 +248,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           SendReplyFlags flags = (reqFlags & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
           flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
-          unsigned int apiVersion = AREQ_SearchCtx(req)->apiVersion;
+          unsigned int apiVersion = sctx->apiVersion;
           if (v && v->t == RSValue_Duo) {
             // Which value to use for duo value
             if (!(flags & SENDREPLY_FLAG_EXPAND)) {

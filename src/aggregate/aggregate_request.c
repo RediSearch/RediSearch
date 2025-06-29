@@ -233,7 +233,7 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 }
 
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
-  if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
+  if (req->reqflags & QEXEC_FORMAT_EXPAND) {
     sctx->expanded = 1;
     sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
   } else {
@@ -326,14 +326,9 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
-    uint32_t reqflags = (uint32_t)AREQ_RequestFlags(req);
-    if (parseValueFormat(&reqflags, ac, status) != REDISMODULE_OK) {
+    if (parseValueFormat(&req->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    // Update the request flags with any changes from parseValueFormat
-    // Clear the format flags first, then set the new ones
-    AREQ_RemoveRequestFlags(req, QEXEC_FORMAT_EXPAND | QEXEC_FORMAT_DEFAULT);
-    AREQ_AddRequestFlags(req, reqflags & (QEXEC_FORMAT_EXPAND | QEXEC_FORMAT_DEFAULT));
   } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
     // Set the offset of the prefixes in the query, for further processing later
     req->prefixesOffset = ac->offset - 1;
@@ -1156,14 +1151,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   bool resp3 = req->protocol == 3;
-  uint32_t reqflags = (uint32_t)AREQ_RequestFlags(req);
-  if (SetValueFormat(resp3, isSpecJson(index), &reqflags, status) != REDISMODULE_OK) {
+  if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  // Update the request flags with any changes from SetValueFormat
-  // Clear the format flags first, then set the new ones
-  AREQ_RemoveRequestFlags(req, QEXEC_FORMAT_EXPAND | QEXEC_FORMAT_DEFAULT);
-  AREQ_AddRequestFlags(req, reqflags & (QEXEC_FORMAT_EXPAND | QEXEC_FORMAT_DEFAULT));
 
   if (!(opts->flags & Search_NoStopWords)) {
     opts->stopwords = sctx->spec->stopwords;
