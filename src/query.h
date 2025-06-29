@@ -130,6 +130,7 @@ int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVers
 int QueryNode_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
+int QAST_CheckIsValidAsVectorFilter(QueryAST *q, QueryError *status);
 
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
