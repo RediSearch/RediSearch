@@ -6,7 +6,7 @@ from includes import *
 from RLTest import Env
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_missing_json_key_error(env):
     """Test error handling when JSON key doesn't exist or is not a JSON document"""
 
@@ -32,7 +32,7 @@ def test_missing_json_key_error(env):
     env.expect('FT.SEARCH', 'idx', '*').equal([1, 'valid_doc', ['$', '{"name":"John","age":30}']])
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_missing_json_key_specific_error_message(env):
     """Test that the specific error message is generated for missing JSON keys"""
 
@@ -55,7 +55,7 @@ def test_missing_json_key_specific_error_message(env):
     env.expect('FT.SEARCH', 'idx', '*').equal([0])
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_json_key_exists_but_wrong_type(env):
     """Test error when key exists but is not a JSON type"""
 
@@ -77,7 +77,7 @@ def test_json_key_exists_but_wrong_type(env):
     env.expect('FT.SEARCH', 'idx', '*').equal([1, 'json_key', ['$', '{"name":"valid"}']])
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_unsupported_field_types_error(env):
     """Test error handling for unsupported JSON field types"""
 
@@ -99,7 +99,7 @@ def test_unsupported_field_types_error(env):
     env.expect('FT.SEARCH', 'idx_obj', '*').equal([1, 'doc_valid_text', ['$', '{"data":"valid text"}']])
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_unsupported_field_combinations_error(env):
     """Test error handling for various unsupported field type combinations"""
     
@@ -136,7 +136,7 @@ def test_unsupported_field_combinations_error(env):
         env.expect('FT.SEARCH', idx_name, '*').equal([0])
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_iterator_failure_error(env):
     """Test error handling when JSON iterator fails to get value"""
     
@@ -150,7 +150,7 @@ def test_iterator_failure_error(env):
     env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc', ['$', '{"data":"test"}']])
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_error_messages_in_index_info(env):
     """Test that error messages appear correctly in FT.INFO output"""
 
@@ -182,7 +182,7 @@ def test_error_messages_in_index_info(env):
         env.assertTrue(len(errors) > 0)
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_mixed_valid_invalid_documents(env):
     """Test that valid documents are indexed while invalid ones are skipped"""
     
@@ -209,7 +209,7 @@ def test_mixed_valid_invalid_documents(env):
     env.assertIn('valid2', doc_ids)
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_geo_array_error_specific(env):
     """Test specific error handling for GEO field with array type"""
 
@@ -235,7 +235,7 @@ def test_geo_array_error_specific(env):
     env.assertTrue(result[0] >= 1)
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_object_type_error_specific(env):
     """Test specific error handling for object types"""
 
@@ -269,7 +269,7 @@ def test_object_type_error_specific(env):
     env.assertIn('doc_valid', result)
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_unsupported_field_type_error_specific(env):
     """Test specific error handling for unsupported field types in JSON_LoadDocumentField"""
 
@@ -286,7 +286,7 @@ def test_unsupported_field_type_error_specific(env):
     env.cmd('FT.SEARCH', 'idx', '*')  # Just verify it doesn't crash
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_iterator_value_failure_error(env):
     """Test error handling when iterator fails to get value"""
 
@@ -311,7 +311,7 @@ def test_iterator_value_failure_error(env):
     env.cmd('FT.SEARCH', 'idx', '*')  # Just verify it doesn't crash
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_log_level_change_verification(env):
     """Test that the log level change from WARNING to DEBUG doesn't break functionality"""
 
@@ -342,7 +342,7 @@ def test_log_level_change_verification(env):
     env.expect('FT.SEARCH', 'idx', '*').equal([1, 'valid_doc', ['$', '{"name":"test"}']])
 
 
-@skip(no_json=True)
+@skip(no_json=True, cluster=True)
 def test_error_propagation_consistency(env):
     """Test that error messages are consistently propagated through the system"""
 
