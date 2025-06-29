@@ -20,6 +20,7 @@
 #include "extension.h"
 #include "score_explain.h"
 #include "util/references.h"
+#include "hybrid_scoring.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,6 +62,7 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_HYBRID_MERGER,
   RP_TIMEOUT,               // DEBUG ONLY
   RP_CRASH,                 // DEBUG ONLY
   RP_DEPLETER,
@@ -340,6 +342,20 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref);
  * that can be shared among multiple RPDepleters.
  */
 StrongRef DepleterSync_New();
+
+ /*******************************************************************************************************************
+  *  Hybrid Merger Result Processor
+  *
+  * Merges results from multiple upstream processors using a hybrid scoring function.
+  * Takes results from all upstreams and applies the provided function to combine their scores.
+  *******************************************************************************************************************/
+ /*
+  * Creates a new Hybrid Merger processor.
+  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
+  */
+ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
+                                     ResultProcessor **upstreams,
+                                     size_t numUpstreams);
 
 #ifdef __cplusplus
 }
