@@ -34,7 +34,7 @@ extern "C" {
 #define CMD_INTERNAL "internal"
 
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int IsMaster();
 bool IsEnterprise();
@@ -50,7 +50,7 @@ void RediSearch_CleanupModule(void);
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-// Module-level dummy context for certain dummy RM_XXX operations
+/** Module-level dummy context for certain dummy RM_XXX operations */
 extern RedisModuleCtx *RSDummyContext;
 // Indicates that RediSearch_Init was called
 extern int RS_Initialized;

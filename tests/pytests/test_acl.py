@@ -1,8 +1,42 @@
+import copy
+
 from common import *
 
 READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR', 'FT.CURSOR',
                  'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN']
 WRITE_SEARCH_COMMANDS = ['FT.DROPINDEX', 'FT.SUGADD', 'FT.SUGDEL']
+INTERNAL_SEARCH_COMMANDS = {
+        '_FT.ALIASDEL': 'alias',
+        '_FT.AGGREGATE': 'idx *',
+        '_FT.ALIASADD': 'idx alias',
+        '_FT.ALIASUPDATE': 'idx alias2',
+        '_FT.CURSOR': ['READ 1234', 'DEL 1234'],
+        '_FT.INFO': 'idx',
+        '_FT.ALTER': 'idx SCHEMA ADD f2 NUMERIC',
+        '_FT.DICTDEL': 'dict word',
+        '_FT.SYNUPDATE': 'synonym hello hi',
+        '_FT.SPELLCHECK': 'idx held DISTANCE 2',
+        '_FT.CREATE': 'idx SCHEMA f1 NUMERIC',
+        '_FT.DICTADD': 'dict word',
+        '_FT.PROFILE': 'idx SEARCH *',
+        '_FT.SEARCH': 'idx *',
+        '_FT.DEBUG': 'DUMP_PREFIX_TRIE',
+        '_FT.CONFIG': 'GET foo',
+        '_FT.TAGVALS': 'idx tag',
+        '_FT._ALTERIFNX': 'idx SCHEMA ADD f2 NUMERIC',
+        '_FT._ALIASDELIFX': 'alias',
+        '_FT._ALIASADDIFNX': 'idx alias',
+        '_FT._DROPINDEXIFX': 'idx',
+        '_FT.DROPINDEX': 'idx',
+        '_FT.ADD': 'idx doc:1 fields f1 val',
+        '_FT.DROP': 'idx',
+        '_FT.GET': 'doc:1',
+        '_FT._CREATEIFNX': 'idx SCHEMA f1 NUMERIC',
+        '_FT.MGET': 'doc:1 doc:2',
+        '_FT.DEL': 'doc:1',
+        '_FT._DROPIFX': 'idx',
+        '_FT.SAFEADD': 'idx doc:1 fields f1 val'
+}
 
 def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
@@ -36,7 +70,14 @@ def test_acl_search_commands(env):
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
 
-    # Check that one of our commands is listed in a non-search category (sanity)
+    # ---------------- internal search command category ----------------
+    res = env.cmd('ACL', 'CAT', '_search_internal')
+    commands = INTERNAL_SEARCH_COMMANDS.keys()
+
+    # Use a set since the order of the response is not consistent.
+    env.assertEqual(set(res), set(commands))
+
+    # Check that one of our commands is listed in a non-search category
     res = env.cmd('ACL', 'CAT', 'read')
     env.assertTrue('FT.SEARCH' in res)
 
@@ -175,7 +216,19 @@ def test_internal_commands(env):
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
     env.expect('_FT.SEARCH', 'idx', '*').equal([0])
 
-@skip(redis_less_than="7.9.227")
+    # `test` user should still be able to run non-internal commands
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.SEARCH', 'idx', '*').equal([0])
+
+    # Now `test` should not be able to execute RediSearch internal commands
+    # `_FT.DEBUG` has only subcommands, so we check it separately.
+    for command, args_or_args_list in INTERNAL_SEARCH_COMMANDS.items():
+        args_list = args_or_args_list if isinstance(args_or_args_list, list) else [args_or_args_list]
+        for args in args_list:
+            arg_list = args.split(' ')
+            env.expect(command, *arg_list).error().contains("User test has no permissions to run")
+
+@skip(redis_less_than="8.0")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
 

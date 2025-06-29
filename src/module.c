@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "commands.h"
+#include "command_info/command_info.h"
 #include "document.h"
 #include "tag_index.h"
 #include "index.h"
@@ -1146,48 +1147,95 @@ int CheckSupportedVestion() {
   return REDISMODULE_OK;
 }
 
-// Creates a command and registers it to its corresponding ACL categories
-static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
-                  RedisModuleCmdFunc callback, const char *flags, int firstkey,
-                  int lastkey, int keystep, const char *aclCategories,
-                  bool internalCommand) {
-  int rc = REDISMODULE_OK;
-  char *internalFlags;
-  char *categories;
+typedef struct {
+  int firstkey, lastkey, keystep;
+} CommandKeys;
 
-  if (internalCommand) {
-    // Do not register to ANY ACL command category
-    categories = "";
-    // We don't want the user running internal commands. For that, we mark the
-    // command internal on OSS, or exclude it from the proxy on Enterprise.
-    if (IsEnterprise()) {
-        rm_asprintf(&internalFlags, "%s %s", flags, CMD_PROXY_FILTERED);
-    } else {
-        rm_asprintf(&internalFlags, "%s %s", flags, CMD_INTERNAL);
+typedef enum {
+  NONE,
+  SET_COMMAND_INFO,
+  SUBSCRIBE_SUBCOMMANDS
+} SelectedCallbackType;
+
+typedef int (*SetCommandInfo)(RedisModuleCommand *);
+typedef int (*SubscribeSubCommands)(RedisModuleCtx *, RedisModuleCommand *);
+
+typedef union {
+  void *ptr;
+  SetCommandInfo setCommandInfo;
+  SubscribeSubCommands subscribeSubCommands;
+} MutuallyExclusiveCommandCallbacks;
+
+typedef struct {
+  const char *name;
+  const char *flags;
+  // if false, the command will not be registered as a module command
+  bool shouldRegister;
+  const char *aclCategories;
+  RedisModuleCmdFunc handler;
+  MutuallyExclusiveCommandCallbacks callback;
+  SelectedCallbackType selectedCallbackType;
+  CommandKeys position;
+} SearchCommand;
+
+typedef struct {
+  const char *name;
+  const char *fullName;
+  const char *flags;
+  RedisModuleCmdFunc handler;
+  SetCommandInfo setCommandInfo;
+  CommandKeys position;
+} SubCommand;
+
+int CreateSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *command, const SubCommand* subcommands, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    const SubCommand* subcommand = &subcommands[i];
+    if (RedisModule_CreateSubcommand(command, subcommand->name, subcommand->handler, subcommand->flags, subcommand->position.firstkey, subcommand->position.lastkey, subcommand->position.keystep) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Could not create subcommand %s, flags: %s", subcommand->fullName, subcommand->flags); \
+      return REDISMODULE_ERR;
     }
-  } else {
-    // Flags are not enhanced.
-    internalFlags = (char *)flags;
-    // Register non-internal commands to the `search` ACL category.
-    rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
+    RedisModuleCommand *subCommand = RedisModule_GetCommand(ctx, subcommand->fullName);
+    if (!subCommand) {
+      RedisModule_Log(ctx, "warning", "Could not find subcommand %s", subcommand->fullName);
+      return REDISMODULE_ERR;
+    }
+    if (subcommand->setCommandInfo && subcommand->setCommandInfo(subCommand) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Could not set command info for subcommand %s", subcommand->fullName);
+      return REDISMODULE_ERR;
+    }
   }
+  return REDISMODULE_OK;
+}
 
-  if (RedisModule_CreateCommand(ctx, name, callback, internalFlags, firstkey, lastkey, keystep) == REDISMODULE_ERR) {
+// Creates a command and registers it to its corresponding ACL categories
+// Also sets the command info if setCommandInfo is not NULL
+static RedisModuleCommand *CreateCommandWithAcl(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc handler,
+                                                const char *flags, CommandKeys position, const char *aclCategories) {
+  if (RedisModule_CreateCommand(ctx, name, handler, flags, position.firstkey, position.lastkey, position.keystep) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
-    rc = REDISMODULE_ERR;
-    goto cleanup;
+    return NULL;
   }
 
   RedisModuleCommand *command = RedisModule_GetCommand(ctx, name);
   if (!command) {
     RedisModule_Log(ctx, "warning", "Could not find command: %s", name);
-    rc = REDISMODULE_ERR;
-    goto cleanup;
+    return NULL;
+  }
+
+  char *categories;
+  bool is_internal = false;
+
+  if (IS_INTERNAL_COMMAND(name)) {
+    // Internal command, register to the internal ACL category ONLY
+    categories = SEARCH_ACL_INTERNAL_CATEGORY;
+    is_internal = true;
+  } else {
+    rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
   }
 
   if (RedisModule_SetCommandACLCategories(command, categories) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Failed to set ACL categories for command: %s. Got error code: %d", name, errno);
-    rc = REDISMODULE_ERR;
+    command = NULL;
   }
 
 cleanup:
@@ -1196,11 +1244,119 @@ cleanup:
   } else {
     rm_free(categories);
   }
-  return rc;
+  return command;
 }
 
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
-  GetRedisVersion(ctx);
+static int CreateSearchCommand(RedisModuleCtx *ctx, const SearchCommand *details) {
+  RedisModule_Log(ctx, "verbose", "Command %s, flags: %s, register: %d", details->name, details->flags, (int)details->shouldRegister);
+  if (!details->shouldRegister) {
+    return REDISMODULE_OK;
+  }
+
+  RedisModuleCommand *cmd = CreateCommandWithAcl(ctx, details->name, details->handler, details->flags, details->position, details->aclCategories);
+  if (!cmd) {
+    return REDISMODULE_ERR;
+  }
+  switch(details->selectedCallbackType) {
+    case SET_COMMAND_INFO:
+        if (details->callback.setCommandInfo(cmd) != REDISMODULE_OK) {
+            RedisModule_Log(ctx, "warning", "Could not set command info for command %s", details->name);
+            return REDISMODULE_ERR;
+        }
+        break;
+    case SUBSCRIBE_SUBCOMMANDS:
+        if (details->callback.subscribeSubCommands(ctx, cmd) != REDISMODULE_OK) {
+            RedisModule_Log(ctx, "warning", "Could not subscribe subcommands for command %s", details->name);
+            return REDISMODULE_ERR;
+        }
+        break;
+    case NONE:
+      RS_LOG_ASSERT_FMT(!details->callback.ptr, "Command registration callback was specified but the type of callback was not set for: %s", details->name);
+      break;
+  }
+  return REDISMODULE_OK;
+}
+
+/** A dummy command handler, for commands that are disabled when running the module in OSS
+ * clusters
+ * when it is not an internal OSS build. */
+int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RedisModule_ReplyWithError(ctx, "Module Disabled in Open Source Redis");
+}
+
+/** A wrapper function that safely checks whether we are running in OSS cluster when registering
+ * commands.
+ * If we are, and the module was not compiled for oss clusters, this wrapper will return a pointer
+ * to a dummy function disabling the actual handler.
+ *
+ * If we are running in RLEC or in a special OSS build - we simply return the original command.
+ *
+ * All coordinator handlers must be wrapped in this decorator.
+ */
+static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
+  if (IsEnterprise() && clusterConfig.type != ClusterType_RedisLabs) {
+    /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
+    return DisabledCommandHandler;
+  }
+
+  /* Valid - we return the original function */
+  return f;
+}
+
+#define CONFIG_SUBCOMMANDS(command_, func_, readonly_)                                                                                                                           \
+  SubCommand subcommands[] = {                                                                                                                                      \
+    {.name = "GET", .fullName = command_ "|GET", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigGetInfo, .position = {0, 0, 0}},    \
+    {.name = "SET", .fullName = command_ "|SET", .flags = "write", .handler = func_, .setCommandInfo = SetFtConfigSetInfo, .position = {0, 0, 0}},       \
+    {.name = "HELP", .fullName = command_ "|HELP", .flags = readonly_, .handler = func_, .setCommandInfo = SetFtConfigHelpInfo, .position = {0, 0, 0}}, \
+  }
+
+#define RS_READ_ONLY_FLAGS_DEFAULT IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly"
+static int RegisterConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
+  CONFIG_SUBCOMMANDS(RS_CONFIG, ConfigCommand, RS_READ_ONLY_FLAGS_DEFAULT);
+  return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
+}
+
+static int RegisterCoordConfigSubCommands(RedisModuleCtx* ctx, RedisModuleCommand *configCommand) {
+  RedisModuleCmdFunc func = SafeCmd(ConfigCommand);
+  CONFIG_SUBCOMMANDS("FT.CONFIG", func, "readonly");
+  return CreateSubCommands(ctx, configCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
+}
+
+static int RegisterAllDebugCommands(RedisModuleCtx* ctx, RedisModuleCommand *debugCommand) {
+  int rc = RegisterDebugCommands(debugCommand);
+  if (rc != REDISMODULE_OK) {
+    return rc;
+  }
+  return RegisterCoordDebugCommands(debugCommand);
+}
+
+static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand);
+
+#define RS_WRITE_FLAGS_DEFAULT(flags) IsEnterprise() ? flags " " PROXY_FILTERED : flags
+
+static int CreateSearchCommands(RedisModuleCtx *ctx, const SearchCommand *commands, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    const SearchCommand *command = &commands[i];
+    if (CreateSearchCommand(ctx, command) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Could not create search command %s", command->name);
+      return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+#define DEFINE_COMMAND_KEYS(firstkey_, lastkey_, keystep_) \
+  (CommandKeys){.firstkey = firstkey_, .lastkey = lastkey_, .keystep = keystep_}
+
+#define DEFINE_COMMAND(name_, func_, flags_, callback_, callback_type_, acl_, register_condition_, keys_) \
+  { .name = name_, .flags = flags_, .shouldRegister = register_condition_,                                \
+    .aclCategories = acl_, .handler = func_, .callback.ptr = callback_,                                   \
+    .selectedCallbackType = callback_type_,                                                               \
+    .position = keys_}
+
+
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  char *err;
 
   // Prepare thread local storage for storing active queries/cursors
   int error = MainThread_InitBlockedQueries();
@@ -1247,157 +1403,78 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   RM_TRY_F(NumericIndexType_Register, ctx);
 
-
-// With coordinator we do not want to raise a move error for index commands so we do not specify
-// any key.
-#define INDEX_ONLY_CMD_ARGS 0, 0, 0
-#define INDEX_DOC_CMD_ARGS 2, 2, 1
-
   // Create the `search` ACL command category
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_CATEGORY) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_CATEGORY " ACL category, errno: %d\n", errno);
-      return REDISMODULE_ERR;
+    RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_CATEGORY " ACL category, errno: %d\n", errno);
+    return REDISMODULE_ERR;
   }
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_INDEX_LIST_CMD, IndexList, "readonly",
-         0, 0, 0, "slow admin", false))
+  // Create the ACL command category for our internal commands
+  if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_INTERNAL_CATEGORY) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_INTERNAL_CATEGORY " ACL category, errno: %d\n", errno);
+    return REDISMODULE_ERR;
+  }
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ADD_CMD, RSAddDocumentCommand,
-         "write deny-oom", INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
+  const CommandKeys indexOnlyCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
+  const CommandKeys indexDocCmdArgs = DEFINE_COMMAND_KEYS(2, 2, 1);
+  const CommandKeys indexSugCmdArgs = DEFINE_COMMAND_KEYS(1, 1, 1);
+  SearchCommand commands[] = {
+          // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
+    // to be able to replicate from an old RediSearch version.
+    // If this is the light version then the _ft.safeadd/_ft.del does not exist
+    // and we will get the normal ft.safeadd/ft.del command.
+    DEFINE_COMMAND(RS_ADD_CMD,            RSAddDocumentCommand, "write deny-oom",                         NULL, NONE, "write admin", true,           indexDocCmdArgs),
+    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand, RS_WRITE_FLAGS_DEFAULT("write deny-oom"), NULL, NONE, "write admin", IsEnterprise(), indexDocCmdArgs),
+    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DeleteCommand,        RS_WRITE_FLAGS_DEFAULT("write"),          NULL, NONE, "write admin", IsEnterprise(), indexDocCmdArgs),
+    DEFINE_COMMAND(RS_DEL_CMD,            DeleteCommand,        RS_WRITE_FLAGS_DEFAULT("write"),          NULL, NONE, "write admin", true,           indexDocCmdArgs),
+    DEFINE_COMMAND(RS_SAFEADD_CMD,        RSAddDocumentCommand, "write deny-oom",                         NULL, NONE, "write admin", true,           indexDocCmdArgs),
 
-#ifdef RS_CLUSTER_ENTERPRISE
-  // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
-  // to be able to replicate from an old RediSearch version.
-  // If this is the light version then the _ft.safeadd/_ft.del does not exist
-  // and we will get the normal ft.safeadd/ft.del command.
-  RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_SAFEADD_CMD, RSAddDocumentCommand,
-         "write deny-oom", INDEX_DOC_CMD_ARGS, "write", true))
-  RM_TRY(RMCreateSearchCommand(ctx, LEGACY_RS_DEL_CMD, DeleteCommand,
-         "write", INDEX_DOC_CMD_ARGS, "write", true))
-#endif
+    // write commands (on enterprise we do not define them, the dmc take care of them)
+    // search write slow dangerous
+    DEFINE_COMMAND(RS_CREATE_CMD,          CreateIndexCommand,            "write deny-oom", SetFtCreateInfo,      SET_COMMAND_INFO, "",                           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_CREATE_IF_NX_CMD,    CreateIndexIfNotExistsCommand, "write deny-oom", NULL,                 NONE,             "write",                      true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DROP_CMD,            DropIndexCommand,              "write",          SetFtDropindexInfo,   SET_COMMAND_INFO, "write slow dangerous admin", true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DROP_INDEX_CMD,      DropIndexCommand,              "write",          SetFtDropindexInfo,   SET_COMMAND_INFO, "write slow dangerous",       true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DROP_IF_X_CMD,       DropIfExistsIndexCommand,      "write",          SetFtDropindexInfo,   SET_COMMAND_INFO, "write slow dangerous admin", true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,      "write",          SetFtDropindexInfo,   SET_COMMAND_INFO, "write slow dangerous",       true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SYNUPDATE_CMD,       SynUpdateCommand,              "write",          SetFtSynupdateInfo,   SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALTER_CMD,           AlterIndexCommand,             "write",          SetFtAlterInfo,       SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALTER_IF_NX_CMD,     AlterIndexIfNXCommand,         "write",          SetFtAlterInfo,       SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DICT_ADD,            DictAddCommand,                "readonly",       SetFtDictaddInfo,     SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DICT_DEL,            DictDelCommand,                "readonly",       SetFtDictdelInfo,     SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASADD,            AliasAddCommand,               "readonly",       SetFtAliasaddInfo,    SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASADD_IF_NX,      AliasAddCommandIfNX,           "readonly",       SetFtAliasaddInfo,    SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASUPDATE,         AliasUpdateCommand,            "readonly",       SetFtAliasupdateInfo, SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASDEL,            AliasDelCommand,               "readonly",       SetFtAliasdelInfo,    SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_ALIASDEL_IF_EX,      AliasDelIfExCommand,           "readonly",       SetFtAliasdelInfo,    SET_COMMAND_INFO,  "",                          true, indexOnlyCmdArgs),
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SAFEADD_CMD, RSAddDocumentCommand,
-        "write deny-oom", INDEX_DOC_CMD_ARGS, "write", false))
+    // Suggestion commands key specs should be 1, 1, 1
+    DEFINE_COMMAND(RS_SUGADD_CMD,     RSSuggestAddCommand,    "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs),
+    DEFINE_COMMAND(RS_SUGGET_CMD,     RSSuggestGetCommand,    "readonly",       SetFtSuggetInfo, SET_COMMAND_INFO, "read",  true, indexSugCmdArgs),
+    DEFINE_COMMAND(RS_SUGDEL_CMD,     RSSuggestDelCommand,    "write",          SetFtSugdelInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs),
+    DEFINE_COMMAND(RS_SUGLEN_CMD,     RSSuggestLenCommand,    "readonly",       SetFtSuglenInfo, SET_COMMAND_INFO, "read",  true, indexSugCmdArgs),
+    // Local commands
+    DEFINE_COMMAND(RS_EXPLAIN_CMD,    QueryExplainCommand,    "readonly",       SetFtExplainInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",       SetFtExplaincliInfo, SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DICT_DUMP,      DictDumpCommand,        "readonly",       SetFtDictdumpInfo,   SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SYNDUMP_CMD,    SynDumpCommand,         "readonly",       SetFtSyndumpInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList,              "readonly",       NULL,                NONE,             "slow admin", true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SYNADD_CMD,     SynAddCommand,          "write",          NULL,                NONE,             "admin",      true, indexOnlyCmdArgs),
+    // read only commands
+    DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtInfoInfo,             SET_COMMAND_INFO,      "",                     true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          RS_READ_ONLY_FLAGS_DEFAULT, SetFtSearchInfo,           SET_COMMAND_INFO,      "read",                 true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       RS_READ_ONLY_FLAGS_DEFAULT, SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         RS_READ_ONLY_FLAGS_DEFAULT, SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_GET_CMD,       GetSingleDocumentCommand, "readonly",                 NULL,                      NONE,                  "read admin",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_MGET_CMD,      GetDocumentsCommand,      RS_READ_ONLY_FLAGS_DEFAULT, NULL,                      NONE,                  "read admin",           true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_TAGVALS_CMD,   TagValsCommand,           RS_READ_ONLY_FLAGS_DEFAULT, SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read admin dangerous", true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "",                     true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_SPELL_CHECK,   SpellCheckCommand,        RS_READ_ONLY_FLAGS_DEFAULT, SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true, indexOnlyCmdArgs),
+    DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true, indexOnlyCmdArgs),
+  };
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DEL_CMD, DeleteCommand, "write",
-         INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS, "", true))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,
-         "readonly", INDEX_ONLY_CMD_ARGS, "read", true))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand,
-         "readonly", INDEX_DOC_CMD_ARGS, "read", !IsEnterprise()))
-
-  // Do not force cross slot validation since coordinator will handle it.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand,
-         "readonly", 0, 0, 0, "read", true))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_CMD, CreateIndexCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand,
-         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand,
-         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,
-         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_INFO_CMD, IndexInfoCommand,
-         "readonly", INDEX_ONLY_CMD_ARGS, "", true))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_TAGVALS_CMD, TagValsCommand,
-         "readonly", INDEX_ONLY_CMD_ARGS, "read slow dangerous", true))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_PROFILE_CMD, RSProfileCommand,
-         "readonly", INDEX_ONLY_CMD_ARGS, "read", true))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_EXPLAIN_CMD, QueryExplainCommand,
-         "readonly", INDEX_ONLY_CMD_ARGS, "", false))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_EXPLAINCLI_CMD, QueryExplainCLICommand,
-         "readonly", INDEX_ONLY_CMD_ARGS, "", false))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SUGADD_CMD, RSSuggestAddCommand,
-         "write deny-oom", 1, 1, 1, "write", false))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SUGDEL_CMD, RSSuggestDelCommand, "write",
-         1, 1, 1, "write", false))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SUGLEN_CMD, RSSuggestLenCommand,
-         "readonly", 1, 1, 1, "read", false))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SUGGET_CMD, RSSuggestGetCommand,
-         "readonly", 1, 1, 1, "read", false))
-
-  // Do not force cross slot validation since coordinator will handle it.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CURSOR_CMD, RSCursorCommand, "readonly",
-         0, 0, 0, "read", true));
-
-  // todo: what to do with this?
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", false))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS, "", false))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_CMD, AlterIndexCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
-
-  // "Special" case - we do not allow debug commands from the user on RE, while
-  // we also don't want them to be internal on OSS.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL,
-         IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
-         RS_DEBUG_FLAGS, "admin", false))
-  RM_TRY_F(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand,
-         "readonly", INDEX_ONLY_CMD_ARGS, "", true))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_ADD, DictAddCommand,
-         "write deny-oom", 0, 0, 0, "", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DEL, DictDelCommand, "write", 0, 0,
-         0, "", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DUMP, DictDumpCommand, "readonly",
-         0, 0, 0, "", false))
-
-  // "Special" case - similar to `_FT.DEBUG` (see above).
-  RM_TRY(RMCreateSearchCommand(ctx, RS_CONFIG, ConfigCommand,
-         IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
-         0, 0, 0, "admin", false))
-
-  // Alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
-  // Cluster is managed outside of module lets trust it and not raise cross slot error.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD, AliasAddCommand,
-         "write deny-oom", 0, 0, 0, "", !IsEnterprise()))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX,
-         "write deny-oom", 0, 0, 0, "", !IsEnterprise()))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand,
-         "write deny-oom", 0, 0, 0, "", !IsEnterprise()))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL, AliasDelCommand, "write", 0, 0,
-         0, "", !IsEnterprise()))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand,
-         "write", 0, 0, 0, "", !IsEnterprise()))
-  return REDISMODULE_OK;
+  return CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(SearchCommand));
 }
 
 extern dict *legacySpecDict, *legacySpecRules;
@@ -3197,6 +3274,26 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                                (WeakRef){0});
 }
 
+#define CURSOR_SUBCOMMANDS(command, func)                                                                                                                           \
+  SubCommand subcommands[] = {                                                                                                                                      \
+    {.name = "READ", .fullName = command "|READ", .flags = "readonly", .handler = func, .setCommandInfo = SetFtCursorReadInfo, .position = {0, 0, 0}}, \
+    {.name = "DEL", .fullName = command "|DEL", .flags = "write", .handler = func, .setCommandInfo = SetFtCursorDelInfo, .position = {0, 0, 0}},       \
+    {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},                       \
+  }
+
+// This function sits next to RegisterCoordCursorCommands fucntion
+// RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
+static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
+  CURSOR_SUBCOMMANDS(RS_CURSOR_CMD, RSCursorCommand);
+  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
+}
+
+static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
+  RedisModuleCmdFunc func = SafeCmd(CursorCommand);
+  CURSOR_SUBCOMMANDS("FT.CURSOR", func);
+  return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
+}
+
 int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
@@ -3596,36 +3693,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
-size_t GetNumShards_UnSafe() {
-  return NumShards;
-}
-
-/** A dummy command handler, for commands that are disabled when running the module in OSS
- * clusters
- * when it is not an internal OSS build. */
-int DisabledCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return RedisModule_ReplyWithError(ctx, "Module Disabled in Open Source Redis");
-}
-
-/** A wrapper function that safely checks whether we are running in OSS cluster when registering
- * commands.
- * If we are, and the module was not compiled for oss clusters, this wrapper will return a pointer
- * to a dummy function disabling the actual handler.
- *
- * If we are running in RLEC or in a special OSS build - we simply return the original command.
- *
- * All coordinator handlers must be wrapped in this decorator.
- */
-static RedisModuleCmdFunc SafeCmd(RedisModuleCmdFunc f) {
-  if (IsEnterprise() && clusterConfig.type != ClusterType_RedisLabs) {
-    /* If we are running inside OSS cluster and not built for oss, we return the dummy handler */
-    return DisabledCommandHandler;
-  }
-
-  /* Valid - we return the original function */
-  return f;
-}
-
 /**
  * A wrapper function to override hiredis allocators with redis allocators.
  * It should be called after RedisModule_Init.
@@ -3755,76 +3822,63 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_Log(ctx, "warning", "Redis version does not support ACL API necessary for index protection");
   }
 
-  // read commands
+
+  const CommandKeys ossCmdArgs = DEFINE_COMMAND_KEYS(0, 0, -1);
+  const CommandKeys noCmdArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
+  SearchCommand aggregate = DEFINE_COMMAND("FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, ossCmdArgs);
+  SearchCommand cursor =    DEFINE_COMMAND("FT.CURSOR",    NULL,                          "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, ossCmdArgs);
   if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
-           SafeCmd(DistAggregateCommand), "readonly", 0, 1, -2, "read", false))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
-           SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
+    const CommandKeys aggregateKeys = {0, 1, -2};
+    const CommandKeys cursorKeys = {3, 1, -3};
+    aggregate.position = aggregateKeys;
+    cursor.position = cursorKeys;
   }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
-  if (clusterConfig.type == ClusterType_RedisLabs) {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read", false))
-  } else {
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 0, 0, -1, "read", false))
+
+  SearchCommand commands[] = {
+    // read commands
+    DEFINE_COMMAND("FT.INFO",       SafeCmd(InfoCommandHandler),       "readonly", SetFtInfoInfo,       SET_COMMAND_INFO, "read", true, ossCmdArgs),
+    DEFINE_COMMAND("FT.SEARCH",     SafeCmd(DistSearchCommand),        "readonly", SetFtSearchInfo,     SET_COMMAND_INFO, "read", true, ossCmdArgs),
+    DEFINE_COMMAND("FT.PROFILE",    SafeCmd(ProfileCommandHandler),    "readonly", SetFtProfileInfo,    SET_COMMAND_INFO, "read", true, ossCmdArgs),
+    DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", SetFtSpellcheckInfo, SET_COMMAND_INFO, "", true, ossCmdArgs),
+    aggregate,
+    cursor,
+    // oss commands
+    DEFINE_COMMAND("FT.CREATE",         SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._CREATEIFNX",    SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtCreateInfo,                SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ALTER",          SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._ALTERIFNX",     SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtAlterInfo,                 SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DROPINDEX",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._DROPINDEXIFX",  SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtDropindexInfo,             SET_COMMAND_INFO,      "write slow dangerous", !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DICTADD",        SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtDictaddInfo,               SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DICTDEL",        SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtDictdelInfo,               SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ALIASADD",       SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._ALIASADDIFNX",  SafeCmd(FanoutCommandHandlerIndexless),                  "write deny-oom", SetFtAliasaddInfo,              SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ALIASDEL",       SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._ALIASDELIFX",   SafeCmd(FanoutCommandHandlerIndexless),                  "write",          SetFtAliasdelInfo,              SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ALIASUPDATE",    SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg),       "write deny-oom", SetFtAliasupdateInfo,           SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.SYNUPDATE",      SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write deny-oom", SetFtSynupdateInfo,             SET_COMMAND_INFO,      "",                     !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.GET",            SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg),   "readonly",       NULL,                           NONE,                  "read",                 !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.ADD",            SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg),   "write deny-oom", NULL,                           NONE,                  "write",                !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DEL",            SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg),   "write",          NULL,                           NONE,                  "write",                !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.DROP",           SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),        "write",          NULL,                           NONE,                  "write slow dangerous", !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT._DROPIFX",       SafeCmd(FanoutCommandHandlerIndexless),                  "write",          NULL,                           NONE,                  "write",                !IsEnterprise(),                      ossCmdArgs),
+    DEFINE_COMMAND("FT.CONFIG",         NULL,                                                    "readonly",       RegisterCoordConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                !IsEnterprise() && !isClusterEnabled, noCmdArgs),
+
+    // cluster set commands
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", NULL, NONE, "", true, ossCmdArgs),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED : "readonly deny-script",               NULL, NONE, "", true, ossCmdArgs),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", NULL, NONE, "", true, ossCmdArgs),
+
+    // Deprecated commands. Grouped here for easy tracking
+    DEFINE_COMMAND("FT.MGET",           SafeCmd(MGetCommandHandler),    "readonly", NULL,             NONE,             "read",           true, ossCmdArgs),
+    DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(TagValsCommandHandler), "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, ossCmdArgs)
+  };
+  if (CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
   }
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.SPELLCHECK", SafeCmd(SpellCheckCommandHandler), "readonly", 0, 0, -1, "", false))
+
   // Assumes "_FT.DEBUG" is registered (from `RediSearch_InitModuleInternal`)
   RM_TRY(RegisterCoordDebugCommands(RedisModule_GetCommand(ctx, "_FT.DEBUG")));
-
-// OSS commands (registered via proxy in Enterprise)
-#ifndef RS_CLUSTER_ENTERPRISE
-    if (!isClusterEnabled) {
-      // Register the config command with `FT.` prefix only if we are not in cluster mode as an alias
-      RM_TRY(RMCreateSearchCommand(ctx, "FT.CONFIG", SafeCmd(ConfigCommand), "readonly", 0, 0, 0, "admin", false));
-    }
-    RedisModule_Log(ctx, "notice", "Register write commands");
-    // write commands (on enterprise we do not define them, the dmc take care of them)
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write",0, 0, -1, "write slow dangerous", false))
-    // TODO: Either make ALL replication commands internal (such that no need for ACL check), or add ACL check.
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "write",0, 0, -1, "write slow dangerous", false))
-    // search write slow dangerous
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"write deny-oom", 0, 0, -1, "", false))
-
-    // Deprecated OSS commands
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "read", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "write", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write slow dangerous", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "write", false))
-#endif
-
-  // cluster set commands. We filter from the proxy, but do not mark them as internal.
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET",
-         SafeCmd(SetClusterCommand),
-         IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script",
-         0, 0, -1, "", false))
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH",
-         SafeCmd(RefreshClusterCommand),
-         IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED : "readonly deny-script",
-         0, 0, -1, "", false))
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO",
-         SafeCmd(ClusterInfoCommand),
-         IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script",
-         0, 0, -1, "", false))
-
-  // Deprecated commands. Grouped here for easy tracking
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read slow dangerous", false))
 
   return REDISMODULE_OK;
 }
