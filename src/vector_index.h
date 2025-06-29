@@ -39,6 +39,7 @@
 #define VECSIM_EPSILON "EPSILON"
 #define VECSIM_HYBRID_POLICY "HYBRID_POLICY"
 #define VECSIM_BATCH_SIZE "BATCH_SIZE"
+#define VECSIM_SHARD_WINDOW_RATIO "SHARD_WINDOW_RATIO"
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
@@ -110,6 +111,7 @@ typedef struct VectorQuery {
   };
   VectorQueryType type;               // vector similarity query type
   VectorQueryParams params;           // generic query params array, for the vecsim library to check
+  double shardWindowRatio;            // shard window ratio for distributed queries
 
   VecSimQueryResult *results;         // array for results
   int resultsLen;                     // length of array
