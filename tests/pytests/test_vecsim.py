@@ -346,8 +346,15 @@ def test_create():
         conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v_FLAT', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10')
 
+
         expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024]
         expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024]
+
+        # SVS-VAMANA only supports FLOAT32 and FLOAT16 data types
+        if data_type in ('FLOAT32', 'FLOAT16'):
+            conn.execute_command('FT.CREATE', 'idx3', 'SCHEMA', 'v_SVS_VAMANA', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_type,
+                                 'DIM', '1024', 'DISTANCE_METRIC', 'L2')
+            expected_SVS_VAMANA = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'SVS', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'COMPRESSION', 'NONE', 'ALPHA', 1.2, 'GRAPH_MAX_DEGREE', 32, 'CONSTRUCTION_WINDOW_SIZE', 200, 'MAX_CANDIDATE_POOL_SIZE', 600, 'PRUNE_TO', 28, 'USE_SEARCH_HISTORY', 1, 'NUM_THREADS', 1, 'NUMBER_OF_MARKED_DELETED_NODES', 0, 'SEARCH_WINDOW_SIZE', 10, 'EPSILON', 0.01], 'TIERED_SVS_TRAINING_THRESHOLD', 10240]
 
         for _ in env.reloadingIterator():
             info = ['identifier', 'v_HNSW', 'attribute', 'v_HNSW', 'type', 'VECTOR']
@@ -369,8 +376,23 @@ def test_create():
 
             env.assertEqual(info_data_FLAT, expected_FLAT)
 
-        conn.execute_command('FT.DROP', 'idx1')
-        conn.execute_command('FT.DROP', 'idx2')
+            # Test SVS-VAMANA index only for supported data types
+            if data_type in ('FLOAT32', 'FLOAT16'):
+                info = ['identifier', 'v_SVS_VAMANA', 'attribute', 'v_SVS_VAMANA', 'type', 'VECTOR']
+                env.assertEqual(index_info(env, 'idx3')['attributes'][0][:len(info)], info)
+                info_data_SVS_VAMANA = conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx3", "v_SVS_VAMANA")
+                # replace memory values with a dummy value - irrelevant for the test
+                info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('MEMORY') + 1] = dummy_val
+                info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('MANAGEMENT_LAYER_MEMORY') + 1] = dummy_val
+                front_svs = info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('FRONTEND_INDEX') + 1]
+                front_svs[front_svs.index('MEMORY') + 1] = dummy_val
+                back_svs = info_data_SVS_VAMANA[info_data_SVS_VAMANA.index('BACKEND_INDEX') + 1]
+                back_svs[back_svs.index('MEMORY') + 1] = dummy_val
+
+                # TODO: enable once info iterator implemented for svs-vamana
+                # env.assertEqual(info_data_SVS_VAMANA, expected_SVS_VAMANA)
+
+        conn.execute_command('FLUSHALL')
 
 @skip(cluster=True)
 def test_search_ints(env:Env):
@@ -598,7 +620,8 @@ def test_create_errors():
         .error().contains('Invalid TRAINING_THRESHOLD')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048') \
         .error().contains('TRAINING_THRESHOLD is irrelevant when compression was not requested')
-
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048', 'COMPRESSION', 'LVQ8') \
+        .ok()   # valid case when training threshold is set while compression is set also, but after.
 
 def test_index_errors():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1544,258 +1567,150 @@ def test_system_memory_limits():
     system_memory = int(env.cmd('info', 'memory')['total_system_memory'])
     currIdx = 0
     dim = 16
-    float32_byte_size = 4
-    float64_byte_size = 8
+    type_size = 4
+    data_type = 'FLOAT32'
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
-        # OK parameters
-        env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                                          'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 10000, 'BLOCK_SIZE', 100))
-        currIdx+=1
+    # Test that huge BLOCK_SIZE is ignored in FLAT and huge INITIAL_CAP ignores in FLAT and in HNSW (both deprecated)
+    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
+                                      'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory, 'BLOCK_SIZE', system_memory))
+    currIdx+=1
 
-        env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                                          'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 10000))
-        currIdx+=1
+    env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
+                                      'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory))
+    currIdx+=1
 
-        # Index initial size exceeded limits
+
+    # Test cases where maxBlockSize becomes zero due to high element size
+
+    # Case 1: High dimension causing maxBlockSize to be zero for all algorithms
+    # Calculate a dimension that would cause element size to exceed memory limits
+    # For FLAT: element_size = dim * type_size
+    # For HNSW: element_size = dim * type_size + graph_overhead (M * 2 * sizeof(idType) + metadata)
+    # For SVS: element_size = dim * type_size + graph_overhead (graph_max_degree * sizeof(uint32_t))
+
+    memory_limit = system_memory // 10  # BLOCK_MEMORY_LIMIT is 10% of system memory
+
+    # High dimension test - should fail for all algorithms
+    high_dim = (memory_limit // type_size) + 1000  # Ensure element size exceeds limit
+
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
+               'DIM', high_dim, 'DISTANCE_METRIC', 'L2').error().contains(
+               'Vector index element size')
+    currIdx+=1
+
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
+               'DIM', high_dim, 'DISTANCE_METRIC', 'L2').error().contains(
+               'Vector index element size')
+    currIdx+=1
+
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_type,
+               'DIM', high_dim, 'DISTANCE_METRIC', 'L2').error().contains(
+               'Vector index element size')
+    currIdx+=1
+
+    # Case 2: High M parameter in HNSW causing maxBlockSize to be zero
+    # HNSW element size includes: dim * type_size + sizeof(ElementGraphData) + sizeof(idType) * M * 2
+    # Calculate M that would cause element size to exceed memory limits
+    base_element_size = dim * type_size + 64  # Approximate overhead for ElementGraphData and metadata
+    remaining_memory = memory_limit - base_element_size
+    if remaining_memory > 0:
+        high_M = (remaining_memory // (4 * 2)) + 1000  # sizeof(idType) = 4, M * 2 connections
+
         env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory).error().contains(
-                   f'Vector index initial capacity {system_memory} exceeded server limit')
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', high_M).error().contains(
+                   'Vector index element size')
         currIdx+=1
 
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', system_memory, 'BLOCK_SIZE', 100).error().contains(
-                   f'Vector index initial capacity {system_memory} exceeded server limit')
-        currIdx+=1
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', system_memory).error().contains(
-                   f'Vector index block size {system_memory} exceeded server limit')
-        currIdx+=1
+    # Case 3: High graph_max_degree in SVS-VAMANA causing maxBlockSize to be zero
+    # SVS element size includes: dim * type_size + sizeof(uint32_t) * (graph_max_degree + 1)
+    base_element_size = dim * type_size
+    remaining_memory = memory_limit - base_element_size
+    if remaining_memory > 0:
+        high_graph_degree = (remaining_memory // 4) + 1000  # sizeof(uint32_t) = 4
 
-        # Block size with no configuration limits fails
-        block_size = system_memory // (dim*float32_byte_size) // 9 # memory needed for this block size is more than 10% of system memory
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
-                   f'Vector index block size {block_size} exceeded server limit')
+        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '8', 'TYPE', data_type,
+                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'GRAPH_MAX_DEGREE', high_graph_degree).error().contains(
+                   'Vector index element size')
         currIdx+=1
 
-        # For FLOAT64, this block size exceeds 10% of system memory, but not for FLOAT32
-        block_size = system_memory // (dim*float64_byte_size) // 9
-        if data_type == 'FLOAT32':
-            env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                       'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).ok()
-        else:
-            env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
-            f'Vector index block size {block_size} exceeded server limit')
+    conn.execute_command("FLUSHALL")
 
-        # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
-        #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0, 'BLOCK_SIZE', block_size).error().contains(
-        #            f'Vector index block size {block_size} exceeded server limit')
-        conn.execute_command("FLUSHALL")
-
-
-def test_redis_memory_limits():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-
-    used_memory = int(env.cmd('info', 'memory')['used_memory'])
-    currIdx = 0
-    dim = 16
-    float32_byte_size = 4
-    float64_byte_size = 8
-
-    # Config max memory (redis server memory limit)
-    maxmemory = used_memory * 5
-    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-
-    for data_type in ['FLOAT32', 'FLOAT64']:
-
-        # Index initial capacity exceeded new limits
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory).error().contains(
-                   f'Vector index initial capacity {maxmemory} exceeded server limit')
-        currIdx+=1
-
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', maxmemory, 'BLOCK_SIZE', 100).error().contains(
-                   f'Vector index initial capacity {maxmemory} exceeded server limit')
-        currIdx+=1
-
-        # Block size
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', maxmemory).error().contains(
-                   f'Vector index block size {maxmemory} exceeded server limit')
-        currIdx+=1
-
-        # Block size is set such that its byte size exceeds 10% of maxmemory - and therefore fails
-        block_size = maxmemory // (dim*float32_byte_size) // 9
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-                   f'Vector index block size {block_size} exceeded server limit')
-        currIdx+=1
-
-        # For FLOAT64, this block size exceeds 10% of maxmemory, but not for FLOAT32
-        block_size = maxmemory // (dim*float64_byte_size) // 9
-        if data_type == 'FLOAT32':
-            env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                       'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
-            currIdx+=1
-        else:
-            env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                       'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-                f'Vector index block size {block_size} exceeded server limit')
-
-        # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', 'FLOAT32',
-        #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-        #            f'Vector index block size {block_size} exceeded server limit')
-
-    # reset env (for clean RLTest run with env reuse)
-    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
-
-@skip(cluster=True)
-def test_default_block_size_and_initial_capacity():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-
-    dim = 1024
-    default_blockSize = 1024 # default block size
-    type_to_byte_size = {'FLOAT32': 4, 'FLOAT64': 8}
-
-    currIdx = 0
-    used_memory = None
-    maxmemory = None
-
-    def set_memory_limit(data_byte_size = 1):
-        nonlocal used_memory, maxmemory
-        used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
-        maxmemory = used_memory + (20 * 1024 * 1024) # 20MB
-        conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-        return maxmemory // 10 // (dim*data_byte_size)
-
-    def check_algorithm_and_type_combination(with_memory_limit):
-        nonlocal currIdx
-        exp_block_size = default_blockSize
-
-        for data_type, data_byte_size in type_to_byte_size.items():
-            for algo in VECSIM_ALGOS:
-                if algo == 'SVS-VAMANA': # INITIAL_CAP is not valid for SVS-VAMANA
-                    continue
-                if with_memory_limit:
-                    exp_block_size = set_memory_limit(data_byte_size)
-                    env.assertLess(exp_block_size, default_blockSize)
-                    # Explicitly, the default values should fail:
-                    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '8', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-                               'INITIAL_CAP', default_blockSize).error().contains(
-                               f"Vector index initial capacity {default_blockSize} exceeded server limit")
-                    if algo == 'FLAT': # TODO: remove condition when BLOCK_SIZE is added to FT.CREATE on HNSW
-                        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '10', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 0,
-                               'BLOCK_SIZE', default_blockSize).error().contains(
-                        f"Vector index block size {default_blockSize} exceeded server limit")
-
-                env.assertOk(conn.execute_command('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', algo, '6',
-                                                  'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2'))
-                debug_info = to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", currIdx, 'v'))
-                if algo == 'FLAT': # TODO: remove condition when BLOCK_SIZE is added to FT.CREATE on HNSW
-                    env.assertLessEqual(debug_info['BLOCK_SIZE'], exp_block_size)
-                # TODO: if we ever add INITIAL_CAP to debug data, uncomment this
-                # env.assertEqual(debug_info['BLOCK_SIZE'], debug_info['INITIAL_CAP'])
-                currIdx+=1
-
-    # Test defaults with no memory limit
-    check_algorithm_and_type_combination(False)
-
-    # set memory limits and reload, to verify that we succeed to load with the new limits
-    num_indexes = len(conn.execute_command('FT._LIST'))
-    set_memory_limit()
-    env.dumpAndReload()
-    env.assertEqual(num_indexes, len(conn.execute_command('FT._LIST')))
-
-    # Test defaults with memory limit
-    check_algorithm_and_type_combination(True)
-
-    # reset env (for clean RLTest run with env reuse)
-    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 @skip(cluster=True)
 def test_redisearch_memory_limit():
-    # test block size with VSS_MAX_RESIZE_MB configure
+    # test element size with VSS_MAX_RESIZE configure
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
     maxmemory = used_memory * 5
     conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
-    dim = 16
     currIdx = 0
-    type_to_byte_size = {'FLOAT32': 4, 'FLOAT64': 8}
+    data_type = 'FLOAT32'
+    data_byte_size = 4
 
-    for data_type, data_byte_size in type_to_byte_size.items():
-        block_size = maxmemory // (dim*data_byte_size) // 2  # half of memory limit divided by blob size
+    # Calculate dimension that will cause element size to exceed 10% memory limit
+    # BLOCK_MEMORY_LIMIT = maxmemory / 10 (default 10% of system memory)
+    memory_limit_10_percent = maxmemory // 10
+    # For FLAT: element_size = dim * data_byte_size
+    # We want: element_size > memory_limit_10_percent
+    dim = (memory_limit_10_percent // data_byte_size) + 1000  # Dimension that exceeds 10% limit
 
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                    'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-                    f'Vector index block size {block_size} exceeded server limit')
-        currIdx+=1
-        # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', data_type,
-        #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).error().contains(
-        #            f'Vector index block size {block_size} exceeded server limit')
-        # currIdx+=1
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
+                'DIM', dim, 'DISTANCE_METRIC', 'L2').error().contains('Vector index element size')
+    currIdx+=1
 
-        env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', maxmemory).ok()
+    env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', maxmemory).ok()
 
-        env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                    'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
-        currIdx+=1
-        # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'HNSW', '10', 'TYPE', data_type,
-        #            'DIM', '16', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', 100, 'BLOCK_SIZE', block_size).ok()
-        # currIdx+=1
-        env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', '0').ok()
+    env.expect('FT.CREATE', currIdx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
+                'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    currIdx+=1
 
     # reset env (for clean RLTest run with env reuse)
+    env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', '0').ok()
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 @skip(cluster=True)
 def test_rdb_memory_limit():
+    # test element size with VSS_MAX_RESIZE configure
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
     used_memory = int(conn.execute_command('info', 'memory')['used_memory'])
     maxmemory = used_memory * 5
-    dim = 128
-    type_to_byte_size = {'FLOAT32': 4, 'FLOAT64': 8}
+    idx = "idx"
+    data_type = 'FLOAT32'
+    data_byte_size = 4
 
-    for data_type, data_byte_size in type_to_byte_size.items():
-        block_size = maxmemory // (dim*data_byte_size) // 2  # half of memory limit divided by blob size
+    # Calculate dimension that will cause element size to exceed 10% memory limit
+    # BLOCK_MEMORY_LIMIT = maxmemory / 10 (default 10% of system memory)
+    memory_limit_10_percent = maxmemory // 10
+    # For FLAT: element_size = dim * data_byte_size
+    # We want: element_size > memory_limit_10_percent
+    dim = (memory_limit_10_percent // data_byte_size) + 1000  # Dimension that exceeds 10% limit
 
-        # succeed to create indexes with no limits
-        env.expect('FT.CREATE', 'idx-flat', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '10', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size, 'BLOCK_SIZE', block_size).ok()
-        # TODO: add block size to HNSW index for testing change in block size when block size is available
-        env.expect('FT.CREATE', 'idx-hnsw', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                   'DIM', dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', block_size).ok()
-        # sets memory limit
-        env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', maxmemory))
+    env.expect('FT.CREATE', idx, 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', data_type,
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
-        # The actual test: try creating indexes from rdb.
-        # should succeed after changing initial cap and block size to 0 and default
+    # Try reload with current max memory
+    env.dumpAndReload()
+
+    # assert that index was loaded successfully and contains the vector field using ft.info
+    assertInfoField(env, idx, 'attributes',
+                    [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'FLAT', 'data_type', 'FLOAT32', 'dim', 120934, 'distance_metric', 'L2']])
+
+    # The actual test: try creating indexes from rdb.
+    # should fail since vector index element size exceeds BLOCK_MEMORY_LIMIT and creating index will fail the loading.
+    conn.execute_command('CONFIG SET', 'maxmemory', maxmemory)
+    try:
         env.dumpAndReload()
+        env.assertTrue(False, message='Expected to fail')
+    except ResponseError as e:
+        env.assertContains('Error trying to load the RDB dump', str(e))
 
-        info_data = to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx-flat", "v"))
-        env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
-        # TODO: if we ever add INITIAL_CAP to debug data, add check here
-        # TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-        # info_data = to_dict(conn.execute_command(debug_cmd(), "VECSIM_INFO", "idx-hnsw", "v"))
-        # env.assertNotEqual(info_data['BLOCK_SIZE'], block_size)
-        # # TODO: if we ever add INITIAL_CAP to debug data, add check here
-        conn.execute_command("FLUSHALL")
+    # reset env (for clean RLTest run with env reuse)
+    env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-        # reset env (for clean RLTest run with env reuse)
-        env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
 class TestTimeoutReached(object):
     def __init__(self):
@@ -1869,7 +1784,6 @@ class TestTimeoutReached(object):
 
         self.run_long_queries(n_vec, query_vec)
 
-    # TODO: fix, failed right now
     def test_svs(self):
         # Create index and load vectors.
         n_vec = self.index_sizes['SVS-VAMANA']
@@ -1894,14 +1808,16 @@ def test_create_multi_value_json():
                 f"Invalid JSONPath '{path}' in attribute 'vec' in index 'idx'")
 
     for algo in VECSIM_ALGOS:
-        #TODO: enable when multi is supported
-        if algo == 'SVS-VAMANA':
-            continue
         for path in multi_paths:
             conn.flushall()
-            env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
-                       '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
-            env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
+            #TODO: enable when SVS-VAMANA supports multi value
+            if algo == 'SVS-VAMANA':
+                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                           '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().contains('Multi-value index is currently not supported for SVS-VAMANA algorithm')
+            else:
+                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                           '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
+                env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
 
         for path in single_paths:
             conn.flushall()

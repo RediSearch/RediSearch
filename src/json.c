@@ -368,6 +368,11 @@ switch (params->algo) {
       dim = params->algoParams.bfParams.dim;
       multi = params->algoParams.bfParams.multi;
       break;
+    case VecSimAlgo_SVS:
+      type = params->algoParams.bfParams.type;
+      dim = params->algoParams.bfParams.dim;
+      multi = params->algoParams.bfParams.multi;
+  break;
     default: goto fail;
   }
 
