@@ -140,7 +140,7 @@
 //!      │  └─ Type: INT_POS (10)
 //!      └─ Value bytes: 1 (001) (ie 2 bytes are used for the value)
 
-use std::io::{IoSlice, Read, Write};
+use std::io::{IoSlice, Read, SeekFrom, Write};
 
 use ffi::t_docId;
 
@@ -191,14 +191,17 @@ impl Encoder for Numeric {
         let delta = &delta[..end];
         let delta_bytes = delta.len() as _;
 
-        let bytes_written = match Value::from(num_record.0) {
+        let writer_len = writer.seek(SeekFrom::Current(0))?;
+
+        match Value::from(num_record.0) {
             Value::TinyInteger(i) => {
                 let header = Header {
                     delta_bytes,
                     typ: HeaderType::Tiny(i),
                 };
 
-                writer.write_vectored(&[IoSlice::new(&header.pack()), IoSlice::new(delta)])?
+                writer
+                    .write_vectored_all(&mut [IoSlice::new(&header.pack()), IoSlice::new(delta)])?
             }
             Value::IntegerPositive(i) => {
                 let bytes = i.to_le_bytes();
@@ -212,7 +215,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::IntegerPositive((end - 1) as _),
                 };
 
-                writer.write_vectored(&[
+                writer.write_vectored_all(&mut [
                     IoSlice::new(&header.pack()),
                     IoSlice::new(delta),
                     IoSlice::new(bytes),
@@ -230,7 +233,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::IntegerNegative((end - 1) as _),
                 };
 
-                writer.write_vectored(&[
+                writer.write_vectored_all(&mut [
                     IoSlice::new(&header.pack()),
                     IoSlice::new(delta),
                     IoSlice::new(bytes),
@@ -244,7 +247,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::Float32Positive,
                 };
 
-                writer.write_vectored(&[
+                writer.write_vectored_all(&mut [
                     IoSlice::new(&header.pack()),
                     IoSlice::new(delta),
                     IoSlice::new(&bytes),
@@ -258,7 +261,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::Float32Negative,
                 };
 
-                writer.write_vectored(&[
+                writer.write_vectored_all(&mut [
                     IoSlice::new(&header.pack()),
                     IoSlice::new(delta),
                     IoSlice::new(&bytes),
@@ -272,7 +275,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::Float64Positive,
                 };
 
-                writer.write_vectored(&[
+                writer.write_vectored_all(&mut [
                     IoSlice::new(&header.pack()),
                     IoSlice::new(delta),
                     IoSlice::new(&bytes),
@@ -286,7 +289,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::Float64Negative,
                 };
 
-                writer.write_vectored(&[
+                writer.write_vectored_all(&mut [
                     IoSlice::new(&header.pack()),
                     IoSlice::new(delta),
                     IoSlice::new(&bytes),
@@ -298,7 +301,8 @@ impl Encoder for Numeric {
                     typ: HeaderType::FloatInfinite,
                 };
 
-                writer.write_vectored(&[IoSlice::new(&header.pack()), IoSlice::new(delta)])?
+                writer
+                    .write_vectored_all(&mut [IoSlice::new(&header.pack()), IoSlice::new(delta)])?
             }
             Value::FloatNegInfinity => {
                 let header = Header {
@@ -306,11 +310,14 @@ impl Encoder for Numeric {
                     typ: HeaderType::FloatNegInfinite,
                 };
 
-                writer.write_vectored(&[IoSlice::new(&header.pack()), IoSlice::new(delta)])?
+                writer
+                    .write_vectored_all(&mut [IoSlice::new(&header.pack()), IoSlice::new(delta)])?
             }
         };
 
-        Ok(bytes_written)
+        let bytes_written = writer.seek(SeekFrom::Current(0))? - writer_len;
+
+        Ok(bytes_written as _)
     }
 }
 
@@ -572,6 +579,38 @@ impl ToBytes<1> for Header {
         }
 
         [packed]
+    }
+}
+
+/// Duplication of some unstable `Write` methods
+trait WriteExt {
+    /// Writes multiple buffers into a writer. This continously writes into the writer until all
+    /// the buffers are exhuasted.
+    fn write_vectored_all(&mut self, bufs: &mut [IoSlice<'_>]) -> std::io::Result<()>;
+}
+
+impl<W: Write> WriteExt for W {
+    #[inline(always)]
+    fn write_vectored_all(&mut self, mut bufs: &mut [IoSlice<'_>]) -> std::io::Result<()> {
+        // Guarantee that bufs is empty if it contains no data,
+        // to avoid calling write_vectored if there is no data to be written.
+        IoSlice::advance_slices(&mut bufs, 0);
+
+        while !bufs.is_empty() {
+            match self.write_vectored(bufs) {
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "failed to fill whole buffer",
+                    ));
+                }
+
+                Ok(n) => IoSlice::advance_slices(&mut bufs, n),
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(())
     }
 }
 
