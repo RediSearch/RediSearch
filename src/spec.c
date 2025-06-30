@@ -653,24 +653,10 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
   return AC_OK;
 }
 
-static int parseVectorField_GetOption(ArgsCursor *ac, VecSimOptionMode *option) {
-  const char *optionStr;
-  size_t len;
-  int rc;
-  if ((rc = AC_GetString(ac, &optionStr, &len, 0)) != AC_OK) {
-    return rc;
-  }
-  if (STR_EQCASE(optionStr, len, VECSIM_USE_SEARCH_HISTORY_ON))
-    *option = VecSimOption_ENABLE;
-  else if (STR_EQCASE(optionStr, len, VECSIM_USE_SEARCH_HISTORY_OFF))
-    *option = VecSimOption_DISABLE;
-  else
-    return AC_ERR_ENOENT;
-  return AC_OK;
-}
 
 // memoryLimit / 10 - default is 10% of global memory limit
-#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : memoryLimit / 10)
+#define ACTUAL_MEMORY_LIMIT ((memoryLimit > 0) ? memoryLimit : SIZE_MAX)
+#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : ACTUAL_MEMORY_LIMIT / 10)
 
 static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *status) {
   // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
@@ -1192,7 +1178,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
-    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = 0; // Will be set to default value.
+    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
 
     // primary index params allocated in VecSim_TieredParams_Init()
     TieredIndexParams *params = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
@@ -1200,7 +1186,6 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
     params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
     params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
-    params->primaryIndexParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
     params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);

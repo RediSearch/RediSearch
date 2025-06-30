@@ -198,7 +198,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
           REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
           if (svs_params.quantBits != VecSimSvsQuant_NONE) {
-            REPLY_KVNUM("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
+            REPLY_KVINT("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
           }
         }
       } else if (field_algo == VecSimAlgo_BF) {

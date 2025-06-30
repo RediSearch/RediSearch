@@ -169,6 +169,8 @@ def do_burst_threads_sanity(algo, data_type, test_name):
 func_gen = lambda al, dt, tn: lambda: do_burst_threads_sanity(al, dt, tn)
 for algo in VECSIM_ALGOS:
     for data_type in VECSIM_DATA_TYPES:
+        if algo == 'SVS-VAMANA' and data_type not in ('FLOAT32', 'FLOAT16'):
+            continue
         test_name = f"test_burst_threads_sanity_{algo}_{data_type}"
         globals()[test_name] = func_gen(algo, data_type, test_name)
 

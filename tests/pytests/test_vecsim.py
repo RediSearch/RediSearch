@@ -544,67 +544,32 @@ def test_create_errors():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '10', 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'INITIAL_CAP', 'str') \
         .error().contains('Bad arguments for algorithm SVS-VAMANA: INITIAL_CAP')
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', 'str') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `NUM_THREADS`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '-1') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `NUM_THREADS`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '0.5') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `NUM_THREADS`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '99999') \
-        .error().contains('NUM_THREADS value exceeds MAX_WORKER_THREADS')
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', 'str') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', 'str') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `GRAPH_MAX_DEGREE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '-1') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '-1') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `GRAPH_MAX_DEGREE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '0.1') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '0.1') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `GRAPH_MAX_DEGREE`')
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', 'str') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', 'str') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `CONSTRUCTION_WINDOW_SIZE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', '-1') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', '-1') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `CONSTRUCTION_WINDOW_SIZE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', '0.5') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', '0.5') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `CONSTRUCTION_WINDOW_SIZE`')
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'SEARCH_WINDOW_SIZE', 'str') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'SEARCH_WINDOW_SIZE', 'str') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `SEARCH_WINDOW_SIZE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'SEARCH_WINDOW_SIZE', '-1') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'SEARCH_WINDOW_SIZE', '-1') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `SEARCH_WINDOW_SIZE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'SEARCH_WINDOW_SIZE', '0.5') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'SEARCH_WINDOW_SIZE', '0.5') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `SEARCH_WINDOW_SIZE`')
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'MAX_CANDIDATE_POOL_SIZE', 'str') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `MAX_CANDIDATE_POOL_SIZE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'MAX_CANDIDATE_POOL_SIZE', '-1') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `MAX_CANDIDATE_POOL_SIZE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'MAX_CANDIDATE_POOL_SIZE', '0.5') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `MAX_CANDIDATE_POOL_SIZE`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'MAX_CANDIDATE_POOL_SIZE', 'str') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `MAX_CANDIDATE_POOL_SIZE`')
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'PRUNE_TO', 'str') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `PRUNE_TO`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'PRUNE_TO', '-1') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `PRUNE_TO`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'PRUNE_TO', '0.5') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `PRUNE_TO`')
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'ALPHA', 'str') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `ALPHA`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'ALPHA', '-1') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `ALPHA`')
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'USE_SEARCH_HISTORY', 'OFFF') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `USE_SEARCH_HISTORY`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'USE_SEARCH_HISTORY', '5') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `USE_SEARCH_HISTORY`')
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'COMPRESSION', '4') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'COMPRESSION', '4') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `COMPRESSION`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'COMPRESSION', '0') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'COMPRESSION', '0') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `COMPRESSION`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'COMPRESSION', 'LWQ4x4') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'COMPRESSION', 'LWQ4x4') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `COMPRESSION`')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', '200', 'EPSILON', 'str') \
@@ -612,15 +577,15 @@ def test_create_errors():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8','CONSTRUCTION_WINDOW_SIZE', '200', 'EPSILON', '-1') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `EPSILON`')
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '-1') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '-1') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `TRAINING_THRESHOLD`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', 'str') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', 'str') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `TRAINING_THRESHOLD`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '1') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '1') \
         .error().contains('Invalid TRAINING_THRESHOLD')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048') \
         .error().contains('TRAINING_THRESHOLD is irrelevant when compression was not requested')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048', 'COMPRESSION', 'LVQ8') \
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048', 'COMPRESSION', 'LVQ8') \
         .ok()   # valid case when training threshold is set while compression is set also, but after.
 
 def test_index_errors():
@@ -1697,7 +1662,7 @@ def test_rdb_memory_limit():
 
     # assert that index was loaded successfully and contains the vector field using ft.info
     assertInfoField(env, idx, 'attributes',
-                    [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'FLAT', 'data_type', 'FLOAT32', 'dim', 120934, 'distance_metric', 'L2']])
+                    [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'FLAT', 'data_type', 'FLOAT32', 'dim', dim, 'distance_metric', 'L2']])
 
     # The actual test: try creating indexes from rdb.
     # should fail since vector index element size exceeds BLOCK_MEMORY_LIMIT and creating index will fail the loading.
@@ -2526,3 +2491,36 @@ def test_vector_index_ptr_valid(env):
     # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()
+
+
+@skip(cluster=True)
+def test_svs_vamana_info():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    dim = 16
+    data_type = 'FLOAT32'
+
+    # Create SVS VAMANA index with LVQ8 compression
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '8', 'TYPE', data_type,
+                'DIM', dim, 'DISTANCE_METRIC', 'L2', 'COMPRESSION', 'LVQ8').ok()
+
+    # Simple platform-agnostic check for Intel CPU.
+    import platform
+    def is_intel_cpu():
+        if platform.system() != 'Linux' or platform.machine() != 'x86_64':
+            return False
+        # Check CPU vendor in /proc/cpuinfo on Linux
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpuinfo = f.read().lower()
+                if 'vendor_id' in cpuinfo and 'genuineintel' in cpuinfo:
+                    return True
+        except (IOError, FileNotFoundError):
+            return False
+
+    # Validate that ft.info returns the default params for SVS VAMANA, along with compression
+    # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
+    compression_runtime = 'LVQ8' if is_intel_cpu() else 'GlobalSQ'
+    assertInfoField(env, 'idx', 'attributes',
+                    [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
+                      'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
+                      'construction_window_size', 200, 'compression', compression_runtime, 'training_threshold', 10240]])
