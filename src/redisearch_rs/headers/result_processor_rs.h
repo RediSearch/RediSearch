@@ -12,6 +12,18 @@
 typedef struct ResultProcessor;
 
 
+#define RS_SORTABLES_MAX 1024
+
+/**
+ * [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a `*mut ffi::RSValue`.
+ *
+ * It implements the `[Clone]` and `[Drop]` traits to manage the reference counting of the underlying C struct.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an `RSValue` created by the C side.
+ */
+typedef RSValue *RSValueFFI;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -25,6 +37,79 @@ extern "C" {
  * - The caller must ensure to call the `Free` VTable function to properly destroy the type.
  */
 ResultProcessor *RPCounter_New(void);
+
+/**
+ * Gets a RSValue from the sorting vector at the given index.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`NewSortingVector`].
+ */
+RSValue *RSSortingVector_Get(RSSortingVector<RSValueFFI> *vec, size_t idx);
+
+/**
+ * Returns the length of the sorting vector.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`NewSortingVector`] or null.
+ */
+size_t RSSortingVector_GetLength(const RSSortingVector<RSValueFFI> *vec);
+
+/**
+ * Returns the memory size of the sorting vector.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`NewSortingVector`].
+ */
+size_t RSSortingVector_GetMemorySize(RSSortingVector<RSValueFFI> *vector);
+
+/**
+ * Puts a number (double) at the given index in the sorting vector.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`NewSortingVector`].
+ * 2. The `idx` must be a valid index within the bounds of the sorting vector.
+ */
+void RSSortingVector_PutNum(RSSortingVector<RSValueFFI> *vec, size_t idx, double num);
+
+/**
+ * Puts a string at the given index in the sorting vector.
+ *
+ * This function will normalize the string to lowercase and use utf normalization for sorting if `is_normalized` is true.
+ *
+ * Internally it uses `libc` functions to allocate and copy the string, ensuring that string allocation and deallocation
+ * all happen on the C side for now.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`NewSortingVector`].
+ * 2. The `str` pointer must point to a valid C string (null-terminated).
+ * 3. The `idx` must be a valid index within the bounds of the sorting vector.
+ */
+void RSSortingVector_PutStr(RSSortingVector<RSValueFFI> *vec,
+                            size_t idx,
+                            const char *str,
+                            bool is_normalized);
+
+/**
+ * Puts a value at the given index in the sorting vector.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`NewSortingVector`].
+ * 2. The `val` pointer must point to a valid `RSValue` instance.
+ * 3. The `idx` must be a valid index within the bounds of the sorting vector.
+ */
+void RSSortingVector_PutRSVal(RSSortingVector<RSValueFFI> *vec, size_t idx, RSValue *val);
+
+RSSortingVector<RSValueFFI> *NewSortingVector(size_t len);
+
+/**
+ * Reduces the refcount of every value and frees the memory allocated for an `RSSortingVector`.
+ * Called by the C code to deallocate the vector.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`NewSortingVector`].
+ * 2. The pointer must not have been freed before this call to avoid double free.
+ */
+void SortingVector_Free(RSSortingVector<RSValueFFI> *vector);
 
 #ifdef __cplusplus
 }  // extern "C"
