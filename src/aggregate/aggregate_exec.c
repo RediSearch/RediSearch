@@ -144,7 +144,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_Array(reply);
       RedisModule_Reply_Double(reply, r->score);
       SEReply(reply, r->scoreExplain);
-  	  RedisModule_Reply_ArrayEnd(reply);
+      RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
