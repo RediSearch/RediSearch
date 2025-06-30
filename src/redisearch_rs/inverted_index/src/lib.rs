@@ -231,7 +231,7 @@ pub struct RSIndexResult {
     /// directly into memory
     pub offsets_sz: u32,
 
-    data: RSIndexResultData,
+    pub data: RSIndexResultData,
 
     /// The type of data stored at ['Self::data']
     pub result_type: RSResultType,
