@@ -1327,15 +1327,6 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
     }
   }
 
-  // Reset fields stats
-  if (spec->fields != NULL) {
-    for (size_t i = 0; i < spec->numFields; i++) {
-      FieldSpec *field = spec->fields + i;
-      FieldsGlobalStats_UpdateStats(field, -1);
-      FieldsGlobalStats_UpdateIndexError(field->types, -FieldSpec_GetIndexErrorCount(field));
-
-    }
-  }
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
     IndexSpec_FreeUnlinkedData(spec);
@@ -1411,7 +1402,7 @@ void Indexes_Free(dict *d) {
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
-    IndexSpec_FreeInternals(specs[i]);
+    IndexSpec_Free(specs[i]);
   }
   array_free(specs);
 }
