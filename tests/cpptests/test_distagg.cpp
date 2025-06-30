@@ -50,36 +50,21 @@ static void testAverage() {
   // so far, so good, eh?
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
-  printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
   assert(dstp);
 
-  // Serialize it!
-  // printf("Printing serialized plan..\n");
-  // AGPLN_Dump(dstp->plan);
-  auto &v = *dstp->serialized;
-  for (size_t ii = 0; ii < v.size(); ++ii) {
-    printf("Serialized[%lu]: %s\n", ii, v[ii]);
-  }
-
   dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
   assert(dstp);
-
-  printf("Printing local plan\n");
-  AGPLN_Dump(&r->ap);
 
   r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
   rc = AREQ_BuildPipeline(r, &status);
   dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
-  printf("Built pipeline.. rc=%d\n", rc);
   if (rc != REDISMODULE_OK) {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
-    AGPLN_Dump(&r->ap);
   }
   AREQ_Free(r);
 }
@@ -109,8 +94,6 @@ static void testCountDistinct() {
 
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
-  printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -122,10 +105,6 @@ static void testCountDistinct() {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
   assert(rc == REDISMODULE_OK);
-  AGPLN_Dump(&r->ap);
-  for (size_t ii = 0; ii < us.nserialized; ++ii) {
-    printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
-  }
   AREQ_Free(r);
 }
 
@@ -147,8 +126,6 @@ static void testSplit() {
 
   rc = AGGPLN_Distribute(&r->ap, &status);
   assert(rc == REDISMODULE_OK);
-  printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
 
   PLN_DistributeStep *dstp =
       (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
@@ -160,10 +137,6 @@ static void testSplit() {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
   assert(rc == REDISMODULE_OK);
-  AGPLN_Dump(&r->ap);
-  for (size_t ii = 0; ii < us.nserialized; ++ii) {
-    printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
-  }
   AREQ_Free(r);
 }
 

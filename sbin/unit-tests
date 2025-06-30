@@ -51,8 +51,8 @@ END
 setup_sanitizer() {
     if [[ -n $SAN ]]; then
         ASAN_LOG=${LOGS_DIR}/${TEST_NAME}.asan.log
-        export ASAN_OPTIONS="detect_odr_violation=0:alloc_dealloc_mismatch=0:halt_on_error=0:detect_leaks=1:log_path=${ASAN_LOG}:verbosity=1:log_thread=1"
-        export LSAN_OPTIONS="suppressions=$ROOT_DIR/tests/memcheck/asan.supp:verbosity=1:log_thread=1"
+        export ASAN_OPTIONS="detect_odr_violation=0:alloc_dealloc_mismatch=0:halt_on_error=0:detect_leaks=1:log_path=${ASAN_LOG}:verbosity=0"
+        export LSAN_OPTIONS="suppressions=$ROOT_DIR/tests/memcheck/asan.supp:verbosity=0"
     fi
 }
 

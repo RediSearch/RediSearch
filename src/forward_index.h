@@ -87,8 +87,6 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 // Find an existing entry within the index
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash);
 
-void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
-
 /* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
  */
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
