@@ -89,3 +89,13 @@ fn test_decode_freqs_only_input_too_small() {
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
+
+#[test]
+#[should_panic]
+fn test_encode_freqs_only_delta_overflow() {
+    // Encoder only supports 32 bits delta and will panic if larger
+    let mut buf = Cursor::new(vec![0; 3]);
+
+    let record = RSIndexResult::freqs_only(10, 5);
+    let _res = FreqsOnly::encode(&mut buf, Delta::new(u32::MAX as usize + 1), &record);
+}

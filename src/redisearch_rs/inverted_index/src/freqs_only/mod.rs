@@ -24,9 +24,11 @@ impl Encoder for FreqsOnly {
         delta: Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        // Truncating delta to u32 as qint_encode expects u32 values.
-        // The inverted index will create new block if the delta exceeds u32::MAX.
-        let bytes_written = qint_encode(&mut writer, [delta.0 as u32, record.freq])?;
+        let delta = delta
+            .0
+            .try_into()
+            .expect("FreqsOnly encoder only supports deltas that fit in u32");
+        let bytes_written = qint_encode(&mut writer, [delta, record.freq])?;
         Ok(bytes_written)
     }
 }
