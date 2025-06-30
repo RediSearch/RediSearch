@@ -370,17 +370,23 @@ fn test_numeric_encode_decode(
     let bytes_written =
         Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
 
-    let buf = buf.into_inner();
     assert_eq!(
         bytes_written, expected_bytes_written,
         "failed for value: {}",
         value
     );
-    assert_eq!(buf, expected_buffer, "failed for value: {}", value);
+    assert_eq!(
+        buf.get_ref(),
+        &expected_buffer,
+        "failed for value: {}",
+        value
+    );
+
+    buf.set_position(0);
 
     let prev_doc_id = u64::MAX - (delta as u64);
     let DecoderResult::Record(record_decoded) = Numeric
-        .decode(buf.as_slice(), prev_doc_id)
+        .decode(&mut buf, prev_doc_id)
         .expect("to decode numeric record")
         .expect("to read a record from the buffer")
     else {
@@ -402,12 +408,11 @@ proptest! {
         let _bytes_written =
             Numeric::encode(&mut buf, Delta(delta as _), &record).expect("to encode numeric record");
 
-        let buf = buf.into_inner();
-
+        buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
 
         let DecoderResult::Record(record_decoded) = Numeric
-            .decode(buf.as_slice(), prev_doc_id)
+            .decode(&mut buf, prev_doc_id)
             .expect("to decode numeric record")
             .expect("to read a record from the buffer")
         else {

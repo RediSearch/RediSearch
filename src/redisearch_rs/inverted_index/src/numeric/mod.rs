@@ -317,7 +317,7 @@ impl Encoder for Numeric {
 impl Decoder for Numeric {
     fn decode<R: Read>(
         &self,
-        mut reader: R,
+        reader: &mut R,
         base: t_docId,
     ) -> std::io::Result<Option<DecoderResult>> {
         let mut header = [0; 1];
@@ -330,51 +330,49 @@ impl Decoder for Numeric {
 
         let (delta, num) = match type_bits {
             Self::TINY_TYPE => {
-                let delta = read_only_u64(&mut reader, delta_bytes)?;
+                let delta = read_only_u64(reader, delta_bytes)?;
                 let num = upper_bits;
 
                 (delta, num as f64)
             }
             Self::INT_POS_TYPE => {
-                let (delta, num) =
-                    read_u64_and_u64(&mut reader, delta_bytes, upper_bits as usize + 1)?;
+                let (delta, num) = read_u64_and_u64(reader, delta_bytes, upper_bits as usize + 1)?;
 
                 (delta, num as f64)
             }
             Self::INT_NEG_TYPE => {
-                let (delta, num) =
-                    read_u64_and_u64(&mut reader, delta_bytes, upper_bits as usize + 1)?;
+                let (delta, num) = read_u64_and_u64(reader, delta_bytes, upper_bits as usize + 1)?;
 
                 (delta, (num as f64).copysign(-1.0))
             }
             Self::FLOAT_TYPE => match upper_bits {
                 FLOAT32_POSITIVE => {
-                    let (delta, num) = read_u64_and_f32(&mut reader, delta_bytes)?;
+                    let (delta, num) = read_u64_and_f32(reader, delta_bytes)?;
 
                     (delta, num as f64)
                 }
                 FLOAT32_NEGATIVE => {
-                    let (delta, num) = read_u64_and_f32(&mut reader, delta_bytes)?;
+                    let (delta, num) = read_u64_and_f32(reader, delta_bytes)?;
 
                     (delta, num.copysign(-1.0) as f64)
                 }
                 FLOAT64_POSITIVE => {
-                    let (delta, num) = read_u64_and_f64(&mut reader, delta_bytes)?;
+                    let (delta, num) = read_u64_and_f64(reader, delta_bytes)?;
 
                     (delta, num)
                 }
                 FLOAT64_NEGATIVE => {
-                    let (delta, num) = read_u64_and_f64(&mut reader, delta_bytes)?;
+                    let (delta, num) = read_u64_and_f64(reader, delta_bytes)?;
 
                     (delta, num.copysign(-1.0))
                 }
                 0b101 | FLOAT_INFINITE => {
-                    let delta = read_only_u64(&mut reader, delta_bytes)?;
+                    let delta = read_only_u64(reader, delta_bytes)?;
 
                     (delta, f64::INFINITY)
                 }
                 0b111 | FLOAT_NEGATIVE_INFINITE => {
-                    let delta = read_only_u64(&mut reader, delta_bytes)?;
+                    let delta = read_only_u64(reader, delta_bytes)?;
 
                     (delta, f64::NEG_INFINITY)
                 }

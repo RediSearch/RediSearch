@@ -350,11 +350,15 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
         ),
         |b| {
             for (_, _, buffer) in values {
-                b.iter(|| {
-                    let result = Numeric.decode(buffer.as_slice(), 100);
+                b.iter_batched_ref(
+                    || Cursor::new(buffer),
+                    |buffer| {
+                        let result = Numeric.decode(buffer, 100);
 
-                    let _ = black_box(result);
-                });
+                        let _ = black_box(result);
+                    },
+                    BatchSize::SmallInput,
+                );
             }
         },
     );
