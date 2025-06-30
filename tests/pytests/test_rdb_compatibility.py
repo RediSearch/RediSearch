@@ -62,8 +62,9 @@ def testRDBCompatibility_vecsim():
     rdbFilePath = os.path.join(dbDir, dbFileName)
 
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
-            'redisearch_2.6.9_with_vecsim.rdb']
-    # todo: add test for 8.0
+            'redisearch_2.6.9_with_vecsim.rdb',
+            'redisearch_8.0_with_vecsim.rdb']
+
     algorithms = ['FLAT', 'HNSW']
     if not downloadFiles(env, rdbs):
         return
@@ -88,7 +89,25 @@ def testRDBCompatibility_vecsim():
         env.assertEqual(res['num_docs'], 100)
         env.assertEqual(res['hash_indexing_failures'], 0)
 
-        expected_attr_info = [['identifier', 'hnsw_vec', 'attribute', 'hnsw_vec', 'type', 'VECTOR', 'algorithm', 'HNSW', 'data_type', 'FLOAT32', 'dim', 2, 'distance_metric', 'L2', 'M', 16, 'ef_construction', 200], ['identifier', 'flat_vec', 'attribute', 'flat_vec', 'type', 'VECTOR', 'algorithm', 'FLAT', 'data_type', 'FLOAT32', 'dim', 2, 'distance_metric', 'L2']]
+        expected_attr_info = [[
+          'identifier', 'hnsw_vec',
+          'attribute', 'hnsw_vec',
+          'type', 'VECTOR',
+          'algorithm', 'HNSW',
+          'data_type', 'FLOAT32',
+          'dim', 2,
+          'distance_metric', 'L2',
+          'M', 16,
+          'ef_construction', 200
+        ], [
+          'identifier', 'flat_vec',
+          'attribute', 'flat_vec',
+          'type', 'VECTOR',
+          'algorithm', 'FLAT',
+          'data_type', 'FLOAT32',
+          'dim', 2,
+          'distance_metric', 'L2',
+        ]]
         assertInfoField(env, 'idx', 'attributes', expected_attr_info)
 
         env.cmd('flushall')
