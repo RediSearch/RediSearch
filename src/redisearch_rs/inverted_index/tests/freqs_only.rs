@@ -62,3 +62,30 @@ fn test_encode_freqs_only() {
         assert_eq!(record_decoded, record);
     }
 }
+
+#[test]
+fn test_encode_freqs_only_output_too_small() {
+    // Not enough space in the buffer to write the encoded data.
+    let mut buf = [0u8; 3];
+    let buf = &mut buf[0..1];
+    let mut cursor = Cursor::new(buf);
+
+    let record = RSIndexResult::freqs_only(10, 5);
+    let res = FreqsOnly::encode(&mut cursor, Delta::new(0), &record);
+
+    assert_eq!(res.is_err(), true);
+    let kind = res.unwrap_err().kind();
+    assert_eq!(kind, std::io::ErrorKind::WriteZero);
+}
+
+#[test]
+fn test_decode_freqs_only_input_too_small() {
+    // Encoded data is one byte too short.
+    let buf = vec![0, 0];
+    let mut cursor = Cursor::new(buf);
+    let res = FreqsOnly.decode(&mut cursor, 100);
+
+    assert_eq!(res.is_err(), true);
+    let kind = res.unwrap_err().kind();
+    assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
+}
