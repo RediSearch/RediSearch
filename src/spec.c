@@ -1178,10 +1178,10 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
-    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
 
     // primary index params allocated in VecSim_TieredParams_Init()
     TieredIndexParams *params = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+    params->specificParams.tieredSVSParams.trainingTriggerThreshold = 0;  // will be set to default value if not specified by user.
     params->primaryIndexParams->algo = VecSimAlgo_SVS;
     params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
     params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
@@ -1189,6 +1189,10 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
+    if (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0) {
+      params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
+    }
+
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
     return 0;
