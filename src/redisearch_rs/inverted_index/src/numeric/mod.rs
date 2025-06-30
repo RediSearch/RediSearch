@@ -335,6 +335,18 @@ impl Decoder for Numeric {
 
                 (delta, num as f64)
             }
+            Self::INT_POS_TYPE => {
+                let (delta, num) =
+                    read_u64_and_u64(&mut reader, delta_bytes, upper_bits as usize + 1)?;
+
+                (delta, num as f64)
+            }
+            Self::INT_NEG_TYPE => {
+                let (delta, num) =
+                    read_u64_and_u64(&mut reader, delta_bytes, upper_bits as usize + 1)?;
+
+                (delta, (num as f64).copysign(-1.0))
+            }
             Self::FLOAT_TYPE => match upper_bits {
                 FLOAT32_POSITIVE => {
                     let (delta, num) = read_u64_and_f32(&mut reader, delta_bytes)?;
@@ -368,18 +380,6 @@ impl Decoder for Numeric {
                 }
                 _ => unreachable!("All upper bits combinations are covered"),
             },
-            Self::INT_POS_TYPE => {
-                let (delta, num) =
-                    read_u64_and_u64(&mut reader, delta_bytes, upper_bits as usize + 1)?;
-
-                (delta, num as f64)
-            }
-            Self::INT_NEG_TYPE => {
-                let (delta, num) =
-                    read_u64_and_u64(&mut reader, delta_bytes, upper_bits as usize + 1)?;
-
-                (delta, (num as f64).copysign(-1.0))
-            }
             _ => unreachable!("All four possible combinations are covered"),
         };
 
