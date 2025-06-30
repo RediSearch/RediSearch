@@ -80,6 +80,21 @@ pub fn read_numeric(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index:
     (returned, result)
 }
 
+pub fn encode_full(
+    buffer: &mut TestBuffer,
+    record: &mut inverted_index::RSIndexResult,
+    delta: u64,
+    wide: bool,
+) -> usize {
+    let mut buffer_writer = BufferWriter::new(&mut buffer.0);
+
+    if wide {
+        unsafe { bindings::encode_full_wide(buffer_writer.as_mut_ptr() as _, delta, record) }
+    } else {
+        unsafe { bindings::encode_full(buffer_writer.as_mut_ptr() as _, delta, record) }
+    }
+}
+
 pub fn encode_freqs_only(
     buffer: &mut TestBuffer,
     record: &mut inverted_index::RSIndexResult,
@@ -88,6 +103,26 @@ pub fn encode_freqs_only(
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
 
     unsafe { bindings::encode_freqs_only(buffer_writer.as_mut_ptr() as _, delta, record) }
+}
+
+pub fn read_freq_offsets_flags(
+    buffer: &mut Buffer,
+    base_id: u64,
+    wide: bool,
+) -> (bool, inverted_index::RSIndexResult) {
+    let mut buffer_reader = BufferReader::new(buffer);
+    let mut block_reader =
+        unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
+    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
+
+    let returned = if wide {
+        unsafe { bindings::read_freq_offsets_flags_wide(&mut block_reader, &mut ctx, &mut result) }
+    } else {
+        unsafe { bindings::read_freq_offsets_flags(&mut block_reader, &mut ctx, &mut result) }
+    };
+
+    (returned, result)
 }
 
 pub fn read_freqs(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::RSIndexResult) {
@@ -176,6 +211,11 @@ pub fn read_flags(
 
 #[cfg(test)]
 mod tests {
+    use std::mem::ManuallyDrop;
+
+    use ffi::RSQueryTerm;
+    use inverted_index::{RSOffsetVector, RSTermRecord};
+
     use super::*;
 
     use ffi::t_fieldMask;
@@ -503,6 +543,275 @@ mod tests {
             let (returned, decoded_result) = read_flags(&mut buffer.0, base_id, true);
             assert!(returned);
             assert_eq!(decoded_result, record);
+        }
+    }
+
+    /// Helper to compare only the fields of a term record that are actually encoded.
+    #[derive(Debug)]
+    struct TermRecordCompare<'a>(&'a inverted_index::RSIndexResult);
+
+    impl<'a> PartialEq for TermRecordCompare<'a> {
+        fn eq(&self, other: &Self) -> bool {
+            assert!(matches!(
+                self.0.result_type,
+                inverted_index::RSResultType::Term
+            ));
+
+            if !(self.0.doc_id == other.0.doc_id
+                && self.0.dmd == other.0.dmd
+                && self.0.field_mask == other.0.field_mask
+                && self.0.freq == other.0.freq
+                && self.0.offsets_sz == other.0.offsets_sz
+                && self.0.result_type == other.0.result_type
+                && self.0.is_copy == other.0.is_copy
+                && self.0.metrics == other.0.metrics)
+            {
+                return false;
+            }
+
+            // do not compare `weight` as it's not encoded
+
+            // SAFETY: we asserted the type above
+            let a_term_record = unsafe { &self.0.data.term };
+            // SAFETY: we checked that other has the same type as self
+            let b_term_record = unsafe { &other.0.data.term };
+
+            let a_offsets = (!a_term_record.offsets.data.is_null()).then(|| unsafe {
+                // SAFETY: `len` is guaranteed to be a valid length for the non-null data pointer.
+                std::slice::from_raw_parts(
+                    a_term_record.offsets.data as *const i8,
+                    a_term_record.offsets.len as usize,
+                )
+            });
+
+            let b_offsets = (!b_term_record.offsets.data.is_null()).then(|| unsafe {
+                // SAFETY: `len` is guaranteed to be a valid length for the non-null data pointer.
+                std::slice::from_raw_parts(
+                    b_term_record.offsets.data as *const i8,
+                    b_term_record.offsets.len as usize,
+                )
+            });
+
+            if a_offsets != b_offsets {
+                return false;
+            }
+
+            // do not compare `RSTermRecord` as it's not encoded
+
+            true
+        }
+    }
+
+    #[test]
+    fn test_encode_full() {
+        // Test cases for the full encoder and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+        let tests = [
+            // (delta, frequency, field mask, term offsets vector, expected encoding)
+            (0, 1, 1, vec![1i8, 2, 3], vec![0, 0, 1, 1, 3, 1, 2, 3]),
+            (
+                10,
+                5,
+                u32::MAX as t_fieldMask,
+                vec![1i8, 2, 3, 4],
+                vec![48, 10, 5, 255, 255, 255, 255, 4, 1, 2, 3, 4],
+            ),
+            (256, 1, 1, vec![1, 2, 3], vec![1, 0, 1, 1, 1, 3, 1, 2, 3]),
+            (
+                65536,
+                1,
+                1,
+                vec![1, 2, 3],
+                vec![2, 0, 0, 1, 1, 1, 3, 1, 2, 3],
+            ),
+            (
+                u16::MAX as u64,
+                1,
+                1,
+                vec![1, 2, 3],
+                vec![1, 255, 255, 1, 1, 3, 1, 2, 3],
+            ),
+            (
+                u32::MAX as u64,
+                1,
+                1,
+                vec![1, 2, 3],
+                vec![3, 255, 255, 255, 255, 1, 1, 3, 1, 2, 3],
+            ),
+            (
+                u32::MAX as u64,
+                u32::MAX,
+                u32::MAX as t_fieldMask,
+                vec![1; 100],
+                vec![
+                    63, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 100, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                ],
+            ),
+        ];
+        let doc_id = 4294967296;
+
+        for (delta, freq, field_mask, offsets, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+
+            let mut record = inverted_index::RSIndexResult::term()
+                .doc_id(doc_id)
+                .field_mask(field_mask)
+                .frequency(freq)
+                .weight(1.0);
+            record.offsets_sz = offsets.len() as u32;
+
+            const TEST_STR: &str = "test";
+            let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+            let mut term = RSQueryTerm {
+                str_: test_str_ptr,
+                len: TEST_STR.len(),
+                idf: 5.0,
+                id: 1,
+                flags: 0,
+                bm25_idf: 10.0,
+            };
+            let offsets_ptr = offsets.as_ptr() as *mut _;
+
+            record.data.term = ManuallyDrop::new(RSTermRecord {
+                term: &mut term,
+                offsets: RSOffsetVector {
+                    // the data pointer is borrowed from the caller
+                    data: offsets_ptr,
+                    len: offsets.len() as u32,
+                },
+            });
+
+            let _buffer_grew_size = encode_full(&mut buffer, &mut record, delta, false);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_freq_offsets_flags(&mut buffer.0, base_id, false);
+            assert!(returned);
+            assert_eq!(
+                TermRecordCompare(&decoded_result),
+                TermRecordCompare(&record)
+            );
+        }
+    }
+
+    #[test]
+    fn test_encode_full_wide() {
+        // Test cases for the full wide encoder and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+
+        // The encode C implementation relies on this symbol. Re-export it to ensure it is not discarded by the linker.
+        #[allow(unused_imports)]
+        pub use varint_ffi::WriteVarintFieldMask;
+
+        let tests = [
+            // (delta, frequency, field mask, term offsets vector, expected encoding)
+            (0, 1, 1, vec![1i8, 2, 3], vec![0, 0, 1, 3, 1, 1, 2, 3]),
+            (
+                10,
+                5,
+                u32::MAX as t_fieldMask,
+                vec![1i8, 2, 3, 4],
+                vec![0, 10, 5, 4, 142, 254, 254, 254, 127, 1, 2, 3, 4],
+            ),
+            (256, 1, 1, vec![1, 2, 3], vec![1, 0, 1, 1, 3, 1, 1, 2, 3]),
+            (
+                65536,
+                1,
+                1,
+                vec![1, 2, 3],
+                vec![2, 0, 0, 1, 1, 3, 1, 1, 2, 3],
+            ),
+            (
+                u16::MAX as u64,
+                1,
+                1,
+                vec![1, 2, 3],
+                vec![1, 255, 255, 1, 3, 1, 1, 2, 3],
+            ),
+            (
+                u32::MAX as u64,
+                1,
+                1,
+                vec![1, 2, 3],
+                vec![3, 255, 255, 255, 255, 1, 3, 1, 1, 2, 3],
+            ),
+            // field mask larger than 32 bits
+            #[cfg(target_pointer_width = "64")]
+            (
+                u32::MAX as u64,
+                u32::MAX,
+                u32::MAX as t_fieldMask,
+                vec![1; 100],
+                vec![
+                    15, 255, 255, 255, 255, 255, 255, 255, 255, 100, 142, 254, 254, 254, 127, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                ],
+            ),
+            #[cfg(target_pointer_width = "64")]
+            (
+                u32::MAX as u64,
+                u32::MAX,
+                u128::MAX,
+                vec![1; 100],
+                vec![
+                    15, 255, 255, 255, 255, 255, 255, 255, 255, 100, 130, 254, 254, 254, 254, 254,
+                    254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 127, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                ],
+            ),
+        ];
+        let doc_id = 4294967296;
+
+        for (delta, freq, field_mask, offsets, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+
+            let mut record = inverted_index::RSIndexResult::term()
+                .doc_id(doc_id)
+                .field_mask(field_mask)
+                .frequency(freq)
+                .weight(1.0);
+            record.offsets_sz = offsets.len() as u32;
+
+            const TEST_STR: &str = "test";
+            let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+            let mut term = RSQueryTerm {
+                str_: test_str_ptr,
+                len: TEST_STR.len(),
+                idf: 5.0,
+                id: 1,
+                flags: 0,
+                bm25_idf: 10.0,
+            };
+            let offsets_ptr = offsets.as_ptr() as *mut _;
+
+            record.data.term = ManuallyDrop::new(RSTermRecord {
+                term: &mut term,
+                offsets: RSOffsetVector {
+                    data: offsets_ptr,
+                    len: offsets.len() as u32,
+                },
+            });
+
+            let _buffer_grew_size = encode_full(&mut buffer, &mut record, delta, true);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_freq_offsets_flags(&mut buffer.0, base_id, true);
+            assert!(returned);
+            assert_eq!(
+                TermRecordCompare(&decoded_result),
+                TermRecordCompare(&record)
+            );
         }
     }
 }
