@@ -15,13 +15,15 @@
 #include "util/threadpool_api.h"
 #include "redis_index.h"
 
-#ifdef __x86_64__
+
+#if defined(__x86_64__) && defined(__GLIBC__)
 #include <cpuid.h>
+#define CPUID_AVAILABLE
 #endif
 
-static bool isIntelMachine() {
-#ifndef __x86_64__
-  return false; // This function is only relevant for x86_64 architecture.
+static bool isLVQSupported() {
+#ifndef CPUID_AVAILABLE
+  return false; // In which case we know that LVQ not supported.
 #endif
 
   // Check if the machine is Intel based on the CPU vendor.
@@ -282,7 +284,7 @@ const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
     return VECSIM_NO_COMPRESSION;
   }
   // If we are running on non-intel machine, only scalar quantization is possible.
-  if (!isIntelMachine()) {
+  if (!isLVQSupported()) {
     return VECSIM_LVQ_SCALAR;
   }
   // Otherwise, we are running on intel machine, and we return the appropriate quantization mode.
