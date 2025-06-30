@@ -1232,16 +1232,16 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algo = VecSimAlgo_SVS;
     params->primaryIndexParams->algoParams.svsParams.blockSize = 0;
     params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
-    params->primaryIndexParams->algoParams.svsParams.alpha = 0.0f; // SVS_VAMANA_DEFAULT_ALPHA_L2 / SVS_VAMANA_DEFAULT_ALPHA_IP
-    params->primaryIndexParams->algoParams.svsParams.graph_max_degree = 32; //SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE=32
-    params->primaryIndexParams->algoParams.svsParams.construction_window_size = 200; //SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE
+    params->primaryIndexParams->algoParams.svsParams.alpha = 0.0f; // SVS_VAMANA_DEFAULT_ALPHA_L2 / SVS_VAMANA_DEFAULT_ALPHA_IP are not used as distance_metric is not defined yet
+    params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
+    params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
     params->primaryIndexParams->algoParams.svsParams.max_candidate_pool_size = 0;
     params->primaryIndexParams->algoParams.svsParams.prune_to = 0;
-    params->primaryIndexParams->algoParams.svsParams.use_search_history = true; //SVS_VAMANA_DEFAULT_USE_SEARCH_HISTORY
-    params->primaryIndexParams->algoParams.svsParams.num_threads = 1; //SVS_VAMANA_DEFAULT_NUM_THREADS
-    params->primaryIndexParams->algoParams.svsParams.search_window_size = 0;
-    params->primaryIndexParams->algoParams.svsParams.epsilon = 0.0f;
-    params->primaryIndexParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = 10 * DEFAULT_BLOCK_SIZE; //SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD
+    params->primaryIndexParams->algoParams.svsParams.use_search_history = SVS_VAMANA_DEFAULT_USE_SEARCH_HISTORY;
+    params->primaryIndexParams->algoParams.svsParams.num_threads = SVS_VAMANA_DEFAULT_NUM_THREADS;
+    params->primaryIndexParams->algoParams.svsParams.search_window_size = SVS_VAMANA_DEFAULT_SEARCH_WINDOW_SIZE;
+    params->primaryIndexParams->algoParams.svsParams.epsilon = SVS_VAMANA_DEFAULT_EPSILON;
+    params->primaryIndexParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
   } else {
