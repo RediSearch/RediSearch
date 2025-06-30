@@ -18,6 +18,10 @@
 #include <cpuid.h>
 
 static bool isIntelMachine() {
+#ifndef __x86_64__
+  return false; // This function is only relevant for x86_64 architecture.
+#endif
+
   // Check if the machine is Intel based on the CPU vendor.
   unsigned int eax, ebx, ecx, edx;
   char vendor[13];
