@@ -339,6 +339,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
       RedisModule_SaveUnsigned(rdb, primaryParams->type);
       RedisModule_SaveUnsigned(rdb, primaryParams->dim);
       RedisModule_SaveUnsigned(rdb, primaryParams->metric);
+      RedisModule_SaveUnsigned(rdb, primaryParams->multi);
       RedisModule_SaveUnsigned(rdb, primaryParams->quantBits);
       RedisModule_SaveUnsigned(rdb, primaryParams->graph_max_degree);
       RedisModule_SaveUnsigned(rdb, primaryParams->construction_window_size);
@@ -403,6 +404,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
       primaryParams->algoParams.svsParams.type = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.dim = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.multi = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.quantBits = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.graph_max_degree = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.construction_window_size = LoadUnsigned_IOError(rdb, goto fail);
