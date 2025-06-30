@@ -6,6 +6,7 @@
 
 #include "conn.h"
 #include "reply.h"
+#include "module.h"
 #include "rmutil/rm_assert.h"
 #include "hiredis/adapters/libuv.h"
 #include "util/config_api.h"
