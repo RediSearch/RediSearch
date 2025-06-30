@@ -18,14 +18,11 @@
 
 #if defined(__x86_64__) && defined(__GLIBC__)
 #include <cpuid.h>
-#define CPUID_AVAILABLE
+#define CPUID_AVAILABLE 1
 #endif
 
 static bool isLVQSupported() {
-#ifndef CPUID_AVAILABLE
-  return false; // In which case we know that LVQ not supported.
-#endif
-
+#ifdef CPUID_AVAILABLE
   // Check if the machine is Intel based on the CPU vendor.
   unsigned int eax, ebx, ecx, edx;
   char vendor[13];
@@ -40,6 +37,8 @@ static bool isLVQSupported() {
   vendor[12] = '\0';
 
   return strcmp(vendor, "GenuineIntel") == 0;
+#endif
+  return false; // In which case we know that LVQ not supported.
 }
 
 VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
