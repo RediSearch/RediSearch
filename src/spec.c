@@ -1242,6 +1242,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.search_window_size = 0;
     params->primaryIndexParams->algoParams.svsParams.epsilon = 0.0f;
     params->primaryIndexParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = 10 * DEFAULT_BLOCK_SIZE; //SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD
+    params->primaryIndexParams->algoParams.svsParams.multi = multi;
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
   } else {
