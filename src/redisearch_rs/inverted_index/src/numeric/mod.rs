@@ -616,7 +616,7 @@ fn write_all_vectored<const N: usize, W: Write>(
 ) -> std::io::Result<usize> {
     let total_len = bufs.iter().map(|b| b.len()).sum();
 
-    // In theory we only need the code in the `Ok(n)` branch. However, that performes slow when
+    // In theory we only need the code in the `Ok(n)` branch. However, that performs slow when
     // the buffers being written is small (less than 13 bytes). Using a profiler shows that the
     // `write_vectored` call inside this `OK(n)` branch behaves differently than the one on
     // this match (next line) for some reason which is not clear currently.
