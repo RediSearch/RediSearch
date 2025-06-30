@@ -9,6 +9,7 @@
 #include "inverted_index.h"
 #include "vector_index.h"
 #include "cursor.h"
+#include "module.h"
 #include "reply_macros.h"
 #include "redis_index.h"
 #include "info/global_stats.h"

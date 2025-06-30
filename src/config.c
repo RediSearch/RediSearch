@@ -16,6 +16,7 @@
 #include "rules.h"
 #include "spec.h"
 #include "util/dict.h"
+#include "module.h"
 
 #define RETURN_ERROR(s) return REDISMODULE_ERR;
 #define RETURN_PARSE_ERROR(rc)                                    \

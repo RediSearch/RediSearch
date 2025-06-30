@@ -25,36 +25,6 @@ int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {
     return !strncasecmp(s, rs, slen);
   }
 }
-void MRReply_Print(FILE *fp, MRReply *r) {
-  if (!r) {
-    fprintf(fp, "NULL");
-    return;
-  }
-
-  switch (MRReply_Type(r)) {
-    case MR_REPLY_INTEGER:
-      fprintf(fp, "INT(%lld)", MRReply_Integer(r));
-      break;
-    case MR_REPLY_STRING:
-    case MR_REPLY_STATUS:
-      fprintf(fp, "STR(%s)", MRReply_String(r, NULL));
-      break;
-    case MR_REPLY_ERROR:
-      fprintf(fp, "ERR(%s)", MRReply_String(r, NULL));
-      break;
-    case MR_REPLY_NIL:
-      fprintf(fp, "(nil)");
-      break;
-    case MR_REPLY_ARRAY:
-      fprintf(fp, "ARR(%zd):[ ", MRReply_Length(r));
-      for (size_t i = 0; i < MRReply_Length(r); i++) {
-        MRReply_Print(fp, MRReply_ArrayElement(r, i));
-        fprintf(fp, ", ");
-      }
-      fprintf(fp, "]");
-      break;
-  }
-}
 
 int _parseInt(const char *str, size_t len, long long *i) {
   errno = 0; /* To distinguish success/failure after call */
@@ -62,12 +32,10 @@ int _parseInt(const char *str, size_t len, long long *i) {
   long long int val = strtoll(str, &endptr, 10);
 
   if ((errno == ERANGE && (val == LONG_MAX || val == LONG_MIN)) || (errno != 0 && val == 0)) {
-    perror("strtol");
     return 0;
   }
 
   if (endptr == str) {
-    //  fprintf(stderr, "No digits were found\n");
     return 0;
   }
 
