@@ -616,7 +616,10 @@ fn write_all_vectored<const N: usize, W: Write>(
 ) -> std::io::Result<usize> {
     let total_len = bufs.iter().map(|b| b.len()).sum();
 
-    // Try to write everything in one go first. This skips calling `advance_slices` if possible.
+    // In theory we only need the code in the `Ok(n)` branch. However, that performes slow when
+    // the buffers being written is small (less than 13 bytes). Using a profiler shows that the
+    // `write_vectored` call inside this `OK(n)` branch behaves differently than the one on
+    // this match (next line) for some reason which is not clear currently.
     match writer.write_vectored(&bufs) {
         Ok(n) if n == total_len => return Ok(n),
         Ok(0) => {
