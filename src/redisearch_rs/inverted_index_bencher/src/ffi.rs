@@ -80,6 +80,16 @@ pub fn read_numeric(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index:
     (returned, result)
 }
 
+pub fn encode_full(
+    buffer: &mut TestBuffer,
+    record: &mut inverted_index::RSIndexResult,
+    delta: u64,
+) -> usize {
+    let mut buffer_writer = BufferWriter::new(&mut buffer.0);
+
+    unsafe { bindings::encode_full(&mut buffer_writer as *const _ as *mut _, delta, record) }
+}
+
 pub fn encode_freqs_only(
     buffer: &mut TestBuffer,
     record: &mut inverted_index::RSIndexResult,
@@ -88,6 +98,22 @@ pub fn encode_freqs_only(
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
 
     unsafe { bindings::encode_freqs_only(&mut buffer_writer as *const _ as *mut _, delta, record) }
+}
+
+pub fn read_freq_offsets_flags(
+    buffer: &mut Buffer,
+    base_id: u64,
+) -> (bool, inverted_index::RSIndexResult) {
+    let buffer_reader = BufferReader::new(buffer);
+    let mut block_reader =
+        unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
+    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let mut result = inverted_index::RSIndexResult::token_record(base_id, 0, 0, 0, 0.0);
+
+    let returned =
+        unsafe { bindings::read_freq_offsets_flags(&mut block_reader, &mut ctx, &mut result) };
+
+    (returned, result)
 }
 
 pub fn read_freqs(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::RSIndexResult) {
@@ -219,6 +245,33 @@ mod tests {
 
             let base_id = doc_id - delta;
             let (returned, decoded_result) = read_freqs(&mut buffer.0, base_id);
+            assert!(returned);
+            assert_eq!(decoded_result, record);
+        }
+    }
+
+    #[test]
+    fn test_encode_full() {
+        // Test cases for the full and full wide encoders and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+        let tests = [
+            // (delta, frequency, field mask, offset vector, weight, expected encoding)
+            (0, 0, 1, 0, 0.0, vec![0, 0, 0, 1, 0]),
+        ];
+        let doc_id = 4294967296;
+
+        for (delta, freq, field_mask, offsets_sz, weight, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+            let mut record = inverted_index::RSIndexResult::token_record(
+                doc_id, field_mask, freq, offsets_sz, weight,
+            );
+            dbg!(&record);
+
+            let _buffer_grew_size = encode_full(&mut buffer, &mut record, delta);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_freq_offsets_flags(&mut buffer.0, base_id);
             assert!(returned);
             assert_eq!(decoded_result, record);
         }

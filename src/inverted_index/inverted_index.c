@@ -373,6 +373,11 @@ ENCODER(encodeNumeric) {
   return sz;
 }
 
+// Wrapper around the private static `encodeFull` function to expose it to benchmarking
+size_t encode_full(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  encodeFull(bw, delta, res);
+}
+
 // Wrapper around the private static `encodeFreqsOnly` function to expose it to benchmarking.
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   encodeFreqsOnly(bw, delta, res);
@@ -394,6 +399,12 @@ IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId) {
 
 IndexDecoderCtx NewIndexDecoderCtx_NumericFilter() {
   IndexDecoderCtx ctx = {.filter = NULL};
+
+  return ctx;
+}
+
+IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask) {
+  IndexDecoderCtx ctx = {.mask = mask};
 
   return ctx;
 }
@@ -584,6 +595,7 @@ DECODER(readFreqOffsetsFlags) {
   res->data.term.offsets.data = BufferReader_Current(&blockReader->buffReader);
   res->data.term.offsets.len = res->offsetsSz;
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
+  printf("MASKS %u %u\n", fieldMask, ctx->mask);
   return fieldMask & ctx->mask;
 }
 
@@ -802,6 +814,11 @@ DECODER(readDocIdsOnly) {
   blockReader->curBaseId = res->docId = ReadVarint(&blockReader->buffReader) + blockReader->curBaseId;
   res->freq = 1;
   return 1;  // Don't care about field mask
+}
+
+// Wrapper around the private static `readFreqOffsetsFlags` function to expose it to benchmarking.
+bool read_freq_offsets_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFreqOffsetsFlags(blockReader, ctx, res);
 }
 
 // Wrapper around the private static `readFreqs` function to expose it to benchmarking.

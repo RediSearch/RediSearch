@@ -195,6 +195,50 @@ impl RSIndexResult {
             weight: 0.0,
         }
     }
+
+    /// Create a new virtual index result with the given document ID, field mask, frequency, and offsets size.
+    pub fn token_record(
+        doc_id: t_docId,
+        field_mask: u128,
+        freq: u32,
+        offsets_sz: u32,
+        weight: f64,
+    ) -> Self {
+        // See NewTokenRecord
+        const TEST_STR: &str = "test";
+        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+
+        let mut term = RSQueryTerm {
+            str_: test_str_ptr,
+            len: TEST_STR.len(),
+            idf: 5.0,
+            id: 1,
+            flags: 0,
+            bm25_idf: 10.0,
+        };
+
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask,
+            freq,
+            offsets_sz,
+            data: RSIndexResultData {
+                term: ManuallyDrop::new(RSTermRecord {
+                    term: &mut term,
+                    // TODO
+                    offsets: RSOffsetVector {
+                        data: std::ptr::null_mut(),
+                        len: 0,
+                    },
+                }),
+            },
+            result_type: RSResultType::Term,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight,
+        }
+    }
 }
 
 impl Debug for RSIndexResult {
