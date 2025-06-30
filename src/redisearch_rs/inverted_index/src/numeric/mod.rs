@@ -590,7 +590,7 @@ impl ToBytes<1> for Header {
 
 /// Duplication of some unstable `Write` methods
 trait WriteExt {
-    /// Writes multiple buffers into a writer. This continously writes into the writer until all
+    /// Writes multiple buffers into a writer. This continuously writes into the writer until all
     /// the buffers are exhuasted.
     fn write_vectored_all(&mut self, bufs: &mut [IoSlice<'_>]) -> std::io::Result<()>;
 }
