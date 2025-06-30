@@ -287,19 +287,23 @@ pub trait Decoder {
     /// add to the `base` document ID to get the actual document ID.
     ///
     /// Returns `Ok(None)` if there is nothing left on the reader to decode.
-    fn decode<R: Read>(&self, reader: R, base: t_docId) -> std::io::Result<Option<DecoderResult>>;
+    fn decode<R: Read>(
+        &self,
+        reader: &mut R,
+        base: t_docId,
+    ) -> std::io::Result<Option<DecoderResult>>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
     /// Returns `None` if no record has a document ID greater than or equal to `target`.
     fn seek<R: Read + Seek>(
         &self,
-        mut reader: R,
+        reader: &mut R,
         base: t_docId,
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult>> {
         loop {
-            match self.decode(&mut reader, base)? {
+            match self.decode(reader, base)? {
                 Some(DecoderResult::Record(record)) if record.doc_id >= target => {
                     return Ok(Some(record));
                 }
