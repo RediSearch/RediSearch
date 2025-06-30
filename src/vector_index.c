@@ -396,7 +396,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
       primaryParams->algoParams.hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
-      primaryParams->algoParams.hnswParams.epsilon = LoadDouble_IOError(rdb);
+      primaryParams->algoParams.hnswParams.epsilon = LoadDouble_IOError(rdb, goto fail);
     } else if (primaryParams->algo == VecSimAlgo_SVS) {
       vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = LoadUnsigned_IOError(rdb, goto fail);
 
@@ -407,7 +407,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
       primaryParams->algoParams.svsParams.graph_max_degree = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.construction_window_size = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.search_window_size = LoadUnsigned_IOError(rdb, goto fail);
-      primaryParams->algoParams.svsParams.epsilon = LoadDouble_IOError(rdb);
+      primaryParams->algoParams.svsParams.epsilon = LoadDouble_IOError(rdb, goto fail);
     } else {
       goto fail; // Unsupported primary algorithm for tiered index
     }
