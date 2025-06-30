@@ -77,8 +77,6 @@ int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
 
-void print_reply(RedisModule_Reply *reply);
-
 /*
  * This function is a workaround helper for replying with a string that may contain
  * newlines or other characters that are not safe for RESP Simple Strings.

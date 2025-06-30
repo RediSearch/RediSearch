@@ -15,6 +15,7 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
+#include "module.h"
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
@@ -121,8 +122,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attrbutes
   size_t geom_idx_sz = 0;
-  
-  
+
+
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
