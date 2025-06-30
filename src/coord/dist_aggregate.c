@@ -676,10 +676,10 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
   int profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     profileArgs += 2;     // SEARCH/AGGREGATE + QUERY
-    r->reqflags |= QEXEC_F_PROFILE;
+    AREQ_AddRequestFlags(r, QEXEC_F_PROFILE);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       profileArgs++;
-      r->reqflags |= QEXEC_F_PROFILE_LIMITED;
+      AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
       QueryError_SetError(r->qiter.err, QUERY_EPARSEARGS, "No QUERY keyword provided");

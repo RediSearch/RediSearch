@@ -882,13 +882,13 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RedisModuleCtx *thctx = NULL;
 
   if (type == COMMAND_SEARCH) {
-    (*r)->reqflags |= QEXEC_F_IS_SEARCH;
+    AREQ_AddRequestFlags(*r, QEXEC_F_IS_SEARCH);
   }
   else if (type == COMMAND_AGGREGATE) {
-    (*r)->reqflags |= QEXEC_F_IS_AGGREGATE;
+    AREQ_AddRequestFlags(*r, QEXEC_F_IS_AGGREGATE);
   }
 
-  (*r)->reqflags |= QEXEC_FORMAT_DEFAULT;
+  AREQ_AddRequestFlags(*r, QEXEC_FORMAT_DEFAULT);
 
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
@@ -933,13 +933,13 @@ done:
 
 static void parseProfile(AREQ *r, int execOptions) {
   if (execOptions & EXEC_WITH_PROFILE) {
-    r->qiter.isProfile = true;
-    r->reqflags |= QEXEC_F_PROFILE;
+    AREQ_QueryProcessingCtx(r)->isProfile = true;
+    AREQ_AddRequestFlags(r, QEXEC_F_PROFILE);
     if (execOptions & EXEC_WITH_PROFILE_LIMITED) {
-      r->reqflags |= QEXEC_F_PROFILE_LIMITED;
+      AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
   } else {
-    r->qiter.isProfile = false;
+    AREQ_QueryProcessingCtx(r)->isProfile = false;
   }
 }
 
@@ -948,7 +948,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   // If we got here, we know `argv[0]` is a valid registered command name.
   // If it starts with an underscore, it is an internal command.
   if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
-    r->reqflags |= QEXEC_F_INTERNAL;
+    AREQ_AddRequestFlags(r, QEXEC_F_INTERNAL);
   }
 
   parseProfile(r, execOptions);
@@ -969,19 +969,20 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
     return REDISMODULE_ERR;
   }
 
-  SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.dialectVersion);
+  SET_DIALECT(AREQ_SearchCtx(r)->spec->used_dialects, r->reqConfig.dialectVersion);
   SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->reqConfig.dialectVersion);
 
   return REDISMODULE_OK;
 }
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
+  RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread()) {
-    StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
+    StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
     RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, 0);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
-    r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
+    AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
     if (r->qiter.isProfile){
       struct timespec time;
       clock_gettime(CLOCK_MONOTONIC, &time);
@@ -993,17 +994,17 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.
-    RedisSearchCtx_LockSpecRead(r->sctx);
+    RedisSearchCtx_LockSpecRead(sctx);
 
     if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
       CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
-    if (r->reqflags & QEXEC_F_IS_CURSOR) {
+    if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Since we are still in the main thread, and we already validated the
       // spec'c existence, it is safe to directly get the strong reference from the spec
       // found in buildRequest
-      StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
+      StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
       RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
       int rc = AREQ_StartCursor(r, reply, spec_ref, status, false);
       RedisModule_EndReply(reply);

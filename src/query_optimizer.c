@@ -222,7 +222,7 @@ static void updateRootIter(AREQ *req, IndexIterator *root, IndexIterator *new) {
 }
 
 void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
-  IndexSpec *spec = req->sctx->spec;
+  IndexSpec *spec = AREQ_SearchCtx(req)->spec;
   IndexIterator *root = req->rootiter;
 
   switch (opt->type) {

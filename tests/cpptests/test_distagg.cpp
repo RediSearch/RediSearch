@@ -94,7 +94,7 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
-  r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
@@ -133,7 +133,7 @@ static void testCountDistinct() {
 
 static void testSplit() {
   AREQ *r = AREQ_New();
-  r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
