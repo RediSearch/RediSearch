@@ -252,6 +252,7 @@ bool hasQuerySortby(const AGGPlan *pln) {
 
 static void initializePipeline(AggregationPipeline *pipeline, QueryError *status) {
   pipeline->qctx.err = status;
+  pipeline->qctx.sctx = pipeline->sctx;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = NULL;
 }
 
