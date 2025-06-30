@@ -10,7 +10,6 @@
 #include "inverted_index.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
-#include "util/logging.h"
 #include "util/misc.h"
 #include "tag_index.h"
 #include "rmalloc.h"

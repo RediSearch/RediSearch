@@ -16,7 +16,6 @@
 #include "config.h"
 #include "redis_index.h"
 #include "tokenize.h"
-#include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
 #include "rmutil/sds.h"

@@ -6,7 +6,6 @@
 
 #include "document.h"
 #include "err.h"
-#include "util/logging.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
 

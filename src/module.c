@@ -22,7 +22,6 @@
 #include "rmutil/util.h"
 #include "rmutil/args.h"
 #include "spec.h"
-#include "util/logging.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"

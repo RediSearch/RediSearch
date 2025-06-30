@@ -13,7 +13,6 @@
 #include "index_iterator.h"
 #include "inverted_index.h"
 #include "redisearch.h"
-#include "util/logging.h"
 #include "varint.h"
 #include "query_node.h"
 #include <ctype.h>

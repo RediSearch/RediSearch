@@ -7,7 +7,6 @@
 #include "forward_index.h"
 #include "tokenize.h"
 #include "util/fnv.h"
-#include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>
 #include "rmalloc.h"
