@@ -36,7 +36,7 @@ public:
     std::optional<std::chrono::nanoseconds> sleepTime; // Sleep for this duration before returning from Read/SkipTo
 private:
     void Init() {
-      base.type = ID_LIST_ITERATOR;
+      base.type = MAX_ITERATOR;
       base.atEOF = false;
       base.lastDocId = 0;
       base.current = NewVirtualResult(1, RS_FIELDMASK_ALL);

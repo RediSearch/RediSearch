@@ -184,12 +184,7 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
   QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
     // If the child is NULL, we return a wildcard iterator. All will be virtual hits
-    bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
-    if (optimized) {
-      ret = IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
-    } else {
-      ret = IT_V2(NewWildcardIterator)(q, weight);
-    }
+    ret = IT_V2(NewWildcardIterator)(q, weight);
     if (it) {
       it->Free(it);
     }

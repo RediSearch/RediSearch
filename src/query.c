@@ -916,11 +916,10 @@ static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
   IndexIterator *child = NULL;
-  if (qn) {
-    q->notSubtree = true;
-    child = Query_EvalNode(q, qn->children[0]);
-    q->notSubtree = false;
-  }
+  bool currently_notSubtree = q->notSubtree;
+  q->notSubtree = true;
+  child = Query_EvalNode(q, qn->children[0]);
+  q->notSubtree = currently_notSubtree;
 
   return NewNotIterator(child, q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
 }
@@ -1096,7 +1095,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     rm_free(iters);
     return ret;
   }
-  int quickExit = q->notSubtree ? 1 : 0;
+  bool quickExit = q->notSubtree;
   IndexIterator *ret = NewUnionIterator(iters, n, quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
   return ret;
 }

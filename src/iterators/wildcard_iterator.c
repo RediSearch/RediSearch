@@ -105,7 +105,7 @@ QueryIterator *IT_V2(NewWildcardIterator_Optimized)(const RedisSearchCtx *sctx, 
 // Otherwise, it will return a non-optimized wildcard iterator
 QueryIterator *IT_V2(NewWildcardIterator)(const QueryEvalCtx *q, double weight) {
   QueryIterator *ret = NULL;
-  if (q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all == true) {
+  if (q->sctx->spec->rule->index_all == true) {
     return IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
   } else {
     // Non-optimized wildcard iterator, using a simple doc-id increment as its base.

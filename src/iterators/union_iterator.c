@@ -9,6 +9,7 @@
 
 #include "union_iterator.h"
 #include "wildcard_iterator.h"
+#include "empty_iterator.h"
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
   const QueryIterator *it1 = e1, *it2 = e2;
@@ -410,6 +411,8 @@ static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool q
 
   if (write_idx == 1) {
     ret = its[0];
+  } else if (write_idx == 0) {
+    ret = IT_V2(NewEmptyIterator)();
   }
   if (ret != NULL) {
     rm_free(its);

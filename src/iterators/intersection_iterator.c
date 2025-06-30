@@ -231,7 +231,7 @@ static int cmpIter(QueryIterator **it1, QueryIterator **it2) {
   return (int)(est1 - est2);
 }
 
-// Set estimation for number of results. Returns false if the query is empty (some of the iterators are NULL)
+// Set estimation for number of results.
 static void II_SetEstimation(IntersectionIterator *it) {
   // Set the expected number of results to the minimum of all iterators.
   // If any of the iterators is NULL, we set the expected number to 0
@@ -253,7 +253,7 @@ static void II_SetEstimation(IntersectionIterator *it) {
  * 3. If there is only one left child iterator, return it
  * 4. Otherwise, return NULL and let the caller create the intersection iterator
 */
-static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *num, int max_slop, bool in_order, double weight) {
+static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *num) {
   QueryIterator *ret = NULL;
 
   // Remove all wildcard iterators from the array
@@ -309,7 +309,7 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
 
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight) {
   RS_ASSERT(its && num > 0);
-  QueryIterator *ret = IntersectionIteratorReducer(its, &num, max_slop, in_order, weight);
+  QueryIterator *ret = IntersectionIteratorReducer(its, &num);
   if (ret != NULL) {
     return ret;
   }
