@@ -134,7 +134,6 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 
   double ratio = (double)estimate / (double)numDocs;
   size_t newEstimate = (limit / ratio) + 1;
-  // printf("numDocs %ld childEstimate %ld limit %ld required: %ld\n", numDocs, estimate, limit, newEstimate);
 
   return newEstimate;
 }

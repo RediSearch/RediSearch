@@ -92,7 +92,7 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
         np_itr = pattern_itr - 1;
         ns_itr = str_itr + 1;
         continue;
-      } 
+      }
     } else if (str_end == str_itr) {
       return FULL_MATCH;
     }
@@ -150,7 +150,6 @@ size_t Wildcard_RemoveEscape(char *str, size_t len) {
     if (str[i] == '\\') {
       ++i;
     }
-    // printf("%c %c\n", str[runner], str[i]);
     str[runner] = str[i];
     if (str[runner] == '\0') {
       break;

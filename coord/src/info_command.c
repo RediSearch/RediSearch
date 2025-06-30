@@ -429,9 +429,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     }
 
     size_t numElems = MRReply_Length(replies[ii]);
-    if (numElems % 2 != 0) {
-      printf("Uneven INFO Reply!!!?\n");
-    }
+    RS_ASSERT(numElems % 2 == 0);
     processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0, &error);
     if (QueryError_HasError(&error)) {
       break;

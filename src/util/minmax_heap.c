@@ -309,14 +309,6 @@ void* mmh_peek_max(const mm_heap_t* h) {
   return NULL;
 }
 
-// void mmh_dump(mm_heap_t* h) {
-//   printf("count is %d, elements are:\n\t [", h->count);
-//   for (int i = 1; i <= h->count; i++) {
-//     printf(" %d ", h->data[i]);
-//   }
-//   printf("]\n");
-// }
-
 mm_heap_t* mmh_init(mmh_cmp_func cmp, void* cmp_ctx, mmh_free_func ff) {
   return mmh_init_with_size(50, cmp, cmp_ctx, ff);
 }

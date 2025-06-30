@@ -80,8 +80,6 @@ typedef struct {
 } TrieNode;
 #pragma pack()
 
-void TrieNode_Print(TrieNode *n, int idx, int depth);
-
 /* The byte size of a node, based on its internal string length and number of
  * children */
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen);

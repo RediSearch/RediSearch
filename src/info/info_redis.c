@@ -5,6 +5,7 @@
  */
 
 #include "info_redis.h"
+#include "module.h"
 #include "version.h"
 #include "global_stats.h"
 #include "cursor.h"

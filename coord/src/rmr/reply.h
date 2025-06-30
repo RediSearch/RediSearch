@@ -59,11 +59,8 @@ MRReply *MRReply_MapElement(const MRReply *reply, const char *key);
 // a map.
 void MRReply_ArrayToMap(MRReply *reply);
 
-void MRReply_Print(FILE *fp, MRReply *r);
 int MRReply_ToInteger(MRReply *reply, long long *i);
 int MRReply_ToDouble(MRReply *reply, double *d);
 
 int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep);
 int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRReply *rep);
-
-void print_mr_reply(MRReply *r);
