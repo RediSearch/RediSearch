@@ -215,6 +215,12 @@ IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask);
 /* Wrapper around the static encodeFreqsOnly to be able to access it in the Rust benchmarks. */
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
+/* Wrapper around the static encodeFieldsOnly to be able to access it in the Rust benchmarks. */
+size_t encode_fields_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFieldsOnlyWide to be able to access it in the Rust benchmarks. */
+size_t encode_fields_only_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
 /* Wrapper around the static encodeFull to be able to access it in the Rust benchmarks. */
 size_t encode_full(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
@@ -244,6 +250,12 @@ bool read_freq_offsets_flags(IndexBlockReader *blockReader, const IndexDecoderCt
 
 /* Wrapper around the static readFreqOffsetsFlagsWide to be able to access it in the Rust benchmarks */
 bool read_freq_offsets_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFlags to be able to access it in the Rust benchmarks */
+bool read_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFlagsWide to be able to access it in the Rust benchmarks */
+bool read_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
