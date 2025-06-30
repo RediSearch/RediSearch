@@ -655,12 +655,11 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
 
 
 // memoryLimit / 10 - default is 10% of global memory limit
-#define ACTUAL_MEMORY_LIMIT ((memoryLimit > 0) ? memoryLimit : SIZE_MAX)
+#define ACTUAL_MEMORY_LIMIT ((memoryLimit == 0) ? SIZE_MAX : memoryLimit)
 #define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : ACTUAL_MEMORY_LIMIT / 10)
 
 static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *status) {
   // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
-  params->algoParams.hnswParams.blockSize = 0;
   size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
@@ -681,7 +680,6 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
 
 static int parseVectorField_validate_flat(VecSimParams *params, QueryError *status) {
   // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
-  params->algoParams.bfParams.blockSize = 0;
   size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
@@ -697,12 +695,11 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
 
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
     "Creating vector index of type FLAT. Required memory for a block of %zu vectors: %zuB",
-    params->algoParams.bfParams.blockSize,  index_size_estimation);
+    params->algoParams.bfParams.blockSize, index_size_estimation);
   return 1;
 }
 
 static int parseVectorField_validate_svs(VecSimParams *params, QueryError *status) {
-  params->algoParams.svsParams.blockSize = 0;
   size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
@@ -1187,6 +1184,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
     params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
     params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
+    params->primaryIndexParams->algoParams.svsParams.num_threads = workersThreadPool_NumThreads();
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
     if (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0) {

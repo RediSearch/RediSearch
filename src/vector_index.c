@@ -331,7 +331,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
       RedisModule_SaveUnsigned(rdb, primaryParams->M);
       RedisModule_SaveUnsigned(rdb, primaryParams->efConstruction);
       RedisModule_SaveUnsigned(rdb, primaryParams->efRuntime);
-      RedisModule_SaveFloat(rdb, (float)primaryParams->epsilon);
+      RedisModule_SaveDouble(rdb, primaryParams->epsilon);
     } else if (vecsimParams->algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_SVS) {
       RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
       SVSParams *primaryParams = &vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.svsParams;
@@ -343,7 +343,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
       RedisModule_SaveUnsigned(rdb, primaryParams->graph_max_degree);
       RedisModule_SaveUnsigned(rdb, primaryParams->construction_window_size);
       RedisModule_SaveUnsigned(rdb, primaryParams->search_window_size);
-      RedisModule_SaveFloat(rdb, (float)primaryParams->epsilon);
+      RedisModule_SaveDouble(rdb, primaryParams->epsilon);
     }
     break;
   case VecSimAlgo_HNSWLIB:
@@ -396,7 +396,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
       primaryParams->algoParams.hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
-      primaryParams->algoParams.hnswParams.epsilon = RedisModule_LoadFloat(rdb);
+      primaryParams->algoParams.hnswParams.epsilon = LoadDouble_IOError(rdb);
     } else if (primaryParams->algo == VecSimAlgo_SVS) {
       vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = LoadUnsigned_IOError(rdb, goto fail);
 
@@ -407,7 +407,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
       primaryParams->algoParams.svsParams.graph_max_degree = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.construction_window_size = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.search_window_size = LoadUnsigned_IOError(rdb, goto fail);
-      primaryParams->algoParams.svsParams.epsilon = RedisModule_LoadFloat(rdb);
+      primaryParams->algoParams.svsParams.epsilon = LoadDouble_IOError(rdb);
     } else {
       goto fail; // Unsupported primary algorithm for tiered index
     }
