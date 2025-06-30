@@ -13,7 +13,9 @@
 #define READ(x) __atomic_load_n(&(x), __ATOMIC_RELAXED)
 
 GlobalStats RSGlobalStats = {0};
-size_t FieldIndexErrorCounter[INDEXFLD_NUM_TYPES] = {0};
+// On multi-type fields, we will attempt to access `FieldIndexErrorCounter[-1]`
+size_t FieldIndexErrorCounterData[INDEXFLD_NUM_TYPES + 1] = {0};
+size_t *FieldIndexErrorCounter = FieldIndexErrorCounterData + 1;
 
 // Assuming that the GIL is already acquired
 void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
