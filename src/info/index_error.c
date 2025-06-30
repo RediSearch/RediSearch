@@ -59,7 +59,7 @@ static inline void IndexError_ClearLastError(IndexError *error) {
 void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key) {
     if (!NA_rstr) initDefaultKey();
     if (!withoutUserData || !withUserData) {
-        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
+        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG,
                         "Index error occurred but no index error message was set.");
     }
     IndexError_ClearLastError(error);
