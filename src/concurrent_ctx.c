@@ -8,12 +8,10 @@
 */
 #include "concurrent_ctx.h"
 #include "thpool/thpool.h"
-#include <unistd.h>
 #include <util/arr.h>
 #include "rmutil/rm_assert.h"
-#include "util/logging.h"
-#include "util/references.h"
 #include "module.h"
+#include "util/logging.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -127,47 +125,15 @@ void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx) {
   }
 }
 
-/** Check the elapsed timer, and release the lock if enough time has passed */
-int ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx) {
-  static struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-
-  long long durationNS = (long long)1000000000 * (now.tv_sec - ctx->lastTime.tv_sec) +
-                         (now.tv_nsec - ctx->lastTime.tv_nsec);
-  // Timeout - release the thread safe context lock and let other threads run as well
-  if (durationNS > CONCURRENT_TIMEOUT_NS) {
-    ConcurrentSearchCtx_Unlock(ctx);
-
-    // Right after releasing, we try to acquire the lock again.
-    // If other threads are waiting on it, the kernel will decide which one
-    // will get the chance to run again. Calling sched_yield is not necessary here.
-    // See http://blog.firetree.net/2005/06/22/thread-yield-after-mutex-unlock/
-    ConcurrentSearchCtx_Lock(ctx);
-    // Right after re-acquiring the lock, we sample the current time.
-    // This will be used to calculate the elapsed running time
-    ConcurrentSearchCtx_ResetClock(ctx);
-    return 1;
-  }
-  return 0;
-}
-
-void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx) {
-  clock_gettime(CLOCK_MONOTONIC_RAW, &ctx->lastTime);
-  ctx->ticker = 0;
-}
-
 /** Initialize a concurrent context */
 void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx) {
   ctx->ctx = rctx;
-  ctx->isLocked = 0;
   ctx->numOpenKeys = 0;
   ctx->openKeys = NULL;
-  ConcurrentSearchCtx_ResetClock(ctx);
 }
 
 void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, ConcurrentReopenCallback cb) {
   ctx->ctx = rctx;
-  ctx->isLocked = 0;
   ctx->numOpenKeys = 1;
   ctx->openKeys = rm_calloc(1, sizeof(*ctx->openKeys));
   ctx->openKeys->cb = cb;
@@ -208,16 +174,4 @@ void ConcurrentSearch_AddKey(ConcurrentSearchCtx *ctx, ConcurrentReopenCallback 
   ctx->openKeys[ctx->numOpenKeys - 1] = (ConcurrentKeyCtx){.cb = cb,
                                                            .privdata = privdata,
                                                            .freePrivData = freePrivDataCallback};
-}
-
-void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx) {
-  RS_LOG_ASSERT(!ctx->isLocked, "Redis GIL shouldn't be locked");
-  RedisModule_ThreadSafeContextLock(ctx->ctx);
-  ctx->isLocked = 1;
-  ConcurrentSearchCtx_ReopenKeys(ctx);
-}
-
-void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx) {
-  RedisModule_ThreadSafeContextUnlock(ctx->ctx);
-  ctx->isLocked = 0;
 }
