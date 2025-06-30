@@ -140,7 +140,7 @@
 //!      │  └─ Type: INT_POS (10)
 //!      └─ Value bytes: 1 (001) (ie 2 bytes are used for the value)
 
-use std::io::{IoSlice, Read, SeekFrom, Write};
+use std::io::{IoSlice, Read, Write};
 
 use ffi::t_docId;
 
@@ -191,7 +191,7 @@ impl Encoder for Numeric {
         let delta = &delta[..end];
         let delta_bytes = delta.len() as _;
 
-        let writer_len = writer.seek(SeekFrom::Current(0))?;
+        let writer_len = writer.stream_position()?;
 
         match Value::from(num_record.0) {
             Value::TinyInteger(i) => {
@@ -315,7 +315,7 @@ impl Encoder for Numeric {
             }
         };
 
-        let bytes_written = writer.seek(SeekFrom::Current(0))? - writer_len;
+        let bytes_written = writer.stream_position()? - writer_len;
 
         Ok(bytes_written as _)
     }
