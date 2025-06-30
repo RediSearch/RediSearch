@@ -1206,14 +1206,20 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-void AREQ_Free(AREQ *req) {
-  // First, free the result processors
-  ResultProcessor *rp = AREQ_QueryProcessingCtx(req)->endProc;
+void AggregationPipeline_Free(AggregationPipeline *pipeline) {
+  ResultProcessor *rp = pipeline->qctx.endProc;
   while (rp) {
     ResultProcessor *next = rp->upstream;
     rp->Free(rp);
     rp = next;
   }
+  FieldList_Free(&pipeline->outFields);
+}
+
+void AREQ_Free(AREQ *req) {
+  // First, free the pipeline
+  AggregationPipeline_Free(&req->pipeline);
+  
   if (req->rootiter) {
     req->rootiter->Free(req->rootiter);
     req->rootiter = NULL;
@@ -1264,7 +1270,6 @@ void AREQ_Free(AREQ *req) {
   if (req->searchopts.params) {
     Param_DictFree(req->searchopts.params);
   }
-  FieldList_Free(&req->pipeline.outFields);
   if (thctx) {
     RedisModule_FreeThreadSafeContext(thctx);
   }
