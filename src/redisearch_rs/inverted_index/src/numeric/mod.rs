@@ -174,13 +174,9 @@ impl Encoder for Numeric {
         delta: Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        if matches!(
+        if !matches!(
             record.result_type,
-            RSResultType::Union
-                | RSResultType::Intersection
-                | RSResultType::Term
-                | RSResultType::Virtual
-                | RSResultType::HybridMetric
+            RSResultType::Numeric | RSResultType::Metric
         ) {
             panic!("Numeric encoding only supports numeric types")
         }
