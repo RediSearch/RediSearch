@@ -3293,7 +3293,7 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     {.name = "GC", .fullName = command "|GC", .flags = "write", .handler = func, .setCommandInfo = NULL, .position = {0, 0, 0}},                       \
   }
 
-// This function sits next to RegisterCoordCursorCommands fucntion
+// This function sits next to RegisterCoordCursorCommands function
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
   CURSOR_SUBCOMMANDS(RS_CURSOR_CMD, RSCursorCommand);

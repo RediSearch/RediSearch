@@ -2203,6 +2203,7 @@ int SetFtCursorReadInfo(RedisModuleCommand *cmd) {
       {0}
     },
     .arity = -2,
+    .tips = "request_policy:special",
     .since = "1.1.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
@@ -2227,6 +2228,7 @@ int SetFtCursorDelInfo(RedisModuleCommand *cmd) {
       {0}
     },
     .arity = -2,
+    .tips = "request_policy:special",
     .since = "1.1.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);

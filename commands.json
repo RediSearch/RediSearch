@@ -1963,6 +1963,9 @@
         "token": "COUNT"
       }
     ],
+    "command_tips": [
+      "REQUEST_POLICY:SPECIAL"
+    ],
     "since": "1.1.0",
     "group": "search"
   },
@@ -1979,6 +1982,9 @@
         "name": "cursor_id",
         "type": "integer"
       }
+    ],
+    "command_tips": [
+      "REQUEST_POLICY:SPECIAL"
     ],
     "since": "1.1.0",
     "group": "search"

@@ -104,6 +104,13 @@ def generate_redis_module_command_info(cmd_info, file):
                 continue
             if type(value) == str:
                 info.write(f'.{key} = "{escape_c_string(value)}",\n')
+            elif key == 'command_tips':
+                # Handle command_tips array - convert to space-delimited string for tips field
+                # Keep the colon format as used in Redis (e.g., "request_policy:special")
+                if type(value) == list and len(value) > 0:
+                    # Convert to lowercase and join with spaces
+                    tips_string = ' '.join([tip.lower() for tip in value])
+                    info.write(f'.tips = "{escape_c_string(tips_string)}",\n')
             elif key == 'history':
                 generate_history(file, value)
             elif key == 'arguments':
