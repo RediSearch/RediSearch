@@ -408,6 +408,7 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
   case VecSimAlgo_HNSWLIB: goto fail; // We dont expect to see an HNSW index without a tiered index
   }
 
+
   return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
 
 fail:
