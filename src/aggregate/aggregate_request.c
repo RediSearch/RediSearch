@@ -34,10 +34,10 @@ extern RSConfig RSGlobalConfig;
  * @param status the error object
  */
 static bool ensureSimpleMode(AREQ *areq) {
-  if(areq->reqflags & QEXEC_F_IS_AGGREGATE) {
+  if(AREQ_RequestFlags(areq) & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
-  areq->reqflags |= QEXEC_F_IS_SEARCH;
+  AREQ_AddRequestFlags(areq, QEXEC_F_IS_SEARCH);
   return true;
 }
 
@@ -48,13 +48,13 @@ static bool ensureSimpleMode(AREQ *areq) {
  * name argument must not contain any user data, as it is used for error formatting
  */
 static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) {
-  if (areq->reqflags & QEXEC_F_IS_SEARCH) {
+  if (AREQ_RequestFlags(areq) & QEXEC_F_IS_SEARCH) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
                            "option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
   }
-  areq->reqflags |= QEXEC_F_IS_AGGREGATE;
+  AREQ_AddRequestFlags(areq, QEXEC_F_IS_AGGREGATE);
   return 1;
 }
 
@@ -233,7 +233,7 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 }
 
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
-  if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+  if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
     sctx->expanded = 1;
     sctx->apiVersion = MAX(APIVERSION_RETURN_MULTI_CMP_FIRST, req->reqConfig.dialectVersion);
   } else {
@@ -351,7 +351,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     return ARG_UNKNOWN;
   }
 
-  if (dialect_specified && req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && req->reqflags & QEXEC_FORMAT_EXPAND) {
+  if (dialect_specified && req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
@@ -542,7 +542,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
       }
-      req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
+      AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       if(!ensureSimpleMode(req)) {
@@ -554,7 +554,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
       }
-      req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
+      AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if ((AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH) &&
                ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status)) != ARG_UNKNOWN)) {
@@ -621,7 +621,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     req->outFields.explicitReturn = 1;
     if (returnFields.argc == 0) {
-      req->reqflags |= QEXEC_F_SEND_NOFIELDS;
+      AREQ_AddRequestFlags(req, QEXEC_F_SEND_NOFIELDS);
     }
 
     while (!AC_IsAtEnd(&returnFields)) {
@@ -1419,7 +1419,7 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
     scorer = DEFAULT_SCORER_NAME;
   }
   ScoringFunctionArgs scargs = {0};
-  if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
+  if (AREQ_RequestFlags(req) & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
   }
   if (!strcmp(scorer, BM25_STD_NORMALIZED_TANH_SCORER_NAME)) {

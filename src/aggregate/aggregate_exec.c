@@ -107,7 +107,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
 
 static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
-  const uint32_t options = req->reqflags;
+  const uint32_t options = AREQ_RequestFlags(req);
   const RSDocumentMetadata *dmd = r->dmd;
   size_t count0 = RedisModule_Reply_LocalCount(reply);
   bool has_map = RedisModule_HasMap(reply);
@@ -122,7 +122,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     if (!dmd) {
       // Empty results should not be serialized!
       // We already crashed in development env. In production, log and continue
-      RedisModule_Log(req->sctx->redisCtx, "warning", "Document metadata NULL in result serialization.");
+      RedisModule_Log(AREQ_SearchCtx(req)->redisCtx, "warning", "Document metadata NULL in result serialization.");
       return 0;
     }
     const char *s = DMD_KeyPtrLen(dmd, &n);
@@ -430,7 +430,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
   }
 
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    TotalGlobalStats_CountQuery(req->reqflags, clock() - req->initClock);
+    TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), clock() - req->initClock);
   }
 
   // Reset the total results length:
@@ -467,7 +467,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // Set `resultsLen` to be the expected number of results in the response.
     if (rc == RS_RESULT_ERROR) {
       resultsLen = 2;
-    } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
+    } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
                req->optimizer->type != Q_OPT_NO_SORTER) {
       resultsLen = calc_results_len(req, limit);
     }
@@ -479,7 +479,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // Upon `FT.PROFILE` commands, embed the response inside another map
     if (IsProfile(req)) {
       Profile_PrepareMapForReply(reply);
-    } else if (req->reqflags & QEXEC_F_IS_CURSOR) {
+    } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       RedisModule_Reply_Array(reply);
     }
 
@@ -489,7 +489,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     nelem++;
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
-    if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
     }
 
@@ -581,7 +581,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       goto done_3_err;
     }
 
-    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       RedisModule_Reply_Array(reply);
     }
 
@@ -600,7 +600,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     RedisModule_Reply_ArrayEnd(reply);
 
     // <format>
-    if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+    if (AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
       RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
     } else {
       RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
@@ -609,7 +609,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <results>
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    if (req->reqflags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_3;
     }
 
@@ -679,7 +679,7 @@ done_3:
 
     RedisModule_Reply_MapEnd(reply);
 
-    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
       } else {
