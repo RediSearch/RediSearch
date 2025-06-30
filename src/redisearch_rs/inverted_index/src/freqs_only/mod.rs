@@ -37,7 +37,7 @@ impl Decoder for FreqsOnly {
         reader: &mut R,
         base: t_docId,
     ) -> std::io::Result<Option<DecoderResult>> {
-        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader).unwrap();
+        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
         let [delta, freq] = decoded_values;
 
         let record = RSIndexResult::freqs_only(base + delta as u64, freq);
