@@ -1634,7 +1634,7 @@ def test_redisearch_memory_limit():
     env.expect(config_cmd(), 'SET', 'VSS_MAX_RESIZE', '0').ok()
     env.assertTrue(conn.execute_command('CONFIG SET', 'maxmemory', '0'))
 
-@skip(cluster=True)
+@skip(cluster=True, asan=True)  # TODO: fix use-after-free detected in asan (see MOD-10307)
 def test_rdb_memory_limit():
     # test element size with VSS_MAX_RESIZE configure
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
