@@ -8,6 +8,7 @@
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
 #include "search_cluster.h"
+#include "module.h"
 #include "rmutil/rm_assert.h"
 
 #include <uv.h>
