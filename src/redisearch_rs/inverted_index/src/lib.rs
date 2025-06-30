@@ -274,6 +274,7 @@ pub trait Encoder {
     ) -> std::io::Result<usize>;
 }
 
+#[derive(Debug, PartialEq)]
 pub enum DecoderResult {
     /// The record was successfully decoded.
     Record(RSIndexResult),

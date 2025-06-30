@@ -396,6 +396,16 @@ fn test_numeric_encode_decode(
     assert_eq!(record_decoded, record, "failed for value: {}", value);
 }
 
+#[test]
+fn test_empty_buffer() {
+    let mut buffer = Cursor::new(Vec::new());
+    let record = Numeric
+        .decode(&mut buffer, 0)
+        .expect("no not crash on empty buffer");
+
+    assert_eq!(record, None, "should not decode an empty buffer");
+}
+
 proptest! {
     #[test]
     fn numeric_encode_decode(

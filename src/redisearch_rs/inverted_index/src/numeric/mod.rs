@@ -140,7 +140,7 @@
 //!      │  └─ Type: INT_POS (10)
 //!      └─ Value bytes: 1 (001) (ie 2 bytes are used for the value)
 
-use std::io::{IoSlice, Read, Write};
+use std::io::{ErrorKind, IoSlice, Read, Write};
 
 use ffi::t_docId;
 
@@ -342,13 +342,18 @@ impl Encoder for Numeric {
 }
 
 impl Decoder for Numeric {
+    #[inline(never)]
     fn decode<R: Read>(
         &self,
         reader: &mut R,
         base: t_docId,
     ) -> std::io::Result<Option<DecoderResult>> {
         let mut header = [0; 1];
-        reader.read_exact(&mut header)?;
+        match reader.read_exact(&mut header) {
+            Ok(_) => {}
+            Err(error) if error.kind() == ErrorKind::UnexpectedEof => return Ok(None),
+            Err(error) => Err(error)?,
+        }
 
         let header = header[0];
         let delta_bytes = (header & 0b111) as usize;
