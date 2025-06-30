@@ -15,12 +15,14 @@
 #include "util/threadpool_api.h"
 #include "redis_index.h"
 
+#ifdef __x86_64__
+#include <cpuid.h>
+#endif
 
 static bool isIntelMachine() {
 #ifndef __x86_64__
   return false; // This function is only relevant for x86_64 architecture.
-#else
-#include <cpuid.h>
+#endif
 
   // Check if the machine is Intel based on the CPU vendor.
   unsigned int eax, ebx, ecx, edx;
@@ -36,8 +38,6 @@ static bool isIntelMachine() {
   vendor[12] = '\0';
 
   return strcmp(vendor, "GenuineIntel") == 0;
-#endif
-
 }
 
 VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
