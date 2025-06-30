@@ -191,7 +191,7 @@ pub struct RSIndexResult {
     /// directly into memory
     pub offsets_sz: u32,
 
-    data: RSIndexResultData,
+    pub data: RSIndexResultData,
 
     /// The type of data stored at ['Self::data']
     pub result_type: RSResultType,
@@ -271,6 +271,30 @@ impl RSIndexResult {
                 virt: ManuallyDrop::new(RSVirtualResult),
             },
             result_type: RSResultType::Virtual,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight: 0.0,
+        }
+    }
+
+    /// Create a new virtual index result with the given document ID, field mask, frequency, and offsets size.
+    pub fn token_record(doc_id: t_docId, field_mask: u128, freq: u32, offsets_sz: u32) -> Self {
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask,
+            freq,
+            offsets_sz,
+            data: RSIndexResultData {
+                term: ManuallyDrop::new(RSTermRecord {
+                    term: std::ptr::null_mut(),
+                    offsets: RSOffsetVector {
+                        data: std::ptr::null_mut(),
+                        len: 0,
+                    },
+                }),
+            },
+            result_type: RSResultType::Term,
             is_copy: false,
             metrics: std::ptr::null_mut(),
             weight: 0.0,
