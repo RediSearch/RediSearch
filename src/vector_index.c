@@ -15,12 +15,12 @@
 #include "util/threadpool_api.h"
 #include "redis_index.h"
 
-#include <cpuid.h>
 
 static bool isIntelMachine() {
 #ifndef __x86_64__
   return false; // This function is only relevant for x86_64 architecture.
-#endif
+#else
+#include <cpuid.h>
 
   // Check if the machine is Intel based on the CPU vendor.
   unsigned int eax, ebx, ecx, edx;
@@ -36,6 +36,7 @@ static bool isIntelMachine() {
   vendor[12] = '\0';
 
   return strcmp(vendor, "GenuineIntel") == 0;
+#endif
 
 }
 
