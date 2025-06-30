@@ -461,45 +461,6 @@ int RedisModule_ReplyKV_Set(RedisModule_Reply *reply, const char *key) {
 
 //---------------------------------------------------------------------------------------------
 
-#ifdef REDISMODULE_REPLY_DEBUG
-
-void print_reply(RedisModule_Reply *reply) {
-  puts("");
-  printf("count: %d\n", reply->count);
-  printf("stack: ");
-  if (reply->stack) {
-    int n = array_len(reply->stack);
-    for (int i = n - 1; i >= 0; --i) {
-      printf("%d ", reply->stack[i].count);
-    }
-    puts("\n");
-  } else {
-    puts("n/a\n");
-  }
-  printf("%s", reply->json);
-  if (reply->stack) {
-    int n = array_len(reply->stack);
-    for (int i = n - 1; i >= 0; --i) {
-      switch (reply->stack[i].type) {
-      case REDISMODULE_REPLY_ARRAY:
-        printf(" ]");
-        break;
-      case REDISMODULE_REPLY_MAP:
-      case REDISMODULE_REPLY_SET:
-        printf(" }");
-        break;
-      }
-      if (i > 0)
-        printf(", ");
-    }
-  }
-  puts("\n");
-}
-
-#endif // REDISMODULE_REPLY_DEBUG
-
-//---------------------------------------------------------------------------------------------
-
 char *escapeSimpleString(const char *str) {
   size_t len = strlen(str);
   // This is a short lived string, so we can afford to allocate twice the size

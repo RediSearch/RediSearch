@@ -7,6 +7,7 @@
 #include "document.h"
 #include "err.h"
 #include "util/logging.h"
+#include "module.h"
 #include "rmutil/rm_assert.h"
 
 /*
@@ -152,7 +153,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
 
   if (exists == -1) {
-    QueryError_SetError(status, QUERY_EREDISKEYTYPE, NULL);
+    QueryError_SetCode(status, QUERY_EREDISKEYTYPE);
     goto done;
   }
 
@@ -162,7 +163,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   }
 
   if (exists && !(opts->options & DOCUMENT_ADD_REPLACE)) {
-    QueryError_SetError(status, QUERY_EDOCEXISTS, NULL);
+    QueryError_SetCode(status, QUERY_EDOCEXISTS);
     goto done;
   }
 
@@ -171,11 +172,10 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     int res = 0;
     if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
       if (res == 0) {
-        QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);
+        QueryError_SetCode(status, QUERY_EDOCNOTADDED);
         goto done;
       }
     } else {
-      printf("Eval failed! (%s)\n", opts->evalExpr);
       if (status->code == QUERY_ENOPROPVAL) {
         QueryError_ClearError(status);
         QueryError_SetCode(status, QUERY_EDOCNOTADDED);

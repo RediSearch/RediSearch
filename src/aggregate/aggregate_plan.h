@@ -253,8 +253,6 @@ typedef enum {
  */
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode);
 
-void AGPLN_Dump(const AGGPlan *pln);
-
 /**
  * Determines if the plan is a 'reduce' type. A 'reduce' plan is one which
  * consumes (in entirety) all of its inputs and produces a new output (and thus
