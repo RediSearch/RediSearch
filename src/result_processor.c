@@ -1038,7 +1038,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 }
 
 void SetLoadersForBG(AREQ *r) {
-  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
   while (cur) {
@@ -1219,7 +1219,7 @@ typedef struct {
 
 // Insert the result processor between the last result processor and its downstream result processor
 static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
-  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
 

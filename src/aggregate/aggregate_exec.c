@@ -429,14 +429,15 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
-  if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), clock() - req->initClock);
   }
 
   // Reset the total results length:
-  req->qiter.totalResults = 0;
+  qctx->totalResults = 0;
 
-  QueryError_ClearError(req->qiter.err);
+  QueryError_ClearError(qctx->err);
 }
 
 /**
@@ -446,7 +447,8 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
-    ResultProcessor *rp = req->qiter.endProc;
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
     long nelem = 0, resultsLen = REDISMODULE_POSTPONED_ARRAY_LEN;
     bool cursor_done = false;
@@ -455,7 +457,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp, req)) {
-      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -485,7 +487,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Array(reply);
 
-    RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
+    RedisModule_Reply_LongLong(reply, qctx->totalResults);
     nelem++;
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
@@ -519,7 +521,6 @@ done_2:
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
 
     // Prepare profile printer context
@@ -565,14 +566,16 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
-    ResultProcessor *rp = req->qiter.endProc;
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
     bool cursor_done = false;
 
     startPipeline(req, rp, &results, &r, &rc);
 
     if (ShouldReplyWithError(rp, req)) {
-      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -637,11 +640,11 @@ done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
     // <total_results>
-    RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
+    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    if (req->sctx->spec && req->sctx->spec->scan_failed_OOM) {
+    if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     if (rc == RS_RESULT_TIMEDOUT) {
@@ -649,7 +652,7 @@ done_3:
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(req->qiter.err));
-    } else if (req->qiter.err->reachedMaxPrefixExpansions) {
+    } else if (qctx->err->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -658,11 +661,9 @@ done_3:
                    && !(rc == RS_RESULT_TIMEDOUT
                         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
 
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err);
 
     // Prepare profile printer context
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
@@ -958,7 +959,8 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
     r->initClock = clock();
   }
 
-  if (r->qiter.isProfile) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
+  if (qctx->isProfile) {
     clock_gettime(CLOCK_MONOTONIC, &r->qiter.initTime);
   }
 
@@ -983,11 +985,12 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
-    if (r->qiter.isProfile){
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
+    if (qctx->isProfile) {
       struct timespec time;
       clock_gettime(CLOCK_MONOTONIC, &time);
-      rs_timersub(&time, &r->qiter.initTime, &time);
-      rs_timeradd(&time, &r->qiter.GILTime, &r->qiter.GILTime);
+      rs_timersub(&time, &qctx->initTime, &time);
+      rs_timeradd(&time, &qctx->GILTime, &qctx->GILTime);
     }
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
@@ -1120,7 +1123,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     CurrentThread_ClearIndexSpec();
     return NULL;
   }
-  char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
+  char *ret = QAST_DumpExplain(&r->ast, AREQ_SearchCtx(r)->spec);
   AREQ_Free(r);
   CurrentThread_ClearIndexSpec();
   return ret;

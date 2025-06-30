@@ -621,13 +621,14 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd); // This will take ownership of the command
-  rpRoot->base.parent = &r->qiter;
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
+  rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
 
   ResultProcessor *rpProfile = NULL;
   if (IsProfile(r)) {
-    rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
+    rpProfile = RPProfile_New(&rpRoot->base, qctx);
   }
 
   RS_ASSERT(!r->qiter.rootProc);
@@ -642,9 +643,9 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   }
 
   // update root and end with RPNet
-  r->qiter.rootProc = &rpRoot->base;
+  qctx->rootProc = &rpRoot->base;
   if (!found) {
-    r->qiter.endProc = &rpRoot->base;
+    qctx->endProc = &rpRoot->base;
   }
 
   // allocate memory for replies and update endProc if necessary
@@ -652,7 +653,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     // 2 is just a starting size, as we most likely have more than 1 shard
     rpRoot->shardsProfile = array_new(MRReply*, 2);
     if (!found) {
-      r->qiter.endProc = rpProfile;
+      qctx->endProc = rpProfile;
     }
   }
 }
@@ -682,7 +683,7 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
       AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
-      QueryError_SetError(r->qiter.err, QUERY_EPARSEARGS, "No QUERY keyword provided");
+      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_EPARSEARGS, "No QUERY keyword provided");
       return -1;
     }
   }
@@ -714,7 +715,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
       if (knnCtx != NULL) {
         // If we found KNN, add an arange step, so it will be the first step after
         // the root (which is first plan step to be executed after the root).
-        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
+        AGPLN_AddKNNArrangeStep(AREQ_Plan(r), knnCtx->knn.k, knnCtx->knn.fieldName);
       }
     }
   }

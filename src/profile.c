@@ -137,13 +137,14 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
 
       //Print total GIL time
         if (profile_verbose){
+          QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_timer_ms(&req->qiter.GILTime));
+            rs_timer_ms(&qctx->GILTime));
           } else {
             struct timespec rpEndTime;
             clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-            rs_timersub(&rpEndTime, &req->qiter.initTime, &rpEndTime);
+            rs_timersub(&rpEndTime, &qctx->initTime, &rpEndTime);
             RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_timer_ms(&rpEndTime));
           }
         }
@@ -174,7 +175,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       }
 
       // Print profile of result processors
-      ResultProcessor *rp = req->qiter.endProc;
+      ResultProcessor *rp = qctx->endProc;
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
         printProfileRP(reply, rp, req->reqConfig.printProfileClock);
       RedisModule_Reply_ArrayEnd(reply);
