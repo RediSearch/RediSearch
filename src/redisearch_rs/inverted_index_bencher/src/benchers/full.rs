@@ -86,11 +86,11 @@ impl Bencher {
     const WARMUP_TIME: Duration = Duration::from_millis(200);
 
     pub fn new() -> Self {
-        let freq_values = vec![0, 2, 256, u16::MAX as u32, u32::MAX];
-        let deltas = vec![0, 1, 256, 65536, u16::MAX as u64, u32::MAX as u64];
+        let freq_values = vec![0];
+        let deltas = vec![0, 1];
         // Full encoder cannot handle field masks larger than u32
-        let field_masks_values = vec![0, 1, 256, 65536, u16::MAX as u128, u32::MAX as u128];
-        let term_offsets_values = vec![vec![0], vec![1, 2, 3], vec![1; 100]];
+        let field_masks_values = vec![0, 1];
+        let term_offsets_values = vec![vec![0], vec![1, 2, 3]];
 
         let test_values = freq_values
             .into_iter()

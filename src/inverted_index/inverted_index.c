@@ -378,6 +378,11 @@ size_t encode_full(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeFull(bw, delta, res);
 }
 
+// Wrapper around the private static `encodeFullWide` function to expose it to benchmarking.
+size_t encode_full_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFullWide(bw, delta, res);
+}
+
 // Wrapper around the private static `encodeFreqsOnly` function to expose it to benchmarking.
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeFreqsOnly(bw, delta, res);
@@ -819,6 +824,11 @@ DECODER(readDocIdsOnly) {
 // Wrapper around the private static `readFreqOffsetsFlags` function to expose it to benchmarking.
 bool read_freq_offsets_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   return readFreqOffsetsFlags(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readFreqOffsetsFlagsWide` function to expose it to benchmarking.
+bool read_freq_offsets_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFreqOffsetsFlagsWide(blockReader, ctx, res);
 }
 
 // Wrapper around the private static `readFreqs` function to expose it to benchmarking.

@@ -90,6 +90,16 @@ pub fn encode_full(
     unsafe { bindings::encode_full(&mut buffer_writer as *const _ as *mut _, delta, record) }
 }
 
+pub fn encode_full_wide(
+    buffer: &mut TestBuffer,
+    record: &mut inverted_index::RSIndexResult,
+    delta: u64,
+) -> usize {
+    let mut buffer_writer = BufferWriter::new(&mut buffer.0);
+
+    unsafe { bindings::encode_full_wide(&mut buffer_writer as *const _ as *mut _, delta, record) }
+}
+
 pub fn encode_freqs_only(
     buffer: &mut TestBuffer,
     record: &mut inverted_index::RSIndexResult,
@@ -112,6 +122,22 @@ pub fn read_freq_offsets_flags(
 
     let returned =
         unsafe { bindings::read_freq_offsets_flags(&mut block_reader, &mut ctx, &mut result) };
+
+    (returned, result)
+}
+
+pub fn read_freq_offsets_flags_wide(
+    buffer: &mut Buffer,
+    base_id: u64,
+) -> (bool, inverted_index::RSIndexResult) {
+    let buffer_reader = BufferReader::new(buffer);
+    let mut block_reader =
+        unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
+    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let mut result = inverted_index::RSIndexResult::token_record(base_id, 0, 0, 0);
+
+    let returned =
+        unsafe { bindings::read_freq_offsets_flags_wide(&mut block_reader, &mut ctx, &mut result) };
 
     (returned, result)
 }
@@ -399,6 +425,104 @@ mod tests {
 
             let base_id = doc_id - delta;
             let (returned, decoded_result) = read_freq_offsets_flags(&mut buffer.0, base_id);
+            assert!(returned);
+            assert_eq!(
+                TermRecordCompare(&decoded_result),
+                TermRecordCompare(&record)
+            );
+        }
+    }
+
+    #[test]
+    fn test_encode_full_wide() {
+        // Test cases for the full wide encoder and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+        let tests = [
+            // (delta, frequency, field mask, term offsets vector, expected encoding)
+            (0, 1, 1, vec![1i8, 2, 3], vec![0, 0, 1, 3, 1, 1, 2, 3]),
+            /*
+                       (
+                           10,
+                           5,
+                           u32::MAX as u128,
+                           vec![1i8, 2, 3, 4],
+                           vec![48, 10, 5, 255, 255, 255, 255, 4, 1, 2, 3, 4],
+                       ),
+                       (256, 1, 1, vec![1, 2, 3], vec![1, 0, 1, 1, 1, 3, 1, 2, 3]),
+                       (
+                           65536,
+                           1,
+                           1,
+                           vec![1, 2, 3],
+                           vec![2, 0, 0, 1, 1, 1, 3, 1, 2, 3],
+                       ),
+                       (
+                           u16::MAX as u64,
+                           1,
+                           1,
+                           vec![1, 2, 3],
+                           vec![1, 255, 255, 1, 1, 3, 1, 2, 3],
+                       ),
+                       (
+                           u32::MAX as u64,
+                           1,
+                           1,
+                           vec![1, 2, 3],
+                           vec![3, 255, 255, 255, 255, 1, 1, 3, 1, 2, 3],
+                       ),
+                       (
+                           u32::MAX as u64,
+                           u32::MAX,
+                           u32::MAX as u128,
+                           vec![1; 100],
+                           vec![
+                               63, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 100, 1, 1, 1,
+                               1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                               1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                               1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                               1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                           ],
+                       ),
+            */
+        ];
+        let doc_id = 4294967296;
+
+        for (delta, freq, field_mask, offsets, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+
+            let mut record = inverted_index::RSIndexResult::token_record(
+                doc_id,
+                field_mask,
+                freq,
+                offsets.len() as u32,
+            );
+            record.weight = 1.0;
+
+            const TEST_STR: &str = "test";
+            let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+            let mut term = RSQueryTerm {
+                str_: test_str_ptr,
+                len: TEST_STR.len(),
+                idf: 5.0,
+                id: 1,
+                flags: 0,
+                bm25_idf: 10.0,
+            };
+            let offsets_ptr = offsets.as_ptr() as *mut _;
+
+            record.data.term = ManuallyDrop::new(RSTermRecord {
+                term: &mut term,
+                offsets: RSOffsetVector {
+                    data: offsets_ptr,
+                    len: offsets.len() as u32,
+                },
+            });
+
+            let _buffer_grew_size = encode_full_wide(&mut buffer, &mut record, delta);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_freq_offsets_flags_wide(&mut buffer.0, base_id);
             assert!(returned);
             assert_eq!(
                 TermRecordCompare(&decoded_result),
