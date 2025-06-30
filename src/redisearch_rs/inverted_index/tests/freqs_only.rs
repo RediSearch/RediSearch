@@ -9,7 +9,9 @@
 
 use std::io::Cursor;
 
-use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, freqs_only::FreqsOnly};
+use inverted_index::{
+    Decoder, DecoderResult, Delta, Encoder, RSIndexResult, freqs_only::FreqsOnly,
+};
 
 #[test]
 fn test_encode_freqs_only() {
@@ -41,7 +43,7 @@ fn test_encode_freqs_only() {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::freqs_only(doc_id, freq);
 
-        let bytes_written = FreqsOnly::encode(&mut buf, Delta(delta), &record)
+        let bytes_written = FreqsOnly::encode(&mut buf, Delta::new(delta), &record)
             .expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());

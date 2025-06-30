@@ -44,6 +44,3 @@ impl Decoder for FreqsOnly {
         Ok(Some(DecoderResult::Record(record)))
     }
 }
-
-#[cfg(test)]
-mod tests;
