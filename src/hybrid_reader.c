@@ -448,6 +448,7 @@ static IndexIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
   if (hParams->childIt && hParams->childIt->type == EMPTY_ITERATOR) {
     ret = hParams->childIt;
   } else if (hParams->childIt && hParams->childIt->type == WILDCARD_ITERATOR) {
+    //TODO: When new Iterator API (consider READER_ITERATOR with isWildcard flag)
     hParams->childIt->Free(hParams->childIt);
     hParams->qParams.searchMode = VECSIM_STANDARD_KNN;
     hParams->childIt = NULL;

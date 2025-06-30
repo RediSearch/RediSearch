@@ -439,10 +439,10 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionAllWildCardChildren) {
   children[2] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
   children[3] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
 
+  QueryIterator *expected_iter = children[3];
   size_t num = 4;
   QueryIterator *ii_base = NewIntersectionIterator(children, num, -1, false, 1.0);
-
-  ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
+  ASSERT_EQ(ii_base, expected_iter);
   ii_base->Free(ii_base);
 }
 
