@@ -129,7 +129,7 @@ impl std::fmt::Debug for Buffer {
             .field("len", &self.len())
             .field("capacity", &self.capacity());
         // We don't want to accidentally output huge or sensitive data in production code.
-        #[cfg(test)]
+        #[cfg(debug_assertions)]
         let debug = debug.field("data", &self.as_slice());
         debug.finish()
     }
