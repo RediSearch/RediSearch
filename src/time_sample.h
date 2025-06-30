@@ -61,28 +61,4 @@ static double TimeSampler_IterationMS(TimeSample *ts) {
          (double)(ts->num ? ts->num : 1.0);
 }
 
-#define TIME_SAMPLE_RUN(blk)                                                   \
-  {                                                                            \
-    TimeSample ts;                                                             \
-    TimeSampler_Start(&ts);                                                    \
-    { blk; };                                                                  \
-    TimeSampler_End(&ts);                                                      \
-    printf("Execution time for " #blk ": %f seconds\n",                        \
-           TimeSampler_DurationSec(&ts));                                      \
-  }
-
-#define TIME_SAMPLE_RUN_LOOP(N, blk)                                           \
-  {                                                                            \
-    TimeSample ts;                                                             \
-    TimeSampler_Start(&ts);                                                    \
-    for (int __ts_loop = 0; __ts_loop < N; __ts_loop++) {                      \
-      blk;                                                                     \
-      TimeSampler_Tick(&ts);                                                   \
-    };                                                                         \
-    TimeSampler_End(&ts);                                                      \
-    printf("Execution time for %d iterations of " #blk                         \
-           ": %f msec/iteration\n",                                         \
-           ts.num, TimeSampler_IterationMS(&ts));                             \
-  }
-
 #endif

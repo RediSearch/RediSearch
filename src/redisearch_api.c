@@ -682,8 +682,6 @@ double RediSearch_ResultsIteratorGetScore(const RS_ApiIter* it) {
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
     iter->internal->Free(iter->internal);
-  } else {
-    printf("Not freeing internal iterator. internal iterator is null\n");
   }
   if (iter->scorerFree) {
     iter->scorerFree(iter->scargs.extdata);

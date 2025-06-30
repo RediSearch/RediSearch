@@ -44,9 +44,6 @@ const char *Redis_SelectRandomTerm(RedisSearchCtx *ctx, size_t *tlen);
 
 typedef int (*ScanFunc)(RedisModuleCtx *ctx, RedisModuleString *keyName, void *opaque);
 
-/* Scan the keyspace with MATCH for a prefix, and call ScanFunc for each key found */
-int Redis_ScanKeys(RedisModuleCtx *ctx, const char *prefix, ScanFunc f, void *opaque);
-
 /* Optimize the buffers of a speicif term hit */
 int Redis_OptimizeScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque);
 

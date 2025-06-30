@@ -12,6 +12,7 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
+#include "module.h"
 #include "reply_macros.h"
 #include "redis_index.h"
 #include "info/global_stats.h"
@@ -96,7 +97,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool has_map = RedisModule_HasMap(reply);
 
   RedisModule_Reply_Map(reply); // top
-  
+
   // Lock the spec
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisSearchCtx_LockSpecRead(&sctx);

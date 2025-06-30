@@ -14,7 +14,7 @@
 #include <ctype.h>
 #include "libnu/libnu.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/alloc.h"
+#include "rmalloc.h"
 
 /* Strconv - common simple string conversion utils */
 
