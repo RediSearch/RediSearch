@@ -1450,7 +1450,7 @@
         "arguments": [
           {
             "name": "expression",
-            "type": "string",
+            "type": "block",
             "expression": true,
             "token": "APPLY",
             "arguments": [

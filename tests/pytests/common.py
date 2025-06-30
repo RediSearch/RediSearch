@@ -401,6 +401,8 @@ def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None
 def to_dict(res):
     if type(res) == dict:
         return res
+    if len(res) % 2 != 0:
+        raise ValueError(f"to_dict expects even-length array (key-value pairs), got {len(res)} elements")
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
 

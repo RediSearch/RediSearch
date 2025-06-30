@@ -1640,13 +1640,13 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
           {
             .name = "expression",
             .token = "APPLY",
-            .type = REDISMODULE_ARG_TYPE_STRING,
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
             .subargs = (RedisModuleCommandArg[]){
               {
                 .name = "exists",
                 .token = "exists",
                 .summary = "Checks whether a field exists in a document.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "s",
@@ -1658,7 +1658,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "log",
                 .token = "log",
                 .summary = "Return the logarithm of a number, property or subexpression",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "x",
@@ -1670,7 +1670,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "abs",
                 .token = "abs",
                 .summary = "Return the absolute value of a numeric expression",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "x",
@@ -1682,7 +1682,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "ceil",
                 .token = "ceil",
                 .summary = "Round to the smallest integer not less than x",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "x",
@@ -1694,7 +1694,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "floor",
                 .token = "floor",
                 .summary = "Round to largest integer not greater than x",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "x",
@@ -1706,7 +1706,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "log2",
                 .token = "log2",
                 .summary = "Return the logarithm of x to base 2",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "x",
@@ -1718,7 +1718,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "exp",
                 .token = "exp",
                 .summary = "Return the exponent of x, e.g., e^x",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "x",
@@ -1730,7 +1730,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "sqrt",
                 .token = "sqrt",
                 .summary = "Return the square root of x",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "x",
@@ -1742,7 +1742,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "upper",
                 .token = "upper",
                 .summary = "Return the uppercase conversion of s",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "s",
@@ -1754,7 +1754,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "lower",
                 .token = "lower",
                 .summary = "Return the lowercase conversion of s",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "s",
@@ -1766,7 +1766,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "startswith",
                 .token = "startswith",
                 .summary = "Return 1 if s2 is the prefix of s1, 0 otherwise.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "s1",
@@ -1781,7 +1781,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "contains",
                 .token = "contains",
                 .summary = "Return the number of occurrences of s2 in s1, 0 otherwise. If s2 is an empty string, return length(s1) + 1.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "s1",
@@ -1796,7 +1796,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "strlen",
                 .token = "strlen",
                 .summary = "Return the length of s",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "s",
@@ -1808,7 +1808,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "substr",
                 .token = "substr",
                 .summary = "Return the substring of s, starting at offset and having count characters. If offset is negative, it represents the distance from the end of the string. If count is -1, it means \"the rest of the string starting at offset\".",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "s",
@@ -1826,7 +1826,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "format",
                 .token = "format",
                 .summary = "Use the arguments following fmt to format a string. Currently the only format argument supported is %s and it applies to all types of arguments.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "fmt",
@@ -1838,7 +1838,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "matched_terms",
                 .token = "matched_terms",
                 .summary = "Return the query terms that matched for each record (up to 100), as a list. If a limit is specified, Redis will return the first N matches found, based on query order.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "max_terms=100",
@@ -1851,7 +1851,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "split",
                 .token = "split",
                 .summary = "Split a string by any character in the string sep, and strip any characters in strip. If only s is specified, it is split by commas and spaces are stripped. The output is an array.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "s",
@@ -1863,7 +1863,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "timefmt",
                 .token = "timefmt",
                 .summary = "Return a formatted time string based on a numeric timestamp value x.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "x",
@@ -1879,7 +1879,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "parsetime",
                 .token = "parsetime",
                 .summary = "The opposite of timefmt() - parse a time format using a given format string",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timesharing",
@@ -1895,7 +1895,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "day",
                 .token = "day",
                 .summary = "Round a Unix timestamp to midnight (00:00) start of the current day.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -1907,7 +1907,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "hour",
                 .token = "hour",
                 .summary = "Round a Unix timestamp to the beginning of the current hour.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -1919,7 +1919,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "minute",
                 .token = "minute",
                 .summary = "Round a Unix timestamp to the beginning of the current minute.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -1931,7 +1931,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "month",
                 .token = "month",
                 .summary = "Round a unix timestamp to the beginning of the current month.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -1943,7 +1943,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "dayofweek",
                 .token = "dayofweek",
                 .summary = "Convert a Unix timestamp to the day number (Sunday = 0).",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -1955,7 +1955,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "dayofmonth",
                 .token = "dayofmonth",
                 .summary = "Convert a Unix timestamp to the day of month number (1 .. 31).",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -1967,7 +1967,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "dayofyear",
                 .token = "dayofyear",
                 .summary = "Convert a Unix timestamp to the day of year number (0 .. 365).",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -1979,7 +1979,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "year",
                 .token = "year",
                 .summary = "Convert a Unix timestamp to the current year (e.g. 2018).",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -1991,7 +1991,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "monthofyear",
                 .token = "monthofyear",
                 .summary = "Convert a Unix timestamp to the current month (0 .. 11).",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "timestamp",
@@ -2003,7 +2003,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                 .name = "geodistance",
                 .token = "geodistance",
                 .summary = "Return distance in meters.",
-                .type = REDISMODULE_ARG_TYPE_STRING,
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .subargs = (RedisModuleCommandArg[]){
                   {
                     .token = "",
