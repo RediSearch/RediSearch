@@ -843,7 +843,8 @@ TEST_F(IndexTest, testHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .canTrimDeepResults = true,
                                   .childIt = NULL,
-                                  .filterCtx = &filterCtx
+                                  .filterCtx = &filterCtx,
+                                  .shardWindowRatio = 1.0
   };
   QueryError err = {QUERY_OK};
   IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
@@ -1003,7 +1004,8 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .canTrimDeepResults = true,
                                   .childIt = ii,
-                                  .filterCtx = &filterCtx};
+                                  .filterCtx = &filterCtx,
+                                  .shardWindowRatio = 1.0};
   QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);

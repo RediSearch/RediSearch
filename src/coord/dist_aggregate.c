@@ -705,6 +705,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     if(strcasestr(r->query, "KNN")) {
+      // For distributed aggregation, command type detection is automatic
       specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
@@ -713,7 +714,8 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
       if (knnCtx != NULL) {
         // If we found KNN, add an arange step, so it will be the first step after
         // the root (which is first plan step to be executed after the root).
-        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
+        // Use originalK for coordinator to ensure full result set is returned to user
+        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.originalK, knnCtx->knn.fieldName);
       }
     }
   }
