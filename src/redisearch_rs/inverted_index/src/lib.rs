@@ -39,6 +39,15 @@ impl From<Delta> for usize {
     }
 }
 
+// Non-numeric encoders only accept deltas that fit in a `u32`.
+impl TryFrom<Delta> for u32 {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(delta: Delta) -> Result<Self, Self::Error> {
+        u32::try_from(delta.0)
+    }
+}
+
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
@@ -319,6 +328,11 @@ impl PartialEq for RSIndexResult {
 pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
+    ///
+    /// # Panics
+    /// Non-numeric encoders only accept deltas that fit in a `u32`, and so will panic if the delta
+    /// is larger than `u32::MAX`.
+    /// When using such encoders the inverted index should create new blocks if the delta exceeds `u32::MAX`.
     fn encode<W: Write + Seek>(
         &self,
         writer: W,
