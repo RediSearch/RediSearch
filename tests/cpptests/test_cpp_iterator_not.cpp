@@ -30,6 +30,7 @@ protected:
   std::optional<t_docId> opt_max_doc_id;
   t_docId maxDocId;
   QueryIterator *iterator_base;
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
   bool optimized;
   void SetUp() override {
     // Get child document IDs from parameter
@@ -79,15 +80,14 @@ protected:
 
     if (optimized) {
       std::vector<t_docId> wildcard = {1, 2, 3};
-      MockQueryEvalCtx mockQctx(wildcard);
-
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx.qctx);
+      mockQctx = std::make_unique<MockQueryEvalCtx>(wildcard);
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
       NotIterator *ni = (NotIterator *)iterator_base;
       ni->wcii->Free(ni->wcii);
       ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
     } else {
-      MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx.qctx);
+      mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     }
   }
 
@@ -461,6 +461,9 @@ INSTANTIATE_TEST_SUITE_P(
 
 class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
   protected:
+  // Add member variable to store the context
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
+
   void SetUp() override {
     // Get child document IDs from parameter
     std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
@@ -494,18 +497,11 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
     struct timespec timeout = {0, 1};
     if (optimized) {
       std::vector<t_docId> wildcard = {1, 2, 3};
-      MockQueryEvalCtx mockQctx(wildcard);
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx.qctx);
+      mockQctx = std::make_unique<MockQueryEvalCtx>(wildcard);
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     } else {
-      MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx.qctx);
-    }
-
-    NotIterator *ni = (NotIterator *)iterator_base;
-
-    // Store the wildcard iterator in the NotIterator structure instead of directly in QueryIterator
-    if (optimized) {
-      ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
+      mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     }
   }
 
@@ -569,11 +565,12 @@ class NotIteratorNoChildTest : public ::testing::Test {
 protected:
   QueryIterator *iterator_base;
   t_docId maxDocId = 50;
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
 
   void SetUp() override {
     struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
-    MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
-    iterator_base = IT_V2(NewNotIterator)(nullptr, maxDocId, 1.0, timeout, &mockQctx.qctx);
+    mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+    iterator_base = IT_V2(NewNotIterator)(nullptr, maxDocId, 1.0, timeout, &mockQctx->qctx);
   }
 
   void TearDown() override {
