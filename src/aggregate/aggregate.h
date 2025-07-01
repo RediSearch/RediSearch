@@ -279,7 +279,7 @@ static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
   return req->sctx;
 }
 
-static inline AGGPlan *AREQ_Plan(AREQ *req) {
+static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
   return &req->ap;
 }
 

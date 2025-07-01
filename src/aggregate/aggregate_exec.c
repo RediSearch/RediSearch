@@ -402,7 +402,7 @@ static int populateReplyWithResults(RedisModule_Reply *reply,
 
 long calc_results_len(AREQ *req, size_t limit) {
   long resultsLen;
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_Plan(req));
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
   size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
   size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
   size_t resultFactor = getResultsFactor(req);
@@ -706,7 +706,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     IndexSpec_IncrActiveQueries(sctx->spec);
   }
 
-  AGGPlan *plan = AREQ_Plan(req);
+  AGGPlan *plan = AREQ_AGGPlan(req);
   cachedVars cv = {
     .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
     .lastAstp = AGPLN_GetArrangeStep(plan)

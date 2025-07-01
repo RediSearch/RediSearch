@@ -48,7 +48,7 @@ static void testAverage() {
   }
 
   // so far, so good, eh?
-  AGGPlan *plan = AREQ_Plan(r);
+  AGGPlan *plan = AREQ_AGGPlan(r);
   rc = AGGPLN_Distribute(plan, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", plan);
@@ -108,7 +108,7 @@ static void testCountDistinct() {
     abort();
   }
 
-  AGGPlan *plan2 = AREQ_Plan(r);
+  AGGPlan *plan2 = AREQ_AGGPlan(r);
   rc = AGGPLN_Distribute(plan2, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", plan2);
@@ -147,7 +147,7 @@ static void testSplit() {
     abort();
   }
 
-  AGGPlan *plan3 = AREQ_Plan(r);
+  AGGPlan *plan3 = AREQ_AGGPlan(r);
   rc = AGGPLN_Distribute(plan3, &status);
   assert(rc == REDISMODULE_OK);
   printf("Dumping %p\n", plan3);

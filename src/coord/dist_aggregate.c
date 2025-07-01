@@ -714,12 +714,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
       if (knnCtx != NULL) {
         // If we found KNN, add an arange step, so it will be the first step after
         // the root (which is first plan step to be executed after the root).
-        AGPLN_AddKNNArrangeStep(AREQ_Plan(r), knnCtx->knn.k, knnCtx->knn.fieldName);
+        AGPLN_AddKNNArrangeStep(AREQ_AGGPlan(r), knnCtx->knn.k, knnCtx->knn.fieldName);
       }
     }
   }
 
-  rc = AGGPLN_Distribute(AREQ_Plan(r), status);
+  rc = AGGPLN_Distribute(AREQ_AGGPlan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   AREQDIST_UpstreamInfo us = {NULL};
