@@ -18,10 +18,10 @@ impl Encoder for Dummy {
 
 #[test]
 fn add_record() {
-    let mut ii = InvertedIndex::new();
+    let mut ii = InvertedIndex::<Dummy>::new();
     let record = RSIndexResult::numeric(10, 5.0);
 
-    ii.add_record(Dummy, &record).unwrap();
+    ii.add_record(&record).unwrap();
 
     assert_eq!(ii.buffer, [0, 0, 0, 0, 0, 0, 0, 10])
 }
