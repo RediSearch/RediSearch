@@ -30,10 +30,7 @@ fn add_records() {
 
     ii.add_record(&record).unwrap();
 
-    assert_eq!(
-        ii.buffer,
-        [0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 11]
-    );
+    assert_eq!(ii.buffer, [0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1]);
     assert_eq!(ii.num_docs, 2);
 }
 

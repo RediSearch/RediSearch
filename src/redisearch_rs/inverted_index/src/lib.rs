@@ -398,20 +398,21 @@ impl<E: Encoder> InvertedIndex<E> {
             self.last_doc_id.map(|d| d == doc_id).unwrap_or_default(),
         ) {
             (true, true) => true,
-            (true, false) => false,
             (false, true) => {
                 // The encoder does not allow writting the same document to the same index twice. This
                 // can happen when the index is created with duplicate tags for example.
                 return Ok(0);
             }
-            (false, false) => false,
+            (_, false) => false,
         };
 
         let buffer_pos = self.buffer.len();
         let mut buffer = Cursor::new(&mut self.buffer);
         buffer.set_position(buffer_pos as _);
 
-        let bytes_written = E::encode(buffer, Delta::new(doc_id as _), record)?;
+        let delta = doc_id - self.last_doc_id.unwrap_or_default();
+
+        let bytes_written = E::encode(buffer, Delta::new(delta as _), record)?;
 
         self.last_doc_id = Some(doc_id);
 
