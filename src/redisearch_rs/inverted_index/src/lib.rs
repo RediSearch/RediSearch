@@ -10,7 +10,7 @@
 use std::{
     ffi::{c_char, c_int},
     fmt::Debug,
-    io::{Read, Seek, Write},
+    io::{Cursor, Read, Seek, Write},
     mem::ManuallyDrop,
 };
 
@@ -367,3 +367,28 @@ pub trait Decoder {
         }
     }
 }
+
+pub struct InvertedIndex {
+    buffer: Vec<u8>,
+}
+
+impl InvertedIndex {
+    pub fn new() -> Self {
+        InvertedIndex { buffer: Vec::new() }
+    }
+
+    pub fn add_record<E: Encoder>(
+        &mut self,
+        encoder: E,
+        record: &RSIndexResult,
+    ) -> std::io::Result<usize> {
+        let buffer = Cursor::new(&mut self.buffer);
+
+        E::encode(buffer, Delta::new(record.doc_id as _), record)?;
+
+        Ok(0)
+    }
+}
+
+#[cfg(test)]
+mod tests;
