@@ -97,12 +97,18 @@ pub struct RSAggregateResult {
     pub type_mask: RSResultTypeMask,
 }
 
+/// Represents a virtual result in an index record.
+#[repr(C)]
+#[derive(Debug, PartialEq)]
+pub struct RSVirtualResult;
+
 /// Holds the actual data of an ['IndexResult']
 #[repr(C)]
 pub union RSIndexResultData {
     pub agg: ManuallyDrop<RSAggregateResult>,
     pub term: ManuallyDrop<RSTermRecord>,
     pub num: ManuallyDrop<RSNumericRecord>,
+    pub virt: ManuallyDrop<RSVirtualResult>,
 }
 
 /// The result of an inverted index

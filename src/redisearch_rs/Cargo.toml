@@ -13,8 +13,8 @@ members = [
     "wildcard",
     "buffer",
     "result_processor",
-    "encode_decode",
     "inverted_index_bencher",
+    "varint",
 ]
 default-members = [
     "low_memory_thin_vec",
@@ -24,7 +24,7 @@ default-members = [
     "wildcard",
     "buffer",
     "result_processor",
-    "encode_decode",
+    "varint",
 ]
 resolver = "3"
 
@@ -49,6 +49,9 @@ undocumented_unsafe_blocks = "warn"
 # We can also more easily track the amount of unsafe operations throughout
 # the codebase.
 multiple_unsafe_ops_per_block = "warn"
+# See https://github.com/RediSearch/RediSearch/pull/6374 for the rationale.
+# It'll be removed once Rust 1.89.0 is released.
+collapsible_if = "allow"
 
 [workspace.package]
 version = "0.0.1"
@@ -65,7 +68,7 @@ trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 result_processor = { path = "./result_processor" }
-encode_decode = { path = "./encode_decode" }
+varint = { path = "./varint" }
 
 cbindgen = "0.28.0"
 cc = "1"

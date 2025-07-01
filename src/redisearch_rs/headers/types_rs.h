@@ -203,12 +203,20 @@ typedef struct RSNumericRecord {
 } RSNumericRecord;
 
 /**
+ * Represents a virtual result in an index record.
+ */
+typedef struct RSVirtualResult {
+
+} RSVirtualResult;
+
+/**
  * Holds the actual data of an ['IndexResult']
  */
 typedef union RSIndexResultData {
   struct RSAggregateResult agg;
   struct RSTermRecord term;
   struct RSNumericRecord num;
+  struct RSVirtualResult virt;
 } RSIndexResultData;
 
 /**
