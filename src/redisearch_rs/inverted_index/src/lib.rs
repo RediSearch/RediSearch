@@ -375,7 +375,6 @@ pub trait Decoder {
 
 pub struct InvertedIndex<E> {
     blocks: Vec<IndexBlock>,
-    last_doc_id: Option<t_docId>,
     num_docs: usize,
     _encoder: PhantomData<E>,
 }
@@ -402,7 +401,6 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn new() -> Self {
         Self {
             blocks: Vec::new(),
-            last_doc_id: None,
             num_docs: 0,
             _encoder: Default::default(),
         }
@@ -410,10 +408,11 @@ impl<E: Encoder> InvertedIndex<E> {
 
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let doc_id = record.doc_id;
+        let last_doc_id = self.last_doc_id();
 
         let same_doc = match (
             E::ALLOW_DUPLICATES,
-            self.last_doc_id.map(|d| d == doc_id).unwrap_or_default(),
+            last_doc_id.map(|d| d == doc_id).unwrap_or_default(),
         ) {
             (true, true) => true,
             (false, true) => {
@@ -424,7 +423,7 @@ impl<E: Encoder> InvertedIndex<E> {
             (_, false) => false,
         };
 
-        let delta = doc_id - self.last_doc_id.unwrap_or_default();
+        let delta = doc_id - last_doc_id.unwrap_or_default();
         let block = self.get_last_block(doc_id);
         let buffer = block.writer();
 
@@ -432,13 +431,16 @@ impl<E: Encoder> InvertedIndex<E> {
 
         block.num_entries += 1;
         block.last_doc_id = doc_id;
-        self.last_doc_id = Some(doc_id);
 
         if !same_doc {
             self.num_docs += 1;
         }
 
         Ok(bytes_written)
+    }
+
+    fn last_doc_id(&self) -> Option<t_docId> {
+        self.blocks.last().map(|b| b.last_doc_id)
     }
 
     fn get_last_block(&mut self, doc_id: t_docId) -> &mut IndexBlock {
