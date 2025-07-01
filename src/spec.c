@@ -9,7 +9,6 @@
 #include <math.h>
 #include <ctype.h>
 
-#include "util/logging.h"
 #include "util/misc.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"

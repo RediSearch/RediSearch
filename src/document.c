@@ -16,7 +16,6 @@
 #include "util/mempool.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "util/logging.h"
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"

@@ -37,7 +37,6 @@ void _MRClsuter_UpdateNodes(MRCluster *cl) {
     for (int sh = 0; sh < cl->topo->numShards; sh++) {
       for (int n = 0; n < cl->topo->shards[sh].numNodes; n++) {
         MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
-        // printf("Adding node %s:%d to cluster\n", node->endpoint.host, node->endpoint.port);
         MRConnManager_Add(&cl->mgr, node->id, &node->endpoint, 0);
 
         /* Add the node to the node map */
@@ -194,7 +193,6 @@ int MRCluster_FanoutCommand(MRCluster *cl, MRCoordinationStrategy strategy, MRCo
       continue;
     }
     MRConn *conn = MRConn_Get(&cl->mgr, n->id);
-    // printf("Sending fanout command to %s:%d\n", conn->ep.host, conn->ep.port);
     if (conn) {
       if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
         ret++;
@@ -222,7 +220,6 @@ void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
 
   const char *endBrace = src + srclen - 1;
   if (srclen < 3 || !*endBrace || *endBrace != '}') {
-    // printf("No closing brace found!\n");
     return;
   }
 
@@ -232,20 +229,17 @@ void MRKey_Parse(MRKey *mk, const char *src, size_t srclen) {
   }
 
   if (*beginBrace != '{') {
-    // printf("No open brace found!\n");
     return;
   }
 
   mk->baseLen = beginBrace - src;
   mk->shard = beginBrace + 1;
   mk->shardLen = endBrace - mk->shard;
-  // printf("Shard key: %.*s\n", (int)mk->shardLen, mk->shard);
 }
 
 static const char *MRGetShardKey(MRCommand *cmd, size_t *len) {
   int pos = MRCommand_GetShardingKey(cmd);
   if (pos < 0 || pos >= cmd->num) {
-    // printf("Returning NULL.. pos=%d, num=%d\n", pos, cmd->num);
     return NULL;
   }
 
@@ -321,7 +315,6 @@ void MRClusterNode_Free(MRClusterNode *n) {
 }
 
 void _clusterConnectAllCB(uv_work_t *wrk) {
-  // printf("Executing connect CB\n");
   MRCluster *c = wrk->data;
   MRCluster_ConnectAll(c);
 }

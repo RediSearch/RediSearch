@@ -27,6 +27,7 @@
 #include "cluster.h"
 #include "chan.h"
 #include "rq.h"
+#include "module.h"
 #include "rmutil/rm_assert.h"
 #include "coord/src/config.h"
 #include "reply_macros.h"
@@ -151,7 +152,6 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
 }
 
 static void freePrivDataCB(void *p) {
-  // printf("FreePrivData called!\n");
   MR_requestCompleted();
   if (p) {
     MRCtx *mc = p;
@@ -200,9 +200,6 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
     ctx->replies[ctx->numReplied++] = r;
   }
 
-  // printf("Unblocking, replied %d, errored %d out of %d\n", ctx->numReplied, ctx->numErrored,
-  //        ctx->numExpected);
-
   // If we've received the last reply - unblock the client
   if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
     if (ctx->fn) {
@@ -247,9 +244,7 @@ static void sideThread(void *arg) {
   while (1) {
     if (uv_run(uv_default_loop(), UV_RUN_DEFAULT)) break;
     usleep(1000);
-    fprintf(stderr, "restarting loop!\n");
   }
-  fprintf(stderr, "Uv loop exited!\n");
 }
 
 uv_thread_t loop_th;
@@ -262,13 +257,11 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
   rq_g = RQ_New(8, MAX_CONCURRENT_REQUESTS);
 
   // MRCluster_ConnectAll(cluster_g);
-  printf("Creating thread...\n");
 
   if (uv_thread_create(&loop_th, sideThread, NULL) != 0) {
     perror("thread create");
     exit(-1);
   }
-  printf("Thread created\n");
 }
 
 bool MR_CurrentTopologyExists() {
@@ -304,7 +297,6 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
     RedisModuleBlockedClient *bc = mrctx->redisCtx;
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mrctx);
-    // printf("could not send single command. hande fail please\n");
   }
 
   rm_free(mc->cmds);
@@ -335,7 +327,6 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
     RedisModuleBlockedClient *bc = mrctx->redisCtx;
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mrctx);
-    // printf("could not send single command. hande fail please\n");
   }
 
   rm_free(mc->cmds);
@@ -432,7 +423,6 @@ static void uvUpdateTopologyRequest(struct MRRequestCtx *mc) {
     SetMyPartition((MRClusterTopology *)mc->ctx, cluster_g->myshard);
   }
   RQ_Done(rq_g);
-  // fprintf(stderr, "topo update: conc requests: %d\n", concurrentRequests_g);
   rm_free(mc);
 }
 
@@ -609,7 +599,6 @@ void iterStartCb(void *p) {
   for (size_t i = 0; i < it->len; i++) {
     if (MRCluster_SendCommand(cluster_g, MRCluster_MastersOnly, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-      // fprintf(stderr, "Could not send command!\n");
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
@@ -621,7 +610,6 @@ void iterManualNextCb(void *p) {
     if (!it->cbxs[i].cmd.depleted) {
       if (MRCluster_SendCommand(cluster_g, MRCluster_MastersOnly, &it->cbxs[i].cmd,
                                 mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
-        // fprintf(stderr, "Could not send command!\n");
         MRIteratorCallback_Done(&it->cbxs[i], 1);
       }
     }

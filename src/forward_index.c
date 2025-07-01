@@ -7,7 +7,6 @@
 #include "forward_index.h"
 #include "tokenize.h"
 #include "util/fnv.h"
-#include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>
 #include "rmalloc.h"
@@ -67,9 +66,7 @@ static void *vvwAlloc(void) {
 }
 
 static void vvwFree(void *p) {
-  // printf("Releasing VVW=%p\n", p);
-  VVW_Cleanup(p);
-  rm_free(p);
+  VVW_Free(p);
 }
 
 static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
@@ -176,7 +173,6 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
 static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t tokLen,
                                      uint32_t pos, float fieldScore, t_fieldId fieldId,
                                      int options) {
-  // LG_DEBUG("token %.*s, hval %d\n", t.len, t.s, hval);
   ForwardIndexEntry *h = NULL;
   int isNew = 0;
   uint32_t hash = hashKey(tok, tokLen);
@@ -184,7 +180,6 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
   h = &kh->ent;
 
   if (isNew) {
-    // printf("New token %.*s\n", (int)t->len, t->s);
     h->fieldMask = 0;
     h->hash = hash;
     h->next = NULL;
@@ -199,14 +194,10 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
 
     if (hasOffsets(idx)) {
       h->vw = mempool_get(idx->vvwPool);
-      // printf("Got VVW=%p\n", h->vw);
       VVW_Reset(h->vw);
     } else {
       h->vw = NULL;
     }
-
-  } else {
-    // printf("Existing token %.*s\n", (int)t->len, t->s);
   }
 
   h->fieldMask |= ((t_fieldMask)1) << fieldId;
@@ -223,12 +214,8 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     VVW_Write(h->vw, pos);
   }
 
-  // LG_DEBUG("%d) %s, token freq: %f total freq: %f\n", t.pos, t.s, h->freq, idx->totalFreq);
 }
 
-// void ForwardIndex_NormalizeFreq(ForwardIndex *idx, ForwardIndexEntry *e) {
-//   e->freq = e->freq / idx->maxFreq;
-// }
 int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 #define SYNONYM_BUFF_LEN 100
   const ForwardIndexTokenizerCtx *tokCtx = ctx;
@@ -306,8 +293,6 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter) {
 
   KHTableEntry *ret = iter->curEnt;
   iter->curEnt = ret->next;
-  // printf("Yielding entry: %.*s. Next=%p -- (%p)\n", (int)ret->self.ent.len, ret->self.ent.term,
-  //  ret->next, iter->curEnt);
   khIdxEntry *bEnt = (khIdxEntry *)ret;
   return &bEnt->ent;
 }

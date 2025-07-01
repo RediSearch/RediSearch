@@ -373,14 +373,3 @@ int MRCommand_IsUnsharded(MRCommand *cmd) {
   }
   return __commandConfig[cmd->id].keyPos <= 0;
 }
-
-void MRCommand_Print(MRCommand *cmd) {
-  MRCommand_FPrint(stdout, cmd);
-}
-
-void MRCommand_FPrint(FILE *fd, MRCommand *cmd) {
-  for (int i = 0; i < cmd->num; i++) {
-    fprintf(fd, "%.*s ", (int)cmd->lens[i], cmd->strs[i]);
-  }
-  fprintf(fd, "\n");
-}

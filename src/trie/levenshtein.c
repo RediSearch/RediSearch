@@ -148,7 +148,6 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
   for (int i = 0; i < parent->v->len; i++) {
     if (parent->v->entries[i].idx < a->len) {
       rune c = a->string[parent->v->entries[i].idx];
-      // printf("%c ---> ", c);
       dfaNode *edge = __dfn_getEdge(parent, c);
       if (edge == NULL) {
         sparseVector *nv = SparseAutomaton_Step(a, parent->v, c);
@@ -179,7 +178,6 @@ void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache) {
       parent->fallback = dfn;
     } else {
       int dist = nv->entries[nv->len - 1].val;
-      // printf("DEFAULT EDGE! edge %s - dist %d\n", a->string, dist);
       parent->fallback = __newDfaNode(dist, nv);
       __dfn_putCache(cache, parent->fallback);
       dfa_build(parent->fallback, a, cache);
@@ -245,7 +243,6 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx, runeTrans
   *matched = dn->match;
 
   if (*matched) {
-    // printf("MATCH %c, dist %d\n", b, dn->distance);
     int *pdist = matchCtx;
     if (pdist) {
       *pdist = MIN(dn->distance, minDist);
@@ -261,7 +258,6 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx, runeTrans
   // we can continue - push the state on the stack
   if (next) {
     if (next->match) {
-      // printf("MATCH NEXT %c, dist %d\n", b, next->distance);
       *matched = 1;
       int *pdist = matchCtx;
       if (pdist) {

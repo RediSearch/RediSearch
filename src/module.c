@@ -22,7 +22,6 @@
 #include "rmutil/util.h"
 #include "rmutil/args.h"
 #include "spec.h"
-#include "util/logging.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -1125,7 +1124,6 @@ void RediSearch_CleanupModule(void) {
 
   IndexError_GlobalCleanup();
 
-  RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();
   RediSearch_LockDestory();
 }

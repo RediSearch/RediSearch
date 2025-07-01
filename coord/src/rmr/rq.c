@@ -56,7 +56,6 @@ void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
 
 static struct queueItem *rqPop(MRWorkQueue *q) {
   uv_mutex_lock(&q->lock);
-  // fprintf(stderr, "%d %zd\n", concurrentRequests_g, q->sz);
 
   if (q->head == NULL) {
     uv_mutex_unlock(&q->lock);
@@ -97,7 +96,6 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 void RQ_Done(MRWorkQueue *q) {
   uv_mutex_lock(&q->lock);
   --q->pending;
-  // fprintf(stderr, "Concurrent requests: %d/%d\n", q->pending, q->maxPending);
   uv_mutex_unlock(&q->lock);
 }
 
