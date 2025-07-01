@@ -388,7 +388,6 @@ fn test_numeric_encode_decode(
     let DecoderResult::Record(record_decoded) = Numeric
         .decode(&mut buf, prev_doc_id)
         .expect("to decode numeric record")
-        .expect("to read a record from the buffer")
     else {
         panic!("Record was filtered out incorrectly")
     };
@@ -399,11 +398,11 @@ fn test_numeric_encode_decode(
 #[test]
 fn test_empty_buffer() {
     let mut buffer = Cursor::new(Vec::new());
-    let record = Numeric
-        .decode(&mut buffer, 0)
-        .expect("no not crash on empty buffer");
+    let res = Numeric.decode(&mut buffer, 0);
 
-    assert_eq!(record, None, "should not decode an empty buffer");
+    assert_eq!(res.is_err(), true);
+    let kind = res.unwrap_err().kind();
+    assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
 
 proptest! {
@@ -424,7 +423,6 @@ proptest! {
         let DecoderResult::Record(record_decoded) = Numeric
             .decode(&mut buf, prev_doc_id)
             .expect("to decode numeric record")
-            .expect("to read a record from the buffer")
         else {
             panic!("Record was filtered out incorrectly")
         };
