@@ -1748,8 +1748,9 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
-static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  int withChildren = 1;
+static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
+  QueryError *status, bool validateAsVectorFilter) {
+  bool withChildren = true;
   int res = REDISMODULE_OK;
   switch(n->type) {
     case QN_PHRASE:
@@ -1764,7 +1765,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NULL:
     case QN_MISSING:
-      withChildren = 0;
+      withChildren = false;
       break;
     case QN_TAG:
       {
@@ -1793,6 +1794,17 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         }
       }
       break;
+    case QN_VECTOR:
+      if (validateAsVectorFilter) {
+        if (n->vn.vq->type == VECSIM_QT_KNN) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR KNN queries are not allowed in a vector filter");
+          res = REDISMODULE_ERR;
+        } else if (n->vn.vq->type == VECSIM_QT_RANGE) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR RANGE queries are not allowed in a vector filter");
+          res = REDISMODULE_ERR;
+        }
+      }
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
@@ -1802,14 +1814,19 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
     case QN_LEXRANGE:
-    case QN_VECTOR:
     case QN_GEOMETRY:
       break;
   }
+
+  if (res == REDISMODULE_OK  && validateAsVectorFilter && n->opts.explicitWeight) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed in a vector filter");
+    res = REDISMODULE_ERR;
+  }
+
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status);
+      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validateAsVectorFilter);
       if (res == REDISMODULE_ERR)
         break;
     }
@@ -1826,55 +1843,9 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
   ) {
     return REDISMODULE_OK;
   }
-  return QueryNode_CheckIsValid(q->root, spec, opts, status);
+  return QueryNode_CheckIsValid(q->root, spec, opts, status, q->isVectorFilter);
 }
 
-static int QueryNode_CheckIsValidAsVectorFilter(QueryNode *n, QueryError *status) {
-  bool withChildren = true;
-  int res = REDISMODULE_OK;
-  switch(n->type) {
-    case QN_VECTOR:
-      if (n->vn.vq->type == VECSIM_QT_KNN) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR KNN queries are not allowed in a vector filter");
-        res = REDISMODULE_ERR;
-      } else if (n->vn.vq->type == VECSIM_QT_RANGE) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR RANGE queries are not allowed in a vector filter");
-        res = REDISMODULE_ERR;
-      }
-      break;
-    case QN_NULL:
-    case QN_MISSING:
-      withChildren = false;
-      break;
-    default:
-      if (n->opts.explicitWeight) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed in a vector filter");
-        res = REDISMODULE_ERR;
-      }
-      break;
-  }
-  // Handle children
-  if (withChildren && res == REDISMODULE_OK) {
-    for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_CheckIsValidAsVectorFilter(n->children[ii], status);
-      if (res == REDISMODULE_ERR)
-        break;
-    }
-  }
-  return res;
-}
-
-// Checks whether QAST is valid as vector filter.
-// It can't contain:
-// Vector KNN search =>[KNN num_neighbours @field $vector]
-// Vector RANGE search @<vector_field>:[VECTOR_RANGE (<radius> | $<radius_param>) $<vector_blob_param> $<vector_query_params>]
-// Weight attribute  =>{weight: X}
-int QAST_CheckIsValidAsVectorFilter(QueryAST *q, QueryError *status) {
-  if (!q || !q->root) {
-    return REDISMODULE_OK;
-  }
-  return QueryNode_CheckIsValidAsVectorFilter(q->root, status);
-}
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle
  * situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */

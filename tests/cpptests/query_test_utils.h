@@ -42,11 +42,11 @@ class QASTCXX : public QueryAST {
   QASTCXX() {
     memset(static_cast<QueryAST *>(this), 0, sizeof(QueryAST));
   }
-  
+
   QASTCXX(RedisSearchCtx &sctx) : QASTCXX() {
     setContext(&sctx);
   }
-  
+
   void setContext(RedisSearchCtx *sctx) {
     this->sctx = sctx;
   }
@@ -57,14 +57,14 @@ class QASTCXX : public QueryAST {
   bool parse(const char *s) {
     return parse(s, 1);
   }
-  
+
   /**
    * Parse a query string using specified parser version
    */
   bool parse(const char *s, int ver) {
     QueryError_ClearError(&m_status);
     QAST_Destroy(this);
-    
+
     int rc = QAST_Parse(this, sctx, &m_opts, s, strlen(s), ver, &m_status);
     return rc == REDISMODULE_OK && !QueryError_HasError(&m_status) && root != NULL;
   }
@@ -79,7 +79,8 @@ class QASTCXX : public QueryAST {
       return false;
     }
     QueryError_ClearError(&m_status);
-    int rc = QAST_CheckIsValidAsVectorFilter(this, &m_status);
+    this->isVectorFilter = true;
+    int rc = QAST_CheckIsValid(this, sctx->spec, &m_opts, &m_status);
     return rc == REDISMODULE_OK && !QueryError_HasError(&m_status);
   }
 

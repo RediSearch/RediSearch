@@ -62,6 +62,9 @@ typedef struct QueryAST {
   // Copy of RSGlobalConfig parameters required for query execution,
   // to ensure that they won't change during query execution.
   IteratorsConfig config;
+
+  // whether the query is used as a vector filter
+  bool isVectorFilter;
 } QueryAST;
 
 /**
