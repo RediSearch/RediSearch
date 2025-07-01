@@ -1335,6 +1335,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "redis-module",
+ "sorting_vector_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
