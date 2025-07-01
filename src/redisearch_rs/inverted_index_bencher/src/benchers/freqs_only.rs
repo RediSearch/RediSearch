@@ -157,7 +157,7 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || Cursor::new(test.encoded.clone()),
+                    || Cursor::new(&test.encoded),
                     |buffer| {
                         let result = FreqsOnly.decode(buffer, 100);
                         let _ = black_box(result);
