@@ -533,7 +533,9 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // Add the spec to the global spec dictionary
-  dictAdd(specDict_g, name, spec_ref.rm);
+  int res = dictAdd(specDict_g, name, spec_ref.rm);
+  RS_ASSERT(res == DICT_OK);
+  
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 

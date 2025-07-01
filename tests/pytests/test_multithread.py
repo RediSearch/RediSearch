@@ -470,8 +470,8 @@ def test_change_num_connections(env: Env):
 def test_change_workers_number():
 
     def check_threads(expected_num_threads_alive, expected_n_threads):
-        env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive)
-        env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads)
+        env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], expected_num_threads_alive, depth=1)
+        env.assertEqual(getWorkersThpoolNumThreads(env), expected_n_threads, depth=1)
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
     env = initEnv(moduleArgs='WORKERS 1')
