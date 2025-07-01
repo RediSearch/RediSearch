@@ -231,8 +231,8 @@ set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Forc
 add_subdirectory(deps/libuv)
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
-set(SVS_SHARED_LIB OFF CACHE BOOL "Disable SVS shared library")
-message(STATUS "SVS_SHARED_LIB is set to ${SVS_SHARED_LIB}")
+# set(SVS_SHARED_LIB OFF CACHE BOOL "Disable SVS shared library")
+# message(STATUS "SVS_SHARED_LIB is set to ${SVS_SHARED_LIB}")
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 add_subdirectory(src/inverted_index)
