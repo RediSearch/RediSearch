@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 struct QOptimizer;
-int BuildPipeline(AggregationPipeline *pipeline, struct QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy);
+int AggregationPipeline_Build(AggregationPipeline *pipeline, struct QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy);
 /**
  * Constructs the pipeline objects needed to actually start processing
  * the requests. This does not yet start iterating over the objects

@@ -943,7 +943,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   RSSearchOptions *searchOpts = &req->searchopts;
   RSSearchOptions_Init(searchOpts);
-  if (parseQueryArgs(&ac, req, searchOpts, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
+  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -984,7 +984,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     }
   }
 
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(AREQ_AGGPlan(req)))) {
+  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(&req->pipeline) && (!IsSearch(&req->pipeline) || hasQuerySortby(AREQ_AGGPlan(req)))) {
     // We can skip collecting full results structure and metadata from the iterators if:
     // 1. We don't have a highlight/summarize step,
     // 2. We are not required to return scores explicitly,

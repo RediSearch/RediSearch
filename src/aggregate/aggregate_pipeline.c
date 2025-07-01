@@ -149,7 +149,6 @@ static ResultProcessor *getArrangeRP(AggregationPipeline *pipeline, QOptimizer *
 
   // TODO: unify if when req holds only maxResults according to the query type.
   //(SEARCH / AGGREGATE)
-  // maxResultsLimit = IsSearch(sctx) ? sctx->maxSearchResults : sctx->maxAggregateResults
   maxResults = MIN(maxResults, maxResultsLimit);
 
   if (IsCount(pipeline) || !maxResults) {
@@ -264,7 +263,7 @@ static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, Concur
   AggregationPipeline *pipeline = &req->pipeline;
   IndexSpecCache *cache = IndexSpec_GetSpecCache(AREQ_SearchCtx(req)->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
-  RLookup *first = AGPLN_GetLookup(AREQ_Plan(req), NULL, AGPLN_GETLOOKUP_FIRST);
+  RLookup *first = AGPLN_GetLookup(AREQ_AGGPlan(req), NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);
 
@@ -288,7 +287,7 @@ static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, Concur
    *  * there is no subsequent sorter within this grouping */
   if ((AREQ_RequestFlags(req) & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
       ((AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH) && !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
-       ((AREQ_RequestFlags(req) & QEXEC_OPTIMIZE) ? (req->optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(AREQ_Plan(req))))) {
+       ((AREQ_RequestFlags(req) & QEXEC_OPTIMIZE) ? (req->optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(AREQ_AGGPlan(req))))) {
     rp = getScorerRP(req, first);
     PUSH_RP();
     const char *scorerName = req->searchopts.scorerName;
@@ -366,7 +365,7 @@ error:
   return REDISMODULE_ERR;
 }
 
-int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy) {
+int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy, size_t maxResultsLimit) {
   AGGPlan *pln = &pipeline->ap;
   int outStateflags = 0;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
@@ -395,7 +394,7 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
       }
 
       case PLN_T_ARRANGE: {
-        rp = getArrangeRP(pipeline, optimizer, stp, status, rpUpstream, forceLoad, SIZE_MAX);
+        rp = getArrangeRP(pipeline, optimizer, stp, status, rpUpstream, forceLoad, maxResultsLimit);
         if (!rp) {
           goto error;
         }
@@ -500,7 +499,7 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && (requestFlags & QEXEC_F_IS_SEARCH)) {
-    rp = getArrangeRP(pipeline, optimizer, NULL, status, rpUpstream, forceLoad, SIZE_MAX);
+    rp = getArrangeRP(pipeline, optimizer, NULL, status, rpUpstream, forceLoad, maxResultsLimit);
     if (!rp) {
       goto error;
     }
@@ -529,9 +528,9 @@ error:
   return REDISMODULE_ERR;
 }
 
-int BuildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy) {
+int AggregationPipeline_Build(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy, size_t maxResultsLimit) {
     initializePipeline(pipeline, status);
-    return buildPipeline(pipeline, optimizer, searchOpts, status, timeoutPolicy);
+    return buildPipeline(pipeline, optimizer, searchOpts, status, timeoutPolicy, maxResultsLimit);
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
@@ -542,7 +541,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  return buildPipeline(&req->pipeline, req->optimizer, &req->searchopts, status, req->reqConfig.timeoutPolicy);
+  return buildPipeline(&req->pipeline, req->optimizer, &req->searchopts, status, req->reqConfig.timeoutPolicy, IsSearch(&req->pipeline) ? req->maxSearchResults : req->maxAggregateResults);
 }
 
 #ifdef __cplusplus
