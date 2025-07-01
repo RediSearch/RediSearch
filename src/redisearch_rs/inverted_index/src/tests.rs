@@ -26,6 +26,8 @@ fn add_records() {
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 10]);
     assert_eq!(ii.blocks[0].num_entries, 1);
+    assert_eq!(ii.blocks[0].first_doc_id, 10);
+    assert_eq!(ii.blocks[0].last_doc_id, 10);
     assert_eq!(ii.num_docs, 1);
 
     let record = RSIndexResult::numeric(11, 5.0);
@@ -38,6 +40,8 @@ fn add_records() {
         [0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1]
     );
     assert_eq!(ii.blocks[0].num_entries, 2);
+    assert_eq!(ii.blocks[0].first_doc_id, 10);
+    assert_eq!(ii.blocks[0].last_doc_id, 11);
     assert_eq!(ii.num_docs, 2);
 }
 
@@ -64,6 +68,8 @@ fn writting_same_record_twice() {
         "buffer should remain unchanged"
     );
     assert_eq!(ii.blocks[0].num_entries, 1);
+    assert_eq!(ii.blocks[0].first_doc_id, 10);
+    assert_eq!(ii.blocks[0].last_doc_id, 10);
     assert_eq!(ii.num_docs, 1, "this second doc was not added");
 
     struct AllowDupsDummy;
@@ -101,6 +107,8 @@ fn writting_same_record_twice() {
         "buffer should contain two entries"
     );
     assert_eq!(ii.blocks[0].num_entries, 2);
+    assert_eq!(ii.blocks[0].first_doc_id, 10);
+    assert_eq!(ii.blocks[0].last_doc_id, 10);
     assert_eq!(
         ii.num_docs, 1,
         "this doc was added but should not affect the count"
