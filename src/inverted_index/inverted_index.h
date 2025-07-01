@@ -10,7 +10,7 @@
 #define __INVERTED_INDEX_H__
 
 #include "redisearch.h"
-#include "buffer/buffer.h"
+#include "buffer.h"
 #include "doc_table.h"
 #include "index_iterator.h"
 #include "spec.h"

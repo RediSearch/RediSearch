@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "buffer/buffer.h"
+#include "buffer.h"
 #include "redisearch.h"
 
 /**

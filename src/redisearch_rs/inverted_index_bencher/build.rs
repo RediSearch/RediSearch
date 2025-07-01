@@ -58,6 +58,7 @@ fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
         root.join("deps"),
         root.join("src").join("redisearch_rs").join("headers"),
         root.join("deps").join("VectorSimilarity").join("src"),
+        root.join("src").join("buffer"),
     ];
 
     let mut bindings = bindgen::Builder::default().header(
