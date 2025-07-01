@@ -266,30 +266,6 @@ static int getNextReply(RPNet *nc) {
     return 1;
   }
 
-  MRReply *rows = MRReply_ArrayElement(root, 0);
-  if (nc->cmd.forProfiling && nc->cmd.protocol == 3) {
-    /* On RESP3, FT.PROFILE AGGREGATE returns:
-      [
-        {
-          "Results": { <FT.AGGREGATE reply> },
-          "Profile": { <profile data> }
-        },
-        cursor_id
-      ]
-     * So we need to extract the "Results" map from the first element of the array
-     */
-
-    rows = MRReply_MapElement(rows, "results");
-  }
-  if (   rows == NULL
-      || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
-      || MRReply_Length(rows) == 0) {
-    MRReply_Free(root);
-    root = NULL;
-    rows = NULL;
-    RedisModule_Log(RSDummyContext, "warning", "An empty reply was received from a shard");
-  }
-
   // For profile command, extract the profile data from the reply
   if (nc->cmd.forProfiling) {
     // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
@@ -314,6 +290,35 @@ static int getNextReply(RPNet *nc) {
       }
       array_append(nc->shardsProfile, profile_data);
     }
+  }
+
+  MRReply *rows = MRReply_ArrayElement(root, 0);
+
+  if (nc->cmd.forProfiling && nc->cmd.protocol == 3) {
+    /* On RESP3, FT.PROFILE AGGREGATE returns:
+      [
+        {
+          "Results": { <FT.AGGREGATE reply> },
+          "Profile": { <profile data> }
+        },
+        cursor_id
+      ]
+     * So we need to extract the "Results" map from the first element of the array
+     */
+
+    rows = MRReply_MapElement(rows, "results");
+  }
+  if (   rows == NULL
+      || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
+      || MRReply_Length(rows) == 0) {
+    if (rows == NULL || MRReply_Length(rows) == 0) {
+      RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
+    } else {
+      RedisModule_Log(RSDummyContext, "warning", "An unexpected reply was received from a shard");
+    }
+    MRReply_Free(root);
+    root = NULL;
+    rows = NULL;
   }
 
   // invariant: either rows == NULL or at least one row exists
