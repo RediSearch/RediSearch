@@ -14,7 +14,8 @@ use std::{
 };
 
 use ffi::RS_StringVal;
-use value::RSValueFFI;
+
+use value::{RSValueFFI, RSValueTrait};
 
 pub const RS_SORTABLES_MAX: usize = 1024;
 
