@@ -342,7 +342,6 @@ impl Encoder for Numeric {
 }
 
 impl Decoder for Numeric {
-    #[inline(never)]
     fn decode<R: Read>(
         &self,
         reader: &mut R,
