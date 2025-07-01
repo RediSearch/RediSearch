@@ -23,19 +23,7 @@ extern "C" {
 // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
 #define PENDING_FACTOR 50
 
-//Structure to encapsulate the IO Runtime context for MR operations to take place
 typedef struct {
-  // Connectivity / topology structures
-  MRConnManager *conn_mgr;
-  struct MRClusterTopology *topo;
-
-  // Request queue and topology requests
-  MRWorkQueue *queue;
-  struct queueItem *pendingTopo; // The pending topology to be applied
-  arrayof(uv_async_t *) pendingQueues;
-
-  //UV runtime
-
   bool loop_th_ready; /* set to true when the event loop thread is ready to process requests.
   * This is set to false when a new topology is applied, and set to true
   * when the topology check is done. */
@@ -53,6 +41,22 @@ typedef struct {
   bool loop_th_creation_failed;
   uv_mutex_t loop_th_created_mutex;
   uv_cond_t loop_th_created_cond;
+} UVRuntime;
+
+//Structure to encapsulate the IO Runtime context for MR operations to take place
+typedef struct {
+  // Connectivity / topology structures
+  MRConnManager *conn_mgr;
+  struct MRClusterTopology *topo;
+
+  // Request queue and topology requests
+  MRWorkQueue *queue;
+  struct queueItem *pendingTopo; // The pending topology to be applied
+  arrayof(uv_async_t *) pendingQueues;
+
+  //UV runtime
+  UVRuntime uv_runtime;
+
 } IORuntimeCtx;
 
 struct UpdateTopologyCtx {

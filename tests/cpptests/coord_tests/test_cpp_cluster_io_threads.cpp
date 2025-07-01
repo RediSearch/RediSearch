@@ -34,7 +34,7 @@ static void topoCallback(void *privdata) {
   ioRuntime->topo = ctx->new_topo;
 
   // Set loop_th_ready to true to allow processing requests
-  ioRuntime->loop_th_ready = true;
+  ioRuntime->uv_runtime.loop_th_ready = true;
   rm_free(ctx);
 }
 

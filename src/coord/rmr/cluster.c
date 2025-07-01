@@ -257,7 +257,7 @@ void MRCluster_UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads) {
       if (cl->io_runtimes_pool[0]->topo) {
         //TODO(Joan): We should make sure this is the last topology from user, so the UpdateTopology request should wait to return
         cl->io_runtimes_pool[i]->topo = MRClusterTopology_Clone(cl->io_runtimes_pool[0]->topo);
-        cl->io_runtimes_pool[i]->loop_th_ready = true;
+        cl->io_runtimes_pool[i]->uv_runtime.loop_th_ready = true;
       }
     }
   }

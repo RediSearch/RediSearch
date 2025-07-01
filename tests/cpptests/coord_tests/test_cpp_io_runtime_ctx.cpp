@@ -26,7 +26,7 @@ static void testTopoCallback(void *privdata) {
   struct UpdateTopologyCtx *ctx = (struct UpdateTopologyCtx *)privdata;
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   //Simulate what the TopologyValidationTimer should do
-  ioRuntime->loop_th_ready = true;
+  ioRuntime->uv_runtime.loop_th_ready = true;
   MRClusterTopology *old_topo = ioRuntime->topo;
   MRClusterTopology *new_topo = ctx->new_topo;
   ioRuntime->topo = new_topo;
@@ -66,11 +66,11 @@ TEST_F(IORuntimeCtxCommonTest, InitialState) {
   ASSERT_NE(ctx->conn_mgr, nullptr);
   ASSERT_NE(ctx->queue, nullptr);
   ASSERT_EQ(ctx->pendingTopo, nullptr);
-  ASSERT_FALSE(ctx->loop_th_ready);
-  ASSERT_FALSE(ctx->io_runtime_started_or_starting);
+  ASSERT_FALSE(ctx->uv_runtime.loop_th_ready);
+  ASSERT_FALSE(ctx->uv_runtime.io_runtime_started_or_starting);
   ASSERT_EQ(ctx->pendingQueues, nullptr);
-  ASSERT_FALSE(ctx->loop_th_created);
-  ASSERT_FALSE(ctx->loop_th_creation_failed);
+  ASSERT_FALSE(ctx->uv_runtime.loop_th_created);
+  ASSERT_FALSE(ctx->uv_runtime.loop_th_creation_failed);
 }
 
 TEST_F(IORuntimeCtxCommonTest, Schedule) {
@@ -78,9 +78,9 @@ TEST_F(IORuntimeCtxCommonTest, Schedule) {
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
   // Give some time for thread to start
   usleep(100);
-  ASSERT_TRUE(ctx->io_runtime_started_or_starting);
-  ASSERT_TRUE(ctx->loop_th_created);
-  ASSERT_FALSE(ctx->loop_th_creation_failed);
+  ASSERT_TRUE(ctx->uv_runtime.io_runtime_started_or_starting);
+  ASSERT_TRUE(ctx->uv_runtime.loop_th_created);
+  ASSERT_FALSE(ctx->uv_runtime.loop_th_creation_failed);
   // Verify the callback has not been called yet, thread not ready because no Topology is called
   ASSERT_EQ(counter, 0);
   struct MRClusterTopology *topo = getDummyTopology(4091);
