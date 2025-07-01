@@ -353,13 +353,7 @@ pub enum DecoderResult {
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
-    ///
-    /// Returns `Ok(None)` if there is nothing left on the reader to decode.
-    fn decode<R: Read>(
-        &self,
-        reader: &mut R,
-        base: t_docId,
-    ) -> std::io::Result<Option<DecoderResult>>;
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
@@ -371,12 +365,13 @@ pub trait Decoder {
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult>> {
         loop {
-            match self.decode(reader, base)? {
-                Some(DecoderResult::Record(record)) if record.doc_id >= target => {
+            match self.decode(reader, base) {
+                Ok(DecoderResult::Record(record)) if record.doc_id >= target => {
                     return Ok(Some(record));
                 }
-                Some(DecoderResult::Record(_)) | Some(DecoderResult::FilteredOut) => continue,
-                None => return Ok(None),
+                Ok(DecoderResult::Record(_)) | Ok(DecoderResult::FilteredOut) => continue,
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(err) => return Err(err),
             }
         }
     }

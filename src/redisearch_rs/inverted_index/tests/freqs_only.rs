@@ -54,7 +54,6 @@ fn test_encode_freqs_only() {
         let DecoderResult::Record(record_decoded) = FreqsOnly
             .decode(&mut buf, prev_doc_id)
             .expect("to decode freqs only record")
-            .expect("to read a record from the buffer")
         else {
             panic!("Record was filtered out incorrectly")
         };
@@ -82,6 +81,18 @@ fn test_encode_freqs_only_output_too_small() {
 fn test_decode_freqs_only_input_too_small() {
     // Encoded data is one byte too short.
     let buf = vec![0, 0];
+    let mut cursor = Cursor::new(buf);
+    let res = FreqsOnly.decode(&mut cursor, 100);
+
+    assert_eq!(res.is_err(), true);
+    let kind = res.unwrap_err().kind();
+    assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn test_decode_freqs_only_empty_input() {
+    // Try decoding an empty buffer.
+    let buf = vec![];
     let mut cursor = Cursor::new(buf);
     let res = FreqsOnly.decode(&mut cursor, 100);
 

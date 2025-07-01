@@ -34,15 +34,11 @@ impl Encoder for FreqsOnly {
 }
 
 impl Decoder for FreqsOnly {
-    fn decode<R: Read>(
-        &self,
-        reader: &mut R,
-        base: t_docId,
-    ) -> std::io::Result<Option<DecoderResult>> {
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
         let [delta, freq] = decoded_values;
 
         let record = RSIndexResult::freqs_only(base + delta as u64, freq);
-        Ok(Some(DecoderResult::Record(record)))
+        Ok(DecoderResult::Record(record))
     }
 }
