@@ -9,6 +9,7 @@ import shutil
 import time
 from typing import Optional
 from dataclasses import dataclass
+import copy
 
 @dataclass
 class BenchmarkConfig:
@@ -40,11 +41,24 @@ CONFIGS = [
 # Path to the original YAML file
 YAML_FILE = "search-numeric-with-results.yml"
 MODULE_PATH = "redisearch-master.so"
-RESULTS_DIR = "benchmark_results"
 
-# Create results directory if it doesn't exist
-os.makedirs(RESULTS_DIR, exist_ok=True)
+def check_required_env_vars():
+    required_vars = [
+        'SERVER_PRIVATE_IP',
+        'SERVER_PUBLIC_IP',
+        'CLIENT_PUBLIC_IP',
+        'REDISTIMESERIES_HOST',
+        'REDISTIMESERIES_PORT',
+        'REDISTIMESERIES_PASS'
+    ]
 
+    missing = [var for var in required_vars if not os.getenv(var)]
+    if missing:
+        print("Error: Missing required environment variables:")
+        for var in missing:
+            print(f"  - {var}")
+        print("\nPlease export the missing environment variables and re-run.")
+        exit(1)
 
 def update_default_yamls():
     """Update defaults.yml with new setups based on configurations"""
@@ -79,7 +93,7 @@ def update_default_yamls():
             original_setup = None
             for setup_config in defaults_config['spec']['setups']:
                 if setup_config['name'] == setup:
-                    original_setup = setup_config.copy()
+                    original_setup = copy.deepcopy(setup_config)
                     break
 
             if original_setup:
@@ -117,8 +131,8 @@ def update_yaml(yaml_path, workers, search_threads, search_io_threads):
               v['redisearch']['SEARCH_THREADS'] = search_threads
               if search_io_threads is not None:
                 v['redisearch']['SEARCH_IO_THREADS'] = search_io_threads
-              if branch == "master":
-                  if 'SEARCH_IO_THREADS' in v['redisearch']:
+              else:
+                if 'SEARCH_IO_THREADS' in v['redisearch']:
                     del v['redisearch']['SEARCH_IO_THREADS']
               v['redisearch']['CONN_PER_SHARD'] = workers + 1
 
@@ -128,7 +142,7 @@ def update_yaml(yaml_path, workers, search_threads, search_io_threads):
 
     return temp_path
 
-def run_benchmark(coord, env, setup, branch, yaml_path, output_prefix):
+def run_benchmark(coord, env, setup, branch, yaml_path):
     """Run the benchmark with the given configuration"""
     env_vars = os.environ.copy()
     env_vars.update({
@@ -143,7 +157,8 @@ def run_benchmark(coord, env, setup, branch, yaml_path, output_prefix):
     server_public_ip = os.environ.get('SERVER_PUBLIC_IP', '127.0.0.1')
     client_public_ip = os.environ.get('CLIENT_PUBLIC_IP', '127.0.0.1')
 
-    inventory_arg = f"--inventory server_private_ip={server_private_ip},server_public_ip={server_public_ip},client_public_ip={client_public_ip}"
+    # Instead of creating a single string, prepare the inventory as separate arguments
+    inventory_value = f"server_private_ip={server_private_ip},server_public_ip={server_public_ip},client_public_ip={client_public_ip}"
 
     # Get TimeSeries parameters from environment variables
     ts_host = os.environ.get('REDISTIMESERIES_HOST')
@@ -169,9 +184,11 @@ def run_benchmark(coord, env, setup, branch, yaml_path, output_prefix):
     if ts_host:
         cmd.append('--push_results_redistimeseries')
 
-    cmd.append(inventory_arg)
+    # Add inventory as separate arguments
+    cmd.extend(['--inventory', inventory_value])
 
     try:
+        print(f"Running command: {' '.join(cmd)}")
         process = subprocess.Popen(
             cmd,
             env=env_vars,
@@ -201,6 +218,7 @@ def run_benchmark(coord, env, setup, branch, yaml_path, output_prefix):
 
 def main():
   # Run benchmarks for each configuration
+  check_required_env_vars()
   update_default_yamls()
   for config in CONFIGS:
       setup = config.setup
@@ -208,29 +226,27 @@ def main():
       workers = config.workers
       search_threads = config.search_threads
       search_io_threads = config.search_io_threads
+      sio_part = f"_sio{search_io_threads}" if search_io_threads is not None else ""
+      new_setup_name = f"{setup}_{branch}_w{workers}_st{search_threads}{sio_part}"
 
       print("\n" + "="*50)
       print(f"Running benchmark with configuration:")
-      print(f"COORD=1 ENV=oss-cluster SETUP={setup}")
+      print(f"COORD=1 ENV=oss-cluster SETUP={new_setup_name}")
       print(f"BRANCH={branch}")
       print(f"WORKERS={workers} SEARCH_THREADS={search_threads} SEARCH_IO_THREADS={search_io_threads} CONN_PER_SHARD={workers + 1}")
       print("="*50)
-
-      ## (TODO: JOan) Somehow update defaults.yml to account fore ur NEW CREATRED SETUP (this would influence the name on the .json and in the timeseries)
-      updated_defaults_yaml = "defaults.yml"
 
       # Update YAML file
       temp_yaml = update_yaml(YAML_FILE, workers, search_threads, search_io_threads)
 
       # Create a unique identifier for this configuration
       config_id = f"{branch}_{setup}_w{workers}_st{search_threads}_sio{search_io_threads}"
-      result_file = os.path.join(RESULTS_DIR, f"result_{config_id}.json")
 
       # Run the benchmark
-      success = run_benchmark("1", "oss-cluster", setup, branch, temp_yaml, result_file)
+      success = run_benchmark("1", "oss-cluster", setup, branch, temp_yaml)
 
       if success:
-          print(f"Benchmark completed. Results saved to {result_file}")
+          print(f"Benchmark completed!!!!")
       else:
           print(f"Benchmark failed for configuration: {config_id}")
 
@@ -240,7 +256,7 @@ def main():
       # Add a small delay between runs to avoid potential conflicts
       time.sleep(1)
 
-  print("\nAll benchmarks completed. Results are in the", RESULTS_DIR, "directory.")
+  print("\nAll benchmarks completed")
 
 
 if __name__ == "__main__":
