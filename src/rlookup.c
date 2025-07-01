@@ -17,6 +17,7 @@
 
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
+    RS_LOG_ASSERT(name_len == strlen(name), "expected name_len to be the name length");
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));
 
   if (!lookup->head) {
