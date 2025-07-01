@@ -443,8 +443,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     MRReply *fields = MRReply_MapElement(result, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
 
-    uint32_t reqflags = (uint32_t)AREQ_RequestFlags(nc->areq);
-    processResultFormat(&reqflags, rows);
+    processResultFormat(&nc->areq->reqflags, rows);
 
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;
