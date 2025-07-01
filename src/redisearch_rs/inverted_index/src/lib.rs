@@ -318,6 +318,10 @@ impl PartialEq for RSIndexResult {
 
 /// Encoder to write a record into an index
 pub trait Encoder {
+    /// Does this encoder allow the same document to appear in the index multiple times. Defaults
+    /// to `false`.
+    const ALLOW_DUPLICATES: bool = false;
+
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
     ///
@@ -371,6 +375,7 @@ pub trait Decoder {
 
 pub struct InvertedIndex<E> {
     buffer: Vec<u8>,
+    last_doc_id: Option<t_docId>,
     _encoder: PhantomData<E>,
 }
 
@@ -378,16 +383,29 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn new() -> Self {
         Self {
             buffer: Vec::new(),
+            last_doc_id: None,
             _encoder: Default::default(),
         }
     }
 
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
-        let buffer = Cursor::new(&mut self.buffer);
+        let doc_id = record.doc_id;
 
-        E::encode(buffer, Delta::new(record.doc_id as _), record)?;
+        if !E::ALLOW_DUPLICATES && self.last_doc_id.map(|d| d == doc_id).unwrap_or_default() {
+            // The encoder does not allow writting the same document to the same index twice. This
+            // can happen when the index is created with duplicate tags for example.
+            return Ok(0);
+        }
 
-        Ok(0)
+        let buffer_pos = self.buffer.len();
+        let mut buffer = Cursor::new(&mut self.buffer);
+        buffer.set_position(buffer_pos as _);
+
+        let bytes_written = E::encode(buffer, Delta::new(doc_id as _), record)?;
+
+        self.last_doc_id = Some(doc_id);
+
+        Ok(bytes_written)
     }
 }
 
