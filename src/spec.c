@@ -2913,7 +2913,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
   // First, initialise fields IndexError before loading them.
-  // If some fields are not loaded correctly, we will attempt to free the spec and cleanup the fields.
+  // If some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
   for (int i = 0; i < sp->numFields; i++) {
     sp->fields[i].indexError = IndexError_Init();
   }
