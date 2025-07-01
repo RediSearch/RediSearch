@@ -374,16 +374,34 @@ pub trait Decoder {
 }
 
 pub struct InvertedIndex<E> {
-    buffer: Vec<u8>,
+    blocks: Vec<IndexBlock>,
     last_doc_id: Option<t_docId>,
     num_docs: usize,
     _encoder: PhantomData<E>,
 }
 
+struct IndexBlock {
+    first_doc_id: t_docId,
+    last_doc_id: t_docId,
+    num_entries: usize,
+    buffer: Vec<u8>,
+}
+
+impl IndexBlock {
+    fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
+        let pos = self.buffer.len();
+        let mut buffer = Cursor::new(&mut self.buffer);
+
+        buffer.set_position(pos as u64);
+
+        buffer
+    }
+}
+
 impl<E: Encoder> InvertedIndex<E> {
     pub fn new() -> Self {
         Self {
-            buffer: Vec::new(),
+            blocks: Vec::new(),
             last_doc_id: None,
             num_docs: 0,
             _encoder: Default::default(),
@@ -406,14 +424,13 @@ impl<E: Encoder> InvertedIndex<E> {
             (_, false) => false,
         };
 
-        let buffer_pos = self.buffer.len();
-        let mut buffer = Cursor::new(&mut self.buffer);
-        buffer.set_position(buffer_pos as _);
-
         let delta = doc_id - self.last_doc_id.unwrap_or_default();
+        let block = self.get_last_block(doc_id);
+        let buffer = block.writer();
 
         let bytes_written = E::encode(buffer, Delta::new(delta as _), record)?;
 
+        block.num_entries += 1;
         self.last_doc_id = Some(doc_id);
 
         if !same_doc {
@@ -421,6 +438,21 @@ impl<E: Encoder> InvertedIndex<E> {
         }
 
         Ok(bytes_written)
+    }
+
+    fn get_last_block(&mut self, doc_id: t_docId) -> &mut IndexBlock {
+        if self.blocks.is_empty() {
+            self.blocks.push(IndexBlock {
+                first_doc_id: doc_id,
+                last_doc_id: doc_id,
+                num_entries: 0,
+                buffer: Vec::new(),
+            })
+        }
+
+        self.blocks
+            .last_mut()
+            .expect("to get the last block or the one we just added")
     }
 }
 

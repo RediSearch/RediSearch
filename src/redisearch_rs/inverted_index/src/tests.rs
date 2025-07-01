@@ -23,14 +23,21 @@ fn add_records() {
 
     ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.buffer, [0, 0, 0, 0, 0, 0, 0, 10]);
+    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 10]);
+    assert_eq!(ii.blocks[0].num_entries, 1);
     assert_eq!(ii.num_docs, 1);
 
     let record = RSIndexResult::numeric(11, 5.0);
 
     ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.buffer, [0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1]);
+    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(
+        ii.blocks[0].buffer,
+        [0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1]
+    );
+    assert_eq!(ii.blocks[0].num_entries, 2);
     assert_eq!(ii.num_docs, 2);
 }
 
@@ -40,7 +47,9 @@ fn writting_same_record_twice() {
     let record = RSIndexResult::numeric(10, 5.0);
 
     ii.add_record(&record).unwrap();
-    assert_eq!(ii.buffer, [0, 0, 0, 0, 0, 0, 0, 10]);
+    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 10]);
+    assert_eq!(ii.blocks[0].num_entries, 1);
 
     let bytes_written = ii.add_record(&record).unwrap();
 
@@ -48,11 +57,13 @@ fn writting_same_record_twice() {
         bytes_written, 0,
         "duplicate record should not be written by default"
     );
+    assert_eq!(ii.blocks.len(), 1);
     assert_eq!(
-        ii.buffer,
+        ii.blocks[0].buffer,
         [0, 0, 0, 0, 0, 0, 0, 10],
         "buffer should remain unchanged"
     );
+    assert_eq!(ii.blocks[0].num_entries, 1);
     assert_eq!(ii.num_docs, 1, "this second doc was not added");
 
     struct AllowDupsDummy;
@@ -74,7 +85,8 @@ fn writting_same_record_twice() {
     let mut ii = InvertedIndex::<AllowDupsDummy>::new();
 
     ii.add_record(&record).unwrap();
-    assert_eq!(ii.buffer, [255]);
+    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(ii.blocks[0].buffer, [255]);
 
     let bytes_written = ii.add_record(&record).unwrap();
 
@@ -82,7 +94,13 @@ fn writting_same_record_twice() {
         bytes_written, 1,
         "duplicate record should be written when allowed"
     );
-    assert_eq!(ii.buffer, [255, 255], "buffer should contain two entries");
+    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(
+        ii.blocks[0].buffer,
+        [255, 255],
+        "buffer should contain two entries"
+    );
+    assert_eq!(ii.blocks[0].num_entries, 2);
     assert_eq!(
         ii.num_docs, 1,
         "this doc was added but should not affect the count"
