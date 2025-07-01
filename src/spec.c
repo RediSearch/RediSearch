@@ -3142,6 +3142,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+      QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
   }
