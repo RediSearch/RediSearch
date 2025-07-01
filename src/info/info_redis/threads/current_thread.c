@@ -11,6 +11,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "spec.h"
 #include "config.h"
+#include <assert.h>
 
 // TLS key for a spec information
 static pthread_key_t specInfoKey;

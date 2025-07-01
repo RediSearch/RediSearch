@@ -384,7 +384,6 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
 /* Calculate sum(TF-IDF)*document score for each result */
 static double DisMaxScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
                            const RSDocumentMetadata *dmd, double minScore) {
-  // printf("score for %d: %f\n", h->docId, dmd->score);
   // if (dmd->score == 0 || h == NULL) return 0;
   return dismaxRecursive(ctx, h, ctx->scrExp);
 }

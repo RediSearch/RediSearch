@@ -499,8 +499,6 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-  // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
-
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable,
                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
   if (ir == NULL) {
@@ -575,7 +573,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   }
 
   TrieIterator_Free(it);
-  // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
     rm_free(its);
     return NULL;
@@ -1540,8 +1537,6 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     fclose(qpCtx.trace_log);
   }
 #endif
-  // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
-  //  dst->root);
   if (!dst->root) {
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;

@@ -222,11 +222,6 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     TrieSearchResult_Free(pooledEntry);
   }
 
-  // printf("Nodes consumed: %d/%d (%.02f%%)\n", it->nodesConsumed,
-  //        it->nodesConsumed + it->nodesSkipped,
-  //        100.0 * (float)(it->nodesConsumed) / (float)(it->nodesConsumed +
-  //        it->nodesSkipped));
-
   // put the results from the heap on a vector to return
   size_t n = MIN(heap_count(pq), num);
   Vector *ret = NewVector(TrieSearchResult *, n);
@@ -325,7 +320,6 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads) {
     RedisModule_Free(str);
     if (payload.data != NULL) RedisModule_Free(payload.data);
   }
-  // TrieNode_Print(tree->root, 0, 0);
   return tree;
 
 cleanup:

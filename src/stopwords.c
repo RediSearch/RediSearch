@@ -100,7 +100,6 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
       t[tlen] = '\0';
     }
 
-    // printf("Adding stopword %s\n", t);
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
     rm_free(t);
   }

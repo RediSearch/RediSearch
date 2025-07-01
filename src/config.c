@@ -22,6 +22,7 @@
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
+#include "module.h"
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
