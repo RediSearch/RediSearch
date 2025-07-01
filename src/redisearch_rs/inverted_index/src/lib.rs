@@ -431,6 +431,7 @@ impl<E: Encoder> InvertedIndex<E> {
         let bytes_written = E::encode(buffer, Delta::new(delta as _), record)?;
 
         block.num_entries += 1;
+        block.last_doc_id = doc_id;
         self.last_doc_id = Some(doc_id);
 
         if !same_doc {
