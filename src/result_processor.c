@@ -1442,19 +1442,22 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  *  from the internal array, and finally returns the last return code from the upstream.
  *******************************************************************************************************************/
 typedef struct {
-  ResultProcessor base;                // Base result processor struct
-  arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
-  bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
-  uint cur_idx;                        // Current index for yielding results
-  RPStatus last_rc;                    // Last return code from upstream
-  bool first_call;                     // Whether the first call to Next has been made
-  StrongRef sync_ref;                  // Reference to shared synchronization object
+  ResultProcessor base;             // Base result processor struct
+  arrayof(SearchResult *) results;  // Array of pointers to SearchResult, filled by the depleting thread
+  bool done_depleting;              // Set to `true` when depleting is finished (under lock)
+  uint cur_idx;                     // Current index for yielding results
+  RPStatus last_rc;                 // Last return code from upstream
+  bool first_call;                  // Whether the first call to Next has been made
+  StrongRef sync_ref;               // Reference to shared synchronization object
+  bool take_index_lock;             // Whether or not the depleter should take the index lock
+  bool index_released;              // Whether or not the index-spec has been released by the pipeline thread yet
 } RPDepleter;
 
 // Shared synchronization object for all RPDepleter instances of a pipeline
 typedef struct {
   pthread_cond_t cond;
   pthread_mutex_t mutex;
+  atomic_int num_locked;  // Number of depleters that have locked the index
 } DepleterSync;
 
 // Free function for DepleterSync
@@ -1490,6 +1493,13 @@ static void RPDepleter_Free(ResultProcessor *base) {
 static void RPDepleter_Deplete(void *arg) {
   RPDepleter *self = (RPDepleter *)arg;
   RPStatus rc;
+
+  if (self->take_index_lock) {
+    // Lock the index for read
+    RedisSearchCtx_LockSpecRead(RP_SCTX(&self->base));
+    // Increment the counter
+    __atomic_fetch_add(&((DepleterSync *)StrongRef_Get(self->sync_ref))->num_locked, 1, __ATOMIC_SEQ_CST);
+  }
 
   // Deplete the pipeline into the `self->results` array.
   SearchResult *r = rm_calloc(1, sizeof(*r));
@@ -1548,6 +1558,20 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
     return RS_RESULT_DEPLETING;
   }
 
+  if (self->take_index_lock && !self->index_released) {
+    // Load the atomic counter
+    int num_locked = __atomic_load_n(&((DepleterSync *)StrongRef_Get(self->sync_ref))->num_locked, __ATOMIC_SEQ_CST);
+    if (num_locked == 2) {
+      // Release the index
+      RedisSearchCtx_UnlockSpec(RP_SCTX(base));
+      // Mark the index as released
+      self->index_released = true;
+    } else {
+      // Not all depleter threads have taken the index lock yet. Wait for them
+      return RS_RESULT_DEPLETING;
+    }
+  }
+
   // On subsequent calls, wait on condition variable for any depleter to complete
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
   RS_LOG_ASSERT(sync, "Invalid sync reference");
@@ -1582,7 +1606,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
 /**
  * Constructs a new RPDepleter processor. Consumes the StrongRef given.
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, bool take_index_lock) {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPDepleter_Next_Dispatch;
@@ -1590,6 +1614,7 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
   ret->base.type = RP_DEPLETER;
   ret->first_call = true;
   ret->sync_ref = sync_ref;
+  ret->take_index_lock = take_index_lock;
   return &ret->base;
 }
 
