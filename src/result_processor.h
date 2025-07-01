@@ -213,7 +213,6 @@ ResultProcessor *RPMetricsLoader_New();
 #define SORTASCMAP_SETASC(mm, pos) ((mm) |= (1LLU << (pos)))
 #define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
-void SortAscMap_Dump(uint64_t v, size_t n);
 
 /**
  * Creates a sorter result processor.
@@ -250,8 +249,6 @@ void SetLoadersForMainThread(struct AREQ *r);
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
                                    const RLookup *lookup);
-
-void RP_DumpChain(const ResultProcessor *rp);
 
 /*******************************************************************************************************************
  *  Profiling Processor

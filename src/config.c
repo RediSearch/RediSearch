@@ -19,6 +19,7 @@
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
+#include "module.h"
 
 #include "util/config_macros.h"
 

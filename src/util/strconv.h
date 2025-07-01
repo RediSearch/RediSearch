@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include "libnu/libnu.h"
 #include "rmutil/rm_assert.h"
+#include "rmalloc.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal

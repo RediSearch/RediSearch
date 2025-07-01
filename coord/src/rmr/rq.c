@@ -187,7 +187,6 @@ void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
 
 static struct queueItem *rqPop(MRWorkQueue *q) {
   uv_mutex_lock(&q->lock);
-  // fprintf(stderr, "%d %zd\n", concurrentRequests_g, q->sz);
 
   if (q->head == NULL) {
     uv_mutex_unlock(&q->lock);
