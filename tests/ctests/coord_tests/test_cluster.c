@@ -201,7 +201,6 @@ void testCluster() {
         mu_check(sh->startSlot == j * (4096 / n));
         mu_check(sh->endSlot == sh->startSlot + (4096 / n) - 1);
         mu_check(!strcmp(sh->nodes[0].id, hosts[j]));
-        printf("[IORuntime %d, Shard: %d, Node 0]: %d..%d --> %s\n", i, j, sh->startSlot, sh->endSlot, sh->nodes[0].id);
       }
     }
 
@@ -224,14 +223,16 @@ void testClusterSharding() {
     mu_check(sh != NULL);
     mu_check(sh->numNodes == 1);
     mu_check(!strcmp(sh->nodes[0].id, hosts[3]));
-    printf("[IORuntime %d]: %d..%d --> %s\n", i, sh->startSlot, sh->endSlot, sh->nodes[0].id);
   }
   MRCommand_Free(&cmd);
   MRClust_Free(cl);
 }
 
+static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
+
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
+  RedisModule_Log = dummyLog;
   MU_RUN_TEST(testEndpoint);
   MU_RUN_TEST(testShardingFunc);
   MU_RUN_TEST(testCluster);
