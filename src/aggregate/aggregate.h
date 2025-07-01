@@ -283,6 +283,30 @@ static inline AGGPlan *AREQ_Plan(AREQ *req) {
   return &req->pipeline.ap;
 }
 
+static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
+  return (QEFlags)req->reqflags;
+}
+
+static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
+  req->reqflags |= flags;
+}
+
+static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
+  req->reqflags &= ~flags;
+}
+
+static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
+  return &req->qiter;
+}
+
+static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
+  return req->sctx;
+}
+
+static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
+  return &req->ap;
+}
+
 /******************************************************************************
  ******************************************************************************
  ** Grouper Functions                                                        **

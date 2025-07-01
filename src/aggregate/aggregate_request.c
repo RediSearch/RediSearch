@@ -251,7 +251,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   AggregationPipeline *pipeline = &req->pipeline;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(AREQ_Plan(req));
+    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(req));
     arng->isLimited = 1;
     // Parse offset, length
     if (AC_NumRemaining(ac) < 2) {
@@ -291,7 +291,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(AREQ_Plan(req));
+    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(req));
     if ((parseSortby(arng, ac, status, AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -780,7 +780,7 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
   // Number of fields.. now let's see the reducers
   PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
-  AGPLN_AddStep(AREQ_Plan(req), &gstp->base);
+  AGPLN_AddStep(AREQ_AGGPlan(req), &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
     const char *name;
@@ -829,7 +829,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
   HiddenString* expression = NewHiddenString(expr, exprLen, false);
   PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
   HiddenString_Free(expression, false);
-  AGPLN_AddStep(AREQ_Plan(req), &stp->base);
+  AGPLN_AddStep(AREQ_AGGPlan(req), &stp->base);
 
   if (isApply) {
     if (AC_AdvanceIfMatch(ac, "AS")) {
@@ -893,7 +893,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     lstp->base.flags |= PLN_F_LOAD_ALL;
   }
 
-  AGPLN_AddStep(AREQ_Plan(req), &lstp->base);
+  AGPLN_AddStep(AREQ_AGGPlan(req), &lstp->base);
   return REDISMODULE_OK;
 }
 
@@ -939,11 +939,11 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   }
 
   req->query = AC_GetStringNC(&ac, NULL);
-  AGPLN_Init(AREQ_Plan(req));
+  AGPLN_Init(AREQ_AGGPlan(req));
 
   RSSearchOptions *searchOpts = &req->searchopts;
   RSSearchOptions_Init(searchOpts);
-  if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_Plan(req), status) != REDISMODULE_OK) {
+  if (parseQueryArgs(&ac, req, searchOpts, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -984,7 +984,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     }
   }
 
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(&req->pipeline) && (!IsSearch(&req->pipeline) || hasQuerySortby(AREQ_Plan(req)))) {
+  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(AREQ_AGGPlan(req)))) {
     // We can skip collecting full results structure and metadata from the iterators if:
     // 1. We don't have a highlight/summarize step,
     // 2. We are not required to return scores explicitly,

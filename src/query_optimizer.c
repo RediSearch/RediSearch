@@ -30,7 +30,7 @@ void QOptimizer_Parse(AREQ *req) {
   opt->conc = &req->conc;
 
   // get FieldSpec of sortby field and results limit
-  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_Plan(req));
+  PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
   if (arng) {
     opt->limit = arng->limit + arng->offset;
     if (IsSearch(&req->pipeline) && !opt->limit) {
@@ -269,7 +269,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 }
 
 void QOptimizer_UpdateTotalResults(AREQ *req) {
-    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_Plan(req));
+    PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);

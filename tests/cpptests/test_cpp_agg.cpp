@@ -71,7 +71,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_FALSE(rp == NULL);
 
   SearchResult res = {0};
-  RLookup *lk = AGPLN_GetLookup(AREQ_Plan(rr), NULL, AGPLN_GETLOOKUP_LAST);
+  RLookup *lk = AGPLN_GetLookup(AREQ_AGGPlan(rr), NULL, AGPLN_GETLOOKUP_LAST);
   size_t count = 0;
   while ((rv = rp->Next(rp, &res)) == RS_RESULT_OK) {
     count++;
