@@ -218,12 +218,12 @@ inline const char *MRReply_String(const MRReply *reply, size_t *len) {
 }
 
 inline MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx) {
-  // TODO: check out of bounds
+  RS_ASSERT(reply->elements > idx);
   return reply->element[idx];
 }
 
 inline MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx) {
-  // TODO: check out of bounds
+  RS_ASSERT(reply->elements > idx);
   MRReply *ret = reply->element[idx];
   reply->element[idx] = NULL; // Take ownership
   return ret;
@@ -247,9 +247,7 @@ inline MRReply *MRReply_MapElement(const MRReply *reply, const char *key) {
 inline MRReply *MRReply_TakeMapElement(const MRReply *reply, const char *key) {
   int idx = MRReply_FindMapElement(reply, key);
   if (idx < 0) return NULL; // Not found
-  MRReply *ret = reply->element[idx];
-  reply->element[idx] = NULL; // Take ownership
-  return ret;
+  return MRReply_TakeArrayElement(reply, idx); // Take ownership of the value
 }
 
 

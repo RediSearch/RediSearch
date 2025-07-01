@@ -290,9 +290,9 @@ static int getNextReply(RPNet *nc) {
     RedisModule_Log(RSDummyContext, "warning", "An empty reply was received from a shard");
   }
 
-  // For profile command, take ownership over the profile data from the reply
+  // For profile command, extract the profile data from the reply
   if (nc->cmd.forProfiling) {
-    // if cursor_id is 0, this is the last reply and it has the profile data
+    // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
     if (0 == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
       MRReply *profile_data;
       if (nc->cmd.protocol == 3) {
@@ -316,7 +316,7 @@ static int getNextReply(RPNet *nc) {
     }
   }
 
-  // invariant: either rows == NULL or least one row exists
+  // invariant: either rows == NULL or at least one row exists
 
   nc->current.root = root;
   nc->current.rows = rows;
