@@ -376,6 +376,7 @@ pub trait Decoder {
 pub struct InvertedIndex<E> {
     buffer: Vec<u8>,
     last_doc_id: Option<t_docId>,
+    num_docs: usize,
     _encoder: PhantomData<E>,
 }
 
@@ -384,6 +385,7 @@ impl<E: Encoder> InvertedIndex<E> {
         Self {
             buffer: Vec::new(),
             last_doc_id: None,
+            num_docs: 0,
             _encoder: Default::default(),
         }
     }
@@ -391,11 +393,19 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let doc_id = record.doc_id;
 
-        if !E::ALLOW_DUPLICATES && self.last_doc_id.map(|d| d == doc_id).unwrap_or_default() {
-            // The encoder does not allow writting the same document to the same index twice. This
-            // can happen when the index is created with duplicate tags for example.
-            return Ok(0);
-        }
+        let same_doc = match (
+            E::ALLOW_DUPLICATES,
+            self.last_doc_id.map(|d| d == doc_id).unwrap_or_default(),
+        ) {
+            (true, true) => true,
+            (true, false) => false,
+            (false, true) => {
+                // The encoder does not allow writting the same document to the same index twice. This
+                // can happen when the index is created with duplicate tags for example.
+                return Ok(0);
+            }
+            (false, false) => false,
+        };
 
         let buffer_pos = self.buffer.len();
         let mut buffer = Cursor::new(&mut self.buffer);
@@ -404,6 +414,10 @@ impl<E: Encoder> InvertedIndex<E> {
         let bytes_written = E::encode(buffer, Delta::new(doc_id as _), record)?;
 
         self.last_doc_id = Some(doc_id);
+
+        if !same_doc {
+            self.num_docs += 1;
+        }
 
         Ok(bytes_written)
     }

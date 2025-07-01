@@ -6,7 +6,7 @@ impl Encoder for Dummy {
     fn encode<W: std::io::Write + std::io::Seek>(
         mut writer: W,
         delta: crate::Delta,
-        record: &RSIndexResult,
+        _record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         let delta: usize = delta.into();
 
@@ -17,13 +17,24 @@ impl Encoder for Dummy {
 }
 
 #[test]
-fn add_record() {
+fn add_records() {
     let mut ii = InvertedIndex::<Dummy>::new();
     let record = RSIndexResult::numeric(10, 5.0);
 
     ii.add_record(&record).unwrap();
 
     assert_eq!(ii.buffer, [0, 0, 0, 0, 0, 0, 0, 10]);
+    assert_eq!(ii.num_docs, 1);
+
+    let record = RSIndexResult::numeric(11, 5.0);
+
+    ii.add_record(&record).unwrap();
+
+    assert_eq!(
+        ii.buffer,
+        [0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 11]
+    );
+    assert_eq!(ii.num_docs, 2);
 }
 
 #[test]
@@ -45,6 +56,7 @@ fn writting_same_record_twice() {
         [0, 0, 0, 0, 0, 0, 0, 10],
         "buffer should remain unchanged"
     );
+    assert_eq!(ii.num_docs, 1, "this second doc was not added");
 
     struct AllowDupsDummy;
 
@@ -74,4 +86,8 @@ fn writting_same_record_twice() {
         "duplicate record should be written when allowed"
     );
     assert_eq!(ii.buffer, [255, 255], "buffer should contain two entries");
+    assert_eq!(
+        ii.num_docs, 1,
+        "this doc was added but should not affect the count"
+    );
 }
