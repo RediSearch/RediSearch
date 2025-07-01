@@ -2678,13 +2678,15 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
  * It is used by both SEARCH and AGGREGATE.
  */
 static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
-  // The 1st location always stores the results. On FT.AGGREGATE, the next place stores the
-  // cursor ID. The last location (2nd for FT.SEARCH and 3rd for FT.AGGREGATE) stores the
-  // profile information of the shard.
-  const int profile_data_idx = isSearch ? 1 : 2;
+  // On FT.SEARCH, `replies` is an array of replies from the shards.
+  // On FT.AGGREGATE, `replies` is already the profile part only
   for (int i = 0; i < count; ++i) {
-    MRReply *shards_reply = MRReply_ArrayElement(replies[i], profile_data_idx);
-    MRReply *shards_array_profile = MRReply_ArrayElement(shards_reply, 1);
+    MRReply *current = replies[i];
+    if (isSearch) {
+      // On FT.SEARCH, extract the profile information from the reply. (should be the second element)
+      current = MRReply_ArrayElement(current, 1);
+    }
+    MRReply *shards_array_profile = MRReply_ArrayElement(current, 1);
     MRReply *shard_profile = MRReply_ArrayElement(shards_array_profile, 0);
     MR_ReplyWithMRReply(reply, shard_profile);
   }
@@ -2692,15 +2694,12 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
 
 static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
-    MRReply *profile;
-    if (!isSearch) {
-      // On aggregate commands, take the results from the response (second component is the cursor-id)
-      MRReply *results = MRReply_ArrayElement(replies[i], 0);
-      profile = MRReply_MapElement(results, PROFILE_STR);
-    } else {
-      profile = MRReply_MapElement(replies[i], PROFILE_STR);
+    MRReply *current = replies[i];
+    if (isSearch) {
+      // On aggregate commands, we get the profile directly.
+      current = MRReply_MapElement(current, PROFILE_STR);
     }
-    MRReply *shards = MRReply_MapElement(profile, PROFILE_SHARDS_STR);
+    MRReply *shards = MRReply_MapElement(current, PROFILE_SHARDS_STR);
     MRReply *shard = MRReply_ArrayElement(shards, 0);
 
     MR_ReplyWithMRReply(reply, shard);

@@ -290,6 +290,32 @@ static int getNextReply(RPNet *nc) {
     RedisModule_Log(RSDummyContext, "warning", "An empty reply was received from a shard");
   }
 
+  // For profile command, take ownership over the profile data from the reply
+  if (nc->cmd.forProfiling) {
+    // if cursor_id is 0, this is the last reply and it has the profile data
+    if (0 == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
+      MRReply *profile_data;
+      if (nc->cmd.protocol == 3) {
+        // [
+        //   {
+        //     "Results": { <FT.AGGREGATE reply> },
+        //     "Profile": { <profile data> }
+        //   },
+        //   cursor_id
+        // ]
+        MRReply *data = MRReply_ArrayElement(root, 0);
+        profile_data = MRReply_TakeMapElement(data, "profile");
+      } else {
+        // RESP2
+        RS_ASSERT(nc->cmd.protocol == 2);
+        // [ <FT.AGGREGATE reply>, cursor_id, profile data ]
+        RS_ASSERT(MRReply_Length(root) == 3);
+        profile_data = MRReply_TakeArrayElement(root, 2);
+      }
+      array_append(nc->shardsProfile, profile_data);
+    }
+  }
+
   // invariant: either rows == NULL or least one row exists
 
   nc->current.root = root;
@@ -366,14 +392,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
           }
         }
 
-        long long cursorId = MRReply_Integer(MRReply_ArrayElement(root, 1));
-
-        // in profile mode, save shard's profile info to be returned later
-        if (cursorId == 0 && nc->shardsProfile) {
-          array_ensure_append_1(nc->shardsProfile, root);
-        } else {
-          MRReply_Free(root);
-        }
+        MRReply_Free(root);
         root = rows = NULL;
         RPNet_resetCurrent(nc);
 
