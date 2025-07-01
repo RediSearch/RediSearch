@@ -266,3 +266,6 @@ fn walk_down_rsvalue_ref_chain<T: RSValueTrait>(origin: &T) -> &T {
     }
     loop_var
 }
+
+#[cfg(test)]
+mod tests;
