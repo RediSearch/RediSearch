@@ -1208,11 +1208,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
 void AggregationPipeline_Free(AggregationPipeline *pipeline) {
   ResultProcessor *rp = pipeline->qctx.endProc;
-  while (rp) {
-    ResultProcessor *next = rp->upstream;
-    rp->Free(rp);
-    rp = next;
-  }
+  // Free result processors
+  QITR_FreeChain(&pipeline->qctx);
   // Go through each of the steps and free it..
   AGPLN_FreeSteps(&pipeline->ap);
 
