@@ -10,5 +10,8 @@ pin-project.workspace = true
 libc = { workspace = true, features = ["extra_traits"] }
 ffi.workspace = true
 
+[dev-dependencies]
+icu_casemap.workspace = true
+
 [lints]
 workspace = true
