@@ -25,7 +25,12 @@
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
 
-typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+typedef enum {
+  COMMAND_AGGREGATE,
+  COMMAND_SEARCH,
+  COMMAND_EXPLAIN,
+  COMMAND_HYBRID
+} CommandType;
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -870,9 +875,10 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   if (type == COMMAND_SEARCH) {
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
-  }
-  else if (type == COMMAND_AGGREGATE) {
+  } else if (type == COMMAND_AGGREGATE) {
     (*r)->reqflags |= QEXEC_F_IS_AGGREGATE;
+  } else if (type == COMMAND_HYBRID) {
+    (*r)->reqflags |= QEXEC_F_IS_HYBRID;
   }
 
   (*r)->reqflags |= QEXEC_FORMAT_DEFAULT;
@@ -1043,6 +1049,10 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, EXEC_NO_FLAGS);
+}
+
+int RSHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return execCommandCommon(ctx, argv, argc, COMMAND_HYBRID, EXEC_NO_FLAGS);
 }
 
 #define PROFILE_1ST_PARAM 2

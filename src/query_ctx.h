@@ -22,6 +22,6 @@ typedef struct QueryEvalCtx {
   size_t numTokens;
   uint32_t tokenId;
   DocTable *docTable;
-  uint32_t reqFlags;
+  uint64_t reqFlags;
   IteratorsConfig *config;
 } QueryEvalCtx;
