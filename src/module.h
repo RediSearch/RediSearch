@@ -13,12 +13,14 @@
 #include <query_node.h>
 #include <coord/rmr/reply.h>
 #include <util/heap.h>
-#include "rmutil/rm_assert.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
 #include <sys/cdefs.h>
 #endif
+
+// Module-level dummy context for certain dummy RM_XXX operations
+extern RedisModuleCtx *RSDummyContext;
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,14 +52,12 @@ void RediSearch_CleanupModule(void);
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-/** Module-level dummy context for certain dummy RM_XXX operations */
-extern RedisModuleCtx *RSDummyContext;
 // Indicates that RediSearch_Init was called
 extern int RS_Initialized;
 
 #define RS_AutoMemory(ctx)                      \
 do {                                            \
-  RS_LOG_ASSERT(ctx != RSDummyContext, "");     \
+  RedisModule_Assert(ctx != RSDummyContext);    \
   RedisModule_AutoMemory(ctx);                  \
 } while (0)
 

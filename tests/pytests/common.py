@@ -869,15 +869,13 @@ def checkDebugScannerUpdateError(env, idx = 'idx', expected_error = ''):
     env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', idx).error() \
         .contains(expected_error)
 
-def set_tight_maxmemory_for_oom(env, memory_limit_per = 1.0):
+def set_tight_maxmemory_for_oom(env, used_memory_ratio = 1.001):
     # Get current memory consumption value
     memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
-    # Set memory limit to less then memory limit
-    required_memory = memory_usage * (1/memory_limit_per)
-    # Round up and add 1
-    new_memory = math.ceil(required_memory) + 1
+    # Set memory limit based on the current memory usage, according to the used ratio
+    required_limit = memory_usage / used_memory_ratio
 
-    env.expect('config', 'set', 'maxmemory',new_memory).ok()
+    env.expect('config', 'set', 'maxmemory', int(required_limit)).ok()
 
 def set_unlimited_maxmemory_for_oom(env):
     env.expect('config', 'set', 'maxmemory', 0).ok()
