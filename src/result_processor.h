@@ -336,14 +336,14 @@ void PipelineAddCrash(struct AREQ *r);
  * @param sync_ref Reference to shared synchronization object
  * @param take_index_lock Whether this depleter should participate in index locking
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref, bool take_index_lock);
+ResultProcessor *RPDepleter_New(StrongRef sync_ref);
 
 /**
  * Creates a new shared sync object for a pipeline.
  * This is used during pipeline construction to create sync objects
  * that can be shared among multiple RPDepleters.
  */
-StrongRef DepleterSync_New(uint n_depleters);
+StrongRef DepleterSync_New(uint num_depleters, bool take_index_lock);
 
  /*******************************************************************************************************************
   *  Hybrid Merger Result Processor
