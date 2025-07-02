@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, numeric::Numeric};
+use inverted_index::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, numeric::Numeric};
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use std::io::Cursor;
@@ -368,7 +368,7 @@ fn test_numeric_encode_decode(
     let record = RSIndexResult::numeric(u64::MAX, value);
 
     let bytes_written =
-        Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
+        Numeric::encode(&mut buf, Delta::new(delta), &record).expect("to encode numeric record");
 
     assert_eq!(
         bytes_written, expected_bytes_written,
@@ -412,7 +412,7 @@ fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
     let record = RSIndexResult::virt(10);
 
-    let _result = Numeric::encode(&mut buffer, Delta(0), &record);
+    let _result = Numeric::encode(&mut buffer, Delta::new(0), &record);
 }
 
 proptest! {
@@ -425,7 +425,7 @@ proptest! {
         let record = RSIndexResult::numeric(u64::MAX, value);
 
         let _bytes_written =
-            Numeric::encode(&mut buf, Delta(delta as _), &record).expect("to encode numeric record");
+            Numeric::encode(&mut buf, Delta::new(delta as _), &record).expect("to encode numeric record");
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;

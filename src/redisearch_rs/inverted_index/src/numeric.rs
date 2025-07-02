@@ -650,6 +650,3 @@ fn write_all_vectored<const N: usize, W: Write>(
 
     Ok(total_len)
 }
-
-#[cfg(test)]
-mod tests;
