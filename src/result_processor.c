@@ -1511,6 +1511,12 @@ static void RPDepleter_Deplete(void *arg) {
   // Save the last return code from the upstream.
   self->last_rc = rc;
 
+  // Verify the index is unlocked (in case the pipeline did not release the lock,
+  // e.g., limit + no Loader)
+  if (self->take_index_lock) {
+    RedisSearchCtx_UnlockSpec(RP_SCTX(&self->base));
+  }
+
   // Signal completion under mutex protection
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
   RS_LOG_ASSERT(sync, "Invalid sync reference");
