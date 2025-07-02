@@ -806,7 +806,7 @@ DECODER(readDocIdsOnly) {
 
 // Wrapper around the private static `readFreqs` function to expose it to benchmarking.
 bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
-  readFreqs(blockReader, ctx, res);
+  return readFreqs(blockReader, ctx, res);
 }
 
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
