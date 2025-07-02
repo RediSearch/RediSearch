@@ -345,6 +345,11 @@ static inline int isFeatureSupported(int feature) {
   return feature <= RSGlobalConfig.serverVersion;
 }
 
+// Is numeric compression enabled?
+bool RSConfig_numericCompress() {
+  return RSGlobalConfig.numericCompress;
+}
+
 #ifdef __cplusplus
 extern "C" {
 #endif

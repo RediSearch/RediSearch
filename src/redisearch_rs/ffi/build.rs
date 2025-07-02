@@ -51,6 +51,7 @@ fn main() {
     let headers = [
         root.join("src").join("redisearch.h"),
         root.join("src").join("buffer.h"),
+        root.join("src").join("config.h"),
         root.join("src").join("result_processor.h"),
     ];
 

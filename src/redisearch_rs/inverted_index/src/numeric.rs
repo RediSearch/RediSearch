@@ -142,7 +142,7 @@
 
 use std::io::{ErrorKind, IoSlice, Read, Write};
 
-use ffi::t_docId;
+use ffi::{RSConfig_numericCompress, t_docId};
 
 use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
 
@@ -516,7 +516,10 @@ impl From<f64> for Value {
                     let f32_value = abs_val as f32;
                     let back_to_f64 = f32_value as f64;
 
-                    if back_to_f64 == abs_val {
+                    if back_to_f64 == abs_val
+                        || (unsafe { RSConfig_numericCompress() }
+                            && (abs_val - f32_value as f64).abs() < 0.01)
+                    {
                         if v.is_sign_positive() {
                             Value::Float32Positive(f32_value)
                         } else {

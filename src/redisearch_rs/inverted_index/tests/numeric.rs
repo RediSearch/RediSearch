@@ -12,6 +12,12 @@ use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use std::io::Cursor;
 
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub fn RSConfig_numericCompress() -> bool {
+    false
+}
+
 /// Tests for integer values between 0 and 7 which should use the [TINY header](super#tiny-type) format.
 #[test]
 fn numeric_tiny_int() {
