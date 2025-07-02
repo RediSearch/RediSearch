@@ -12,7 +12,7 @@ on:
     # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-macos:
+  test-rockylinux-9:
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
