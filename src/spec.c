@@ -2336,7 +2336,6 @@ if (scanner->isDebug) { \
 #define IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseOnOOM, DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM)
 
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
-  printf("Got here (task), scanner: %p\n", scanner);
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
 
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
@@ -2352,8 +2351,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name_for_logs);
   }
 
-  printf("Got here (task), after log\n");
-
   size_t counter = 0;
   RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
   if (globalDebugCtx.debugMode) {
@@ -2368,8 +2365,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     }
     RedisModule_ThreadSafeContextLock(ctx);
   }
-
-  printf("Got here (task), 2\n");
 
   while (RedisModule_Scan(ctx, cursor, scanner_func, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -2441,8 +2436,6 @@ end:
   }
 
   IndexesScanner_Free(scanner);
-
-  printf("Got here as well (Task end)\n");
 
   RedisModule_ThreadSafeContextUnlock(ctx);
   RedisModule_ScanCursorDestroy(cursor);
