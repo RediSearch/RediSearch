@@ -1498,7 +1498,7 @@ static void RPDepleter_Deplete(void *arg) {
     // Lock the index for read
     RedisSearchCtx_LockSpecRead(RP_SCTX(&self->base));
     // Increment the counter
-    __atomic_fetch_add(&((DepleterSync *)StrongRef_Get(self->sync_ref))->num_locked, 1, __ATOMIC_SEQ_CST);
+    atomic_fetch_add(&((DepleterSync *)StrongRef_Get(self->sync_ref))->num_locked, 1);
   }
 
   // Deplete the pipeline into the `self->results` array.
@@ -1566,7 +1566,9 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
 
   if (self->take_index_lock && !self->index_released) {
     // Load the atomic counter
-    int num_locked = __atomic_load_n(&((DepleterSync *)StrongRef_Get(self->sync_ref))->num_locked, __ATOMIC_SEQ_CST);
+    int num_locked = atomic_load(&((DepleterSync *)StrongRef_Get(self->sync_ref))->num_locked);
+    // We currently support only 2 upstream depleters. When we move on to support
+    // more subqueries - this will be generalized.
     if (num_locked == 2) {
       // Release the index
       RedisSearchCtx_UnlockSpec(RP_SCTX(base));

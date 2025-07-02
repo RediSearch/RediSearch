@@ -334,7 +334,7 @@ void PipelineAddCrash(struct AREQ *r);
  * Constructs a new RPDepleter processor, wrapping the given upstream processor.
  * The returned processor takes ownership of result depleting and yielding.
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref);
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, bool take_index_lock);
 
 /**
  * Creates a new shared sync object for a pipeline.
