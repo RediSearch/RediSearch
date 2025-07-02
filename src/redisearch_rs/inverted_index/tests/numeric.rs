@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use inverted_index::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, numeric::Numeric};
+use crate::{Decoder, DecoderResult, Encoder, IndexBlock, RSIndexResult, numeric::Numeric};
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use std::io::Cursor;
@@ -359,7 +359,7 @@ fn numeric_float() {
 }
 
 fn test_numeric_encode_decode(
-    delta: usize,
+    delta: u64,
     value: f64,
     expected_bytes_written: usize,
     expected_buffer: Vec<u8>,
@@ -367,9 +367,8 @@ fn test_numeric_encode_decode(
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(u64::MAX, value);
 
-    let numeric = Numeric::new();
-    let bytes_written = numeric
-        .encode(&mut buf, Delta::new(delta), &record)
+    let bytes_written = Numeric::new()
+        .encode(&mut buf, delta, &record)
         .expect("to encode numeric record");
 
     assert_eq!(
@@ -450,7 +449,7 @@ fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
     let record = RSIndexResult::virt(10);
 
-    let _result = Numeric::new().encode(&mut buffer, Delta::new(0), &record);
+    let _result = Numeric::new().encode(&mut buffer, 0, &record);
 }
 
 #[test]
@@ -458,7 +457,7 @@ fn encoding_to_fixed_buffer() {
     let mut buffer = Cursor::new([0; 2]);
     let record = RSIndexResult::numeric(1, 100.0);
 
-    let result = Numeric::new().encode(&mut buffer, Delta::new(1), &record);
+    let result = Numeric::new().encode(&mut buffer, 1, &record);
 
     assert!(result.is_err());
     assert_eq!(
@@ -527,7 +526,7 @@ fn encoding_to_slow_writer() {
     let record = RSIndexResult::numeric(10, 3.124);
 
     let result = Numeric::new()
-        .encode(&mut buffer, Delta::new(0), &record)
+        .encode(&mut buffer, 0, &record)
         .expect("to encode the complete record");
 
     assert_eq!(result, 9);
@@ -548,6 +547,31 @@ fn encoding_to_slow_writer() {
     assert_eq!(
         buffer.call_count, 5,
         "9 bytes needed to be written in chunks of 2"
+    );
+}
+
+fn test_encode_delta_overflow() {
+    let delta = Numeric::new().calculate_delta(&IndexBlock::new(0), u32::MAX as u64 + 1);
+
+    assert_eq!(
+        delta,
+        Some(u32::MAX as u64 + 1),
+        "Delta still fits in numeric encoder"
+    );
+
+    let delta = Numeric::new().calculate_delta(&IndexBlock::new(0), (1 << 56) - 1);
+
+    assert_eq!(
+        delta,
+        Some((1 << 56) - 1),
+        "Delta still fits in numeric encoder"
+    );
+
+    let delta = Numeric::new().calculate_delta(&IndexBlock::new(0), 1 << 56);
+
+    assert_eq!(
+        delta, None,
+        "Delta will overflow, so should request a new block for encoding"
     );
 }
 
@@ -587,7 +611,7 @@ proptest! {
 
         let numeric = Numeric::new();
         let _bytes_written =
-            numeric.encode(&mut buf, Delta::new(delta as _), &record).expect("to encode numeric record");
+            Numeric::new().encode(&mut buf, delta, &record).expect("to encode numeric record");
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
