@@ -9,12 +9,11 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
   test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+    uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: unstable
-      rejson-branch: master
+      platform: rockylinux:9
