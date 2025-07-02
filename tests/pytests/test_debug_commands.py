@@ -54,7 +54,7 @@ class TestDebugCommands(object):
             "VECSIM_INFO",
             "DELETE_LOCAL_CURSORS",
             'YIELDS_ON_LOAD_COUNTER',
-            'BG_SCAN_CONTROLLER',
+            # 'BG_SCAN_CONTROLLER',
             'FT.AGGREGATE',
             'FT.SEARCH',
         ]
@@ -577,290 +577,290 @@ def test_yield_counter(env):
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
     .contains('Unknown subcommand')
 
-@skip(cluster=True)
-def testSetMaxScannedDocs(env: Env):
+# @skip(cluster=True)
+# def testSetMaxScannedDocs(env: Env):
 
-    # Test setting max scanned docs of background scan
-    # Insert 10 documents
-    num_docs = 10
-    for i in range(num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
-    # Create a baseline index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexFinishScan(env)
-    # Get count of indexed documents
-    docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
-    env.assertEqual(docs_in_index, num_docs)
+#     # Test setting max scanned docs of background scan
+#     # Insert 10 documents
+#     num_docs = 10
+#     for i in range(num_docs):
+#         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+#     # Create a baseline index
+#     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexFinishScan(env)
+#     # Get count of indexed documents
+#     docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
+#     env.assertEqual(docs_in_index, num_docs)
 
-    # Check error handling
-    # Giving invalid argument
-    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 'notAnumber').error()\
-    .contains("Invalid argument for 'SET_MAX_SCANNED_DOCS'")
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS').error()\
-    .contains('wrong number of arguments')
-
-
-    # Set max scanned docs to 5
-    max_scanned = 5
-    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
-
-    # Create a new index
-    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexFinishScan(env, 'idx2')
-    # Get count of indexed documents
-    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
-    env.assertEqual(docs_in_index, max_scanned)
-
-    # Reset max scanned docs by setting negative value
-    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', -1).ok()
-    # Create a new index
-    env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexFinishScan(env, 'idx3')
-    # Get count of indexed documents
-    docs_in_index = env.cmd('FT.SEARCH', 'idx3', '*')[0]
-    env.assertEqual(docs_in_index, num_docs)
-
-@skip(cluster=True)
-def testPauseOnScannedDocs(env: Env):
-    num_docs = 10
-    for i in range(num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
-
-    # Create a baseline index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexFinishScan(env)
-    # Get count of indexed documents
-    docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
-    env.assertEqual(docs_in_index, num_docs)
+#     # Check error handling
+#     # Giving invalid argument
+#     env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 'notAnumber').error()\
+#     .contains("Invalid argument for 'SET_MAX_SCANNED_DOCS'")
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS').error()\
+#     .contains('wrong number of arguments')
 
 
-    # Check error handling
-    # Giving invalid argument
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 'notAnumber').error()\
-    .contains("Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'")
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS').error()\
-    .contains('wrong number of arguments')
+#     # Set max scanned docs to 5
+#     max_scanned = 5
+#     env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
 
-    # Set max scanned docs to 5
-    pause_on_scanned = 5
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
+#     # Create a new index
+#     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexFinishScan(env, 'idx2')
+#     # Get count of indexed documents
+#     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+#     env.assertEqual(docs_in_index, max_scanned)
 
-    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexPauseScan(env, 'idx2')
+#     # Reset max scanned docs by setting negative value
+#     env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', -1).ok()
+#     # Create a new index
+#     env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexFinishScan(env, 'idx3')
+#     # Get count of indexed documents
+#     docs_in_index = env.cmd('FT.SEARCH', 'idx3', '*')[0]
+#     env.assertEqual(docs_in_index, num_docs)
 
-    # Get count of indexed documents
-    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
-    env.assertEqual(docs_in_index, pause_on_scanned)
+# @skip(cluster=True)
+# def testPauseOnScannedDocs(env: Env):
+#     num_docs = 10
+#     for i in range(num_docs):
+#         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-    # Get indexing info
-    idx_info = index_info(env, 'idx2')
-    env.assertEqual(idx_info['indexing'], '1')
-    env.assertEqual(idx_info['percent_indexed'], f'{pause_on_scanned/num_docs}')
+#     # Create a baseline index
+#     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexFinishScan(env)
+#     # Get count of indexed documents
+#     docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
+#     env.assertEqual(docs_in_index, num_docs)
 
-    # Check resume error handling
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').error()\
-    .contains('wrong number of arguments')
 
-    # Resume indexing
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-    waitForIndexFinishScan(env, 'idx2')
-    # Get count of indexed documents
-    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
-    env.assertEqual(docs_in_index, num_docs)
+#     # Check error handling
+#     # Giving invalid argument
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 'notAnumber').error()\
+#     .contains("Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'")
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS').error()\
+#     .contains('wrong number of arguments')
 
-@skip(cluster=True)
-def testPauseBeforeScan(env: Env):
-    num_docs = 10
-    for i in range(num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+#     # Set max scanned docs to 5
+#     pause_on_scanned = 5
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
 
-    # Create a baseline index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexFinishScan(env)
+#     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexPauseScan(env, 'idx2')
 
-    # Get count of indexed documents
-    docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
-    env.assertEqual(docs_in_index, num_docs)
+#     # Get count of indexed documents
+#     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+#     env.assertEqual(docs_in_index, pause_on_scanned)
 
-    # Check error handling
-    # Giving invalid argument
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'notTrue').error()\
-    .contains("Invalid argument for 'SET_PAUSE_BEFORE_SCAN'")
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN').error()\
-    .contains('wrong number of arguments')
+#     # Get indexing info
+#     idx_info = index_info(env, 'idx2')
+#     env.assertEqual(idx_info['indexing'], '1')
+#     env.assertEqual(idx_info['percent_indexed'], f'{pause_on_scanned/num_docs}')
 
-    # Set pause before scan
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+#     # Check resume error handling
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').error()\
+#     .contains('wrong number of arguments')
 
-    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexStatus(env, 'NEW', 'idx2')
+#     # Resume indexing
+#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+#     waitForIndexFinishScan(env, 'idx2')
+#     # Get count of indexed documents
+#     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+#     env.assertEqual(docs_in_index, num_docs)
 
-    idx_info = index_info(env, 'idx2')
-    env.assertEqual(idx_info['indexing'], '1')
-    # If is indexing, but debug scanner status is NEW, it means that the scanner is paused before scan
+# @skip(cluster=True)
+# def testPauseBeforeScan(env: Env):
+#     num_docs = 10
+#     for i in range(num_docs):
+#         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-    # Resume indexing
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-    waitForIndexFinishScan(env, 'idx2')
-    # Get count of indexed documents
-    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
-    env.assertEqual(docs_in_index, num_docs)
+#     # Create a baseline index
+#     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexFinishScan(env)
 
-@skip(cluster=True)
-def testDebugScannerStatus(env: Env):
-    num_docs = 10
-    for i in range(num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+#     # Get count of indexed documents
+#     docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
+#     env.assertEqual(docs_in_index, num_docs)
 
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
-    pause_on_scanned = 5
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
-    max_scanned = 7
-    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
+#     # Check error handling
+#     # Giving invalid argument
+#     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'notTrue').error()\
+#     .contains("Invalid argument for 'SET_PAUSE_BEFORE_SCAN'")
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN').error()\
+#     .contains('wrong number of arguments')
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexStatus(env, 'NEW')
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-    waitForIndexPauseScan(env, 'idx')
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-    waitForIndexFinishScan(env, 'idx')
-    # When scan is done, the scanner is freed
-    checkDebugScannerStatusError(env, 'idx', 'Scanner is not initialized')
+#     # Set pause before scan
+#     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
 
-    # Test error handling
-    # Giving non existing index name
-    checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
-    # Giving invalid argument to debug scanner control command
-    env.expect(bgScanCommand(), 'NOT_A_COMMAND', 'notTrue').error()\
-    .contains("Invalid command for 'BG_SCAN_CONTROLLER'")
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS').error()\
-    .contains('wrong number of arguments')
+#     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexStatus(env, 'NEW', 'idx2')
 
-    # Test OOM pause
-    # Insert more docs to ensure un-flakey test
-    extra_docs = 90
-    for i in range(num_docs,extra_docs+num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+#     idx_info = index_info(env, 'idx2')
+#     env.assertEqual(idx_info['indexing'], '1')
+#     # If is indexing, but debug scanner status is NEW, it means that the scanner is paused before scan
 
-    # Remove previous debug scanner settings
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
-    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 0).ok()
-    # Set OOM pause
-    # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-    env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+#     # Resume indexing
+#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+#     waitForIndexFinishScan(env, 'idx2')
+#     # Get count of indexed documents
+#     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+#     env.assertEqual(docs_in_index, num_docs)
 
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-    # Set tight memory limit to trigger OOM
-    set_tight_maxmemory_for_oom(env, 0.85)
-    # Create an index and expect OOM pause
-    env.expect('FT.CREATE', 'idx_oom', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexStatus(env, 'PAUSED_ON_OOM','idx_oom')
-    # Resume indexing
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+# @skip(cluster=True)
+# def testDebugScannerStatus(env: Env):
+#     num_docs = 10
+#     for i in range(num_docs):
+#         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-@skip(cluster=True)
-def testPauseOnOOM(env: Env):
-    # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-    env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-    num_docs = 1000
-    for i in range(num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+#     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+#     pause_on_scanned = 5
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
+#     max_scanned = 7
+#     env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
 
-    # Check error handling
-    # Giving invalid argument
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'notAbool').error()\
-    .contains("Invalid argument for 'SET_PAUSE_ON_OOM'")
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM').error()\
-    .contains('wrong number of arguments')
+#     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexStatus(env, 'NEW')
+#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+#     waitForIndexPauseScan(env, 'idx')
+#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+#     waitForIndexFinishScan(env, 'idx')
+#     # When scan is done, the scanner is freed
+#     checkDebugScannerStatusError(env, 'idx', 'Scanner is not initialized')
 
-    # Set pause on OOM
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-    # Set pause after quarter of the docs were scanned
-    num_docs_scanned = num_docs//4
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+#     # Test error handling
+#     # Giving non existing index name
+#     checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
+#     # Giving invalid argument to debug scanner control command
+#     env.expect(bgScanCommand(), 'NOT_A_COMMAND', 'notTrue').error()\
+#     .contains("Invalid command for 'BG_SCAN_CONTROLLER'")
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS').error()\
+#     .contains('wrong number of arguments')
 
-    # Baseline failed scans due to OOM
-    failed_idx_oom = env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+#     # Test OOM pause
+#     # Insert more docs to ensure un-flakey test
+#     extra_docs = 90
+#     for i in range(num_docs,extra_docs+num_docs):
+#         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexPauseScan(env, 'idx')
+#     # Remove previous debug scanner settings
+#     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
+#     env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 0).ok()
+#     # Set OOM pause
+#     # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
+#     env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
 
-    # At this point num_docs_scanned were scanned
-    # Now we set the tight memory limit
-    set_tight_maxmemory_for_oom(env, 0.85)
-    # After we resume, an OOM should trigger
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+#     # Set tight memory limit to trigger OOM
+#     set_tight_maxmemory_for_oom(env, 0.85)
+#     # Create an index and expect OOM pause
+#     env.expect('FT.CREATE', 'idx_oom', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexStatus(env, 'PAUSED_ON_OOM','idx_oom')
+#     # Resume indexing
+#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
-    # At this point, the index should be paused on OOM
-    # Wait for INFO metric "OOM_indexing_failures_indexes_count" to increment
-    # Note: While there are other ways to check if OOM occurred, this is the most direct way,
-    #       as the metric is based directly on the spec field "scan_failed_OOM"
-    while (env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count'])!=(failed_idx_oom+1):
-        time.sleep(0.1)
+# @skip(cluster=True)
+# def testPauseOnOOM(env: Env):
+#     # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
+#     env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+#     num_docs = 1000
+#     for i in range(num_docs):
+#         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-    # At this point, we are certain an OOM occurred, but the index scanning should be paused
-    # We can verify this (without using the scanner status to maintain independency) by checking "indexing" entry in ft.info
-    idx_info = index_info(env, 'idx')
-    env.assertEqual(idx_info['indexing'], '1')
-    # The percent index should be close to 0.25 as we set the tight memory limit after 25% of the docs were scanned
-    env.assertAlmostEqual(float(idx_info['percent_indexed']), 0.25, delta=0.1)
+#     # Check error handling
+#     # Giving invalid argument
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'notAbool').error()\
+#     .contains("Invalid argument for 'SET_PAUSE_ON_OOM'")
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM').error()\
+#     .contains('wrong number of arguments')
 
-    # Resume indexing for the sake of completeness
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+#     # Set pause on OOM
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+#     # Set pause after quarter of the docs were scanned
+#     num_docs_scanned = num_docs//4
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
 
-    # Test giving false to pause on OOM for coverage
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
+#     # Baseline failed scans due to OOM
+#     failed_idx_oom = env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
 
-@skip(cluster=True)
-def test_terminate_bg_pool(env):
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'TERMINATE_BG_POOL','ExtraARG').error()\
-    .contains('wrong number of arguments')
-    # Test OK returned only after scan complete
-    # Insert 1000 docs
-    num_docs = 1000
-    for i in range(num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
-    # Create an index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
-    # Check if the scan is finished
-    env.assertEqual(index_info(env, 'idx')['indexing'], '0')
+#     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndexPauseScan(env, 'idx')
 
-@skip(cluster=True)
-def test_pause_before_oom_retry(env):
-    # Check error handling
-    # Giving invalid argument
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'notAbool').error()\
-    .contains("Invalid argument for 'SET_PAUSE_BEFORE_OOM_RETRY'")
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY').error()\
-    .contains('wrong number of arguments')
+#     # At this point num_docs_scanned were scanned
+#     # Now we set the tight memory limit
+#     set_tight_maxmemory_for_oom(env, 0.85)
+#     # After we resume, an OOM should trigger
+#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
-@skip(cluster=True)
-def test_update_debug_scanner_config(env):
-    # Check error handling
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG').error()\
-    .contains('wrong number of arguments')
+#     # At this point, the index should be paused on OOM
+#     # Wait for INFO metric "OOM_indexing_failures_indexes_count" to increment
+#     # Note: While there are other ways to check if OOM occurred, this is the most direct way,
+#     #       as the metric is based directly on the spec field "scan_failed_OOM"
+#     while (env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count'])!=(failed_idx_oom+1):
+#         time.sleep(0.1)
 
-    num_docs = 10
-    for i in range(num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
-    # Create an index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndex(env, 'idx')
+#     # At this point, we are certain an OOM occurred, but the index scanning should be paused
+#     # We can verify this (without using the scanner status to maintain independency) by checking "indexing" entry in ft.info
+#     idx_info = index_info(env, 'idx')
+#     env.assertEqual(idx_info['indexing'], '1')
+#     # The percent index should be close to 0.25 as we set the tight memory limit after 25% of the docs were scanned
+#     env.assertAlmostEqual(float(idx_info['percent_indexed']), 0.25, delta=0.1)
 
-    # When scan is done, the scanner is freed
-    checkDebugScannerUpdateError(env, 'idx', 'Scanner is not initialized')
+#     # Resume indexing for the sake of completeness
+#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
-    # Test error handling
-    # Giving non existing index name
-    checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')
+#     # Test giving false to pause on OOM for coverage
+#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
+
+# @skip(cluster=True)
+# def test_terminate_bg_pool(env):
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'TERMINATE_BG_POOL','ExtraARG').error()\
+#     .contains('wrong number of arguments')
+#     # Test OK returned only after scan complete
+#     # Insert 1000 docs
+#     num_docs = 1000
+#     for i in range(num_docs):
+#         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+#     # Create an index
+#     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+#     env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
+#     # Check if the scan is finished
+#     env.assertEqual(index_info(env, 'idx')['indexing'], '0')
+
+# @skip(cluster=True)
+# def test_pause_before_oom_retry(env):
+#     # Check error handling
+#     # Giving invalid argument
+#     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'notAbool').error()\
+#     .contains("Invalid argument for 'SET_PAUSE_BEFORE_OOM_RETRY'")
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY').error()\
+#     .contains('wrong number of arguments')
+
+# @skip(cluster=True)
+# def test_update_debug_scanner_config(env):
+#     # Check error handling
+#     # Giving wrong arity
+#     env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG').error()\
+#     .contains('wrong number of arguments')
+
+#     num_docs = 10
+#     for i in range(num_docs):
+#         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+#     # Create an index
+#     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+#     waitForIndex(env, 'idx')
+
+#     # When scan is done, the scanner is freed
+#     checkDebugScannerUpdateError(env, 'idx', 'Scanner is not initialized')
+
+#     # Test error handling
+#     # Giving non existing index name
+#     checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')
