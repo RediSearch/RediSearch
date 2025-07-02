@@ -187,8 +187,8 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 }
 
 /* Initialize the MapReduce engine with a node provider */
-void MR_Init(size_t num_io_threads, size_t num_connections_per_shard, long long timeoutMS) {
-  cluster_g = MR_NewCluster(NULL, num_connections_per_shard, num_io_threads);
+void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS) {
+  cluster_g = MR_NewCluster(NULL, conn_pool_size, num_io_threads);
   timeout_g = timeoutMS;
 }
 
@@ -281,7 +281,7 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 // }
 
 extern size_t NumShards;
-void MR_UpdateConnPerShard(size_t connPerShard) {
+void MR_UpdateConnPoolSize(size_t conn_pool_size) {
   if (!cluster_g) return; // not initialized yet, we have nothing to update yet.
   if (NumShards == 1) {
     // If we observe that there is only one shard from the main thread,
@@ -290,21 +290,21 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
     // This is mostly a no-op, as the connection pool is not in use (yet or at all).
     // This call should only update the connection pool `size` for when the connection pool is initialized.
     for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-      MRCluster_UpdateConnPerShard(cluster_g->io_runtimes_pool[i], connPerShard);
+      MRCluster_UpdateConnPoolSize(cluster_g->io_runtimes_pool[i], conn_pool_size);
     }
   } else {
     size_t old_conn_count = cluster_g->io_runtimes_pool[0]->conn_mgr->nodeConns;
-    if(connPerShard >= old_conn_count) {
+    if(conn_pool_size >= old_conn_count) {
       // New runtimes are in place, we can now submit more connections
       for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-        MRConnManager_Expand(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
+        MRConnManager_Expand(cluster_g->io_runtimes_pool[i]->conn_mgr, conn_pool_size, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
       }
     }
     else {
       // First, close the connections. This needs to be done from the event loop thread
       // Destroy runtimes
       for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-        MRConnManager_Shrink(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
+        MRConnManager_Shrink(cluster_g->io_runtimes_pool[i]->conn_mgr, conn_pool_size, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
       }
     }
     for (size_t i = 0; i < cluster_g->num_io_threads; i++) {

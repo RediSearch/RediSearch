@@ -80,6 +80,7 @@
     }                                                                                                       \
   } while(0);
 
+#define CEIL_DIV(a, b) ((a + b - 1) / b)
 
 extern RSConfig RSGlobalConfig;
 
@@ -3567,7 +3568,9 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     num_io_threads = RSGlobalConfig.numWorkerThreads + 1;
   }
 
-  MR_Init(num_io_threads, num_connections_per_shard, clusterConfig.timeoutMS);
+  size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
+
+  MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;
 }

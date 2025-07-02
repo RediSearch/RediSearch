@@ -54,7 +54,7 @@ int MRCluster_ConnectAll(IORuntimeCtx *ioRuntime);
 MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads);
 
 /* Update the number of connections per shard */
-void MRCluster_UpdateConnPerShard(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
+void MRCluster_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
 
 void MRClust_Free(MRCluster *cl);
 

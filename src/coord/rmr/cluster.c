@@ -186,7 +186,7 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
   return ret;
 }
 
-void MRCluster_UpdateConnPerShard(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size) {
+void MRCluster_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size) {
   RS_ASSERT(new_conn_pool_size > 0);
   size_t old_conn_pool_size = ioRuntime->conn_mgr->nodeConns;
   if (old_conn_pool_size > new_conn_pool_size) {

@@ -30,7 +30,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd);
 void MR_SetCoordinationStrategy(struct MRCtx *ctx, bool mastersOnly);
 
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
-void MR_Init(size_t num_io_threads, size_t num_connections_per_shard, long long timeoutMS);
+void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS);
 
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopology);
@@ -41,7 +41,7 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx);
 
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 
-void MR_UpdateConnPerShard(size_t connPerShard);
+void MR_UpdateConnPoolSize(size_t conn_pool_size);
 
 void MR_UpdateSearchIOThreads(size_t num_io_threads);
 

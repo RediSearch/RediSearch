@@ -16,12 +16,12 @@
 #include "hiredis/hiredis.h"
 #include "module.h"
 
-
 #include <string.h>
 #include <stdlib.h>
 
 extern RedisModuleCtx *RSDummyContext;
 
+#define CEIL_DIV(a, b) ((a + b - 1) / b)
 #define CONFIG_FROM_RSCONFIG(c) ((SearchClusterConfig *)(c)->chainedConfig)
 
 static SearchClusterConfig* getOrCreateRealConfig(RSConfig *config){
@@ -81,9 +81,9 @@ int triggerConnPerShard(RSConfig *config) {
     connPerShard = config->numWorkerThreads + 1;
   }
   // The connPerShard will be applied to each of the ConnManager in each of the IO threads.
-  connPerShard = MAX(1, (connPerShard + realConfig->coordinatorIOThreads - 1) / realConfig->coordinatorIOThreads);
+  size_t conn_pool_size = CEIL_DIV(connPerShard, realConfig->coordinatorIOThreads);
 
-  MR_UpdateConnPerShard(connPerShard);
+  MR_UpdateConnPoolSize(conn_pool_size);
   return REDISMODULE_OK;
 }
 
