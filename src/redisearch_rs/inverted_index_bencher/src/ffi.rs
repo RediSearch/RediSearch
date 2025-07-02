@@ -97,9 +97,9 @@ pub fn read_freqs(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::R
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
     let mut result = inverted_index::RSIndexResult::freqs_only(base_id, 0);
 
-    let filtered = unsafe { bindings::read_freqs(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_freqs(&mut block_reader, &mut ctx, &mut result) };
 
-    (filtered, result)
+    (returned, result)
 }
 
 #[cfg(test)]
@@ -218,8 +218,8 @@ mod tests {
             assert_eq!(buffer.0.as_slice(), expected_encoding);
 
             let base_id = doc_id - delta;
-            let (filtered, decoded_result) = read_freqs(&mut buffer.0, base_id);
-            assert!(!filtered);
+            let (returned, decoded_result) = read_freqs(&mut buffer.0, base_id);
+            assert!(returned);
             assert_eq!(decoded_result, record);
         }
     }
