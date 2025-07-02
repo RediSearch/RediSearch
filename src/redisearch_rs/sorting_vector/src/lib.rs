@@ -61,7 +61,9 @@ where
     }
 }
 
-/// A [`RSSortingVector`] is a vector of a type T implementing [`RSValueTrait`].
+/// This is the Rust implementation of [`RSSortingVector`] which acts as a cache for sortable fields in a document.
+///
+/// A [`RSSortingVector`] is a boxed slice of a type T implementing [`RSValueTrait`]. That means it has a constant length.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RSSortingVector<T: RSValueTrait + Clone> {
     values: Box<[T]>,
@@ -104,22 +106,24 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
     }
 
     /// Checks if the index is valid and decrements the reference count of previous RSValue instances.
-    /// Returns `true` if the index is valid , `false` otherwise.
-    fn sanity_check(&self, idx: usize) -> bool {
+    /// Returns `true` if the index is in bounds , `false` otherwise.
+    fn in_bounds(&self, idx: usize) -> bool {
         idx < self.values.len()
     }
 
+    /// Returns an iterator over the values in the sorting vector.
     pub fn iter(&self) -> Iter<'_, T> {
         self.values.iter()
     }
 
+    /// Returns a mutable iterator over the values in the sorting vector.
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
         self.values.iter_mut()
     }
 
     /// Set a number (double) at the given index
     pub fn put_num(&mut self, idx: usize, num: f64) {
-        if !self.sanity_check(idx) {
+        if !self.in_bounds(idx) {
             return;
         }
 
@@ -130,7 +134,7 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
 
     /// Set a string at the given index
     pub fn put_string(&mut self, idx: usize, str: &str) {
-        if !self.sanity_check(idx) {
+        if !self.in_bounds(idx) {
             return;
         }
 
@@ -139,7 +143,7 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
 
     /// Set a string at the given index, normalizing it to lower case and to be sortable ("Straße" -> "Strasse").
     pub fn put_string_and_normalize(&mut self, idx: usize, str: &str) {
-        if !self.sanity_check(idx) {
+        if !self.in_bounds(idx) {
             return;
         }
 
@@ -170,7 +174,7 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
 
     /// Set a value at the given index
     pub fn put_val(&mut self, idx: usize, value: T) {
-        if !self.sanity_check(idx) {
+        if !self.in_bounds(idx) {
             return;
         }
 
@@ -179,7 +183,7 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
 
     /// Set a reference to the value at the given index
     pub fn put_val_as_ref(&mut self, idx: usize, value: T) {
-        if !self.sanity_check(idx) {
+        if !self.in_bounds(idx) {
             return;
         }
 
@@ -188,7 +192,7 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
 
     /// Set a null value at the given index
     pub fn put_null(&mut self, idx: usize) {
-        if !self.sanity_check(idx) {
+        if !self.in_bounds(idx) {
             return;
         }
 
@@ -207,8 +211,8 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
 
     /// approximate the memory size of the sorting vector.
     ///
-    /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value.
-    /// TODO: Is that C behavior correct? Should we count the size of the entire chain?
+    /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
+    /// as in C. We have another implementation for the Rust type based on it's [RSValueTrait] implementation.
     pub fn get_memory_size(&self) -> usize {
         // Each RSValue is a pointer, so we multiply by the size of a pointer
         let mut sz = if T::is_ptr_type() {
@@ -230,7 +234,6 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
             let value = walk_down_rsvalue_ref_chain(&self.values[idx]);
 
             if value.get_type() == ffi::RSValueType_RSValue_String {
-                // todo string ptr len
                 sz += value.as_str().unwrap().len();
             }
         }
