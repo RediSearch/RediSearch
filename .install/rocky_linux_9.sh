@@ -10,29 +10,15 @@ $MODE dnf install -y make wget git \
 # Find available gcc-toolset versions
 GCC_TOOLSETS=(/opt/rh/gcc-toolset-*/enable)
 
-if [ ${#GCC_TOOLSETS[@]} -eq 0 ]; then
-    echo "Error: No gcc-toolset versions found in /opt/rh/gcc-toolset-*/" >&2
-    exit 1
-fi
+# Find the highest version using sort and command substitution
+HIGHEST_PATH=$(printf "%s\n" "${GCC_TOOLSETS[@]}" | sort -V | tail -1)
+HIGHEST_VERSION=$(echo "$HIGHEST_PATH" | grep -oP 'gcc-toolset-\K\d+')
 
-# Find the highest version available
-HIGHEST_VERSION=0
-HIGHEST_PATH=""
-
-for toolset in "${GCC_TOOLSETS[@]}"; do
-    # Extract version number from path
-    VERSION=$(echo "$toolset" | grep -oP 'gcc-toolset-\K\d+')
-
-    if [ -n "$VERSION" ] && [ "$VERSION" -gt "$HIGHEST_VERSION" ]; then
-        HIGHEST_VERSION=$VERSION
-        HIGHEST_PATH=$toolset
-    fi
-done
-
-# Check if highest version is at least 13
-if [ "$HIGHEST_VERSION" -lt 13 ]; then
-    echo "Error: gcc-toolset version $HIGHEST_VERSION is less than required version 13" >&2
-    exit 1
+# If no gcc-toolset is found or the highest version is less than 13, install gcc-toolset-13
+if [ -z "$HIGHEST_VERSION" || "$HIGHEST_VERSION" -lt 13 ]; then
+    $MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++  --nobest --allowerasing
+    HIGHEST_PATH="/opt/rh/gcc-toolset-13/enable"
+    HIGHEST_VERSION=13
 fi
 
 # Copy the enable file to profile.d
