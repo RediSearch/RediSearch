@@ -18,7 +18,7 @@ use std::{
 /// This trait is used to create, manipulate, and free RSValue instances. It is
 /// implemented by a mock type for testing purposes, and by a new-type in the ffi layer to
 /// interact with the C API.
-pub trait RSValueTrait
+pub trait RSValueTrait: Clone
 where
     Self: Sized,
 {
@@ -78,12 +78,12 @@ pub enum Error {
 ///
 /// A [`RSSortingVector`] is a boxed slice of a type T implementing [`RSValueTrait`]. That means it has a constant length.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RSSortingVector<T: RSValueTrait + Clone> {
+pub struct RSSortingVector<T: RSValueTrait> {
     values: Box<[T]>,
 }
 
 // Consuming iterator: yields owned T by consuming the vector.
-impl<T: RSValueTrait + Clone> IntoIterator for RSSortingVector<T> {
+impl<T: RSValueTrait> IntoIterator for RSSortingVector<T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
     fn into_iter(self) -> Self::IntoIter {
@@ -93,7 +93,7 @@ impl<T: RSValueTrait + Clone> IntoIterator for RSSortingVector<T> {
 }
 
 // Immutable borrowing iterator: yields &T without consuming the vector.
-impl<'a, T: RSValueTrait + Clone> IntoIterator for &'a RSSortingVector<T> {
+impl<'a, T: RSValueTrait> IntoIterator for &'a RSSortingVector<T> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
@@ -102,7 +102,7 @@ impl<'a, T: RSValueTrait + Clone> IntoIterator for &'a RSSortingVector<T> {
 }
 
 // Mutable borrowing iterator: yields &mut T for element modification.
-impl<'a, T: RSValueTrait + Clone> IntoIterator for &'a mut RSSortingVector<T> {
+impl<'a, T: RSValueTrait> IntoIterator for &'a mut RSSortingVector<T> {
     type Item = &'a mut T;
     type IntoIter = IterMut<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
@@ -110,7 +110,7 @@ impl<'a, T: RSValueTrait + Clone> IntoIterator for &'a mut RSSortingVector<T> {
     }
 }
 
-impl<T: RSValueTrait + Clone> RSSortingVector<T> {
+impl<T: RSValueTrait> RSSortingVector<T> {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
         Self {
