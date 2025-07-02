@@ -11,7 +11,7 @@ use std::ffi::{CString, c_char};
 
 use icu_casemap::CaseMapper;
 
-use super::{RSSortingVector, RSValueTrait};
+use sorting_vector::{RSSortingVector, RSValueTrait};
 
 #[derive(Clone, Debug, PartialEq)]
 enum RSValueMock {
@@ -91,7 +91,7 @@ impl RSValueTrait for RSValueMock {
 }
 
 #[test]
-fn test_rssortingvector_creation() {
+fn test_creation() {
     let vector: RSSortingVector<RSValueMock> = RSSortingVector::new(10);
     assert_eq!(vector.len(), 10);
 
@@ -111,7 +111,7 @@ fn build_vector() -> RSSortingVector<RSValueMock> {
 }
 
 #[test]
-fn test_rssortingvector_put() {
+fn test_put() {
     let vector: &mut RSSortingVector<RSValueMock> = &mut build_vector();
 
     assert_eq!(vector[0].as_num(), Some(42.0));
@@ -124,7 +124,7 @@ fn test_rssortingvector_put() {
 }
 
 #[test]
-fn test_rssortingvector_override() {
+fn test_override() {
     let src = build_vector();
     let mut dst: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
     assert_eq!(dst[0], RSValueMock::create_null());
@@ -144,7 +144,7 @@ fn test_rssortingvector_override() {
 }
 
 #[test]
-fn test_rssortingvector_memory_size() {
+fn test_memory_size() {
     let empty = RSSortingVector::<RSValueMock>::new(0);
     let size = empty.get_memory_size();
     assert!(empty.is_empty());
