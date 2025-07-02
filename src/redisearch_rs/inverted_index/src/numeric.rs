@@ -188,6 +188,12 @@ impl Numeric {
     }
 }
 
+impl Default for Numeric {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Encoder for Numeric {
     fn encode<W: Write + std::io::Seek>(
         &self,
