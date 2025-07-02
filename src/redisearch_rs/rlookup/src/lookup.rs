@@ -382,6 +382,117 @@ impl<'a> RLookup<'a> {
         None
     }
 
+    // =====  Get key for writing =====
+
+    pub fn get_key_write(
+        &mut self,
+        name: &'a CStr,
+        mut flags: RlookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        // remove all flags that are not relevant to getting a key
+        flags &= GET_KEY_FLAGS;
+
+        // A. we found the key at the lookup table:
+        //    1. if we are in exclusive mode, return NULL
+        //    2. if we are in create mode, overwrite the key (remove schema related data, mark with new flags)
+        // B. we didn't find the key at the lookup table:
+        //    create a new key with the name and flags
+        if let Some(key) = self.keys.find(name) {
+            if flags.contains(RlookupKeyFlag::Override) {
+                todo!("override key {key:?} flags | Flags::QUERYSRC");
+            } else {
+                None
+            }
+        } else {
+            let key = self
+                .keys
+                .push(RLookupKey::new(name, flags | RlookupKeyFlag::QuerySrc));
+
+            // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
+            Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+        }
+    }
+
+    // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
+
+    pub fn get_key_load(
+        &mut self,
+        name: &'a CStr,
+        field_name: &'a CStr,
+        mut flags: RlookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        // remove all flags that are not relevant to getting a key
+        flags &= GET_KEY_FLAGS;
+
+        // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
+        // 2. create a new key with the name of the field, and mark it as doc-source.
+        // 3. if the key is in the schema, mark it as schema-source and apply all the relevant flags according to the field spec.
+        // 4. if the key is "loaded" at this point (in schema, sortable and un-normalized), create the key but return NULL
+        //    (no need to load it from the document).
+
+        let mut key = if let Some(mut key) = self.keys.find_mut(name) {
+            if (key.flags.contains(RlookupKeyFlag::ValAvailable)
+                && !key.flags.contains(RlookupKeyFlag::IsLoaded))
+                && !key
+                    .flags
+                    .intersects(RlookupKeyFlag::Override | RlookupKeyFlag::ForceLoad)
+                || (key.flags.contains(RlookupKeyFlag::IsLoaded)
+                    && !flags.contains(RlookupKeyFlag::Override))
+                || (key.flags.contains(RlookupKeyFlag::QuerySrc)
+                    && !flags.contains(RlookupKeyFlag::Override))
+            {
+                // We found a key with the same name. We return NULL if:
+                // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
+                //    request to override or forced loading.
+                // 2. The key is already loaded (from the document) and the caller didn't request to override.
+                // 3. The key was created by the query (upstream) and the caller didn't request to override.
+
+                // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
+                key.flags |= flags & RlookupKeyFlag::ExplicitReturn;
+
+                return None;
+            } else {
+                // overrides the key, and sets the new key according to the flags.
+                //   key = overrideKey(lookup, key, flags);
+                todo!("override key {key:?} flags | RLOOKUP_F_DOCSRC | RLOOKUP_F_ISLOADED");
+            }
+        } else {
+            self.keys.push(RLookupKey::new(
+                name,
+                flags | RlookupKeyFlag::DocSrc | RlookupKeyFlag::IsLoaded,
+            ))
+        };
+
+        if let Some(fs) = self.spcache.as_ref()?.find_field(name) {
+            key.update_from_field_spec(fs);
+
+            if key.flags.contains(RlookupKeyFlag::ValAvailable)
+                && !flags.contains(RlookupKeyFlag::ForceLoad)
+            {
+                // If the key is marked as "value available", it means that it is sortable and un-normalized.
+                // so we can use the sorting vector as the source, and we don't need to load it from the document.
+                return None;
+            }
+        } else {
+            // Field not found in the schema.
+
+            // We assume `field_name` is the path to load from in the document.
+            if !key.flags.contains(RlookupKeyFlag::NameAlloc) {
+                key.path = field_name.as_ptr();
+                key._path = Some(Cow::Borrowed(field_name));
+            } else if name != field_name {
+                let field_name: Cow<'_, CStr> = Cow::Owned(field_name.to_owned());
+                key.path = field_name.as_ptr();
+                key._path = Some(field_name);
+            } // else
+            // If the caller requested to allocate the name, and the name is the same as the path,
+            // it was already set to the same allocation for the name, so we don't need to do anything.
+        }
+
+        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned reference.
+        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+    }
+
     // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
     // has promised to load the entire document.
     fn gen_key_from_spec(
@@ -408,7 +519,6 @@ impl<'a> RLookup<'a> {
 
 // ===== impl KeyList =====
 
-#[expect(unused, reason = "used by later stacked PRs")]
 impl<'a> KeyList<'a> {
     pub const fn new() -> Self {
         Self {
