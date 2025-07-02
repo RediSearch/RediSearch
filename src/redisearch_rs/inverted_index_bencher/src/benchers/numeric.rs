@@ -196,8 +196,9 @@ fn generate_test_values() -> Vec<BenchGroup> {
                     .map(|value| {
                         let record = inverted_index::RSIndexResult::numeric(0, value);
                         let mut buffer = Cursor::new(Vec::new());
-                        let _grew_size =
-                            Numeric::encode(&mut buffer, Delta::new(delta), &record).unwrap();
+                        let _grew_size = Numeric::new()
+                            .encode(&mut buffer, Delta::new(delta), &record)
+                            .unwrap();
                         let buffer = buffer.into_inner();
 
                         (value, delta, buffer)
@@ -324,8 +325,9 @@ fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
                     for (value, delta, _) in values {
                         let record = inverted_index::RSIndexResult::numeric(0, *value);
 
-                        let grew_size =
-                            Numeric::encode(&mut buffer, Delta::new(*delta), &record).unwrap();
+                        let grew_size = Numeric::new()
+                            .encode(&mut buffer, Delta::new(*delta), &record)
+                            .unwrap();
 
                         black_box(grew_size);
                     }
@@ -353,7 +355,7 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
                 b.iter_batched_ref(
                     || Cursor::new(buffer),
                     |buffer| {
-                        let result = Numeric.decode(buffer, 100);
+                        let result = Numeric::new().decode(buffer, 100);
 
                         let _ = black_box(result);
                     },
