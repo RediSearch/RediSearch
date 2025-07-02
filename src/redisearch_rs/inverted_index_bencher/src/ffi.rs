@@ -145,9 +145,9 @@ mod tests {
             );
 
             let base_id = 1_000 - delta;
-            let (filtered, decoded_result) = read_numeric(&mut buffer.0, base_id);
+            let (returned, decoded_result) = read_numeric(&mut buffer.0, base_id);
 
-            assert!(!filtered);
+            assert!(returned);
             assert_eq!(
                 decoded_result, record,
                 "does not match for input: {}",
