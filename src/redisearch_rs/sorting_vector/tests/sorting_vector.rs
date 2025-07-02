@@ -103,11 +103,11 @@ fn test_creation() {
 
 fn build_vector() -> Result<RSSortingVector<RSValueMock>, InsertSortingVectorError> {
     let mut vector = RSSortingVector::new(5);
-    vector.insert_num(0, 42.0)?;
-    vector.insert_string(1, "Hello")?;
-    vector.insert_val_as_ref(2, RSValueMock::create_num(3.))?;
-    vector.insert_val(3, RSValueMock::create_string("World"))?;
-    vector.insert_null(4)?;
+    vector.try_insert_num(0, 42.0)?;
+    vector.try_insert_string(1, "Hello")?;
+    vector.try_insert_val_as_ref(2, RSValueMock::create_num(3.))?;
+    vector.try_insert_val(3, RSValueMock::create_string("World"))?;
+    vector.try_insert_null(4)?;
     Ok(vector)
 }
 
@@ -133,7 +133,7 @@ fn test_override() -> Result<(), InsertSortingVectorError> {
     assert_eq!(dst[0], RSValueMock::create_null());
 
     for (idx, val) in src.iter().enumerate() {
-        dst.insert_val(0, val.clone())?;
+        dst.try_insert_val(0, val.clone())?;
         assert_eq!(dst[0], src[idx]);
     }
 
@@ -155,7 +155,7 @@ fn test_memory_size() -> Result<(), InsertSortingVectorError> {
     assert_eq!(size, 0);
 
     let mut vec = RSSortingVector::<RSValueMock>::new(1);
-    vec.insert_num(0, 42.0)?;
+    vec.try_insert_num(0, 42.0)?;
     let size = vec.get_memory_size();
     let expected_size = std::mem::size_of::<RSValueMock>();
     assert_eq!(size, expected_size);
@@ -196,7 +196,7 @@ fn test_case_folding_aka_normlization_rust_impl() -> Result<(), InsertSortingVec
 
     let str = "Straße";
     let mut vec: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
-    vec.insert_string_and_normalize(0, str)?;
+    vec.try_insert_string_and_normalize(0, str)?;
     assert_eq!(vec[0].as_str(), Some("strasse"));
     Ok(())
 }

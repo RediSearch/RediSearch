@@ -153,21 +153,25 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 
     /// Set a number (double) at the given index
-    pub fn insert_num(&mut self, idx: usize, num: f64) -> Result<(), InsertSortingVectorError> {
+    pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), InsertSortingVectorError> {
         self.in_bounds(idx)?;
         self.values[idx] = T::create_num(num);
         Ok(())
     }
 
     /// Set a string at the given index
-    pub fn insert_string(&mut self, idx: usize, str: &str) -> Result<(), InsertSortingVectorError> {
+    pub fn try_insert_string(
+        &mut self,
+        idx: usize,
+        str: &str,
+    ) -> Result<(), InsertSortingVectorError> {
         self.in_bounds(idx)?;
         self.values[idx] = T::create_string(str);
         Ok(())
     }
 
     /// Set a string at the given index, normalizing it to lower case and to be sortable ("Straße" -> "Strasse").
-    pub fn insert_string_and_normalize(
+    pub fn try_insert_string_and_normalize(
         &mut self,
         idx: usize,
         str: &str,
@@ -205,14 +209,14 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 
     /// Set a value at the given index
-    pub fn insert_val(&mut self, idx: usize, value: T) -> Result<(), InsertSortingVectorError> {
+    pub fn try_insert_val(&mut self, idx: usize, value: T) -> Result<(), InsertSortingVectorError> {
         self.in_bounds(idx)?;
         self.values[idx] = value;
         Ok(())
     }
 
     /// Set a reference to the value at the given index
-    pub fn insert_val_as_ref(
+    pub fn try_insert_val_as_ref(
         &mut self,
         idx: usize,
         value: T,
@@ -223,7 +227,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 
     /// Set a null value at the given index
-    pub fn insert_null(&mut self, idx: usize) -> Result<(), InsertSortingVectorError> {
+    pub fn try_insert_null(&mut self, idx: usize) -> Result<(), InsertSortingVectorError> {
         self.in_bounds(idx)?;
         self.values[idx] = T::create_null();
         Ok(())
