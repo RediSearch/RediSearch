@@ -318,6 +318,8 @@ impl PartialEq for RSIndexResult {
 
 /// Encoder to write a record into an index
 pub trait Encoder {
+    type DeltaType: TryFrom<u64> + Default;
+
     /// Does this encoder allow the same document to appear in the index multiple times. Defaults
     /// to `false`.
     const ALLOW_DUPLICATES: bool = false;
@@ -327,17 +329,26 @@ pub trait Encoder {
 
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
-    ///
-    /// # Panics
-    /// Non-numeric encoders only accept deltas that fit in a `u32`, and so will panic if the delta
-    /// is larger than `u32::MAX`.
-    /// When using such encoders the inverted index should create new blocks if the delta exceeds `u32::MAX`.
     fn encode<W: Write + Seek>(
         &self,
         writer: W,
-        delta: Delta,
+        delta: Self::DeltaType,
         record: &RSIndexResult,
     ) -> std::io::Result<usize>;
+
+    /// Calculate the delta using the block it will be added to. Returns `None` if the delta is too
+    /// big for this encoder and a new block should be created.
+    fn calculate_delta(block: &IndexBlock, doc_id: t_docId) -> Option<Self::DeltaType> {
+        let delta = doc_id - block.last_doc_id;
+
+        if delta > u32::MAX as _ {
+            // If the delta is larger than `u32::MAX`, we cannot encode it with this encoder.
+            // The inverted index should create a new block in this case.
+            None
+        } else {
+            delta.try_into().ok()
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -382,7 +393,7 @@ pub struct InvertedIndex<E> {
     _encoder: PhantomData<E>,
 }
 
-struct IndexBlock {
+pub struct IndexBlock {
     first_doc_id: t_docId,
     last_doc_id: t_docId,
     num_entries: usize,
@@ -390,7 +401,7 @@ struct IndexBlock {
 }
 
 impl IndexBlock {
-    fn new(doc_id: t_docId) -> Self {
+    pub fn new(doc_id: t_docId) -> Self {
         Self {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
@@ -420,11 +431,10 @@ impl<E: Encoder> InvertedIndex<E> {
 
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let doc_id = record.doc_id;
-        let last_doc_id = self.last_doc_id();
 
         let same_doc = match (
             E::ALLOW_DUPLICATES,
-            last_doc_id.map(|d| d == doc_id).unwrap_or_default(),
+            self.last_doc_id().map(|d| d == doc_id).unwrap_or_default(),
         ) {
             (true, true) => true,
             (false, true) => {
@@ -435,11 +445,24 @@ impl<E: Encoder> InvertedIndex<E> {
             (_, false) => false,
         };
 
-        let delta = doc_id - last_doc_id.unwrap_or_default();
-        let block = self.get_block(doc_id, same_doc);
+        let mut block = self.get_block(doc_id, same_doc);
+
+        let delta = match E::calculate_delta(block, doc_id) {
+            Some(delta) => delta,
+            None => {
+                // The delta is too large for this encoder, we need to create a new block and reset
+                // the delta.
+                self.blocks.push(IndexBlock::new(doc_id));
+
+                block = self.blocks.last_mut().expect("we just pushed a new block");
+
+                Default::default()
+            }
+        };
+
         let writer = block.writer();
 
-        let bytes_written = E::encode(writer, Delta::new(delta as _), record)?;
+        let bytes_written = E::encode(writer, delta, record)?;
 
         block.num_entries += 1;
         block.last_doc_id = doc_id;

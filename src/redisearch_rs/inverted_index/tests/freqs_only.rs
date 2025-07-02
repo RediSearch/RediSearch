@@ -10,7 +10,7 @@
 use std::io::Cursor;
 
 use inverted_index::{
-    Decoder, DecoderResult, Delta, Encoder, RSIndexResult, freqs_only::FreqsOnly,
+    Decoder, DecoderResult, Encoder, IndexBlock, RSIndexResult, freqs_only::FreqsOnly,
 };
 
 #[test]
@@ -27,13 +27,13 @@ fn test_encode_freqs_only() {
         (2, 65536, vec![2, 0, 0, 1, 2]),
         (
             u16::MAX as u32 + 1,
-            u16::MAX as usize + 1,
+            u16::MAX as u32 + 1,
             vec![10, 0, 0, 1, 0, 0, 1],
         ),
-        (2, u32::MAX as usize, vec![3, 255, 255, 255, 255, 2]),
+        (2, u32::MAX, vec![3, 255, 255, 255, 255, 2]),
         (
             u32::MAX,
-            u32::MAX as usize,
+            u32::MAX,
             vec![15, 255, 255, 255, 255, 255, 255, 255, 255],
         ),
     ];
@@ -44,7 +44,7 @@ fn test_encode_freqs_only() {
         let record = RSIndexResult::freqs_only(doc_id, freq);
 
         let bytes_written = FreqsOnly::default()
-            .encode(&mut buf, Delta::new(delta), &record)
+            .encode(&mut buf, delta, &record)
             .expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
@@ -71,7 +71,7 @@ fn test_encode_freqs_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::freqs_only(10, 5);
-    let res = FreqsOnly::default().encode(&mut cursor, Delta::new(0), &record);
+    let res = FreqsOnly::default().encode(&mut cursor, delta, &record);
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
@@ -103,11 +103,11 @@ fn test_decode_freqs_only_empty_input() {
 }
 
 #[test]
-#[should_panic]
 fn test_encode_freqs_only_delta_overflow() {
-    // Encoder only supports 32 bits delta and will panic if larger
-    let mut buf = Cursor::new(vec![0; 3]);
+    let delta = FreqsOnly::defuault().calculate_delta(&IndexBlock::new(0), u32::MAX as u64 + 1);
 
-    let record = RSIndexResult::freqs_only(10, 5);
-    let _res = FreqsOnly::default().encode(&mut buf, Delta::new(u32::MAX as usize + 1), &record);
+    assert_eq!(
+        delta, None,
+        "Delta will overflow, so should request a new block for encoding"
+    );
 }

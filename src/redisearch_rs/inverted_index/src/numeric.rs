@@ -144,7 +144,7 @@ use std::io::{IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
+use crate::{Decoder, DecoderResult, Encoder, IndexBlock, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -152,10 +152,9 @@ trait ToBytes<const N: usize> {
     fn pack(self) -> [u8; N];
 }
 
-impl ToBytes<{ size_of::<usize>() }> for Delta {
-    fn pack(self) -> [u8; size_of::<usize>()] {
-        let delta = self.0;
-        delta.to_le_bytes()
+impl ToBytes<8> for u64 {
+    fn pack(self) -> [u8; 8] {
+        self.to_le_bytes()
     }
 }
 
@@ -195,10 +194,12 @@ impl Default for Numeric {
 }
 
 impl Encoder for Numeric {
+    type DeltaType = u64;
+
     fn encode<W: Write + std::io::Seek>(
         &self,
         mut writer: W,
-        delta: Delta,
+        delta: Self::DeltaType,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         let num_record = record
@@ -359,6 +360,18 @@ impl Encoder for Numeric {
         };
 
         Ok(bytes_written)
+    }
+
+    fn calculate_delta(block: &IndexBlock, doc_id: t_docId) -> Option<Self::DeltaType> {
+        let delta = doc_id - block.last_doc_id;
+
+        if (delta >> (7 * 8)) > 0 {
+            // If the delta is larger than 7 bytes (7 * 8), then we cannot encode it with this encoder.
+            // The inverted index should create a new block in this case.
+            None
+        } else {
+            Some(delta)
+        }
     }
 }
 

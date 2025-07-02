@@ -12,7 +12,7 @@ use std::io::{Read, Seek, Write};
 use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
 
-use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
+use crate::{Decoder, DecoderResult, Encoder, RSIndexResult};
 
 /// Encode and decode only the delta and frequencies of a record, without any other data.
 /// The delta and frequency are encoded using [qint encoding](qint).
@@ -20,16 +20,14 @@ use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
 pub struct FreqsOnly;
 
 impl Encoder for FreqsOnly {
+    type DeltaType = u32;
+
     fn encode<W: Write + Seek>(
         &self,
         mut writer: W,
-        delta: Delta,
+        delta: Self::DeltaType,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        let delta = delta
-            .0
-            .try_into()
-            .expect("FreqsOnly encoder only supports deltas that fit in u32");
         let bytes_written = qint_encode(&mut writer, [delta, record.freq])?;
         Ok(bytes_written)
     }

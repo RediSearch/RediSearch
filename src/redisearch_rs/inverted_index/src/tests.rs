@@ -3,13 +3,13 @@ use crate::{Encoder, InvertedIndex, RSIndexResult};
 struct Dummy;
 
 impl Encoder for Dummy {
+    type DeltaType = u32;
+
     fn encode<W: std::io::Write + std::io::Seek>(
         mut writer: W,
-        delta: crate::Delta,
+        delta: Self::DeltaType,
         _record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        let delta: usize = delta.into();
-
         writer.write_all(&delta.to_be_bytes())?;
 
         Ok(8)
@@ -24,7 +24,7 @@ fn add_records() {
     ii.add_record(&record).unwrap();
 
     assert_eq!(ii.blocks.len(), 1);
-    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 10]);
+    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
     assert_eq!(ii.blocks[0].num_entries, 1);
     assert_eq!(ii.blocks[0].first_doc_id, 10);
     assert_eq!(ii.blocks[0].last_doc_id, 10);
@@ -35,10 +35,7 @@ fn add_records() {
     ii.add_record(&record).unwrap();
 
     assert_eq!(ii.blocks.len(), 1);
-    assert_eq!(
-        ii.blocks[0].buffer,
-        [0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1]
-    );
+    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
     assert_eq!(ii.blocks[0].num_entries, 2);
     assert_eq!(ii.blocks[0].first_doc_id, 10);
     assert_eq!(ii.blocks[0].last_doc_id, 11);
@@ -52,7 +49,7 @@ fn writting_same_record_twice() {
 
     ii.add_record(&record).unwrap();
     assert_eq!(ii.blocks.len(), 1);
-    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 10]);
+    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
     assert_eq!(ii.blocks[0].num_entries, 1);
 
     let bytes_written = ii.add_record(&record).unwrap();
@@ -64,7 +61,7 @@ fn writting_same_record_twice() {
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(
         ii.blocks[0].buffer,
-        [0, 0, 0, 0, 0, 0, 0, 10],
+        [0, 0, 0, 0],
         "buffer should remain unchanged"
     );
     assert_eq!(ii.blocks[0].num_entries, 1);
@@ -75,11 +72,13 @@ fn writting_same_record_twice() {
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
+        type DeltaType = u32;
+
         const ALLOW_DUPLICATES: bool = true;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
-            _delta: crate::Delta,
+            _delta: Self::DeltaType,
             _record: &RSIndexResult,
         ) -> std::io::Result<usize> {
             writer.write_all(&[255])?;
@@ -120,12 +119,14 @@ fn writing_creates_new_blocks() {
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
+        type DeltaType = u32;
+
         const ALLOW_DUPLICATES: bool = true;
         const BLOCK_ENTRIES: usize = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             mut writer: W,
-            _delta: crate::Delta,
+            _delta: Self::DeltaType,
             _record: &RSIndexResult,
         ) -> std::io::Result<usize> {
             writer.write_all(&[1])?;
@@ -156,4 +157,31 @@ fn writing_creates_new_blocks() {
         2,
         "duplicates should stay on the same block"
     );
+}
+
+#[test]
+fn writting_big_delta_makes_new_block() {
+    let mut ii = InvertedIndex::<Dummy>::new();
+    let record = RSIndexResult::numeric(10, 5.0);
+
+    ii.add_record(&record).unwrap();
+
+    assert_eq!(ii.blocks.len(), 1);
+    assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.blocks[0].num_entries, 1);
+    assert_eq!(ii.blocks[0].first_doc_id, 10);
+    assert_eq!(ii.blocks[0].last_doc_id, 10);
+    assert_eq!(ii.num_docs, 1);
+
+    let doc_id = (u32::MAX as u64) + 11;
+    let record = RSIndexResult::numeric(doc_id, 5.0);
+
+    ii.add_record(&record).unwrap();
+
+    assert_eq!(ii.blocks.len(), 2);
+    assert_eq!(ii.blocks[1].buffer, [0, 0, 0, 0]);
+    assert_eq!(ii.blocks[1].num_entries, 1);
+    assert_eq!(ii.blocks[1].first_doc_id, doc_id);
+    assert_eq!(ii.blocks[1].last_doc_id, doc_id);
+    assert_eq!(ii.num_docs, 2);
 }
