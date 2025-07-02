@@ -160,7 +160,7 @@ impl ToBytes<{ size_of::<usize>() }> for Delta {
 }
 
 pub struct Numeric {
-    /// Should f64 values be compressed to f32 if they will only lose less than 0.01 precision
+    /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given threshold
     compress_floats: bool,
 }
 
