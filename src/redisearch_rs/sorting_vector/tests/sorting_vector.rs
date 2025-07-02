@@ -11,6 +11,7 @@ use std::ffi::{CString, c_char};
 
 use icu_casemap::CaseMapper;
 
+use sorting_vector::Error;
 use sorting_vector::{RSSortingVector, RSValueTrait};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -100,19 +101,19 @@ fn test_creation() {
     }
 }
 
-fn build_vector() -> RSSortingVector<RSValueMock> {
+fn build_vector() -> Result<RSSortingVector<RSValueMock>, Error> {
     let mut vector = RSSortingVector::new(5);
-    vector.put_num(0, 42.0);
-    vector.put_string(1, "Hello");
-    vector.put_val_as_ref(2, RSValueMock::create_num(3.));
-    vector.put_val(3, RSValueMock::create_string("World"));
-    vector.put_null(4);
-    vector
+    vector.insert_num(0, 42.0)?;
+    vector.insert_string(1, "Hello")?;
+    vector.insert_val_as_ref(2, RSValueMock::create_num(3.))?;
+    vector.insert_val(3, RSValueMock::create_string("World"))?;
+    vector.insert_null(4)?;
+    Ok(vector)
 }
 
 #[test]
-fn test_put() {
-    let vector: &mut RSSortingVector<RSValueMock> = &mut build_vector();
+fn test_insert() -> Result<(), Error> {
+    let vector: &mut RSSortingVector<RSValueMock> = &mut build_vector()?;
 
     assert_eq!(vector[0].as_num(), Some(42.0));
     assert_eq!(vector[0].get_type(), ffi::RSValueType_RSValue_Number);
@@ -121,16 +122,18 @@ fn test_put() {
     assert_eq!(vector[2].get_ref().unwrap().as_num(), Some(3.0));
     assert_eq!(vector[3].as_str(), Some("World"));
     assert!(vector[4].is_null());
+
+    Ok(())
 }
 
 #[test]
-fn test_override() {
-    let src = build_vector();
+fn test_override() -> Result<(), Error> {
+    let src = build_vector()?;
     let mut dst: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
     assert_eq!(dst[0], RSValueMock::create_null());
 
     for (idx, val) in src.iter().enumerate() {
-        dst.put_val(0, val.clone());
+        dst.insert_val(0, val.clone())?;
         assert_eq!(dst[0], src[idx]);
     }
 
@@ -141,23 +144,24 @@ fn test_override() {
     }
 
     assert_eq!(dst[0], RSValueMock::create_null());
+    Ok(())
 }
 
 #[test]
-fn test_memory_size() {
+fn test_memory_size() -> Result<(), Error> {
     let empty = RSSortingVector::<RSValueMock>::new(0);
     let size = empty.get_memory_size();
     assert!(empty.is_empty());
     assert_eq!(size, 0);
 
     let mut vec = RSSortingVector::<RSValueMock>::new(1);
-    vec.put_num(0, 42.0);
+    vec.insert_num(0, 42.0)?;
     let size = vec.get_memory_size();
     let expected_size = std::mem::size_of::<RSValueMock>();
     assert_eq!(size, expected_size);
 
     // test with more complex values
-    let vector: RSSortingVector<RSValueMock> = build_vector();
+    let vector = build_vector()?;
     let size = vector.get_memory_size();
 
     let expected_size = 5* std::mem::size_of::<RSValueMock>() // 4 RSValues
@@ -165,11 +169,12 @@ fn test_memory_size() {
             + "World".len(); // size of the string "World"
 
     assert_eq!(size, expected_size);
+    Ok(())
 }
 
 #[test]
 #[cfg(not(miri))]
-fn test_case_folding_aka_normlization_rust_impl() {
+fn test_case_folding_aka_normlization_rust_impl() -> Result<(), Error> {
     // not miri because the C implementation `normalizeStr` is called as part of `put_string_and_normalize`
     // and calling C code from Miri is not supported.
 
@@ -191,8 +196,9 @@ fn test_case_folding_aka_normlization_rust_impl() {
 
     let str = "Straße";
     let mut vec: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
-    vec.put_string_and_normalize(0, str);
+    vec.insert_string_and_normalize(0, str)?;
     assert_eq!(vec[0].as_str(), Some("strasse"));
+    Ok(())
 }
 
 #[unsafe(no_mangle)]

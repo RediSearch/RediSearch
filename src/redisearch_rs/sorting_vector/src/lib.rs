@@ -61,6 +61,19 @@ where
     }
 }
 
+/// Errors that can be returned by [`ResultProcessor`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Error {
+    /// Execution halted because of timeout
+    OutOfBounds,
+
+    /// A byte string was given as an argument that is not valid UTF-8.
+    StringUtfError,
+
+    /// A string was given as an argument that contains a null byte, which is not allowed.
+    StringNulError,
+}
+
 /// This is the Rust implementation of [`RSSortingVector`] which acts as a cache for sortable fields in a document.
 ///
 /// A [`RSSortingVector`] is a boxed slice of a type T implementing [`RSValueTrait`]. That means it has a constant length.
@@ -107,8 +120,12 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
 
     /// Checks if the index is valid and decrements the reference count of previous RSValue instances.
     /// Returns `true` if the index is in bounds , `false` otherwise.
-    fn in_bounds(&self, idx: usize) -> bool {
-        idx < self.values.len()
+    fn in_bounds(&self, idx: usize) -> Result<(), Error> {
+        if idx < self.values.len() {
+            Ok(())
+        } else {
+            Err(Error::OutOfBounds)
+        }
     }
 
     /// Returns an iterator over the values in the sorting vector.
@@ -122,45 +139,26 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
     }
 
     /// Set a number (double) at the given index
-    pub fn put_num(&mut self, idx: usize, num: f64) {
-        if !self.in_bounds(idx) {
-            return;
-        }
-
-        // Safety: We are creating a new RSValue with a number, we need to ensure that
-        // We ensure the previous value is decremented in `check_and_cleanup`.
+    pub fn insert_num(&mut self, idx: usize, num: f64) -> Result<(), Error> {
+        self.in_bounds(idx)?;
         self.values[idx] = T::create_num(num);
+        Ok(())
     }
 
     /// Set a string at the given index
-    pub fn put_string(&mut self, idx: usize, str: &str) {
-        if !self.in_bounds(idx) {
-            return;
-        }
-
+    pub fn insert_string(&mut self, idx: usize, str: &str) -> Result<(), Error> {
+        self.in_bounds(idx)?;
         self.values[idx] = T::create_string(str);
+        Ok(())
     }
 
     /// Set a string at the given index, normalizing it to lower case and to be sortable ("Straße" -> "Strasse").
-    pub fn put_string_and_normalize(&mut self, idx: usize, str: &str) {
-        if !self.in_bounds(idx) {
-            return;
-        }
+    pub fn insert_string_and_normalize(&mut self, idx: usize, str: &str) -> Result<(), Error> {
+        self.in_bounds(idx)?;
 
-        // The following is a workaround which calls a C method to normalize the string.
-        // It based on nulib and shall be replaced by ICU in the future.
+        // The code here is a workaround which calls a C method to normalize the string.
+        // It based on libnu and shall be replaced by ICU in the future.
         // To understand why ICU is not working, see the test case `test_case_folding_aka_normlization_rust_impl`.
-        let str = CString::new(str).expect("Failed to create CString");
-
-        let cptr: *mut c_char = str.as_c_str().as_ptr().cast_mut();
-
-        // Safety: The given cptr was just generated from a CString, so it is valid.
-        let cstr: *mut c_char = unsafe { ffi::normalizeStr(cptr) };
-
-        // Safety: We assume that the C function `normalizeStr` returns a valid CString pointer.
-        let normalized_str = unsafe { CString::from_raw(cstr) };
-
-        self.values[idx] = T::create_string(&normalized_str.to_string_lossy());
 
         // -----
 
@@ -170,33 +168,41 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
         let normalized = casemapper.fold_string(str);
         self.values[idx] = T::create_string(&normalized);
         */
+
+        let str = CString::new(str).map_err(|_| Error::StringNulError)?;
+        let cptr: *mut c_char = str.as_c_str().as_ptr().cast_mut();
+
+        // Safety: The given cptr was just generated from a CString, so it is valid.
+        let cstr: *mut c_char = unsafe { ffi::normalizeStr(cptr) };
+
+        // Safety: We assume that the C function `normalizeStr` returns a valid CString pointer.
+        let normalized_str = unsafe { CString::from_raw(cstr) };
+        let normalized_str = normalized_str.to_str().map_err(|_| Error::StringUtfError)?;
+
+        self.values[idx] = T::create_string(normalized_str);
+
+        Ok(())
     }
 
     /// Set a value at the given index
-    pub fn put_val(&mut self, idx: usize, value: T) {
-        if !self.in_bounds(idx) {
-            return;
-        }
-
+    pub fn insert_val(&mut self, idx: usize, value: T) -> Result<(), Error> {
+        self.in_bounds(idx)?;
         self.values[idx] = value;
+        Ok(())
     }
 
     /// Set a reference to the value at the given index
-    pub fn put_val_as_ref(&mut self, idx: usize, value: T) {
-        if !self.in_bounds(idx) {
-            return;
-        }
-
+    pub fn insert_val_as_ref(&mut self, idx: usize, value: T) -> Result<(), Error> {
+        self.in_bounds(idx)?;
         self.values[idx] = T::create_ref(value);
+        Ok(())
     }
 
     /// Set a null value at the given index
-    pub fn put_null(&mut self, idx: usize) {
-        if !self.in_bounds(idx) {
-            return;
-        }
-
+    pub fn insert_null(&mut self, idx: usize) -> Result<(), Error> {
+        self.in_bounds(idx)?;
         self.values[idx] = T::create_null();
+        Ok(())
     }
 
     /// Get the len of the sorting vector.
