@@ -144,7 +144,7 @@ use std::io::{ErrorKind, IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, RSResultType};
+use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -174,15 +174,9 @@ impl Encoder for Numeric {
         delta: Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        if !matches!(
-            record.result_type,
-            RSResultType::Numeric | RSResultType::Metric
-        ) {
-            panic!("Numeric encoding only supports numeric types")
-        }
-
-        // SAFETY: We are guaranteed that the record is a numeric type because of the matches! above
-        let num_record = unsafe { &record.data.num };
+        let num_record = record
+            .as_numeric()
+            .expect("numeric encoder will only be called for numeric records");
 
         let delta = delta.pack();
 

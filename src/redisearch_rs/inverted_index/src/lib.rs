@@ -167,6 +167,39 @@ impl RSIndexResult {
             weight: 0.0,
         }
     }
+
+    /// Create a new virtual index result
+    pub fn virt(doc_id: t_docId) -> Self {
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                virt: ManuallyDrop::new(RSVirtualResult),
+            },
+            result_type: RSResultType::Virtual,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight: 0.0,
+        }
+    }
+
+    /// Get this record as a numeric record if possible. If the record is not numeric, returns
+    /// `None`.
+    pub fn as_numeric(&self) -> Option<&RSNumericRecord> {
+        if matches!(
+            self.result_type,
+            RSResultType::Numeric | RSResultType::Metric,
+        ) {
+            // SAFETY: We are guaranteed the record data is numeric because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &self.data.num })
+        } else {
+            None
+        }
+    }
 }
 
 impl Debug for RSIndexResult {

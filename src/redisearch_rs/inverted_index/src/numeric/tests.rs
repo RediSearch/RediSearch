@@ -406,6 +406,15 @@ fn test_empty_buffer() {
     assert_eq!(record, None, "should not decode an empty buffer");
 }
 
+#[test]
+#[should_panic(expected = "numeric encoder will only be called for numeric records")]
+fn encoding_non_numeric_record() {
+    let mut buffer = Cursor::new(Vec::new());
+    let record = RSIndexResult::virt(10);
+
+    let _result = Numeric::encode(&mut buffer, Delta(0), &record);
+}
+
 proptest! {
     #[test]
     fn numeric_encode_decode(
