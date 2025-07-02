@@ -52,7 +52,7 @@ TEST_F(VectorFilterTest, testInvalidVectorFilter) {
   // Invalid queries with weight
   assertInvalidVectorFilter("@title:hello => {$weight: 2.0}", ctx);
   assertInvalidVectorFilter("hello | @title:hello => {$weight: 2.0}", ctx);
-  assertInvalidVectorFilter("@title:'' => {$weight: 2.0}", ctx);
+  assertInvalidVectorFilter("@title:'hello' => {$weight: 2.0}", ctx);
   assertInvalidVectorFilter("( @title:(foo bar) @body:lol => {$weight: 2.0;} )=> {$slop:2; $inorder:true}", ctx);
   assertInvalidVectorFilter("( @title:(foo bar) @body:lol )=> {$weight:2.0; $inorder:true}", ctx);
 
@@ -66,6 +66,9 @@ TEST_F(VectorFilterTest, testInvalidVectorFilter) {
   assertInvalidVectorFilter("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2] => {$yield_distance_as:second_score;}", ctx);
   assertInvalidVectorFilter("@v:[VECTOR_RANGE 0.01 $BLOB] VECTOR_RANGE", ctx); // Fallback VECTOR_RANGE into a term.
 
+  // Invalid queries with empty string - field does not index empty strings
+  assertInvalidVectorFilter("@title:''", ctx);
+
   IndexSpec_RemoveFromGlobals(ref, false);
 }
 
@@ -74,7 +77,8 @@ TEST_F(VectorFilterTest, testValidVectorFilter) {
   static const char *args[] = {
     "SCHEMA",
     "title", "text", "weight", "1.2",
-    "body", "text", "INDEXMISSING"};
+    "body", "text", "INDEXMISSING", "INDEXEMPTY"
+  };
 
   QueryError err = {QUERY_OK};
   StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
@@ -84,7 +88,7 @@ TEST_F(VectorFilterTest, testValidVectorFilter) {
 
   // Valid queries
   assertValidVectorFilter("hello", ctx);
-  assertValidVectorFilter("@title:''", ctx);
+  assertValidVectorFilter("@body:''", ctx);
   assertValidVectorFilter("@title:hello", ctx);
   assertValidVectorFilter("@title:hello world", ctx);
   assertValidVectorFilter("@title:hello world -@title:world", ctx);

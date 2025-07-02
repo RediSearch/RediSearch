@@ -1818,13 +1818,13 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
   }
 
-  if (res == REDISMODULE_OK  && validateAsVectorFilter && n->opts.explicitWeight) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed in a vector filter");
-    res = REDISMODULE_ERR;
-  }
-
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
+    if (validateAsVectorFilter && n->opts.explicitWeight) {
+      QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed in a vector filter");
+      res = REDISMODULE_ERR;
+    }
+
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
       res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validateAsVectorFilter);
       if (res == REDISMODULE_ERR)
