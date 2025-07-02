@@ -9,10 +9,13 @@
 
 use std::{
     ffi::{CString, NulError, c_char},
+    fmt::Display,
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
     str::Utf8Error,
 };
+
+use thiserror::Error;
 
 /// A trait that defines the behavior of a RediSearch RSValue.
 ///
@@ -62,7 +65,10 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
+///
+/// In case for debug builds, it contains the index and the length of the vector for better debugging but has zero size in release builds.
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IndexOutOfBounds {
     #[cfg(debug_assertions)]
     pub index: usize,
@@ -70,17 +76,34 @@ pub struct IndexOutOfBounds {
     pub len: usize,
 }
 
-/// Errors that can be returned by [`RSSortingVector`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InsertSortingVectorError {
-    /// The index is out of bounds for the sorting vector.
-    OutOfBounds(IndexOutOfBounds),
+impl Display for IndexOutOfBounds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[cfg(debug_assertions)]
+        {
+            write!(
+                f,
+                "Index out of bounds: index={}, len={}",
+                self.index, self.len
+            )
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            write!(f, "Index out of bounds")
+        }
+    }
+}
 
-    /// A byte string was given as an argument that is not valid UTF-8.
-    Utf8Error(Utf8Error),
+/// Error that can be returned by [`RSSortingVector::try_insert_string_and_normalize`].
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum InsertAndNormalizeError {
+    #[error("{0}.")]
+    OutOfBounds(#[from] IndexOutOfBounds),
 
-    /// A string was given as an argument that contains a null byte, which is not allowed.
-    NulError(NulError),
+    #[error("String argument is not valid UTF-8: {0}")]
+    Utf8Error(#[from] Utf8Error),
+
+    #[error("String argument contains a null byte: {0}")]
+    NulError(#[from] NulError),
 }
 
 /// [`RSSortingVector`] acts as a cache for sortable fields in a document.
@@ -128,17 +151,17 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 
     /// Returns `Ok(())` if the index is in bounds, [`Error::OutOfBounds`] otherwise.
-    fn in_bounds(&self, idx: usize) -> Result<(), InsertSortingVectorError> {
+    fn in_bounds(&self, idx: usize) -> Result<(), IndexOutOfBounds> {
         if idx < self.values.len() {
             Ok(())
         } else {
             #[cfg(debug_assertions)]
-            return Err(InsertSortingVectorError::OutOfBounds(IndexOutOfBounds {
+            return Err(IndexOutOfBounds {
                 index: idx,
                 len: self.values.len(),
-            }));
+            });
             #[cfg(not(debug_assertions))]
-            return Err(InsertSortingVectorError::OutOfBounds);
+            return Err(IndexOutOfBounds);
         }
     }
 
@@ -153,18 +176,14 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 
     /// Set a number (double) at the given index
-    pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), InsertSortingVectorError> {
+    pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;
         self.values[idx] = T::create_num(num);
         Ok(())
     }
 
     /// Set a string at the given index
-    pub fn try_insert_string(
-        &mut self,
-        idx: usize,
-        str: &str,
-    ) -> Result<(), InsertSortingVectorError> {
+    pub fn try_insert_string(&mut self, idx: usize, str: &str) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;
         self.values[idx] = T::create_string(str);
         Ok(())
@@ -175,7 +194,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         &mut self,
         idx: usize,
         str: &str,
-    ) -> Result<(), InsertSortingVectorError> {
+    ) -> Result<(), InsertAndNormalizeError> {
         self.in_bounds(idx)?;
 
         // The code here is a workaround which calls a C method to normalize the string.
@@ -191,7 +210,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         self.values[idx] = T::create_string(&normalized);
         */
 
-        let str = CString::new(str).map_err(InsertSortingVectorError::NulError)?;
+        let str = CString::new(str)?;
         let cptr: *mut c_char = str.as_c_str().as_ptr().cast_mut();
 
         // Safety: The given cptr was just generated from a CString, so it is valid.
@@ -199,9 +218,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
 
         // Safety: We assume that the C function `normalizeStr` returns a valid CString pointer.
         let normalized_str = unsafe { CString::from_raw(cstr) };
-        let normalized_str = normalized_str
-            .to_str()
-            .map_err(InsertSortingVectorError::Utf8Error)?;
+        let normalized_str = normalized_str.to_str()?;
 
         self.values[idx] = T::create_string(normalized_str);
 
@@ -209,7 +226,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 
     /// Set a value at the given index
-    pub fn try_insert_val(&mut self, idx: usize, value: T) -> Result<(), InsertSortingVectorError> {
+    pub fn try_insert_val(&mut self, idx: usize, value: T) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;
         self.values[idx] = value;
         Ok(())
@@ -220,14 +237,14 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         &mut self,
         idx: usize,
         value: T,
-    ) -> Result<(), InsertSortingVectorError> {
+    ) -> Result<(), InsertAndNormalizeError> {
         self.in_bounds(idx)?;
         self.values[idx] = T::create_ref(value);
         Ok(())
     }
 
     /// Set a null value at the given index
-    pub fn try_insert_null(&mut self, idx: usize) -> Result<(), InsertSortingVectorError> {
+    pub fn try_insert_null(&mut self, idx: usize) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;
         self.values[idx] = T::create_null();
         Ok(())

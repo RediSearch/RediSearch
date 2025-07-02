@@ -11,7 +11,7 @@ use std::ffi::{CString, c_char};
 
 use icu_casemap::CaseMapper;
 
-use sorting_vector::InsertSortingVectorError;
+use sorting_vector::InsertAndNormalizeError;
 use sorting_vector::{RSSortingVector, RSValueTrait};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -101,7 +101,7 @@ fn test_creation() {
     }
 }
 
-fn build_vector() -> Result<RSSortingVector<RSValueMock>, InsertSortingVectorError> {
+fn build_vector() -> Result<RSSortingVector<RSValueMock>, InsertAndNormalizeError> {
     let mut vector = RSSortingVector::new(5);
     vector.try_insert_num(0, 42.0)?;
     vector.try_insert_string(1, "Hello")?;
@@ -112,7 +112,7 @@ fn build_vector() -> Result<RSSortingVector<RSValueMock>, InsertSortingVectorErr
 }
 
 #[test]
-fn test_insert() -> Result<(), InsertSortingVectorError> {
+fn test_insert() -> Result<(), InsertAndNormalizeError> {
     let vector: &mut RSSortingVector<RSValueMock> = &mut build_vector()?;
 
     assert_eq!(vector[0].as_num(), Some(42.0));
@@ -127,7 +127,7 @@ fn test_insert() -> Result<(), InsertSortingVectorError> {
 }
 
 #[test]
-fn test_override() -> Result<(), InsertSortingVectorError> {
+fn test_override() -> Result<(), InsertAndNormalizeError> {
     let src = build_vector()?;
     let mut dst: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
     assert_eq!(dst[0], RSValueMock::create_null());
@@ -148,7 +148,7 @@ fn test_override() -> Result<(), InsertSortingVectorError> {
 }
 
 #[test]
-fn test_memory_size() -> Result<(), InsertSortingVectorError> {
+fn test_memory_size() -> Result<(), InsertAndNormalizeError> {
     let empty = RSSortingVector::<RSValueMock>::new(0);
     let size = empty.get_memory_size();
     assert!(empty.is_empty());
@@ -174,7 +174,7 @@ fn test_memory_size() -> Result<(), InsertSortingVectorError> {
 
 #[test]
 #[cfg(not(miri))]
-fn test_case_folding_aka_normlization_rust_impl() -> Result<(), InsertSortingVectorError> {
+fn test_case_folding_aka_normlization_rust_impl() -> Result<(), InsertAndNormalizeError> {
     // not miri because the C implementation `normalizeStr` is called as part of `put_string_and_normalize`
     // and calling C code from Miri is not supported.
 
