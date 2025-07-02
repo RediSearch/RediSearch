@@ -140,7 +140,7 @@
 //!      │  └─ Type: INT_POS (10)
 //!      └─ Value bytes: 1 (001) (ie 2 bytes are used for the value)
 
-use std::io::{ErrorKind, IoSlice, Read, Write};
+use std::io::{Cursor, ErrorKind, IoSlice, Read, Write};
 
 use ffi::t_docId;
 
@@ -191,17 +191,16 @@ impl Encoder for Numeric {
         let delta = &delta[..end];
         let delta_bytes = delta.len() as _;
 
-        let bytes_written = match Value::from(num_record.0) {
+        let mut buffer = Cursor::new([0; 16]);
+        match Value::from(num_record.0) {
             Value::TinyInteger(i) => {
                 let header = Header {
                     delta_bytes,
                     typ: HeaderType::Tiny(i),
                 };
-
-                write_all_vectored(
-                    &mut writer,
-                    [IoSlice::new(&header.pack()), IoSlice::new(delta)],
-                )?
+                let header = header.pack();
+                buffer.write_all(&header)?;
+                buffer.write_all(delta)?;
             }
             Value::IntegerPositive(i) => {
                 let bytes = i.to_le_bytes();
@@ -215,14 +214,9 @@ impl Encoder for Numeric {
                     typ: HeaderType::IntegerPositive((end - 1) as _),
                 };
 
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(bytes),
-                    ],
-                )?
+                buffer.write_all(&header.pack())?;
+                buffer.write_all(delta)?;
+                buffer.write_all(bytes)?;
             }
             Value::IntegerNegative(i) => {
                 let bytes = i.to_le_bytes();
@@ -236,14 +230,9 @@ impl Encoder for Numeric {
                     typ: HeaderType::IntegerNegative((end - 1) as _),
                 };
 
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(bytes),
-                    ],
-                )?
+                buffer.write_all(&header.pack())?;
+                buffer.write_all(delta)?;
+                buffer.write_all(bytes)?
             }
             Value::Float32Positive(value) => {
                 let bytes = value.to_le_bytes();
@@ -253,14 +242,9 @@ impl Encoder for Numeric {
                     typ: HeaderType::Float32Positive,
                 };
 
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(&bytes),
-                    ],
-                )?
+                buffer.write_all(&header.pack())?;
+                buffer.write_all(delta)?;
+                buffer.write_all(&bytes)?
             }
             Value::Float32Negative(value) => {
                 let bytes = value.to_le_bytes();
@@ -270,14 +254,9 @@ impl Encoder for Numeric {
                     typ: HeaderType::Float32Negative,
                 };
 
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(&bytes),
-                    ],
-                )?
+                buffer.write_all(&header.pack())?;
+                buffer.write_all(delta)?;
+                buffer.write_all(&bytes)?
             }
             Value::Float64Positive(value) => {
                 let bytes = value.to_le_bytes();
@@ -287,14 +266,9 @@ impl Encoder for Numeric {
                     typ: HeaderType::Float64Positive,
                 };
 
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(&bytes),
-                    ],
-                )?
+                buffer.write_all(&header.pack())?;
+                buffer.write_all(delta)?;
+                buffer.write_all(&bytes)?
             }
             Value::Float64Negative(value) => {
                 let bytes = value.to_le_bytes();
@@ -304,14 +278,9 @@ impl Encoder for Numeric {
                     typ: HeaderType::Float64Negative,
                 };
 
-                write_all_vectored(
-                    &mut writer,
-                    [
-                        IoSlice::new(&header.pack()),
-                        IoSlice::new(delta),
-                        IoSlice::new(&bytes),
-                    ],
-                )?
+                buffer.write_all(&header.pack())?;
+                buffer.write_all(delta)?;
+                buffer.write_all(&bytes)?
             }
             Value::FloatInfinity => {
                 let header = Header {
@@ -319,10 +288,8 @@ impl Encoder for Numeric {
                     typ: HeaderType::FloatInfinite,
                 };
 
-                write_all_vectored(
-                    &mut writer,
-                    [IoSlice::new(&header.pack()), IoSlice::new(delta)],
-                )?
+                buffer.write_all(&header.pack())?;
+                buffer.write_all(delta)?
             }
             Value::FloatNegInfinity => {
                 let header = Header {
@@ -330,14 +297,15 @@ impl Encoder for Numeric {
                     typ: HeaderType::FloatNegInfinite,
                 };
 
-                write_all_vectored(
-                    &mut writer,
-                    [IoSlice::new(&header.pack()), IoSlice::new(delta)],
-                )?
+                buffer.write_all(&header.pack())?;
+                buffer.write_all(delta)?
             }
         };
+        let position = buffer.position();
+        let buffer = &buffer.into_inner()[..position as usize];
+        writer.write_all(buffer)?;
 
-        Ok(bytes_written)
+        Ok(buffer.len())
     }
 }
 
