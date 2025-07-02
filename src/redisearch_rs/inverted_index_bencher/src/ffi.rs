@@ -69,9 +69,9 @@ pub fn read_numeric(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index:
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
     let mut result = inverted_index::RSIndexResult::numeric(0.0);
 
-    let filtered = unsafe { bindings::read_numeric(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_numeric(&mut block_reader, &mut ctx, &mut result) };
 
-    (filtered, result)
+    (returned, result)
 }
 
 #[cfg(test)]
