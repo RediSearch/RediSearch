@@ -20,7 +20,7 @@
 #include "extension.h"
 #include "score_explain.h"
 #include "util/references.h"
-#include "hybrid_scoring.h"
+#include "hybrid/hybrid_scoring.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -18,7 +18,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "util/references.h"
-#include "hybrid_scoring.h"
+#include "hybrid/hybrid_scoring.h"
 #include "src/util/likely.h"
 
 /*******************************************************************************************************************

@@ -1,4 +1,4 @@
-#include "hybrid_scoring.h"
+#include "hybrid/hybrid_scoring.h"
 #include "rmutil/rm_assert.h"
 
  /* Get scoring function based on scoring type */
