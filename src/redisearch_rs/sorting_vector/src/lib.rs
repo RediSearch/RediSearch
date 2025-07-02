@@ -109,6 +109,11 @@ pub enum InsertAndNormalizeError {
 /// [`RSSortingVector`] acts as a cache for sortable fields in a document.
 ///
 /// It has a constant length, determined upfront on creation. It can't be resized.
+/// The [`RSSortingVector`] may contain values of different types, such as numbers, strings, or references to other values.
+/// This depends on the fields in the source document.
+///
+/// The fields in the sorting vector occur in the same order as they appeared in the document. Fields that are not sortable,
+/// are not added at all to the sorting vector, i.e. the sorting vector does not contain null values for non-sortable fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RSSortingVector<T: RSValueTrait> {
     values: Box<[T]>,
