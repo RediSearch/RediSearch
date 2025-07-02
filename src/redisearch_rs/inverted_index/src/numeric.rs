@@ -517,6 +517,8 @@ impl From<f64> for Value {
                     let back_to_f64 = f32_value as f64;
 
                     if back_to_f64 == abs_val
+                        // SAFETY: The module config should have completed loading by now and
+                        // nothing should be changing it
                         || (unsafe { RSConfig_numericCompress() }
                             && (abs_val - f32_value as f64).abs() < 0.01)
                     {
