@@ -390,6 +390,15 @@ struct IndexBlock {
 }
 
 impl IndexBlock {
+    fn new(doc_id: t_docId) -> Self {
+        Self {
+            first_doc_id: doc_id,
+            last_doc_id: doc_id,
+            num_entries: 0,
+            buffer: Vec::new(),
+        }
+    }
+
     fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
         let pos = self.buffer.len();
         let mut buffer = Cursor::new(&mut self.buffer);
@@ -448,21 +457,17 @@ impl<E: Encoder> InvertedIndex<E> {
 
     fn get_last_block(&mut self, doc_id: t_docId) -> &mut IndexBlock {
         if self.blocks.is_empty() {
-            let block = IndexBlock {
-                first_doc_id: doc_id,
-                last_doc_id: doc_id,
-                num_entries: 0,
-                buffer: Vec::new(),
-            };
+            let block = IndexBlock::new(doc_id);
             self.blocks.push(block);
-        } else if self.blocks.last().unwrap().num_entries >= E::BLOCK_ENTRIES {
+        } else if self
+            .blocks
+            .last()
+            .expect("we just confirmed there are blocks")
+            .num_entries
+            >= E::BLOCK_ENTRIES
+        {
             // We need to create a new block since the last one is full
-            let block = IndexBlock {
-                first_doc_id: doc_id,
-                last_doc_id: doc_id,
-                num_entries: 0,
-                buffer: Vec::new(),
-            };
+            let block = IndexBlock::new(doc_id);
             self.blocks.push(block);
         }
 
