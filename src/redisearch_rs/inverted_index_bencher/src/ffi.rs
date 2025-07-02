@@ -69,9 +69,9 @@ pub fn read_numeric(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index:
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
     let mut result = inverted_index::RSIndexResult::numeric(0.0);
 
-    let filtered = unsafe { bindings::read_numeric(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_numeric(&mut block_reader, &mut ctx, &mut result) };
 
-    (filtered, result)
+    (returned, result)
 }
 
 #[cfg(test)]
@@ -145,9 +145,9 @@ mod tests {
             );
 
             let base_id = 1_000 - delta;
-            let (filtered, decoded_result) = read_numeric(&mut buffer.0, base_id);
+            let (returned, decoded_result) = read_numeric(&mut buffer.0, base_id);
 
-            assert!(!filtered);
+            assert!(returned);
             assert_eq!(
                 decoded_result, record,
                 "does not match for input: {}",
