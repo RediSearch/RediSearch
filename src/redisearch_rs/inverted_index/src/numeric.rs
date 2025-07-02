@@ -160,7 +160,8 @@ impl ToBytes<{ size_of::<usize>() }> for Delta {
 }
 
 pub struct Numeric {
-    /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given threshold
+    /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
+    /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
     compress_floats: bool,
 }
 
@@ -170,14 +171,16 @@ impl Numeric {
     const INT_POS_TYPE: u8 = 0b10;
     const INT_NEG_TYPE: u8 = 0b11;
 
+    const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
+
     pub fn new() -> Self {
         Self {
             compress_floats: false,
         }
     }
 
-    /// Enable float compression on this encoder. This will encode f64 as f32 values iff they lose
-    /// less than 0.01 precision.
+    /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
+    /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
     pub fn with_float_compression(mut self) -> Self {
         self.compress_floats = true;
 
@@ -535,7 +538,9 @@ impl Value {
                     let back_to_f64 = f32_value as f64;
 
                     if back_to_f64 == abs_val
-                        || (compress_floats && (abs_val - f32_value as f64).abs() < 0.01)
+                        || (compress_floats
+                            && (abs_val - f32_value as f64).abs()
+                                < Numeric::FLOAT_COMPRESSION_THRESHOLD)
                     {
                         if v.is_sign_positive() {
                             Value::Float32Positive(f32_value)
