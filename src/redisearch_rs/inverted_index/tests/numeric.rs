@@ -439,12 +439,12 @@ fn encoding_to_fixed_buffer() {
 fn encoding_to_slow_writter() {
     use std::io::{Seek, Write};
 
-    struct SlowWritter<W> {
+    struct SlowWriter<W> {
         inner: W,
         call_count: usize,
     }
 
-    impl<W> SlowWritter<W> {
+    impl<W> SlowWriter<W> {
         const BYTES_PER_WRITE: usize = 2;
 
         fn new(inner: W) -> Self {
@@ -455,7 +455,7 @@ fn encoding_to_slow_writter() {
         }
     }
 
-    impl<W: Write> Write for SlowWritter<W> {
+    impl<W: Write> Write for SlowWriter<W> {
         fn write_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> std::io::Result<usize> {
             self.call_count += 1;
             let mut written = 0;
@@ -485,13 +485,13 @@ fn encoding_to_slow_writter() {
         }
     }
 
-    impl<W> Seek for SlowWritter<W> {
+    impl<W> Seek for SlowWriter<W> {
         fn seek(&mut self, _pos: std::io::SeekFrom) -> std::io::Result<u64> {
             unimplemented!("nothing in this test should call this")
         }
     }
 
-    let mut buffer = SlowWritter::new(Vec::new());
+    let mut buffer = SlowWriter::new(Vec::new());
     let record = RSIndexResult::numeric(10, 3.124);
 
     let result = Numeric::encode(&mut buffer, Delta::new(0), &record)
