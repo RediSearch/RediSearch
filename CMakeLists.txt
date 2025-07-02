@@ -231,7 +231,7 @@ set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Forc
 add_subdirectory(deps/libuv)
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
-set(SVS_URL "https://github.com/intel/ScalableVectorSearch/releases/download/v0.0.8-dev/svs-shared-library-0.0.8-NIGHTLY-20250701-glibc-2_26.tar.gz" CACHE STRING "Custom SVS URL")
+# set(SVS_URL "https://github.com/intel/ScalableVectorSearch/releases/download/v0.0.8-dev/svs-shared-library-0.0.8-NIGHTLY-20250701-glibc-2_26.tar.gz" CACHE STRING "Custom SVS URL")
 # set(SVS_SHARED_LIB OFF CACHE BOOL "Disable SVS shared library")
 # message(STATUS "SVS_SHARED_LIB is set to ${SVS_SHARED_LIB}")
 add_subdirectory(deps/VectorSimilarity)
