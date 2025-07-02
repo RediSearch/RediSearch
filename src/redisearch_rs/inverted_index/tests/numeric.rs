@@ -486,7 +486,7 @@ fn encoding_to_slow_writter() {
     }
 
     impl<W> Seek for SlowWritter<W> {
-        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        fn seek(&mut self, _pos: std::io::SeekFrom) -> std::io::Result<u64> {
             unimplemented!("nothing in this test should call this")
         }
     }
