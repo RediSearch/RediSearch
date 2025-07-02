@@ -1454,7 +1454,6 @@ typedef struct {
   bool first_call;                  // Whether the first call to Next has been made
   StrongRef sync_ref;               // Reference to shared synchronization object (DepleterSync)
   bool take_index_lock;             // Whether or not the depleter should take the index lock
-  bool index_released;              // Whether or not the index-spec has been released by the pipeline thread yet
 } RPDepleter;
 
 // Shared synchronization object for all RPDepleter instances of a pipeline
@@ -1463,6 +1462,7 @@ typedef struct {
   pthread_mutex_t mutex;
   uint n_depleters;       // Number of depleters to sync
   atomic_int num_locked;  // Number of depleters that have locked the index
+  bool index_released;    // Whether or not the index-spec has been released by the pipeline thread yet
 } DepleterSync;
 
 // Free function for DepleterSync
@@ -1569,15 +1569,16 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
     return RS_RESULT_DEPLETING;
   }
 
-  if (self->take_index_lock && !self->index_released) {
+  DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+
+  if (self->take_index_lock && !sync->index_released) {
     // Load the atomic counter
-    DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
     int num_locked = atomic_load(&sync->num_locked);
     if (num_locked == sync->n_depleters) {
       // Release the index
       RedisSearchCtx_UnlockSpec(RP_SCTX(base));
       // Mark the index as released
-      self->index_released = true;
+      sync->index_released = true;
     } else {
       // Not all depleter threads have taken the index lock yet. Wait for them
       return RS_RESULT_DEPLETING;
@@ -1585,7 +1586,6 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   }
 
   // On subsequent calls, wait on condition variable for any depleter to complete
-  DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
   pthread_mutex_lock(&sync->mutex);
 
   // Check if depleting is already done.
