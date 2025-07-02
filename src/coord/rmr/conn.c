@@ -73,7 +73,6 @@ typedef struct {
   size_t num;
   size_t rr;  // round robin counter
   MRConn **conns;
-  MRConn *control_plane_conn;
 } MRConnPool;
 
 static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
@@ -82,14 +81,12 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
       .num = num,
       .rr = 0,
       .conns = rm_calloc(num, sizeof(MRConn *)),
-      .control_plane_conn = NULL,
   };
 
   /* Create the connection */
   for (size_t i = 0; i < num; i++) {
     pool->conns[i] = MR_NewConn(ep);
   }
-  pool->control_plane_conn = pool->conns[0];
   return pool;
 }
 
