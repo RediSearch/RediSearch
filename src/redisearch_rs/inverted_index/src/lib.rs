@@ -436,10 +436,10 @@ impl<E: Encoder> InvertedIndex<E> {
         };
 
         let delta = doc_id - last_doc_id.unwrap_or_default();
-        let block = self.get_last_block(doc_id);
-        let buffer = block.writer();
+        let block = self.get_block(doc_id, same_doc);
+        let writer = block.writer();
 
-        let bytes_written = E::encode(buffer, Delta::new(delta as _), record)?;
+        let bytes_written = E::encode(writer, Delta::new(delta as _), record)?;
 
         block.num_entries += 1;
         block.last_doc_id = doc_id;
@@ -455,16 +455,17 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
-    fn get_last_block(&mut self, doc_id: t_docId) -> &mut IndexBlock {
+    fn get_block(&mut self, doc_id: t_docId, same_doc: bool) -> &mut IndexBlock {
         if self.blocks.is_empty() {
             let block = IndexBlock::new(doc_id);
             self.blocks.push(block);
-        } else if self
-            .blocks
-            .last()
-            .expect("we just confirmed there are blocks")
-            .num_entries
-            >= E::BLOCK_ENTRIES
+        } else if !same_doc
+            && self
+                .blocks
+                .last()
+                .expect("we just confirmed there are blocks")
+                .num_entries
+                >= E::BLOCK_ENTRIES
         {
             // We need to create a new block since the last one is full
             let block = IndexBlock::new(doc_id);
