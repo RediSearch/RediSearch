@@ -47,8 +47,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver);
-
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
@@ -2059,8 +2057,6 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
-
-  f->indexError = IndexError_Init();
   f->ftId = RS_INVALID_FIELD_ID;
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
@@ -2164,7 +2160,6 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   return REDISMODULE_OK;
 
 fail:
-  IndexError_Clear(f->indexError);
   return REDISMODULE_ERR;
 }
 
@@ -2725,7 +2720,11 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
-  int maxSortIdx = -1;
+  // First, initialise fields IndexError before loading them.
+  // If some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
+  for (int i = 0; i < sp->numFields; i++) {
+    sp->fields[i].indexError = IndexError_Init();
+  }
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     fs->index = i;
@@ -2850,6 +2849,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
+    fs->indexError = IndexError_Init(); // Must be initialized in all fields before attempting to free the spec
     FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
@@ -2950,6 +2950,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+      QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
   }
