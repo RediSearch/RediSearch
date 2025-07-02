@@ -621,9 +621,9 @@ fn write_all_vectored<const N: usize, W: Write>(
     let total_len = bufs.iter().map(|b| b.len()).sum();
 
     // In theory we only need the code in the `Ok(n)` branch. However, that performs slow when
-    // the buffers being written is small (less than 13 bytes). Using a profiler shows that the
-    // `write_vectored` call inside this `OK(n)` branch behaves differently than the one on
-    // this match (next line) for some reason which is not clear currently.
+    // the buffers being written are small (less than 13 bytes). Using a profiler shows that the
+    // `write_vectored` call inside the `OK(n)` branch is optimized differently from the one on
+    // this match (next line), for reasons that are currently unclear.
     match writer.write_vectored(&bufs) {
         Ok(n) if n == total_len => return Ok(n),
         Ok(0) => {
