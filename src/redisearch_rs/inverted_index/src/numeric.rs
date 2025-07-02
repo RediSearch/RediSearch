@@ -142,7 +142,7 @@
 
 use std::io::{ErrorKind, IoSlice, Read, Write};
 
-use ffi::{RSConfig_numericCompress, t_docId};
+use ffi::t_docId;
 
 use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
 
@@ -159,17 +159,35 @@ impl ToBytes<{ size_of::<usize>() }> for Delta {
     }
 }
 
-pub struct Numeric;
+pub struct Numeric {
+    /// Should f64 values be compressed to f32 if they will only lose less than 0.01 precision
+    compress_floats: bool,
+}
 
 impl Numeric {
     const TINY_TYPE: u8 = 0b00;
     const FLOAT_TYPE: u8 = 0b01;
     const INT_POS_TYPE: u8 = 0b10;
     const INT_NEG_TYPE: u8 = 0b11;
+
+    pub fn new() -> Self {
+        Self {
+            compress_floats: false,
+        }
+    }
+
+    /// Enable float compression on this encoder. This will encode f64 as f32 values iff they lose
+    /// less than 0.01 precision.
+    pub fn with_float_compression(mut self) -> Self {
+        self.compress_floats = true;
+
+        self
+    }
 }
 
 impl Encoder for Numeric {
     fn encode<W: Write + std::io::Seek>(
+        &self,
         mut writer: W,
         delta: Delta,
         record: &RSIndexResult,
@@ -185,7 +203,7 @@ impl Encoder for Numeric {
         let delta = &delta[..end];
         let delta_bytes = delta.len() as _;
 
-        let bytes_written = match Value::from(num_record.0) {
+        let bytes_written = match Value::from(num_record.0, self.compress_floats) {
             Value::TinyInteger(i) => {
                 let header = Header {
                     delta_bytes,
@@ -495,8 +513,8 @@ enum Value {
     FloatNegInfinity,
 }
 
-impl From<f64> for Value {
-    fn from(value: f64) -> Self {
+impl Value {
+    fn from(value: f64, compress_floats: bool) -> Self {
         let abs_val = value.abs();
         let u64_val = abs_val as u64;
 
@@ -517,10 +535,7 @@ impl From<f64> for Value {
                     let back_to_f64 = f32_value as f64;
 
                     if back_to_f64 == abs_val
-                        // SAFETY: The module config should have completed loading by now and
-                        // nothing should be changing it
-                        || (unsafe { RSConfig_numericCompress() }
-                            && (abs_val - f32_value as f64).abs() < 0.01)
+                        || (compress_floats && (abs_val - f32_value as f64).abs() < 0.01)
                     {
                         if v.is_sign_positive() {
                             Value::Float32Positive(f32_value)

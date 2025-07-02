@@ -12,12 +12,6 @@ use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use std::io::Cursor;
 
-#[allow(non_snake_case)]
-#[unsafe(no_mangle)]
-pub fn RSConfig_numericCompress() -> bool {
-    false
-}
-
 /// Tests for integer values between 0 and 7 which should use the [TINY header](super#tiny-type) format.
 #[test]
 fn numeric_tiny_int() {
@@ -373,8 +367,10 @@ fn test_numeric_encode_decode(
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(u64::MAX, value);
 
-    let bytes_written =
-        Numeric::encode(&mut buf, Delta::new(delta), &record).expect("to encode numeric record");
+    let numeric = Numeric::new();
+    let bytes_written = numeric
+        .encode(&mut buf, Delta::new(delta), &record)
+        .expect("to encode numeric record");
 
     assert_eq!(
         bytes_written, expected_bytes_written,
@@ -391,7 +387,7 @@ fn test_numeric_encode_decode(
     buf.set_position(0);
 
     let prev_doc_id = u64::MAX - (delta as u64);
-    let DecoderResult::Record(record_decoded) = Numeric
+    let DecoderResult::Record(record_decoded) = numeric
         .decode(&mut buf, prev_doc_id)
         .expect("to decode numeric record")
         .expect("to read a record from the buffer")
@@ -403,9 +399,47 @@ fn test_numeric_encode_decode(
 }
 
 #[test]
+fn encode_f64_with_compression() {
+    let mut buf = Cursor::new(Vec::new());
+    let record = RSIndexResult::numeric(0, 3.124);
+
+    let numeric = Numeric::new().with_float_compression();
+    let _bytes_written = numeric
+        .encode(&mut buf, Delta::new(0), &record)
+        .expect("to encode numeric record");
+
+    assert_eq!(
+        buf.get_ref(),
+        &[
+            0b000_01_000, // FLOAT type, !f64, !negative, !infinite, delta_bytes: 0
+            158,          // Value: 3.124 in IEEE 754 format after f32 conversion
+            239,
+            71,
+            64,
+        ],
+        "should use a f32 instead"
+    );
+
+    buf.set_position(0);
+
+    let DecoderResult::Record(record_decoded) = numeric
+        .decode(&mut buf, 0)
+        .expect("to decode numeric record")
+        .expect("to read a record from the buffer")
+    else {
+        panic!("Record was filtered out incorrectly")
+    };
+
+    let diff = record_decoded.as_numeric().unwrap().0 - record.as_numeric().unwrap().0;
+    let diff = diff.abs();
+
+    assert!(diff < 0.01);
+}
+
+#[test]
 fn test_empty_buffer() {
     let mut buffer = Cursor::new(Vec::new());
-    let record = Numeric
+    let record = Numeric::new()
         .decode(&mut buffer, 0)
         .expect("no not crash on empty buffer");
 
@@ -418,7 +452,7 @@ fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
     let record = RSIndexResult::virt(10);
 
-    let _result = Numeric::encode(&mut buffer, Delta::new(0), &record);
+    let _result = Numeric::new().encode(&mut buffer, Delta::new(0), &record);
 }
 
 #[test]
@@ -426,7 +460,7 @@ fn encoding_to_fixed_buffer() {
     let mut buffer = Cursor::new([0; 2]);
     let record = RSIndexResult::numeric(1, 100.0);
 
-    let result = Numeric::encode(&mut buffer, Delta::new(1), &record);
+    let result = Numeric::new().encode(&mut buffer, Delta::new(1), &record);
 
     assert!(result.is_err());
     assert_eq!(
@@ -436,7 +470,7 @@ fn encoding_to_fixed_buffer() {
 }
 
 #[test]
-fn encoding_to_slow_writter() {
+fn encoding_to_slow_writer() {
     use std::io::{Seek, Write};
 
     struct SlowWriter<W> {
@@ -494,7 +528,8 @@ fn encoding_to_slow_writter() {
     let mut buffer = SlowWriter::new(Vec::new());
     let record = RSIndexResult::numeric(10, 3.124);
 
-    let result = Numeric::encode(&mut buffer, Delta::new(0), &record)
+    let result = Numeric::new()
+        .encode(&mut buffer, Delta::new(0), &record)
         .expect("to encode the complete record");
 
     assert_eq!(result, 9);
@@ -527,13 +562,14 @@ proptest! {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::numeric(u64::MAX, value as _);
 
+        let numeric = Numeric::new();
         let _bytes_written =
-            Numeric::encode(&mut buf, Delta::new(delta as _), &record).expect("to encode numeric record");
+            numeric.encode(&mut buf, Delta::new(delta as _), &record).expect("to encode numeric record");
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
 
-        let DecoderResult::Record(record_decoded) = Numeric
+        let DecoderResult::Record(record_decoded) = numeric
             .decode(&mut buf, prev_doc_id)
             .expect("to decode numeric record")
             .expect("to read a record from the buffer")
@@ -552,13 +588,14 @@ proptest! {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::numeric(u64::MAX, value);
 
+        let numeric = Numeric::new();
         let _bytes_written =
-            Numeric::encode(&mut buf, Delta::new(delta as _), &record).expect("to encode numeric record");
+            numeric.encode(&mut buf, Delta::new(delta as _), &record).expect("to encode numeric record");
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
 
-        let DecoderResult::Record(record_decoded) = Numeric
+        let DecoderResult::Record(record_decoded) = numeric
             .decode(&mut buf, prev_doc_id)
             .expect("to decode numeric record")
             .expect("to read a record from the buffer")

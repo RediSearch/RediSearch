@@ -301,6 +301,7 @@ pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
     fn encode<W: Write + Seek>(
+        &self,
         writer: W,
         delta: Delta,
         record: &RSIndexResult,
