@@ -96,13 +96,13 @@ impl Display for IndexOutOfBounds {
 /// Error that can be returned by [`RSSortingVector::try_insert_string_and_normalize`].
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum InsertAndNormalizeError {
-    #[error("{0}.")]
+    #[error(transparent)]
     OutOfBounds(#[from] IndexOutOfBounds),
 
-    #[error("String argument is not valid UTF-8: {0}")]
+    #[error(transparent)]
     Utf8Error(#[from] Utf8Error),
 
-    #[error("String argument contains a null byte: {0}")]
+    #[error(transparent)]
     NulError(#[from] NulError),
 }
 
