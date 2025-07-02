@@ -37,6 +37,8 @@
 #define REFCOUNT_DECR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: decreased refCount to == %d", caller, refcount);
 
+#define CEIL_DIV(a, b) ((a + b - 1) / b)
+
 /* Currently a single cluster is supported */
 static MRCluster *cluster_g = NULL;
 
@@ -273,12 +275,20 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
   }
 }
 
-// /* Modifying the connection pools cannot be done from the main thread */
-// static void uvUpdateConnPerShard(void *p) {
-//   size_t connPerShard = (uintptr_t)p;
-//   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
-//   RQ_UpdateMaxPending(rq_g, connPerShard * PENDING_FACTOR);
-// }
+struct UpdateConnPoolSizeCtx {
+  IORuntimeCtx *ioRuntime;
+  size_t conn_pool_size;
+};
+
+/* Modifying the connection pools cannot be done from the main thread */
+static void uvUpdateConnPoolSize(void *p) {
+  struct UpdateConnPoolSizeCtx *ctx = p;
+  IORuntimeCtx *ioRuntime = ctx->ioRuntime;
+  IORuntimeCtx_UpdateConnPoolSize(ioRuntime, ctx->conn_pool_size);
+  size_t max_pending = ioRuntime->conn_mgr->nodeConns * PENDING_FACTOR;
+  RQ_UpdateMaxPending(ioRuntime->queue, max_pending);
+  rm_free(ctx);
+}
 
 extern size_t NumShards;
 void MR_UpdateConnPoolSize(size_t conn_pool_size) {
@@ -290,26 +300,14 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size) {
     // This is mostly a no-op, as the connection pool is not in use (yet or at all).
     // This call should only update the connection pool `size` for when the connection pool is initialized.
     for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-      MRCluster_UpdateConnPoolSize(cluster_g->io_runtimes_pool[i], conn_pool_size);
+      IORuntimeCtx_UpdateConnPoolSize(cluster_g->io_runtimes_pool[i], conn_pool_size);
     }
   } else {
-    size_t old_conn_count = cluster_g->io_runtimes_pool[0]->conn_mgr->nodeConns;
-    if(conn_pool_size >= old_conn_count) {
-      // New runtimes are in place, we can now submit more connections
-      for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-        MRConnManager_Expand(cluster_g->io_runtimes_pool[i]->conn_mgr, conn_pool_size, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
-      }
-    }
-    else {
-      // First, close the connections. This needs to be done from the event loop thread
-      // Destroy runtimes
-      for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-        MRConnManager_Shrink(cluster_g->io_runtimes_pool[i]->conn_mgr, conn_pool_size, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
-      }
-    }
     for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-      size_t max_pending = cluster_g->io_runtimes_pool[i]->conn_mgr->nodeConns * PENDING_FACTOR;
-      RQ_UpdateMaxPending(cluster_g->io_runtimes_pool[i]->queue, max_pending);
+      struct UpdateConnPoolSizeCtx *ctx = rm_malloc(sizeof(*ctx));
+      ctx->ioRuntime = cluster_g->io_runtimes_pool[i];
+      ctx->conn_pool_size = conn_pool_size;
+      IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvUpdateConnPoolSize, ctx);
     }
   }
 }
@@ -318,51 +316,14 @@ void MR_UpdateSearchIOThreads(size_t num_io_threads) {
   RS_ASSERT(num_io_threads > 0);
 
   if (!cluster_g || NumShards == 1) return;
+  size_t old_conn_pool_size = cluster_g->io_runtimes_pool[0]->conn_mgr->nodeConns;
+  size_t old_num_io_threads = cluster_g->num_io_threads;
   MRCluster_UpdateNumIOThreads(cluster_g, num_io_threads);
+  size_t new_conn_pool_size = CEIL_DIV(old_conn_pool_size * old_num_io_threads, num_io_threads);
+  MR_UpdateConnPoolSize(new_conn_pool_size);
+  //TODO(Joan): Wait for all threads to be updated before returning?
 }
 
-
-// If we need to return all the Connection States from all the IO Runtimes properly
-/*typedef struct GetConnectionPoolStateCtx {
-  RedisModuleBlockedClient *bc;
-  IORuntimeCtx *ioRuntime;
-  int *numPending;
-} GetConnectionPoolStateCtx;
-
-static void uvGetConnectionPoolState(void *p) {
-  GetConnectionPoolStateCtx *getConnPoolStateCtx = p;
-  RedisModuleBlockedClient *bc = getConnPoolStateCtx->bc;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  MRConnManager_ReplyState(getConnPoolStateCtx->ioRuntime->conn_mgr, ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
-  int remaining = __atomic_sub_fetch(getConnPoolStateCtx->numPending, 1, __ATOMIC_RELEASE);
-  if (remaining == 0) {
-    // here some atomic counter should be decremented and returned if 0
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, NULL);
-    rm_free(getConnPoolStateCtx->numPending);
-  }
-  rm_free(getConnPoolStateCtx);
-}
-
-void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
-  int* numPending = rm_malloc(sizeof(int));
-  *numPending = cluster_g->num_io_threads;
-  GetConnectionPoolStateCtx* ContorlPlaneGetConnPoolStateCtx = rm_malloc(sizeof(GetConnectionPoolStateCtx));
-  ContorlPlaneGetConnPoolStateCtx->bc = bc;
-  ContorlPlaneGetConnPoolStateCtx->numPending = numPending;
-  ContorlPlaneGetConnPoolStateCtx->ioRuntime = cluster_g->control_plane_io_runtime;
-  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvGetConnectionPoolState, ContorlPlaneGetConnPoolStateCtx);
-  for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
-    GetConnectionPoolStateCtx* getConnPoolStateCtx = rm_malloc(sizeof(GetConnectionPoolStateCtx));
-    getConnPoolStateCtx->bc = bc;
-    getConnPoolStateCtx->numPending = numPending;
-    getConnPoolStateCtx->ioRuntime = cluster_g->control_plane_io_runtime;
-    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, getConnPoolStateCtx);
-  }
-}*/
 struct ReplyClusterInfoCtx {
   IORuntimeCtx *ioRuntime;
   RedisModuleBlockedClient *bc;

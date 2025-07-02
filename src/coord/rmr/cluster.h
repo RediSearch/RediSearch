@@ -53,9 +53,6 @@ int MRCluster_ConnectAll(IORuntimeCtx *ioRuntime);
 /* Create a new cluster using a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads);
 
-/* Update the number of connections per shard */
-void MRCluster_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
-
 void MRClust_Free(MRCluster *cl);
 
 size_t MRCluster_AssignRoundRobinIORuntimeIdx(MRCluster *cl);

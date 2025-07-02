@@ -64,7 +64,7 @@ struct UpdateTopologyCtx {
   struct MRClusterTopology *new_topo;
 };
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership);
+IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership);
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
@@ -81,6 +81,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime);
  * provider's current context is used. Otherwise, we call its function with the given context */
 int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime);
 void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership);
+void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
 
 #ifdef __cplusplus
 }

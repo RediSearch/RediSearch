@@ -186,16 +186,6 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
   return ret;
 }
 
-void MRCluster_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size) {
-  RS_ASSERT(new_conn_pool_size > 0);
-  size_t old_conn_pool_size = ioRuntime->conn_mgr->nodeConns;
-  if (old_conn_pool_size > new_conn_pool_size) {
-    MRConnManager_Shrink(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
-  } else if (old_conn_pool_size < new_conn_pool_size) {
-    MRConnManager_Expand(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
-  }
-}
-
 void MRClust_Free(MRCluster *cl) {
   if (cl) {
     // First, fire the shutdown event for all runtimes

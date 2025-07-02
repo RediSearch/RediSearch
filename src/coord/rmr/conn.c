@@ -127,9 +127,9 @@ static dictType nodeIdToConnPoolType = {
   .valDestructor = MRConnPool_Free,
 };
 
-MRConnManager *MRConnManager_New(size_t num_connections_per_shard) {
+MRConnManager *MRConnManager_New(size_t conn_pool_size) {
   MRConnManager *mgr = rm_malloc(sizeof(*mgr));
-  MRConnManager_Init(mgr, num_connections_per_shard);
+  MRConnManager_Init(mgr, conn_pool_size);
   return mgr;
 }
 

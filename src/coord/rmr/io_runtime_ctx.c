@@ -251,9 +251,9 @@ static void UV_Close(IORuntimeCtx *io_runtime_ctx) {
   uv_loop_close(&io_runtime_ctx->uv_runtime.loop);
 }
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership) {
+IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership) {
   IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
-  io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
+  io_runtime_ctx->conn_mgr = MRConnManager_New(conn_pool_size);
   io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
   io_runtime_ctx->pendingTopo = NULL;
   io_runtime_ctx->pendingQueues = NULL;
@@ -377,5 +377,15 @@ void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
     }
     rm_free(ctx);
     rm_free(task);
+  }
+}
+
+void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size) {
+  RS_ASSERT(new_conn_pool_size > 0);
+  size_t old_conn_pool_size = ioRuntime->conn_mgr->nodeConns;
+  if (old_conn_pool_size > new_conn_pool_size) {
+    MRConnManager_Shrink(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
+  } else if (old_conn_pool_size < new_conn_pool_size) {
+    MRConnManager_Expand(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
   }
 }
