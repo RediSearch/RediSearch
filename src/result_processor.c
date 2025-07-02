@@ -1444,6 +1444,8 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  *  signaling completion. Once depleting is complete for this processor, Next()
  *  yields results one by one from the internal array, and finally returns the last
  *  return code from the upstream.
+ *  NOTE: Currently the recommended number of upstreams is 2. Using more may
+ *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
 typedef struct {
   ResultProcessor base;             // Base result processor struct
