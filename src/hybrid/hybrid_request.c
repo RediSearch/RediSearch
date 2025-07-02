@@ -37,7 +37,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, QueryError *status, RSSearch
             ResultProcessor *loader = RPLoader_New(&areq->pipeline, lastLookup, clonedKeys, loadStep->nkeys, false);
             QITR_PushRP(qctx, loader);
         }
-        ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), );
+        ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), AREQ_SearchCtx(areq));
         array_ensure_append_1(depleters, depleter);
         QITR_PushRP(qctx, depleter);
     }

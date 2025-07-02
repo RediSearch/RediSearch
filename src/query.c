@@ -2000,7 +2000,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       for (int i = 0; i < qs->fn.len; i++) {
         t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
         if (id != 0) {
-          s = sdscatprintf(s, "%llu,", id);
+          s = sdscatprintf(s, "%lu,", id);
         }
       }
       s = sdscat(s, "}");
