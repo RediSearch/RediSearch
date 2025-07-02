@@ -281,7 +281,7 @@ static int getNextReply(RPNet *nc) {
   }
 
   // invariant: either rows == NULL or at least one row exists
-  const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has empty rows as [] or [0]
+  const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
   RS_ASSERT(!rows || MRReply_Type(rows) == MR_REPLY_ARRAY);
   if (!rows || MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
