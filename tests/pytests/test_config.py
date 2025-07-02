@@ -57,8 +57,8 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
     assert env.expect('ft.config', 'get', 'INDEX_CURSOR_LIMIT').res[0][0] == 'INDEX_CURSOR_LIMIT'
     assert env.expect('ft.config', 'get', 'INDEXER_YIELD_EVERY_OPS').res[0][0] == 'INDEXER_YIELD_EVERY_OPS'
-    # assert env.expect('ft.config', 'get', '_BG_INDEX_MEM_PCT_THR').res[0][0] == '_BG_INDEX_MEM_PCT_THR'
-    # assert env.expect('ft.config', 'get', '_BG_INDEX_OOM_PAUSE_TIME').res[0][0] == '_BG_INDEX_OOM_PAUSE_TIME'
+    assert env.expect('ft.config', 'get', '_BG_INDEX_MEM_PCT_THR').res[0][0] == '_BG_INDEX_MEM_PCT_THR'
+    assert env.expect('ft.config', 'get', '_BG_INDEX_OOM_PAUSE_TIME').res[0][0] == '_BG_INDEX_OOM_PAUSE_TIME'
 
 '''
 
@@ -149,8 +149,8 @@ def testAllConfig(env):
     #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
-    # env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
-    # env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
 
 @skip(cluster=True)
 def testInitConfig(env):
@@ -186,8 +186,8 @@ def testInitConfig(env):
     test_arg_num('BG_INDEX_SLEEP_GAP', 15)
     test_arg_num('INDEX_CURSOR_LIMIT', 128)
     test_arg_num('INDEXER_YIELD_EVERY_OPS', 123)
-    # test_arg_num('_BG_INDEX_MEM_PCT_THR', 90)
-    # test_arg_num('_BG_INDEX_OOM_PAUSE_TIME', 10)
+    test_arg_num('_BG_INDEX_MEM_PCT_THR', 90)
+    test_arg_num('_BG_INDEX_OOM_PAUSE_TIME', 10)
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):
@@ -255,6 +255,6 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains('Not modifiable at runtime')
 
-# @skip(cluster=True)
-# def test_setIndexingMemoryLimit_overflow(env):
-#     env.expect('ft.config', 'set', '_BG_INDEX_MEM_PCT_THR', 101).error().contains("Memory limit for indexing cannot be greater then 100%")
+@skip(cluster=True)
+def test_setIndexingMemoryLimit_overflow(env):
+    env.expect('ft.config', 'set', '_BG_INDEX_MEM_PCT_THR', 101).error().contains("Memory limit for indexing cannot be greater then 100%")

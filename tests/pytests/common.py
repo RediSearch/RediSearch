@@ -22,8 +22,8 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
-# import subprocess
-# import math
+import subprocess
+import math
 
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
@@ -213,7 +213,7 @@ def server_version_less_than(env: Env, ver):
 def server_version_is_at_least(ver):
     global server_ver
     if server_ver is None:
-        import subprocess
+        # import subprocess
         # Expecting something like "Redis server v=7.2.3 sha=******** malloc=jemalloc-5.3.0 bits=64 build=***************"
         v = subprocess.run([Defaults.binary, '--version'], stdout=subprocess.PIPE).stdout.decode().split()[2].split('=')[1]
         server_ver = version.parse(v)
@@ -630,7 +630,7 @@ def get_TLS_args():
     with_pass = server_version_is_at_least('6.2')
 
     # If any of the files are missing, generate them
-    import subprocess
+    # import subprocess
     subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
 
     def get_passphrase():
@@ -718,102 +718,102 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count):
     debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
-# def waitForIndexFinishScan(env, idx = 'idx'):
-#     while index_info(env, idx)['percent_indexed'] not in (1, '1'):
-#         time.sleep(0.1)
+def waitForIndexFinishScan(env, idx = 'idx'):
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+        time.sleep(0.1)
 
-# def bgScanCommand():
-#     return debug_cmd() + ' BG_SCAN_CONTROLLER'
+def bgScanCommand():
+    return debug_cmd() + ' BG_SCAN_CONTROLLER'
 
-# def getDebugScannerStatus(env, idx = 'idx'):
-#     return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+def getDebugScannerStatus(env, idx = 'idx'):
+    return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
 
-# def checkDebugScannerStatusError(env, idx = 'idx', expected_error = ''):
-#     env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
-#         .contains(expected_error)
+def checkDebugScannerStatusError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
+        .contains(expected_error)
 
-# def checkDebugScannerUpdateError(env, idx = 'idx', expected_error = ''):
-#     env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', idx).error() \
-#         .contains(expected_error)
+def checkDebugScannerUpdateError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', idx).error() \
+        .contains(expected_error)
 
-# def waitForIndexPauseScan(env, idx = 'idx'):
-#     while getDebugScannerStatus(env, idx)!='PAUSED':
-#         time.sleep(0.1)
+def waitForIndexPauseScan(env, idx = 'idx'):
+    while getDebugScannerStatus(env, idx)!='PAUSED':
+        time.sleep(0.1)
 
-# def set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
-#     # Get current memory consumption value
-#     memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
-#     # Set memory limit to less then memory limit
-#     required_memory = memory_usage * (1/memory_limit_per)
-#     # Round up and add 1
-#     new_memory = math.ceil(required_memory) + 1
+def set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
+    # Get current memory consumption value
+    memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
 
-#     env.expect('config', 'set', 'maxmemory',new_memory).ok()
+    env.expect('config', 'set', 'maxmemory',new_memory).ok()
 
-# def set_unlimited_maxmemory_for_oom(env):
-#     env.expect('config', 'set', 'maxmemory', 0).ok()
+def set_unlimited_maxmemory_for_oom(env):
+    env.expect('config', 'set', 'maxmemory', 0).ok()
 
 
-# def waitForIndexStatus(env, status, idx='idx'):
-#     while getDebugScannerStatus(env, idx) != status:
-#         time.sleep(0.1)
+def waitForIndexStatus(env, status, idx='idx'):
+    while getDebugScannerStatus(env, idx) != status:
+        time.sleep(0.1)
 
-# def waitForIndexPauseScan(env,idx = 'idx'):
-#     waitForIndexStatus(env,'PAUSED', idx)
+def waitForIndexPauseScan(env,idx = 'idx'):
+    waitForIndexStatus(env,'PAUSED', idx)
 
-# def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
-#     return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
+    return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
 
-# def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
-#     while shard_getDebugScannerStatus(env, shardId, idx) != status:
-#         time.sleep(0.1)
+def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
+    while shard_getDebugScannerStatus(env, shardId, idx) != status:
+        time.sleep(0.1)
 
-# def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
-#     shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
+def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
+    shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
 
-# def allShards_waitForIndexPauseScan(env, idx = 'idx'):
-#     for shardId in range(1, env.shardsCount + 1):
-#         shard_waitForIndexPauseScan(env, shardId, idx)
+def allShards_waitForIndexPauseScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexPauseScan(env, shardId, idx)
 
-# def allShards_waitForIndexStatus(env, status, idx='idx'):
-#     for shardId in range(1, env.shardsCount + 1):
-#         shard_waitForIndexStatus(env, shardId, status, idx)
+def allShards_waitForIndexStatus(env, status, idx='idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexStatus(env, shardId, status, idx)
 
-# def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
-#     while index_info(env, idx)['percent_indexed'] not in (1, '1'):
-#         time.sleep(0.1)
+def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+        time.sleep(0.1)
 
-# def allShards_waitForIndexFinishScan(env, idx = 'idx'):
-#     for shardId in range(1, env.shardsCount + 1):
-#         shard_waitForIndexFinishScan(env, shardId, idx)
+def allShards_waitForIndexFinishScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexFinishScan(env, shardId, idx)
 
-# def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 1):
-#     # Get current memory consumption value
-#     memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
-#     # Set memory limit to less then memory limit
-#     required_memory = memory_usage * (1/memory_limit_per)
-#     # Round up and add 1
-#     new_memory = math.ceil(required_memory) + 1
-#     res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
-#     env.assertEqual(res, 'OK')
+def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 1):
+    # Get current memory consumption value
+    memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
+    env.assertEqual(res, 'OK')
 
-# def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
-#     for shardId in range(1, env.shardsCount + 1):
-#         shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
+def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
 
-# def shard_set_unlimited_maxmemory_for_oom(env, shardId):
-#     res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 0)
-#     env.assertEqual(res, 'OK')
+def shard_set_unlimited_maxmemory_for_oom(env, shardId):
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 0)
+    env.assertEqual(res, 'OK')
 
-# def allShards_set_unlimited_maxmemory_for_oom(env):
-#     for shardId in range(1, env.shardsCount + 1):
-#         shard_set_unlimited_maxmemory_for_oom(env, shardId)
+def allShards_set_unlimited_maxmemory_for_oom(env):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_unlimited_maxmemory_for_oom(env, shardId)
 
-# def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
-#     for k in d1:
-#         if k in d2:
-#             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
+    for k in d1:
+        if k in d2:
+            env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
 
-# def verify_command_OK_on_all_shards(env, *args):
-#     res = run_command_on_all_shards(env, *args)
-#     env.assertEqual(res, ['OK'] * env.shardsCount)
+def verify_command_OK_on_all_shards(env, *args):
+    res = run_command_on_all_shards(env, *args)
+    env.assertEqual(res, ['OK'] * env.shardsCount)
