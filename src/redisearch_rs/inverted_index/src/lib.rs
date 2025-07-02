@@ -322,6 +322,9 @@ pub trait Encoder {
     /// to `false`.
     const ALLOW_DUPLICATES: bool = false;
 
+    /// The number of entries that can be written in a single block. Defaults to 100.
+    const BLOCK_ENTRIES: usize = 100;
+
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
     ///
@@ -445,12 +448,22 @@ impl<E: Encoder> InvertedIndex<E> {
 
     fn get_last_block(&mut self, doc_id: t_docId) -> &mut IndexBlock {
         if self.blocks.is_empty() {
-            self.blocks.push(IndexBlock {
+            let block = IndexBlock {
                 first_doc_id: doc_id,
                 last_doc_id: doc_id,
                 num_entries: 0,
                 buffer: Vec::new(),
-            })
+            };
+            self.blocks.push(block);
+        } else if self.blocks.last().unwrap().num_entries >= E::BLOCK_ENTRIES {
+            // We need to create a new block since the last one is full
+            let block = IndexBlock {
+                first_doc_id: doc_id,
+                last_doc_id: doc_id,
+                num_entries: 0,
+                buffer: Vec::new(),
+            };
+            self.blocks.push(block);
         }
 
         self.blocks
