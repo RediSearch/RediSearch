@@ -417,7 +417,32 @@ fn encoding_non_numeric_record() {
 
 proptest! {
     #[test]
-    fn numeric_encode_decode(
+    fn numeric_encode_decode_integers(
+        delta in 0u64..72_057_594_037_927_935u64,
+        value in u64::MIN..u64::MAX,
+    ) {
+        let mut buf = Cursor::new(Vec::new());
+        let record = RSIndexResult::numeric(u64::MAX, value as _);
+
+        let _bytes_written =
+            Numeric::encode(&mut buf, Delta::new(delta as _), &record).expect("to encode numeric record");
+
+        buf.set_position(0);
+        let prev_doc_id = u64::MAX - delta;
+
+        let DecoderResult::Record(record_decoded) = Numeric
+            .decode(&mut buf, prev_doc_id)
+            .expect("to decode numeric record")
+            .expect("to read a record from the buffer")
+        else {
+            panic!("Record was filtered out incorrectly")
+        };
+
+        assert_eq!(record_decoded, record, "failed for value: {}", value);
+    }
+
+    #[test]
+    fn numeric_encode_decode_floats(
         delta in 0u64..72_057_594_037_927_935u64,
         value in f64::MIN..f64::MAX,
     ) {
