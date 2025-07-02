@@ -1556,8 +1556,6 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "icu_casemap",
- "libc",
- "pin-project",
 ]
 
 [[package]]
