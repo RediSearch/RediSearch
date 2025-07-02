@@ -34,6 +34,12 @@ typedef struct MetricRequest{
   RLookupKey **key_ptr;
 } MetricRequest;
 
+// Flags indicating which syntax features are enabled for this query
+typedef enum {
+  QAST_SYNTAX_DEFAULT = 0,            // All syntax features are enabled
+  QAST_DISABLE_VECTOR_QUERIES = 0x01, // VECTOR queries are not allowed
+  QAST_NO_WEIGHT_ATTRIBUTE = 0x02,    // WEIGHT attribute is not allowed
+} QAST_ValidationFlags;
 
 /**
  * Query AST structure.
@@ -63,8 +69,8 @@ typedef struct QueryAST {
   // to ensure that they won't change during query execution.
   IteratorsConfig config;
 
-  // whether the query is used as a vector filter
-  bool isVectorFilter;
+  // Flags indicating which syntax features are enabled for this query
+  QAST_ValidationFlags validationFlags;
 } QueryAST;
 
 /**

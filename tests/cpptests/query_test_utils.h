@@ -79,7 +79,25 @@ class QASTCXX : public QueryAST {
       return false;
     }
     QueryError_ClearError(&m_status);
-    this->isVectorFilter = true;
+    this->validationFlags = QAST_SYNTAX_DEFAULT;
+    this->validationFlags = static_cast<QAST_ValidationFlags>(this->validationFlags | QAST_DISABLE_VECTOR_QUERIES);
+    this->validationFlags = static_cast<QAST_ValidationFlags>(this->validationFlags | QAST_NO_WEIGHT_ATTRIBUTE);
+    int rc = QAST_CheckIsValid(this, sctx->spec, &m_opts, &m_status);
+    return rc == REDISMODULE_OK && !QueryError_HasError(&m_status);
+  }
+
+  /**
+   * Check if a query string is valid as a hybrid SEARCH clause:
+   * VECTOR queries are not allowed, but weight attribute is allowed.
+   */
+  bool isValidAsHybridSearch(const char *s) {
+    // Parse the query using version 2 parser
+    if (!parse(s, 2)) {
+      return false;
+    }
+    QueryError_ClearError(&m_status);
+    this->validationFlags = QAST_SYNTAX_DEFAULT;
+    this->validationFlags = static_cast<QAST_ValidationFlags>(this->validationFlags | QAST_DISABLE_VECTOR_QUERIES);
     int rc = QAST_CheckIsValid(this, sctx->spec, &m_opts, &m_status);
     return rc == REDISMODULE_OK && !QueryError_HasError(&m_status);
   }

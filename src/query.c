@@ -1749,7 +1749,7 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
 }
 
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
-  QueryError *status, bool validateAsVectorFilter) {
+  QueryError *status, QAST_ValidationFlags validationFlags) {
   bool withChildren = true;
   int res = REDISMODULE_OK;
   switch(n->type) {
@@ -1795,7 +1795,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_VECTOR:
-      if (validateAsVectorFilter) {
+      if (validationFlags & QAST_DISABLE_VECTOR_QUERIES) {
         if (n->vn.vq->type == VECSIM_QT_KNN) {
           QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR KNN queries are not allowed in a vector filter");
           res = REDISMODULE_ERR;
@@ -1820,13 +1820,13 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
 
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
-    if (validateAsVectorFilter && n->opts.explicitWeight) {
+    if ((validationFlags & QAST_NO_WEIGHT_ATTRIBUTE) && n->opts.explicitWeight) {
       QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed in a vector filter");
       res = REDISMODULE_ERR;
     }
 
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validateAsVectorFilter);
+      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validationFlags);
       if (res == REDISMODULE_ERR)
         break;
     }
@@ -1843,7 +1843,7 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
   ) {
     return REDISMODULE_OK;
   }
-  return QueryNode_CheckIsValid(q->root, spec, opts, status, q->isVectorFilter);
+  return QueryNode_CheckIsValid(q->root, spec, opts, status, q->validationFlags);
 }
 
 
