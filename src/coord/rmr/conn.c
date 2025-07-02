@@ -263,10 +263,6 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
   return REDIS_ERR;
 }
 
-/*void uvStopConn(void *p) {
-  MRConn *conn = (MRConn *)p;
-  MRConn_Stop(conn);
-}*/
 
 // Shrink the connection pool to the given number of connections
 // Assumes that the number of connections is less than the current number of connections,
@@ -279,9 +275,6 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num, uv_loop_t *loop) {
 
     for (size_t i = num; i < pool->num; i++) {
       MRConn_Stop(pool->conns[i], loop);
-      // Need to close connection from the queue itself
-      /*MRWorkQueue *q = RQPool_GetQueue(i);
-      RQ_Push(q, uvStopConn, pool->conns[i]);*/
     }
 
     pool->num = num;
@@ -343,6 +336,8 @@ static void signalCallback(uv_timer_t *tm) {
 
   if (conn->state == MRConn_Freeing) {
     if (ac) {
+      redisAsyncSetConnectCallback(ac, NULL);
+      redisAsyncSetDisconnectCallback(ac, NULL);
       ac->data = NULL;
       conn->conn = NULL;
       redisAsyncDisconnect(ac);
@@ -601,15 +596,21 @@ done:
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   MRConn *conn = c->data;
   if (!conn) {
+    // The connection was already freed, we need to clean up the redisAsyncContext
     if (status == REDIS_OK) {
       // We need to free it here because we will not be getting a disconnect
       // callback.
       redisAsyncFree((redisAsyncContext *)c);
-    } else {
-      // Will be freed anyway
     }
     return;
   }
+
+  if (conn->state == MRConn_Freeing) {
+    // The connection is being freed, we need to clean up the redisAsyncContext
+    // Before the connection was established, there was a request to Stop connection, so do not proceed further
+    return;
+  }
+
   uv_loop_t *loop = conn->loop;
 
   // if the connection is not stopped - try to reconnect
