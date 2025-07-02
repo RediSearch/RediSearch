@@ -61,7 +61,7 @@ where
     }
 }
 
-/// Errors that can be returned by [`ResultProcessor`]
+/// Errors that can be returned by [`RSSortingVector`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
     /// Execution halted because of timeout
