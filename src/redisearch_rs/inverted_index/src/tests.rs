@@ -120,6 +120,7 @@ fn writing_creates_new_blocks() {
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
+        const ALLOW_DUPLICATES: bool = true;
         const BLOCK_ENTRIES: usize = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
@@ -149,6 +150,10 @@ fn writing_creates_new_blocks() {
     ii.add_record(&RSIndexResult::numeric(13, 2.0)).unwrap();
     assert_eq!(ii.blocks.len(), 2);
 
-    ii.add_record(&RSIndexResult::numeric(14, 1.0)).unwrap();
-    assert_eq!(ii.blocks.len(), 3);
+    ii.add_record(&RSIndexResult::numeric(13, 1.0)).unwrap();
+    assert_eq!(
+        ii.blocks.len(),
+        2,
+        "duplicates should stay on the same block"
+    );
 }
