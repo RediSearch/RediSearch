@@ -36,8 +36,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, int encver);
-
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
@@ -2225,12 +2223,10 @@ IndexSpec *IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int 
 
   sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
-  int maxSortIdx = -1;
-
-  // Since we either way clear error for all fields upon error, we must initialize all of them.
+  // First, initialise fields IndexError before loading them.
+  // If some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = sp->fields + i;
-    fs->indexError = IndexError_Init();
+    sp->fields[i].indexError = IndexError_Init();
   }
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
@@ -2355,11 +2351,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   // Since we either way clear error for all fields upon error, we must initialize all of them.
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    fs->indexError = IndexError_Init();
-  }
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = sp->fields + i;
-    FieldSpec_RdbLoad(rdb, sp->fields + i, encver);
+    fs->indexError = IndexError_Init(); // Must be initialized in all fields before attempting to free the spec
+    FieldSpec_RdbLoad(rdb, fs, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
@@ -2454,6 +2447,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) == NULL) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetError(&status));
+      QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
   }
