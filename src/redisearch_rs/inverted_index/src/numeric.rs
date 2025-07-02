@@ -171,7 +171,7 @@ impl Numeric {
     const INT_POS_TYPE: u8 = 0b10;
     const INT_NEG_TYPE: u8 = 0b11;
 
-    const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
+    pub const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
 
     pub fn new() -> Self {
         Self {
