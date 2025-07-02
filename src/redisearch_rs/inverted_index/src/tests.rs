@@ -114,3 +114,41 @@ fn writting_same_record_twice() {
         "this doc was added but should not affect the count"
     );
 }
+
+#[test]
+fn writing_creates_new_blocks() {
+    struct SmallBlocksDummy;
+
+    impl Encoder for SmallBlocksDummy {
+        const BLOCK_ENTRIES: usize = 2;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            mut writer: W,
+            _delta: crate::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&[1])?;
+
+            Ok(1)
+        }
+    }
+
+    let mut ii = InvertedIndex::<SmallBlocksDummy>::new();
+
+    ii.add_record(&RSIndexResult::numeric(10, 5.0)).unwrap();
+    assert_eq!(ii.blocks.len(), 1);
+    ii.add_record(&RSIndexResult::numeric(11, 6.0)).unwrap();
+    assert_eq!(ii.blocks.len(), 1);
+
+    ii.add_record(&RSIndexResult::numeric(12, 4.0)).unwrap();
+    assert_eq!(
+        ii.blocks.len(),
+        2,
+        "should create a new block after reaching the limit"
+    );
+    ii.add_record(&RSIndexResult::numeric(13, 2.0)).unwrap();
+    assert_eq!(ii.blocks.len(), 2);
+
+    ii.add_record(&RSIndexResult::numeric(14, 1.0)).unwrap();
+    assert_eq!(ii.blocks.len(), 3);
+}
