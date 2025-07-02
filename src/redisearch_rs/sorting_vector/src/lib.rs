@@ -64,7 +64,7 @@ where
 /// Errors that can be returned by [`RSSortingVector`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
-    /// Execution halted because of timeout
+    /// The index is out of bounds for the sorting vector.
     OutOfBounds,
 
     /// A byte string was given as an argument that is not valid UTF-8.
@@ -118,8 +118,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         }
     }
 
-    /// Checks if the index is valid and decrements the reference count of previous RSValue instances.
-    /// Returns `true` if the index is in bounds , `false` otherwise.
+    /// Returns `Ok(())` if the index is in bounds, [`Error::OutOfBounds`] otherwise.
     fn in_bounds(&self, idx: usize) -> Result<(), Error> {
         if idx < self.values.len() {
             Ok(())
