@@ -29,7 +29,7 @@ mod bindings {
 
 /// An extra wrapper around the ['Buffer`] which allows the C code to grow it correctly and for its
 /// memory to be cleaned up when it goes out of scope.
-pub struct TestBuffer(Buffer);
+pub struct TestBuffer(pub Buffer);
 
 impl TestBuffer {
     /// Create a new `TestBuffer` with a specified capacity. The capacity given should be big
@@ -67,7 +67,7 @@ pub fn read_numeric(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index:
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
-    let mut result = inverted_index::RSIndexResult::numeric(0.0);
+    let mut result = inverted_index::RSIndexResult::numeric(0, 0.0);
 
     let returned = unsafe { bindings::read_numeric(&mut block_reader, &mut ctx, &mut result) };
 
@@ -132,8 +132,7 @@ mod tests {
         for (input, delta, expected_encoding) in tests {
             let mut buffer = TestBuffer::with_capacity(16);
 
-            let mut record = inverted_index::RSIndexResult::numeric(input);
-            record.doc_id = 1_000;
+            let mut record = inverted_index::RSIndexResult::numeric(1_000, input);
 
             let _buffer_grew_size = encode_numeric(&mut buffer, &mut record, delta);
 

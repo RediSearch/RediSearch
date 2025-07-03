@@ -10,10 +10,10 @@
 //! Benchmarks the numeric encoding and decoding
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use inverted_index_bencher::bencher::NumericBencher;
+use inverted_index_bencher::benchers;
 
 fn benchmark_numeric(c: &mut Criterion) {
-    let bencher = NumericBencher::new();
+    let bencher = benchers::numeric::Bencher::new();
 
     bencher.encoding(c);
     bencher.decoding(c);
