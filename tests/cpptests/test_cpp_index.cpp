@@ -1607,7 +1607,8 @@ TEST_F(IndexTest, testRawDocId) {
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    InvertedIndex_WriteEntryGeneric(idx, enc, id, NULL);
+    RSIndexResult rec = {.docId = id, .type = RSResultType_Virtual};
+    InvertedIndex_WriteEntryGeneric(idx, enc, &rec);
   }
 
   // Test that we can read them back
