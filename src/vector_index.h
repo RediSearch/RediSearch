@@ -64,7 +64,6 @@
 #define VECSIM_LEANVEC_8X8 "LeanVec8x8"
 #define VECSIM_TRAINING_THRESHOLD "TRAINING_THRESHOLD"
 #define VECSIM_LEANVEC_DIM "LEANVEC_DIM"
-#define VECSIM_SEARCH_BUFFER_CAPACITY "SEARCH_BUFFER_CAPACITY"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)

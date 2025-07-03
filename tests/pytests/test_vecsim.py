@@ -2527,7 +2527,7 @@ def test_svs_vamana_info_with_compression():
             return False
 
 
-    # Create SVS VAMANA index with all compression flavors (except for global SQ.
+    # Create SVS VAMANA index with all compression flavors (except for global SQ8).
     for compression_type in ['LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '8', 'TYPE', data_type,
                     'DIM', dim, 'DISTANCE_METRIC', 'L2', 'COMPRESSION', compression_type).ok()
@@ -2540,7 +2540,7 @@ def test_svs_vamana_info_with_compression():
                           'construction_window_size', 200, 'compression', compression_runtime, 'training_threshold',
                           10240]]
         if compression_type == 'LeanVec4x8' or compression_type == 'LeanVec8x8':
-            expected_info[0].extend(['leanvec_dim', dim / 2])
+            expected_info[0].extend(['leanvec_dim', dim // 2])
         assertInfoField(env, 'idx', 'attributes',
                         expected_info)
         env.expect('FT.DROPINDEX', 'idx').ok()
