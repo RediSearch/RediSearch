@@ -79,12 +79,6 @@ typedef struct {
   // Last processor
   struct ResultProcessor *endProc;
 
-  // Concurrent search context for thread switching
-  ConcurrentSearchCtx *conc;
-
-  // Contains our spec
-  RedisSearchCtx *sctx;
-
   struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
   struct timespec GILTime;  //milliseconds
 
@@ -110,7 +104,7 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
-IndexIterator *QITR_GetRootFilter(QueryIterator *it);
+const IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
 
@@ -170,7 +164,7 @@ typedef enum {
  */
 typedef struct ResultProcessor {
   // Reference to the parent structure
-  QueryIterator *parent;
+  QueryProcessingCtx *parent;
 
   // Previous result processor in the chain
   struct ResultProcessor *upstream;
@@ -196,6 +190,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
+
 /**
  * This function allocates a new SearchResult, copies the data from `src` to it,
  * and returns it.
@@ -214,7 +209,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+ResultProcessor *RPIndexIterator_New(const IndexIterator *itr, RedisSearchCtx *sctx, ConcurrentSearchCtx *conc);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -257,13 +252,13 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
-ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
+ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
 
-void SetLoadersForBG(struct AREQ *r);
-void SetLoadersForMainThread(struct AREQ *r);
+void SetLoadersForBG(QueryProcessingCtx *qctx);
+void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 
 /** Creates a new Highlight processor */
-ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
                                    const RLookup *lookup);
 
 void RP_DumpChain(const ResultProcessor *rp);
@@ -274,7 +269,7 @@ void RP_DumpChain(const ResultProcessor *rp);
  * This processor collects time and count info about the performance of its upstream RP.
  *
  *******************************************************************************************************************/
-ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
 
 /*******************************************************************************************************************
@@ -288,7 +283,7 @@ ResultProcessor *RPCounter_New();
 clock_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
-void Profile_AddRPs(QueryIterator *qiter);
+void Profile_AddRPs(QueryProcessingCtx *qctx);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
@@ -298,7 +293,7 @@ const char *RPTypeToString(ResultProcessorType type);
  *
  * returns timeout after N results, N >= 0.
  *******************************************************************************************************************/
-ResultProcessor *RPTimeoutAfterCount_New(size_t count);
+ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx);
 void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 
 /*******************************************************************************************************************
@@ -336,7 +331,7 @@ void PipelineAddCrash(struct AREQ *r);
  * @param sync_ref Reference to shared synchronization object
  * @param take_index_lock Whether this depleter should participate in index locking
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref);
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *sctx);
 
 /**
  * Creates a new shared sync object for a pipeline.

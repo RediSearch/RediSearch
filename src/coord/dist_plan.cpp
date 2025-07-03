@@ -9,6 +9,7 @@
 
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
+#include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "util/arr.h"
 #include "dist_plan.h"

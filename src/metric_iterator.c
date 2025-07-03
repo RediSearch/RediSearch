@@ -163,7 +163,7 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   return ri;
 }
 
-Metric GetMetric(IndexIterator *it) {
-  MetricIterator *mr = (MetricIterator *)it;
+Metric GetMetric(const IndexIterator *it) {
+  const MetricIterator *mr = (const MetricIterator *)it;
   return mr->type;
 }

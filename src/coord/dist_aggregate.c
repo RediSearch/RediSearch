@@ -387,7 +387,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root || !rows || MRReply_Length(rows) == 0) {
-    if (TimedOut(&self->parent->sctx->time.timeout)) {
+    if (TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
@@ -630,10 +630,10 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     rpProfile = RPProfile_New(&rpRoot->base, qctx);
   }
 
-  RS_ASSERT(!r->qiter.rootProc);
+  RS_ASSERT(!AREQ_QueryProcessingCtx(r)->rootProc);
   // Get the deepest-most root:
   int found = 0;
-  for (ResultProcessor *rp = r->qiter.endProc; rp; rp = rp->upstream) {
+  for (ResultProcessor *rp = AREQ_QueryProcessingCtx(r)->endProc; rp; rp = rp->upstream) {
     if (!rp->upstream) {
       rp->upstream = IsProfile(r) ? rpProfile : &rpRoot->base;
       found = 1;
@@ -745,7 +745,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
   SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
-  AREQ_QueryProcessingCtx(r)->sctx = r->sctx;
   // r->sctx->expanded should be received from shards
 
   return REDISMODULE_OK;
