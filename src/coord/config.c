@@ -80,6 +80,9 @@ int triggerConnPerShard(RSConfig *config) {
   } else {
     connPerShard = config->numWorkerThreads + 1;
   }
+  // The connPerShard will be applied to each of the ConnManager in each of the IO threads.
+  connPerShard = MAX(1, (connPerShard + realConfig->coordinatorIOThreads - 1) / realConfig->coordinatorIOThreads);
+
   MR_UpdateConnPerShard(connPerShard);
   return REDISMODULE_OK;
 }
@@ -152,7 +155,7 @@ CONFIG_GETTER(getSearchThreads) {
 
 // search-threads
 int set_search_threads(const char *name, long long val, void *privdata,
-                  RedisModuleString **err) {
+                      RedisModuleString **err) {
   RSConfig *config = (RSConfig *)privdata;
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   realConfig->coordinatorPoolSize = (size_t)val;
@@ -163,6 +166,38 @@ long long get_search_threads(const char *name, void *privdata) {
   RSConfig *config = (RSConfig *)privdata;
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   return (long long)realConfig->coordinatorPoolSize;
+}
+
+// SEARCH_IO_THREADS
+
+CONFIG_SETTER(setSearchIOThreads) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  int acrc = AC_GetSize(ac, &realConfig->coordinatorIOThreads, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+
+  // Update the IO threads in the cluster
+  MR_UpdateSearchIOThreads(realConfig->coordinatorIOThreads);
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getSearchIOThreads) {
+  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  return sdsfromlonglong(realConfig->coordinatorIOThreads);
+}
+
+// search-io-threads
+int set_search_io_threads(const char *name, long long val, void *privdata,
+                  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->coordinatorIOThreads = (size_t)val;
+  return REDISMODULE_OK;
+}
+
+long long get_search_io_threads(const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->coordinatorIOThreads;
 }
 
 // TOPOLOGY_VALIDATION_TIMEOUT
@@ -223,6 +258,10 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setSearchThreads,
              .getValue = getSearchThreads,
              .flags = RSCONFIGVAR_F_IMMUTABLE,},
+            {.name = "SEARCH_IO_THREADS",
+             .helpText = "Sets the number of I/O threads in the coordinator",
+             .setValue = setSearchIOThreads,
+             .getValue = getSearchIOThreads},
             {.name = "TOPOLOGY_VALIDATION_TIMEOUT",
              .helpText = "Sets the timeout for topology validation (in milliseconds). After this timeout, "
                          "any pending requests will be processed, even if the topology is not fully connected. "
@@ -276,6 +315,15 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_search_threads, set_search_threads, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-io-threads", COORDINATOR_IO_THREADS_DEFAULT_SIZE,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      LLONG_MAX, get_search_io_threads, set_search_io_threads, NULL,
       (void*)&RSGlobalConfig
     )
   )

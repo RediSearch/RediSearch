@@ -139,7 +139,7 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
-    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')    
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
@@ -854,6 +854,7 @@ def testModuleLoadexNumericParamsLastWins():
 def testNumericArgDeprecationMessage():
     moduleArgs = ''
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        # Since the IO threads are not lazily started, we cannot set the max number of shards and all that to the max values
         moduleArgs += f'{argName} {maxValue} '
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
@@ -1840,3 +1841,34 @@ def testConfigIndependence_max_values():
         env.expect('CONFIG', 'SET', configName, 'yes').ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, maxValueConfigDict)
+
+
+@skip(cluster=False)
+def testCoordinatorIOThreads():
+    env = Env(noDefaultModuleArgs=True)
+    # Verify default value
+    env.expect(config_cmd(), 'GET', 'SEARCH_IO_THREADS').equal([['SEARCH_IO_THREADS', '20']])
+
+    # Test setting to a valid value
+    env.expect(config_cmd(), 'SET', 'SEARCH_IO_THREADS', '5').ok()
+    env.expect(config_cmd(), 'GET', 'SEARCH_IO_THREADS').equal([['SEARCH_IO_THREADS', '5']])
+
+    # Test setting to a higher value
+    env.expect(config_cmd(), 'SET', 'SEARCH_IO_THREADS', '10').ok()
+    env.expect(config_cmd(), 'GET', 'SEARCH_IO_THREADS').equal([['SEARCH_IO_THREADS', '10']])
+
+    # Test setting to 1 (minimum allowed value)
+    env.expect(config_cmd(), 'SET', 'SEARCH_IO_THREADS', '1').ok()
+    env.expect(config_cmd(), 'GET', 'SEARCH_IO_THREADS').equal([['SEARCH_IO_THREADS', '1']])
+
+    # Test setting to 0 (should fail)
+    env.expect(config_cmd(), 'SET', 'SEARCH_IO_THREADS', '0').error().contains('Value is outside acceptable bounds')
+
+    # Test setting to negative value (should fail)
+    env.expect(config_cmd(), 'SET', 'SEARCH_IO_THREADS', '-1').error().contains('Value is outside acceptable bounds')
+
+    # Test setting to non-numeric value (should fail)
+    env.expect(config_cmd(), 'SET', 'SEARCH_IO_THREADS', 'banana').error().contains('Could not convert argument to expected type')
+
+    # Verify the value hasn't changed after failed attempts
+    env.expect(config_cmd(), 'GET', 'SEARCH_IO_THREADS').equal([['SEARCH_IO_THREADS', '1']])
