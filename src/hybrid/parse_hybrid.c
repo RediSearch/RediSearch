@@ -53,8 +53,9 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
       return REDISMODULE_OK;
     }
 
-    // Unknown argument that's not VSIM - stop parsing
-    break;
+    // Unknown argument that's not VSIM - this is an error
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in SEARCH", cur);
+    return REDISMODULE_ERR;
   }
 
   return REDISMODULE_OK;
@@ -172,6 +173,7 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
                                  RedisSearchCtx *sctx, QueryError *status) {
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
+  AREQ *mergeAreq = NULL;
   arrayof(AREQ) requestsArray = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
   vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
@@ -183,12 +185,7 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     goto error;
   }
 
-  if (!parseSearchSubquery(&ac, searchRequest, status)) {
-    goto error;
-  }
-
-  if (!AC_AdvanceIfMatch(&ac, "VSIM")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required and must come after SEARCH");
+  if (parseSearchSubquery(&ac, searchRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -215,7 +212,6 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   const int remainingOffset = (int) ac.offset;
   const int remainingArgs = argc - 2 - remainingOffset;
 
-  AREQ *mergeAreq = NULL;
   AGGPlan* mergePlan = NULL;
   // If there are remaining arguments, compile them into the request
   if (remainingArgs > 0) {
@@ -273,6 +269,35 @@ error:
   }
 
   return NULL;
+}
+
+void HybridRequest_Free(HybridRequest *hybridRequest) {
+  if (!hybridRequest) return;
+
+  // Free the merge pipeline's result processors
+  QueryProcessingCtx *qctx = &hybridRequest->merge.qctx;
+  ResultProcessor *rp = qctx->endProc;
+  while (rp) {
+    ResultProcessor *next = rp->upstream;
+    rp->Free(rp);
+    rp = next;
+  }
+
+  // Free the merge pipeline's AGGPlan steps
+  AGPLN_FreeSteps(&hybridRequest->merge.ap);
+
+  // Free the merge pipeline's output fields
+  FieldList_Free(&hybridRequest->merge.outFields);
+
+  if (hybridRequest->combineCtx.scoringType == HYBRID_SCORING_LINEAR &&
+      hybridRequest->combineCtx.linearCtx.linearWeights) {
+    rm_free(hybridRequest->combineCtx.linearCtx.linearWeights);
+  }
+  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
+    AREQ_Free(&hybridRequest->requests[i]);
+  }
+  array_free(hybridRequest->requests);
+  rm_free(hybridRequest);
 }
 
 int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

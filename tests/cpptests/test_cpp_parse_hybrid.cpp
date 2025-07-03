@@ -68,9 +68,9 @@ class ParseHybridTest : public ::testing::Test {
 TEST_F(ParseHybridTest, testBasicValidInput) {
   QueryError status = {QueryErrorCode(0)};
 
-  // Create a basic hybrid query: FT.HYBRID testidx SEARCH "hello" SEARCH "world"
+  // Create a basic hybrid query: FT.HYBRID testidx SEARCH "hello" VSIM "world"
   std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "SEARCH", "world"
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "world"
   };
 
   RedisModuleString** argv = createStringArray(args);
@@ -140,9 +140,9 @@ TEST_F(ParseHybridTest, testMissingSecondSearchParameter) {
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   QueryError status = {QueryErrorCode(0)};
 
-  // Test with LINEAR combine method: FT.HYBRID testidx SEARCH "hello" SEARCH "world" COMBINE LINEAR 0.7 0.3
+  // Test with LINEAR combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE LINEAR 0.7 0.3
   std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "SEARCH", "world",
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "world",
     "COMBINE", "LINEAR", "0.7", "0.3"
   };
 
@@ -166,9 +166,9 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
 TEST_F(ParseHybridTest, testWithCombineRRF) {
   QueryError status = {QueryErrorCode(0)};
 
-  // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" SEARCH "world" COMBINE RRF
+  // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
   std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "SEARCH", "world",
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "world",
     "COMBINE", "RRF"
   };
 
@@ -186,5 +186,27 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
 
   // Clean up
   HybridRequest_Free(result);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test invalid syntax: FT.HYBRID testidx SEARCH "hello" SEARCH "world" (should fail)
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "SEARCH", "world"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  // Verify parsing failed with appropriate error
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+
+  // Clean up
+  QueryError_ClearError(&status);
   freeStringArray(argv, argc);
 }
