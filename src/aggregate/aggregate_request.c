@@ -1224,6 +1224,19 @@ void AREQ_Free(AREQ *req) {
 
   ConcurrentSearchCtx_Free(&req->conc);
 
+  // Finally, free the context. If we are a cursor or have multi workers threads,
+  // we need also to detach the ("Thread Safe") context.
+  RedisModuleCtx *thctx = NULL;
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  if (sctx) {
+    if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+      thctx = sctx->redisCtx;
+      sctx->redisCtx = NULL;
+    }
+    // Here we unlock the spec
+    SearchCtx_Free(sctx);
+  }
+
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
   }
