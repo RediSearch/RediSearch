@@ -350,7 +350,7 @@ int buildOutputPipeline(QueryPipeline *pipeline, const AggregationPipelineParams
       }
       ff->lookupKey = kk;
     }
-    rp = RPHighlighter_New(params->searchOptions, params->outFields, lookup);
+    rp = RPHighlighter_New(params->language, params->outFields, lookup);
     PUSH_RP();
   }
 

@@ -1297,9 +1297,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .optimizer = req->optimizer,
     },
     .outFields = &req->outFields,
-    .stateflags = req->stateflags,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
-    .searchOptions = &req->searchopts,
+    .language = req->searchopts.language,
   };
   return QueryPipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
 }

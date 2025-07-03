@@ -258,7 +258,7 @@ void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 
 /** Creates a new Highlight processor */
-ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
                                    const RLookup *lookup);
 
 void RP_DumpChain(const ResultProcessor *rp);

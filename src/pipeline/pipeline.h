@@ -26,12 +26,11 @@ typedef struct AggregationPipelineParams {
   /** Fields to be output and otherwise processed */
   FieldList *outFields;
 
-  /** Flags indicating current execution state */
-  uint32_t stateflags;
-
+  /** Maximum number of results to return */
   size_t maxResultsLimit;
 
-  RSSearchOptions *searchOptions;
+  /** Language for highlighting **/
+  RSLanguage language;
 } AggregationPipelineParams;
 
 
