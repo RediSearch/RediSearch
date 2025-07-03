@@ -221,7 +221,12 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModule_CloseKey(k);
 
-  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
+  RedisJSON jsonRoot = NULL;
+  if (japi_ver >= 5) {
+    jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+  } else {
+    jsonRoot = japi->openKey(ctx, doc->docKey);
+  }
   if (!jsonRoot) {
     goto done;
   }
