@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Decoder, DecoderResult, Encoder, IndexBlock, RSIndexResult, numeric::Numeric};
+use inverted_index::{
+    Decoder, DecoderResult, Encoder, IndexBlock, RSIndexResult, numeric::Numeric,
+};
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use std::io::Cursor;
@@ -365,9 +367,10 @@ fn test_numeric_encode_decode(
     expected_buffer: Vec<u8>,
 ) {
     let mut buf = Cursor::new(Vec::new());
+    let numeric = Numeric::new();
     let record = RSIndexResult::numeric(u64::MAX, value);
 
-    let bytes_written = Numeric::new()
+    let bytes_written = numeric
         .encode(&mut buf, delta, &record)
         .expect("to encode numeric record");
 
@@ -403,7 +406,7 @@ fn encode_f64_with_compression() {
 
     let numeric = Numeric::new().with_float_compression();
     let _bytes_written = numeric
-        .encode(&mut buf, Delta::new(0), &record)
+        .encode(&mut buf, 0, &record)
         .expect("to encode numeric record");
 
     assert_eq!(
@@ -550,8 +553,10 @@ fn encoding_to_slow_writer() {
     );
 }
 
+#[test]
 fn test_encode_delta_overflow() {
-    let delta = Numeric::new().calculate_delta(&IndexBlock::new(0), u32::MAX as u64 + 1);
+    let (index_block, _) = IndexBlock::new(0);
+    let delta = Numeric::calculate_delta(&index_block, u32::MAX as u64 + 1);
 
     assert_eq!(
         delta,
@@ -559,7 +564,7 @@ fn test_encode_delta_overflow() {
         "Delta still fits in numeric encoder"
     );
 
-    let delta = Numeric::new().calculate_delta(&IndexBlock::new(0), (1 << 56) - 1);
+    let delta = Numeric::calculate_delta(&index_block, (1 << 56) - 1);
 
     assert_eq!(
         delta,
@@ -567,7 +572,7 @@ fn test_encode_delta_overflow() {
         "Delta still fits in numeric encoder"
     );
 
-    let delta = Numeric::new().calculate_delta(&IndexBlock::new(0), 1 << 56);
+    let delta = Numeric::calculate_delta(&index_block, 1 << 56);
 
     assert_eq!(
         delta, None,
@@ -586,7 +591,7 @@ proptest! {
 
         let numeric = Numeric::new();
         let _bytes_written =
-            numeric.encode(&mut buf, Delta::new(delta as _), &record).expect("to encode numeric record");
+            numeric.encode(&mut buf, delta, &record).expect("to encode numeric record");
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;

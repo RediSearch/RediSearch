@@ -104,7 +104,8 @@ fn test_decode_freqs_only_empty_input() {
 
 #[test]
 fn test_encode_freqs_only_delta_overflow() {
-    let delta = FreqsOnly::defuault().calculate_delta(&IndexBlock::new(0), u32::MAX as u64 + 1);
+    let (index_block, _) = IndexBlock::new(0);
+    let delta = FreqsOnly::calculate_delta(&index_block, u32::MAX as u64 + 1);
 
     assert_eq!(
         delta, None,

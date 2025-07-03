@@ -6,6 +6,7 @@ impl Encoder for Dummy {
     type DeltaType = u32;
 
     fn encode<W: std::io::Write + std::io::Seek>(
+        &self,
         mut writer: W,
         delta: Self::DeltaType,
         _record: &RSIndexResult,
@@ -18,7 +19,7 @@ impl Encoder for Dummy {
 
 #[test]
 fn add_records() {
-    let mut ii = InvertedIndex::<Dummy>::new();
+    let mut ii = InvertedIndex::new(Dummy);
     let record = RSIndexResult::numeric(10, 5.0);
 
     let mem_size = ii.add_record(&record).unwrap();
@@ -50,7 +51,7 @@ fn add_records() {
 
 #[test]
 fn writting_same_record_twice() {
-    let mut ii = InvertedIndex::<Dummy>::new();
+    let mut ii = InvertedIndex::new(Dummy);
     let record = RSIndexResult::numeric(10, 5.0);
 
     ii.add_record(&record).unwrap();
@@ -83,6 +84,7 @@ fn writting_same_record_twice() {
         const ALLOW_DUPLICATES: bool = true;
 
         fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
             mut writer: W,
             _delta: Self::DeltaType,
             _record: &RSIndexResult,
@@ -93,7 +95,7 @@ fn writting_same_record_twice() {
         }
     }
 
-    let mut ii = InvertedIndex::<AllowDupsDummy>::new();
+    let mut ii = InvertedIndex::new(AllowDupsDummy);
 
     ii.add_record(&record).unwrap();
     assert_eq!(ii.blocks.len(), 1);
@@ -131,6 +133,7 @@ fn writing_creates_new_blocks_when_entries_is_reached() {
         const BLOCK_ENTRIES: usize = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
             mut writer: W,
             _delta: Self::DeltaType,
             _record: &RSIndexResult,
@@ -141,7 +144,7 @@ fn writing_creates_new_blocks_when_entries_is_reached() {
         }
     }
 
-    let mut ii = InvertedIndex::<SmallBlocksDummy>::new();
+    let mut ii = InvertedIndex::new(SmallBlocksDummy);
 
     let mem_size = ii.add_record(&RSIndexResult::numeric(10, 5.0)).unwrap();
     assert_eq!(
@@ -183,7 +186,7 @@ fn writing_creates_new_blocks_when_entries_is_reached() {
 
 #[test]
 fn writting_big_delta_makes_new_block() {
-    let mut ii = InvertedIndex::<Dummy>::new();
+    let mut ii = InvertedIndex::new(Dummy);
     let record = RSIndexResult::numeric(10, 5.0);
 
     let mem_size = ii.add_record(&record).unwrap();
