@@ -10,4 +10,7 @@
 mod bindings;
 mod lookup;
 
-pub use lookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
+pub use bindings::IndexSpecCache;
+pub use lookup::{
+    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption, RLookupOptions,
+};
