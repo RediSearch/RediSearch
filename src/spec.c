@@ -3219,9 +3219,6 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   }
 }
 
-void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
-}
-
 int CompareVersions(Version v1, Version v2) {
   if (v1.majorVersion < v2.majorVersion) {
     return -1;

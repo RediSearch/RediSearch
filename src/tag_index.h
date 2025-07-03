@@ -153,11 +153,6 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
 
-#define TAGIDX_CURRENT_VERSION 1
-extern RedisModuleType *TagIndexType;
-/* Register the tag index type in redis */
-int TagIndex_RegisterType(RedisModuleCtx *ctx);
-
 /*
 * Calculates the overhead used by the TrieMaps of the TAG field named `name`, in
 * IndexSpec `sp`.

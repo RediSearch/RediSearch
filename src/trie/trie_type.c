@@ -374,10 +374,6 @@ void TrieType_GenericSave(RedisModuleIO *rdb, Trie *tree, int savePayloads) {
   }
 }
 
-void TrieType_Digest(RedisModuleDigest *digest, void *value) {
-  /* TODO: The DIGEST module interface is yet not implemented. */
-}
-
 void TrieType_Free(void *value) {
   Trie *tree = value;
   if (tree->root) {

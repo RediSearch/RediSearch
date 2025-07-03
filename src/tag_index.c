@@ -338,79 +338,11 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator_Free(it);
 }
 
-RedisModuleType *TagIndexType;
-
-void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
-  unsigned long long elems = RedisModule_LoadUnsigned(rdb);
-  TagIndex *idx = NewTagIndex();
-
-  while (elems--) {
-    size_t slen;
-    char *s = RedisModule_LoadStringBuffer(rdb, &slen);
-    InvertedIndex *inv = InvertedIndex_RdbLoad(rdb, INVERTED_INDEX_ENCVER);
-    RS_LOG_ASSERT(inv, "loading inverted index from rdb failed");
-    TrieMap_Add(idx->values, s, MIN(slen, MAX_TAG_LEN), inv, NULL);
-    RedisModule_Free(s);
-  }
-  return idx;
-}
-void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
-  TagIndex *idx = value;
-  RedisModule_SaveUnsigned(rdb, TrieMap_NUniqueKeys(idx->values));
-  TrieMapIterator *it = TrieMap_Iterate(idx->values);
-
-  char *str;
-  tm_len_t slen;
-  void *ptr;
-  size_t count = 0;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
-    count++;
-    RedisModule_SaveStringBuffer(rdb, str, slen);
-    InvertedIndex *inv = ptr;
-    InvertedIndex_RdbSave(rdb, inv);
-  }
-  RS_LOG_ASSERT(count == TrieMap_NUniqueKeys(idx->values), "not all inverted indexes save to rdb");
-  TrieMapIterator_Free(it);
-}
-
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;
   TrieMap_Free(idx->values, InvertedIndex_Free);
   TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);
-}
-
-size_t TagIndex_MemUsage(const void *value) {
-  const TagIndex *idx = value;
-  size_t sz = sizeof(*idx);
-
-  TrieMapIterator *it = TrieMap_Iterate(idx->values);
-
-  char *str;
-  tm_len_t slen;
-  void *ptr;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
-    sz += slen + InvertedIndex_MemUsage((InvertedIndex *)ptr);
-  }
-  TrieMapIterator_Free(it);
-  return sz;
-}
-
-int TagIndex_RegisterType(RedisModuleCtx *ctx) {
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .rdb_load = TagIndex_RdbLoad,
-                               .rdb_save = TagIndex_RdbSave,
-                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = TagIndex_Free,
-                               .mem_usage = TagIndex_MemUsage};
-
-  TagIndexType = RedisModule_CreateDataType(ctx, "ft_tagidx", TAGIDX_CURRENT_VERSION, &tm);
-  if (TagIndexType == NULL) {
-    RedisModule_Log(ctx, "warning", "Could not create attribute index type");
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
 }
 
 size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs) {
