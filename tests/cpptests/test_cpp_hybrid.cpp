@@ -9,7 +9,7 @@
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
-#include "aggregate/aggregate_pipeline.h"
+#include "pipeline/pipeline_construction.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_scoring.h"
 #include "result_processor.h"
@@ -113,7 +113,7 @@ TEST_F(HybridRequestTest, testHybridRequestCreationBasic) {
   ASSERT_TRUE(hybridReq->requests != nullptr);
 
   // Verify the merge pipeline is initialized
-  ASSERT_TRUE(hybridReq->merge.ap.steps.next != nullptr);
+  ASSERT_TRUE(hybridReq->tail.ap.steps.next != nullptr);
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -143,7 +143,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   EXPECT_TRUE(hybridReq->requests != nullptr);
 
   // Verify merge pipeline structure
-  EXPECT_TRUE(hybridReq->merge.ap.steps.next != nullptr);
+  EXPECT_TRUE(hybridReq->tail.ap.steps.next != nullptr);
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -179,7 +179,7 @@ TEST_F(HybridRequestTest, testHybridRequestCreationWithRedis) {
   ASSERT_TRUE(hybridReq->requests != nullptr);
 
   // Verify the merge pipeline is initialized
-  ASSERT_TRUE(hybridReq->merge.ap.steps.next != nullptr);
+  ASSERT_TRUE(hybridReq->tail.ap.steps.next != nullptr);
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -215,11 +215,18 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 2, &plan);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  // Test pipeline building
-  RSSearchOptions searchOpts;
-  RSSearchOptions_Init(&searchOpts);
+  AggregationPipelineParams params = {
+      .common = {
+        .pln = &hybridReq->tail.ap,
+        .sctx = hybridReq->requests[0]->sctx,
+        .reqflags = hybridReq->requests[0]->reqflags,
+        .optimizer = hybridReq->requests[0]->optimizer,
+      },
+      .outFields = &hybridReq->requests[0]->outFields,
+      .maxResultsLimit = 10,
+  };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &qerr, &searchOpts);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify that individual request pipelines were built
@@ -229,7 +236,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   }
 
   // Verify merge pipeline has processors
-  EXPECT_TRUE(hybridReq->merge.qctx.endProc != nullptr) << "Merge pipeline not built";
+  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Tail pipeline not built";
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -270,11 +277,18 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 3);
 
-  // Test pipeline building
-  RSSearchOptions searchOpts;
-  RSSearchOptions_Init(&searchOpts);
+  AggregationPipelineParams params = {
+      .common = {
+        .pln = &hybridReq->tail.ap,
+        .sctx = hybridReq->requests[0]->sctx,
+        .reqflags = hybridReq->requests[0]->reqflags,
+        .optimizer = hybridReq->requests[0]->optimizer,
+      },
+      .outFields = &hybridReq->requests[0]->outFields,
+      .maxResultsLimit = 10,
+  };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &qerr, &searchOpts);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify all individual request pipelines were built
@@ -285,8 +299,8 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   }
 
   // Verify merge pipeline structure
-  EXPECT_TRUE(hybridReq->merge.qctx.endProc != nullptr) << "Merge pipeline end processor not set";
-  EXPECT_TRUE(hybridReq->merge.qctx.rootProc != nullptr) << "Merge pipeline root processor not set";
+  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Tail pipeline end processor not set";
+  EXPECT_TRUE(hybridReq->tail.qctx.rootProc != nullptr) << "Tail pipeline root processor not set";
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -314,11 +328,18 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 1, &plan);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  // Test pipeline building without LOAD step
-  RSSearchOptions searchOpts;
-  RSSearchOptions_Init(&searchOpts);
+  AggregationPipelineParams params = {
+      .common = {
+        .pln = &hybridReq->tail.ap,
+        .sctx = hybridReq->requests[0]->sctx,
+        .reqflags = hybridReq->requests[0]->reqflags,
+        .optimizer = hybridReq->requests[0]->optimizer,
+      },
+      .outFields = &hybridReq->requests[0]->outFields,
+      .maxResultsLimit = 10,
+  };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &qerr, &searchOpts);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
   // Should handle missing LOAD step gracefully
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build should handle missing LOAD step: " << QueryError_GetUserError(&qerr);
 
@@ -360,11 +381,18 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 3, &plan);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  // Test pipeline building with diverse query types
-  RSSearchOptions searchOpts;
-  RSSearchOptions_Init(&searchOpts);
+  AggregationPipelineParams params = {
+      .common = {
+        .pln = &hybridReq->tail.ap,
+        .sctx = hybridReq->requests[0]->sctx,
+        .reqflags = hybridReq->requests[0]->reqflags,
+        .optimizer = hybridReq->requests[0]->optimizer,
+      },
+      .outFields = &hybridReq->requests[0]->outFields,
+      .maxResultsLimit = 10,
+  };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &qerr, &searchOpts);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed with diverse queries: " << QueryError_GetUserError(&qerr);
 
   // Verify all pipelines are properly built
@@ -383,7 +411,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
   }
 
   // Verify merge pipeline
-  EXPECT_TRUE(hybridReq->merge.qctx.endProc != nullptr) << "Merge pipeline not built";
+  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Tail pipeline not built";
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -415,16 +443,23 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 1, &plan);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  // Build pipeline
-  RSSearchOptions searchOpts;
-  RSSearchOptions_Init(&searchOpts);
+  AggregationPipelineParams params = {
+      .common = {
+        .pln = &hybridReq->tail.ap,
+        .sctx = hybridReq->requests[0]->sctx,
+        .reqflags = hybridReq->requests[0]->reqflags,
+        .optimizer = hybridReq->requests[0]->optimizer,
+      },
+      .outFields = &hybridReq->requests[0]->outFields,
+      .maxResultsLimit = 10,
+  };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &qerr, &searchOpts);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify proper cleanup - this test mainly ensures no memory leaks
   // The actual verification happens during cleanup
-  EXPECT_TRUE(hybridReq->merge.qctx.endProc != nullptr) << "Merge pipeline not built";
+  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Merge pipeline not built";
 
   // Clean up - this should not crash or leak memory
   HybridRequest_Free(hybridReq);
@@ -461,10 +496,18 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Build pipeline
-  RSSearchOptions searchOpts;
-  RSSearchOptions_Init(&searchOpts);
+  AggregationPipelineParams params = {
+      .common = {
+        .pln = &hybridReq->tail.ap,
+        .sctx = hybridReq->requests[0]->sctx,
+        .reqflags = hybridReq->requests[0]->reqflags,
+        .optimizer = hybridReq->requests[0]->optimizer,
+      },
+      .outFields = &hybridReq->requests[0]->outFields,
+      .maxResultsLimit = 10,
+    };
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &qerr, &searchOpts);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify pipeline components
@@ -483,8 +526,8 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   }
 
   // Verify merge pipeline has hybrid merger
-  ResultProcessor *mergeRP = hybridReq->merge.qctx.endProc;
-  EXPECT_TRUE(mergeRP != nullptr) << "Merge pipeline has no end processor";
+  ResultProcessor *mergeRP = hybridReq->tail.qctx.endProc;
+  EXPECT_TRUE(mergeRP != nullptr) << "Tail pipeline has no end processor";
 
   // The merge pipeline should have processors for handling the merged results
   ResultProcessor *current = mergeRP;
@@ -493,7 +536,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
     processorCount++;
     current = current->upstream;
   }
-  EXPECT_GT(processorCount, 0) << "Merge pipeline has no processors";
+  EXPECT_GT(processorCount, 0) << "Tail pipeline has no processors";
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -531,11 +574,18 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 2, &plan);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  // Build pipeline with complex plan
-  RSSearchOptions searchOpts;
-  RSSearchOptions_Init(&searchOpts);
+  AggregationPipelineParams params = {
+      .common = {
+        .pln = &hybridReq->tail.ap,
+        .sctx = hybridReq->requests[0]->sctx,
+        .reqflags = hybridReq->requests[0]->reqflags,
+        .optimizer = hybridReq->requests[0]->optimizer,
+      },
+      .outFields = &hybridReq->requests[0]->outFields,
+      .maxResultsLimit = 10,
+  };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &qerr, &searchOpts);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Complex pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify complex pipeline structure
@@ -546,7 +596,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
   }
 
   // Verify merge pipeline handles complex structure
-  EXPECT_TRUE(hybridReq->merge.qctx.endProc != nullptr) << "Complex merge pipeline not built";
+  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Complex merge pipeline not built";
 
   // Clean up
   HybridRequest_Free(hybridReq);
