@@ -47,7 +47,7 @@ static void testAverage() {
     abort();
   }
 
-  AggregationPipeline *pipeline = &r->pipeline;
+  QueryPipeline *pipeline = &r->pipeline;
   // so far, so good, eh?
   AGGPlan *plan = AREQ_AGGPlan(r);
   rc = AGGPLN_Distribute(plan, &status);

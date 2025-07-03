@@ -45,7 +45,7 @@ typedef struct IndexingPipelineParams {
     RequestConfig *reqConfig;
 } IndexingPipelineParams;
 
-typedef struct AggregationPipeline {
+typedef struct QueryPipeline {
   /* plan containing the logical sequence of steps */
   AGGPlan ap;
 
