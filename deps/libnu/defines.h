@@ -29,7 +29,7 @@
  *
  * @ingroup defines
  */
-#define NU_UNICODE_VERSION 900
+#define NU_UNICODE_VERSION 1200
 /** Special limit value to unset limit on string. Used internally by nunicode.
  *
  * @ingroup defines
