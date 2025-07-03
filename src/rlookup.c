@@ -262,6 +262,10 @@ RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name
   return RLookup_GetKey_common(lookup, name, name_len, field_name, RLOOKUP_M_LOAD, flags);
 }
 
+RLookupKey *RLookup_CloneKey(RLookup *lookup, const RLookupKey *key) {
+  return RLookup_GetKey_common(lookup, key->name, key->name_len, key->path, RLOOKUP_M_LOAD, key->flags);
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,

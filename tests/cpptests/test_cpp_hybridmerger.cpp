@@ -12,7 +12,7 @@
 #include "query.h"
 #include "gtest/gtest.h"
 #include "config.h"
-#include "hybrid_scoring.h"
+#include "hybrid/hybrid_scoring.h"
 #include <vector>
 #include <string>
 #include <set>
