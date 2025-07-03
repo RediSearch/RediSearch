@@ -16,6 +16,7 @@
 #include "cluster.h"
 #include <rmutil/rm_assert.h>  // Include the assertion header
 #include "../config.h"
+#include <pthread.h>  // Add this if not already included
 
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
@@ -37,8 +38,26 @@ static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
   io_runtime_ctx->pendingQueues = NULL;
 }
 
+// Helper function to get thread name
+static inline void getThreadName(char *buffer, size_t size) {
+  buffer[0] = '\0';
+#if defined(__linux__)
+  pthread_getname_np(pthread_self(), buffer, size);
+#elif defined(__APPLE__) && defined(__MACH__)
+  pthread_getname_np(pthread_self(), buffer, size);
+#else
+  strcpy(buffer, "unknown");
+#endif
+}
+
 static void rqAsyncCb(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = async->data;
+
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+  RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: rqAsyncCb called",
+                  thread_name, io_runtime_ctx->queue->id);
+
   // EDGE CASE: If loop_th_ready is false when a shutdown is fired, it could happen that the shutdown comes before the pendingQueues that are here being
   // "reescheduled".
   if (!io_runtime_ctx->uv_runtime.loop_th_ready) {
@@ -58,7 +77,13 @@ extern RedisModuleCtx *RSDummyContext;
 
 static void topologyFailureCB(uv_timer_t *timer) {
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)timer->data;
-  RedisModule_Log(RSDummyContext, "warning", "IORuntime ID %zu: Topology validation failed: not all nodes connected", io_runtime_ctx->queue->id);
+
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
+  RedisModule_Log(RSDummyContext, "warning", "JOAN => [thread: %s] IORuntime ID %zu: Topology validation failed: not all nodes connected",
+                  thread_name, io_runtime_ctx->queue->id);
+
   uv_timer_stop(&io_runtime_ctx->uv_runtime.topologyValidationTimer); // stop the validation timer
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)
@@ -86,25 +111,36 @@ static int CheckTopologyConnections(const MRClusterTopology *topo,
 static void topologyTimerCB(uv_timer_t *timer) {
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)timer->data;
   const MRClusterTopology *topo = io_runtime_ctx->topo;
+
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
   // Can we lock the topology? here?
- if (CheckTopologyConnections(topo, io_runtime_ctx, true) == REDIS_OK) {
+  if (CheckTopologyConnections(topo, io_runtime_ctx, true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     io_runtime_ctx->uv_runtime.loop_th_ready = true;
-    RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: All nodes connected: IO thread is ready to handle requests", io_runtime_ctx->queue->id);
+    RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: All nodes connected: IO thread is ready to handle requests",
+                    thread_name, io_runtime_ctx->queue->id);
     uv_timer_stop(&io_runtime_ctx->uv_runtime.topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&io_runtime_ctx->uv_runtime.topologyFailureTimer);    // stop failure timer (as we are connected)
     triggerPendingQueues(io_runtime_ctx);
   } else {
-    RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Waiting for all nodes to connect", io_runtime_ctx->queue->id);
+    RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Waiting for all nodes to connect",
+                    thread_name, io_runtime_ctx->queue->id);
   }
 }
 
 static void topologyAsyncCB(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)async->data;
+
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL); // take the topology
   if (task) {
+    RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Applying new topology",
+                    thread_name, io_runtime_ctx->queue->id);
     // Apply new topology
-    RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Applying new topology", io_runtime_ctx->queue->id);
     // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
     // will be the topology check. If the topology hasn't changed, the topology check will quickly
     // mark the event loop thread as ready again.
@@ -123,13 +159,25 @@ static void topologyAsyncCB(uv_async_t *async) {
 
 void shutdown_cb(uv_async_t* handle) {
   IORuntimeCtx* io_runtime_ctx = (IORuntimeCtx*)handle->data;
+
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
   // Stop the event loop first
-  RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Stopping event loop", io_runtime_ctx->queue->id);
+  RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Shutdown callback called, stopping event loop",
+                  thread_name, io_runtime_ctx->queue->id);
+
   uv_stop(&io_runtime_ctx->uv_runtime.loop);
 }
 
 // Add this new function to walk and close all handles
 static void close_walk_cb(uv_handle_t* handle, void* arg) {
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
+  RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] Closing handle %p",
+                  thread_name, (void*)handle);
+
   if (!uv_is_closing(handle)) {
     uv_close(handle, NULL);
   }
@@ -153,6 +201,10 @@ static void sideThread(void *arg) {
   RedisModule_Log(RSDummyContext, "verbose",
       "sideThread(): pthread_setname_np is not supported on this system");
 #endif
+
+  RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Side thread started",
+                  thread_name, io_runtime_ctx->queue->id);
+
   // loop is initialized and handles are ready
   //io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
   uv_async_send(&io_runtime_ctx->uv_runtime.topologyAsync); // start the topology check
@@ -269,28 +321,62 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
 }
 
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
+  RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Firing shutdown",
+                  thread_name, io_runtime_ctx->queue->id);
+
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // There may be a delay between the thread starting and the loop running, we need to account for it
     // I could perhaps try to give one last chance to PendingQueues by calling triggerPendingQueues
     //(we may need to have a logic on how many times we try to do it...)
     uv_async_send(&io_runtime_ctx->uv_runtime.shutdownAsync);
+    RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Shutdown async sent",
+                    thread_name, io_runtime_ctx->queue->id);
+  } else {
+    RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Runtime not started, skipping shutdown",
+                    thread_name, io_runtime_ctx->queue->id);
   }
 }
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
+  RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Freeing IO runtime context",
+                  thread_name, io_runtime_ctx->queue->id);
+
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // Here we know that at least the thread will be created
+    RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Runtime started, waiting for thread creation",
+                    thread_name, io_runtime_ctx->queue->id);
+
     uv_mutex_lock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
     while (!io_runtime_ctx->uv_runtime.loop_th_created && !io_runtime_ctx->uv_runtime.loop_th_creation_failed) {
       uv_cond_wait(&io_runtime_ctx->uv_runtime.loop_th_created_cond, &io_runtime_ctx->uv_runtime.loop_th_created_mutex);
     }
     uv_mutex_unlock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
+
     if (!io_runtime_ctx->uv_runtime.loop_th_creation_failed) {
+      RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Joining thread",
+                      thread_name, io_runtime_ctx->queue->id);
       uv_thread_join(&io_runtime_ctx->uv_runtime.loop_th);
+      RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Thread joined",
+        thread_name, io_runtime_ctx->queue->id);
+    } else {
+      RedisModule_Log(RSDummyContext, "warning", "JOAN => [thread: %s] IORuntime ID %zu: Thread creation failed, skipping join",
+                      thread_name, io_runtime_ctx->queue->id);
     }
   } else {
+    RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Runtime not started, closing UV handles",
+                    thread_name, io_runtime_ctx->queue->id);
     UV_Close(io_runtime_ctx);
   }
+
+  RedisModule_Log(RSDummyContext, "notice", "JOAN => [thread: %s] IORuntime ID %zu: Freeing resources - begin",
+                  thread_name, io_runtime_ctx->queue->id);
+
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(io_runtime_ctx->conn_mgr);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
@@ -310,14 +396,26 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   uv_mutex_destroy(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
   uv_cond_destroy(&io_runtime_ctx->uv_runtime.loop_th_created_cond);
 
+  RedisModule_Log(RSDummyContext, "notice", "JOAN => [thread: %s] IORuntime ID %zu: Freeing resources - end",
+                  thread_name, io_runtime_ctx->queue->id);
+
   rm_free(io_runtime_ctx);
+
+  RedisModule_Log(RSDummyContext, "notice", "JOAN => [thread: %s] IORuntime freed",
+                  thread_name);
 }
 
 //TODO: Joan (Handle potential error from uv_thread_create, what if thread is not properly created)
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
   // Initialize the loop and timers
   // Verify that we are running on the event loop thread
   uv_mutex_lock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
+  RedisModule_Log(RSDummyContext, "verbose", "JOAN => [thread: %s] IORuntime ID %zu: Starting IO runtime",
+                  thread_name, io_runtime_ctx->queue->id);
+
   int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->uv_runtime.loop_th, sideThread, io_runtime_ctx);
   io_runtime_ctx->uv_runtime.loop_th_created = true;
   io_runtime_ctx->uv_runtime.loop_th_creation_failed = uv_thread_create_status != 0;

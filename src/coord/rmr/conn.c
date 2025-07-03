@@ -323,9 +323,25 @@ static void freeConn(MRConn *conn) {
   rm_free(conn);
 }
 
+// Helper function to get thread name
+static inline void getThreadName(char *buffer, size_t size) {
+  buffer[0] = '\0';
+#if defined(__linux__)
+  pthread_getname_np(pthread_self(), buffer, size);
+#elif defined(__APPLE__) && defined(__MACH__)
+  pthread_getname_np(pthread_self(), buffer, size);
+#else
+  strcpy(buffer, "unknown");
+#endif
+}
 
 static void signalCallback(uv_timer_t *tm) {
   MRConn *conn = tm->data;
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+  if (conn) {
+    CONN_LOG(conn, "JOAN => [thread: %s] signal callback with state %s", thread_name, MRConnState_Str(conn->state));
+  }
 
   if (conn->state == MRConn_Connected) {
     return;  // Nothing to do here!
@@ -336,13 +352,18 @@ static void signalCallback(uv_timer_t *tm) {
 
   if (conn->state == MRConn_Freeing) {
     if (ac) {
-      redisAsyncSetConnectCallback(ac, NULL);
-      redisAsyncSetDisconnectCallback(ac, NULL);
+      CONN_LOG(conn, "Freeing connection in signal callback");
       ac->data = NULL;
       conn->conn = NULL;
+      CONN_LOG(conn, "JOAN => [thread: %s] signal callback with state %s before redisAsyncDisconnect", thread_name, MRConnState_Str(conn->state));
       redisAsyncDisconnect(ac);
+      CONN_LOG(conn, "JOAN => [thread: %s] signal callback with state %s after redisAsyncDisconnect", thread_name, MRConnState_Str(conn->state));
     }
+    CONN_LOG(conn, "JOAN => [thread: %s] signal callback with state %s before freeing", thread_name, MRConnState_Str(conn->state));
     freeConn(conn);
+    CONN_LOG(conn, "JOAN => [thread: %s] signal callback with state %s after freeing", thread_name, MRConnState_Str(conn->state));
+
+
     return;
   }
 
@@ -368,7 +389,11 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState, uv_loop_t *l
     uv_timer_init(loop, conn->timer);
     ((uv_timer_t *)conn->timer)->data = conn;
   }
-  CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
+
+  char thread_name[32] = {0};
+  getThreadName(thread_name, sizeof(thread_name));
+
+  CONN_LOG(conn, "JOAN => [thread: %s] Switching state to %s", thread_name, MRConnState_Str(nextState));
 
   uint64_t nextTimeout = 0;
 
@@ -418,6 +443,11 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRConn *conn = c->data;
   uv_loop_t *loop = conn->loop;
 
+  if (conn) {
+    char thread_name[32] = {0};
+    getThreadName(thread_name, sizeof(thread_name));
+    CONN_LOG(conn, "JOAN => [thread: %s] Auth callback with state %s", thread_name, MRConnState_Str(conn->state));
+  }
   redisReply *rep = r;
   if (!conn || conn->state == MRConn_Freeing) {
     // Will be picked up by disconnect callback
@@ -595,6 +625,11 @@ done:
 /* hiredis async connect callback */
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   MRConn *conn = c->data;
+  if (conn) {
+    char thread_name[32] = {0};
+    getThreadName(thread_name, sizeof(thread_name));
+    CONN_LOG(conn, "JOAN => [thread: %s] Connect callback with state %s", thread_name, MRConnState_Str(conn->state));
+  }
   if (!conn) {
     // The connection was already freed, we need to clean up the redisAsyncContext
     if (status == REDIS_OK) {
@@ -677,12 +712,20 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
     /* Ignore */
     return;
   }
+  if (conn) {
+    char thread_name[32] = {0};
+    getThreadName(thread_name, sizeof(thread_name));
+    CONN_LOG(conn, "JOAN => [thread: %s] DisConnect callback with state %s", thread_name, MRConnState_Str(conn->state));
+  }
   uv_loop_t *loop = conn->loop;
 
   if (conn->state != MRConn_Freeing) {
     detachFromConn(conn, false);
     MRConn_SwitchState(conn, MRConn_Connecting, loop);
   } else {
+    char thread_name[32] = {0};
+    getThreadName(thread_name, sizeof(thread_name));
+    CONN_LOG(conn, "JOAN => [thread: %s] Freeing connection in disconnect callback", thread_name);
     freeConn(conn);
   }
 }
