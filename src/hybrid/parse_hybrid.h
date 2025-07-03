@@ -51,19 +51,7 @@ typedef struct {
 } HybridRequest;
 
 
-static void HybridRequest_Free(HybridRequest *hybridRequest) {
-  if (!hybridRequest) return;
-
-  if (hybridRequest->combineCtx.scoringType == HYBRID_SCORING_LINEAR &&
-      hybridRequest->combineCtx.linearCtx.linearWeights) {
-    rm_free(hybridRequest->combineCtx.linearCtx.linearWeights);
-  }
-  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
-    AREQ_Free(&hybridRequest->requests[i]);
-  }
-  array_free(hybridRequest->requests);
-  rm_free(hybridRequest);
-}
+void HybridRequest_Free(HybridRequest *hybridRequest);
 
 int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
