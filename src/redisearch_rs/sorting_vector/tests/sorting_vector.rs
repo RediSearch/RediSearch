@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use sorting_vector::normalized_string::NormalizedString;
 use sorting_vector::{IndexOutOfBounds, RSSortingVector, RSValueTrait};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23,8 +22,8 @@ impl RSValueTrait for RSValueMock {
         RSValueMock::Null
     }
 
-    fn create_string(s: NormalizedString) -> Self {
-        RSValueMock::String(s.into())
+    fn create_string(s: String) -> Self {
+        RSValueMock::String(s)
     }
 
     fn create_num(num: f64) -> Self {
@@ -100,9 +99,9 @@ fn test_creation() {
 fn build_vector() -> Result<RSSortingVector<RSValueMock>, IndexOutOfBounds> {
     let mut vector = RSSortingVector::new(5);
     vector.try_insert_num(0, 42.0)?;
-    vector.try_insert_string(1, "abcdefg")?;
+    vector.try_insert_string_for_tests(1, "abcdefg")?;
     vector.try_insert_val_as_ref(2, RSValueMock::create_num(3.))?;
-    vector.try_insert_val(3, RSValueMock::create_string("Hello World".into()))?;
+    vector.try_insert_string_for_tests(3, "Hello World")?;
     vector.try_insert_null(4)?;
     Ok(vector)
 }
@@ -170,12 +169,12 @@ fn test_memory_size() -> Result<(), IndexOutOfBounds> {
 
 #[test]
 #[cfg(not(miri))]
-fn test_case_folding_aka_normlization_rust_impl() -> Result<(), IndexOutOfBounds> {
+fn test_case_folding_aka_normlization() -> Result<(), IndexOutOfBounds> {
     // Not in Miri because icu_casemap raised errors over Miri, see https://github.com/unicode-org/icu4x/issues/6723
 
     let str = "Straße";
     let mut vec: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
-    vec.try_insert_string(0, str)?;
+    vec.try_insert_string_for_tests(0, str)?;
     assert_eq!(vec[0].as_str(), Some("strasse"));
     Ok(())
 }

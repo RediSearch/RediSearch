@@ -7,17 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod normalized_string;
-
 use std::{
     fmt::Display,
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
 };
 
+use icu_casemap::CaseMapper;
 use thiserror::Error;
-
-use crate::normalized_string::NormalizedString;
 
 /// A trait that defines the behavior of a RediSearch RSValue.
 ///
@@ -32,7 +29,7 @@ where
     fn create_null() -> Self;
 
     /// Creates a new RSValue instance with a string value.
-    fn create_string(s: NormalizedString) -> Self;
+    fn create_string(s: String) -> Self;
 
     /// Creates a new RSValue instance with a number (double) value.
     fn create_num(num: f64) -> Self;
@@ -179,33 +176,26 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     /// Set a string at the given index, the string is normalized before being set.
     pub fn try_insert_string<S: AsRef<str>>(
         &mut self,
-        idx: usize,
-        str: S,
+        _idx: usize,
+        _str: S,
     ) -> Result<(), IndexOutOfBounds> {
-        self.in_bounds(idx)?;
-        self.values[idx] = T::create_string(NormalizedString::new(str));
-        Ok(())
+        unimplemented!(
+            "We cannot yet use `NormalizedString` here, as the RSValue string allocations still happen\
+                in the C layer and the workaround for linking C code for allocations is not ready."
+        );
     }
 
-    /// Set a string at the given index, the string is assumed to be normalized.
-    /// This is unsafe because it does not check the normalization of the input.
-    ///
-    /// # Safety
-    /// The caller must ensure that the input string is already normalized.
-    pub unsafe fn try_insert_string_unchecked(
+    pub fn try_insert_string_for_tests<S: AsRef<str>>(
         &mut self,
-        idx: usize,
-        str: String,
+        _idx: usize,
+        _str: S,
     ) -> Result<(), IndexOutOfBounds> {
-        self.in_bounds(idx)?;
-
-        // Safety: The caller must ensure that the string is normalized.
-        let str = unsafe { NormalizedString::new_unchecked(str) };
-
-        self.values[idx] = T::create_string(str);
+        self.in_bounds(_idx)?;
+        let casemapper = CaseMapper::new();
+        let normalized = casemapper.fold_string(_str.as_ref()).into_owned();
+        self.values[_idx] = T::create_string(normalized);
         Ok(())
     }
-
     /// Set a value at the given index
     pub fn try_insert_val(&mut self, idx: usize, value: T) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;
