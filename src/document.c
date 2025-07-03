@@ -389,8 +389,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      bool unf = (fs->options & FieldSpec_UNF) != 0;
-      RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, c, unf);
+      bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
+      const char* str_param = is_normalized ? rm_strdup(c) : normalizeStr(c);
+      RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
       field->multisv = NULL;
@@ -709,8 +710,9 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 
   if (str && FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      bool unf = (fs->options & FieldSpec_UNF) != 0;
-      RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str, unf);
+      bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
+      const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+      RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
     } else if (field->multisv) {
       RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
       field->multisv = NULL;
@@ -726,8 +728,9 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
       if (field->unionType != FLD_VAR_T_ARRAY) {
         size_t fl;
         const char *str = DocumentField_GetValueCStr(field, &fl);
-        bool unf = (fs->options & FieldSpec_UNF) != 0;
-        RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str, unf);
+        bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
+        const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+        RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str_param);
       } else if (field->multisv) {
         RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
         field->multisv = NULL;
@@ -960,8 +963,9 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
         case INDEXFLD_T_TAG:
         case INDEXFLD_T_GEO: {
           const char* str = RedisModule_StringPtrLen(f->text, NULL);
-          bool unf = (fs->options & FieldSpec_UNF) != 0;
-          RSSortingVector_PutStr(md->sortVector, idx, str, unf);
+          bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
+          const char* str_param = is_normalized ? rm_strdup(str) : normalizeStr(str);
+          RSSortingVector_PutStr(md->sortVector, idx, str_param);
           break;
         }
         case INDEXFLD_T_NUMERIC: {
