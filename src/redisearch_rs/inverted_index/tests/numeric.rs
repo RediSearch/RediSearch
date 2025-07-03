@@ -424,7 +424,6 @@ fn encode_f64_with_compression() {
     let DecoderResult::Record(record_decoded) = numeric
         .decode(&mut buf, 0)
         .expect("to decode numeric record")
-        .expect("to read a record from the buffer")
     else {
         panic!("Record was filtered out incorrectly")
     };
@@ -438,8 +437,7 @@ fn encode_f64_with_compression() {
 #[test]
 fn test_empty_buffer() {
     let mut buffer = Cursor::new(Vec::new());
-    let res = Numeric::new()
-        .decode(&mut buffer, 0);
+    let res = Numeric::new().decode(&mut buffer, 0);
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
@@ -572,7 +570,6 @@ proptest! {
         let DecoderResult::Record(record_decoded) = numeric
             .decode(&mut buf, prev_doc_id)
             .expect("to decode numeric record")
-            .expect("to read a record from the buffer")
         else {
             panic!("Record was filtered out incorrectly")
         };

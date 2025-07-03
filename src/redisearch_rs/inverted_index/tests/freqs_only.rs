@@ -43,7 +43,8 @@ fn test_encode_freqs_only() {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::freqs_only(doc_id, freq);
 
-        let bytes_written = FreqsOnly::encode(&mut buf, Delta::new(delta), &record)
+        let bytes_written = FreqsOnly::new()
+            .encode(&mut buf, Delta::new(delta), &record)
             .expect("to encode freqs only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
@@ -70,7 +71,7 @@ fn test_encode_freqs_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::freqs_only(10, 5);
-    let res = FreqsOnly::encode(&mut cursor, Delta::new(0), &record);
+    let res = FreqsOnly::new().encode(&mut cursor, Delta::new(0), &record);
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
@@ -108,5 +109,5 @@ fn test_encode_freqs_only_delta_overflow() {
     let mut buf = Cursor::new(vec![0; 3]);
 
     let record = RSIndexResult::freqs_only(10, 5);
-    let _res = FreqsOnly::encode(&mut buf, Delta::new(u32::MAX as usize + 1), &record);
+    let _res = FreqsOnly::new().encode(&mut buf, Delta::new(u32::MAX as usize + 1), &record);
 }
