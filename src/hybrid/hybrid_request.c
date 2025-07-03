@@ -1,5 +1,5 @@
 #include "hybrid/hybrid_request.h"
-#include "aggregate/aggregate_pipeline.h"
+#include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
 
 #ifdef __cplusplus
@@ -16,14 +16,14 @@ const RLookupKey **CloneKeysInDifferentRLookup(PLN_LoadStep *loadStep, RLookup *
     return clonedKeys;
 }
 
-int HybridRequest_BuildPipeline(HybridRequest *req, QueryError *status, RSSearchOptions *searchOpts) {
-    StrongRef sync_ref = DepleterSync_New();
-    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->merge.ap, NULL, NULL, PLN_T_LOAD);
+int HybridRequest_BuildPipeline(HybridRequest *req, const AggregationPipelineParams *params, bool synchronize_read_locks) {
+    StrongRef sync_ref = DepleterSync_New(req->nrequests, synchronize_read_locks);
+    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->tail.ap, NULL, NULL, PLN_T_LOAD);
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
         // Build the pipeline based on the areq AGGPlan
-        int rc = AREQ_BuildPipeline(areq, status);
+        int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
         if (rc != REDISMODULE_OK) {
             StrongRef_Release(sync_ref);
             array_free(depleters);
@@ -34,7 +34,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, QueryError *status, RSSearch
         if (loadStep) {
             RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
             const RLookupKey **clonedKeys = CloneKeysInDifferentRLookup(loadStep, lastLookup);
-            ResultProcessor *loader = RPLoader_New(&areq->pipeline, lastLookup, clonedKeys, loadStep->nkeys, false);
+            ResultProcessor *loader = RPLoader_New(&areq->sctx, areq->reqflags, lastLookup, clonedKeys, loadStep->nkeys, false, &areq->stateflags);
             QITR_PushRP(qctx, loader);
         }
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), AREQ_SearchCtx(areq));
@@ -44,14 +44,15 @@ int HybridRequest_BuildPipeline(HybridRequest *req, QueryError *status, RSSearch
     
     StrongRef_Release(sync_ref);
     ResultProcessor *merger = RPHybridMerger_New(&req->scoringCtx, depleters, req->nrequests);
-    QITR_PushRP(&req->merge.qctx, merger);
+    QITR_PushRP(&req->tail.qctx, merger);
 
     if (loadStep) {
         AGPLN_PopStep(&loadStep->base);
     }
-    BuildPipeline(&req->merge, NULL, searchOpts, status, req->merge.qctx.timeoutPolicy);
+    uint32_t stateFlags = 0;
+    QueryPipeline_BuildAggregationPart(&req->tail, params, &stateFlags);
     if (loadStep) {
-        AGPLN_AddStep(&req->merge.ap, &loadStep->base);
+        AGPLN_AddStep(&req->tail.ap, &loadStep->base);
     }
     return REDISMODULE_OK;
 }
@@ -60,9 +61,11 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests, AGGPlan *pla
     HybridRequest *req = rm_calloc(1, sizeof(*req));
     req->requests = requests;
     req->nrequests = nrequests;
-    req->merge.ap = *plan;
-    req->merge.qctx.timeoutPolicy = requests[0]->pipeline.qctx.timeoutPolicy;
-    req->merge.qctx.rootProc = req->merge.qctx.endProc = NULL;
+    req->errors = array_new(QueryError, nrequests);
+    req->tail.ap = *plan;
+    req->tail.qctx.timeoutPolicy = requests[0]->pipeline.qctx.timeoutPolicy;
+    req->tail.qctx.rootProc = req->tail.qctx.endProc = NULL;
+    req->tail.qctx.err = &req->tailError;
     return req;
 }
 
@@ -71,7 +74,8 @@ void HybridRequest_Free(HybridRequest *req) {
         AREQ_Free(req->requests[i]);
     }
     array_free(req->requests);
-    QueryPipeline_Clean(&req->merge);
+    array_free(req->errors);
+    QueryPipeline_Clean(&req->tail);
     rm_free(req);
 }
 
