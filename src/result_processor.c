@@ -1447,25 +1447,46 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 /*******************************************************************************************************************
  *  Depleter Result Processor
  *
- *  The RPDepleter result processor offloads the task of consuming all results from its upstream processor
- *  into a background thread, storing them in an internal array. While the background thread is running,
- *  calls to Next() return RS_RESULT_DEPLETING. Once depleting is complete, Next() yields results one by one
- *  from the internal array, and finally returns the last return code from the upstream.
+ *  The RPDepleter result processor offloads the task of consuming all results from
+ *  its upstream processor into a background thread, storing them in an internal
+ *  array. While the background thread is running, calls to Next() wait on a shared
+ *  condition variable and return RS_RESULT_DEPLETING. The thread can be awakened
+ *  either by its own depleting thread completing or by another RPDepleter's thread
+ *  signaling completion. Once depleting is complete for this processor, Next()
+ *  yields results one by one from the internal array, and finally returns the last
+ *  return code from the upstream.
+ *  NOTE: Currently the recommended number of upstreams is 2. Using more may
+ *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
 typedef struct {
-  ResultProcessor base;                // Base result processor struct
-  arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
-  bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
-  uint cur_idx;                        // Current index for yielding results
-  RPStatus last_rc;                    // Last return code from upstream
-  bool first_call;                     // Whether the first call to Next has been made
-  StrongRef sync_ref;                  // Reference to shared synchronization object
+  ResultProcessor base;             // Base result processor struct
+  arrayof(SearchResult *) results;  // Array of pointers to SearchResult, filled by the depleting thread
+  bool done_depleting;              // Set to `true` when depleting is finished (under lock)
+  uint cur_idx;                     // Current index for yielding results
+  RPStatus last_rc;                 // Last return code from upstream
+  bool first_call;                  // Whether the first call to Next has been made
+  StrongRef sync_ref;               // Reference to shared synchronization object (DepleterSync)
 } RPDepleter;
 
-// Shared synchronization object for all RPDepleter instances of a pipeline
+/*
+ * Shared synchronization object for all RPDepleter instances of a pipeline.
+ * We have two main synchronization fronts:
+ * 1. The pipeline thread should wake up once ANY depleter finishes depleting.
+ *    For this, we have the shared condition variable `cond` and mutex `mutex`.
+ * 2. The pipeline thread should release the index lock only after ALL depleters
+ *    have locked the index for read.
+ *    It is critical that it releases it at the point and not sooner or later,
+ *    since sooner may cause an inconsistent view of the index among the subqueries,
+ *    and later may cause performance issues (and deadlock if not released at all)
+ *    as the GIL may not be released due to the main-thread waiting on the index-lock.
+ */
 typedef struct {
   pthread_cond_t cond;
   pthread_mutex_t mutex;
+  uint num_depleters;     // Number of depleters to sync
+  atomic_int num_locked;  // Number of depleters that have locked the index
+  bool index_released;    // Whether or not the index-spec has been released by the pipeline thread yet
+  bool take_index_lock;   // Whether or not the depleter should take the index lock
 } DepleterSync;
 
 // Free function for DepleterSync
@@ -1477,10 +1498,12 @@ static void DepleterSync_Free(void *obj) {
 }
 
 // Create a new shared sync object for a pipeline
-StrongRef DepleterSync_New() {
-  DepleterSync *sync = rm_malloc(sizeof(DepleterSync));
+StrongRef DepleterSync_New(uint num_depleters, bool take_index_lock) {
+  DepleterSync *sync = rm_calloc(1, sizeof(DepleterSync));
   pthread_cond_init(&sync->cond, NULL);
   pthread_mutex_init(&sync->mutex, NULL);
+  sync->num_depleters = num_depleters;
+  sync->take_index_lock = take_index_lock;
   return StrongRef_New(sync, DepleterSync_Free);
 }
 
@@ -1502,6 +1525,15 @@ static void RPDepleter_Deplete(void *arg) {
   RPDepleter *self = (RPDepleter *)arg;
   RPStatus rc;
 
+  DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+
+  if (sync->take_index_lock) {
+    // Lock the index for read
+    RedisSearchCtx_LockSpecRead(RP_SCTX(&self->base));
+    // Increment the counter
+    atomic_fetch_add(&sync->num_locked, 1);
+  }
+
   // Deplete the pipeline into the `self->results` array.
   SearchResult *r = rm_calloc(1, sizeof(*r));
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
@@ -1512,9 +1544,13 @@ static void RPDepleter_Deplete(void *arg) {
   // Save the last return code from the upstream.
   self->last_rc = rc;
 
+  // Verify the index is unlocked (in case the pipeline did not release the lock,
+  // e.g., limit + no Loader)
+  if (sync->take_index_lock) {
+    RedisSearchCtx_UnlockSpec(RP_SCTX(&self->base));
+  }
+
   // Signal completion under mutex protection
-  DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
-  RS_LOG_ASSERT(sync, "Invalid sync reference");
   pthread_mutex_lock(&sync->mutex);
   self->done_depleting = true;
   pthread_cond_broadcast(&sync->cond);  // Wake up all waiting depleters
@@ -1559,9 +1595,24 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
     return RS_RESULT_DEPLETING;
   }
 
-  // On subsequent calls, wait on condition variable for any depleter to complete
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
-  RS_LOG_ASSERT(sync, "Invalid sync reference");
+
+  if (sync->take_index_lock && !sync->index_released) {
+    // Load the atomic counter
+    int num_locked = atomic_load(&sync->num_locked);
+    RS_ASSERT(num_locked <= sync->num_depleters);
+    if (num_locked == sync->num_depleters) {
+      // Release the index
+      RedisSearchCtx_UnlockSpec(RP_SCTX(base));
+      // Mark the index as released
+      sync->index_released = true;
+    } else {
+      // Not all depleter threads have taken the index lock yet. Wait for them
+      return RS_RESULT_DEPLETING;
+    }
+  }
+
+  // On subsequent calls, wait on condition variable for any depleter to complete
   pthread_mutex_lock(&sync->mutex);
 
   // Check if depleting is already done.
@@ -1601,6 +1652,8 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
   ret->base.type = RP_DEPLETER;
   ret->first_call = true;
   ret->sync_ref = sync_ref;
+  // Make sure the sync reference is valid
+  RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;
 }
 
