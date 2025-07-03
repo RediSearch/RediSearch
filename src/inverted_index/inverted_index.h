@@ -252,7 +252,7 @@ bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSI
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
 
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
                                        RSIndexResult *entry);
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is

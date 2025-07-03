@@ -486,8 +486,9 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 }
 
 /* Write a forward-index entry to an index writer */
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
                                        RSIndexResult *entry) {
+  t_docId docId = entry->docId;
   size_t sz = 0;
   RS_ASSERT(docId > 0);
   const bool same_doc = idx->lastId == docId;
@@ -558,7 +559,7 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
       .type = RSResultType_Numeric,
       .data.num = (RSNumericRecord){.value = value},
   };
-  return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
+  return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, &rec);
 }
 
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
