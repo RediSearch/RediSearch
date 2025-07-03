@@ -186,11 +186,8 @@ bool BM_IntersectionIterator::initialized = false;
 // Parameter 1: Number of documents per idlist iterator (1000, 5000)
 // Parameter 2: ID distribution type (CONSECUTIVE, SPARSE_JUMPS_100, CONSECUTIVE_MODULO)
 #define INTERSECTION_SCENARIOS() \
-    Args({10, 1000, CONSECUTIVE})->Args({10, 1000, SPARSE_JUMPS_100})->Args({10, 1000, CONSECUTIVE_MODULO})-> \
-    Args({10, 5000, CONSECUTIVE})->Args({10, 5000, SPARSE_JUMPS_100})->Args({10, 5000, CONSECUTIVE_MODULO})-> \
-    Args({25, 1000, CONSECUTIVE})->Args({25, 1000, SPARSE_JUMPS_100})->Args({25, 1000, CONSECUTIVE_MODULO})-> \
-    Args({25, 5000, CONSECUTIVE})->Args({25, 5000, SPARSE_JUMPS_100})->Args({25, 5000, CONSECUTIVE_MODULO})-> \
-    Args({50, 1000, CONSECUTIVE})->Args({50, 1000, SPARSE_JUMPS_100})->Args({50, 1000, CONSECUTIVE_MODULO})
+  ArgNames({"IdListsPerUnion", "DocsPerIdList", "IdDistributionType"})-> \ 
+  ArgsProduct({{10, 25, 50}, {1000, 5000}, {CONSECUTIVE, SPARSE_JUMPS_100, CONSECUTIVE_MODULO}})
 
 // Benchmark intersection iterator Read() performance
 // Tests how different ID distributions affect intersection performance:
