@@ -23,7 +23,7 @@ impl Encoder for FreqsOnly {
     type DeltaType = u32;
 
     fn encode<W: Write + Seek>(
-        &self,
+        &mut self,
         mut writer: W,
         delta: Self::DeltaType,
         record: &RSIndexResult,

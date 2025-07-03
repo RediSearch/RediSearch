@@ -367,9 +367,9 @@ fn test_numeric_encode_decode(
     expected_buffer: Vec<u8>,
 ) {
     let mut buf = Cursor::new(Vec::new());
-    let numeric = Numeric::new();
     let record = RSIndexResult::numeric(u64::MAX, value);
 
+    let mut numeric = Numeric::new();
     let bytes_written = numeric
         .encode(&mut buf, delta, &record)
         .expect("to encode numeric record");
@@ -400,11 +400,30 @@ fn test_numeric_encode_decode(
 }
 
 #[test]
+fn encoding_increase_num_entries() {
+    let mut buf = Cursor::new(Vec::new());
+    let record = RSIndexResult::numeric(0, 1.0);
+    let mut numeric = Numeric::new();
+
+    assert_eq!(numeric.num_entries(), 0);
+
+    let _bytes_written = numeric
+        .encode(&mut buf, 0, &record)
+        .expect("to encode numeric record");
+    assert_eq!(numeric.num_entries(), 1);
+
+    let _bytes_written = numeric
+        .encode(&mut buf, 0, &record)
+        .expect("to encode numeric record");
+    assert_eq!(numeric.num_entries(), 2);
+}
+
+#[test]
 fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(0, 3.124);
 
-    let numeric = Numeric::new().with_float_compression();
+    let mut numeric = Numeric::new().with_float_compression();
     let _bytes_written = numeric
         .encode(&mut buf, 0, &record)
         .expect("to encode numeric record");
@@ -589,7 +608,7 @@ proptest! {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::numeric(u64::MAX, value as _);
 
-        let numeric = Numeric::new();
+        let mut numeric = Numeric::new();
         let _bytes_written =
             numeric.encode(&mut buf, delta, &record).expect("to encode numeric record");
 
@@ -614,9 +633,9 @@ proptest! {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::numeric(u64::MAX, value);
 
-        let numeric = Numeric::new();
+        let mut numeric = Numeric::new();
         let _bytes_written =
-            Numeric::new().encode(&mut buf, delta, &record).expect("to encode numeric record");
+            numeric.encode(&mut buf, delta, &record).expect("to encode numeric record");
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
