@@ -314,15 +314,12 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size) {
 
 void MR_UpdateSearchIOThreads(size_t num_io_threads) {
   RS_ASSERT(num_io_threads > 0);
-  printf("Updating number of IO threads to %lu \n", num_io_threads);
 
   if (!cluster_g || NumShards == 1) return;
   size_t old_conn_pool_size = cluster_g->io_runtimes_pool[0]->conn_mgr->nodeConns;
   size_t old_num_io_threads = cluster_g->num_io_threads;
   MRCluster_UpdateNumIOThreads(cluster_g, num_io_threads);
   size_t new_conn_pool_size = CEIL_DIV(old_conn_pool_size * old_num_io_threads, num_io_threads);
-  printf("Updating pool size to %lu \n", new_conn_pool_size);
-
   MR_UpdateConnPoolSize(new_conn_pool_size);
   //TODO(Joan): Wait for all threads to be updated before returning?
 }
