@@ -14,6 +14,7 @@
 #include "param.h"
 #include "resp3.h"
 #include "rmalloc.h"
+#include "hiredis/sds.h"
 
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
@@ -62,8 +63,162 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
 }
 
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
-  // TODO: Parse additional vector parameters (method, FILTER, etc.)
+  // Get original query string containing vector field and data
+  RS_ASSERT(AC_AdvanceIfMatch(ac, "VSIM"));
+  const char *originalQuery = AC_GetStringNC(ac, NULL);
+
+  // Parse vector field and data from original query
+  // For now, we'll use a simple approach - the originalQuery should contain "@field vector_data"
+  // We need to extract the field name and vector data
+
+  // Find the first space to separate field from data
+  const char *space = strchr(originalQuery, ' ');
+  if (!space) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Expected vector field and data");
+    return REDISMODULE_ERR;
+  }
+
+  // Extract vector field (everything before the space)
+  size_t fieldLen = space - originalQuery;
+  char *vectorField = rm_strndup(originalQuery, fieldLen);
+
+  // Extract vector data (everything after the space, removing quotes if present)
+  const char *vectorData = space + 1;
+  size_t vectorDataLen = strlen(vectorData);
+
+  // Remove surrounding quotes if present
+  if (vectorDataLen >= 2 && vectorData[0] == '"' && vectorData[vectorDataLen-1] == '"') {
+    vectorData++;
+    vectorDataLen -= 2;
+  }
+
+  // Extract search pattern (KNN/RANGE) and parameters
+  sds searchPattern = sdsempty();
+  const char *preFilter = NULL;
+
+  if (AC_AdvanceIfMatch(ac, "KNN")) {
+    long long k;
+    if (AC_GetLongLong(ac, &k, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "KNN requires K parameter");
+      goto error;
+    }
+
+    searchPattern = sdscatprintf(searchPattern, "KNN %lld $vec", k);
+
+    // Parse optional KNN parameters
+    if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
+      long long efValue;
+      if (AC_GetLongLong(ac, &efValue, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "EF_RUNTIME requires numeric value");
+        goto error;
+      }
+      searchPattern = sdscatprintf(searchPattern, "=>{$EF_RUNTIME:%lld}", efValue);
+    }
+
+    if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
+      const char *distField;
+      if (AC_GetString(ac, &distField, NULL, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "YIELD_DISTANCE_AS requires field name");
+        goto error;
+      }
+      if (sdslen(searchPattern) > 0 && searchPattern[sdslen(searchPattern)-1] != '}') {
+        searchPattern = sdscatprintf(searchPattern, "=>{$YIELD_DISTANCE_AS:%s}", distField);
+      } else {
+        // Append to existing attributes
+        sdsrange(searchPattern, 0, sdslen(searchPattern) - 2); // Remove "}
+        searchPattern = sdscatprintf(searchPattern, ";$YIELD_DISTANCE_AS:%s}", distField);
+      }
+    }
+
+  } else if (AC_AdvanceIfMatch(ac, "RANGE")) {
+    if (!AC_AdvanceIfMatch(ac, "RADIUS")) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "RANGE requires RADIUS parameter");
+      goto error;
+    }
+
+    double radius;
+    if (AC_GetDouble(ac, &radius, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "RADIUS requires numeric value");
+      goto error;
+    }
+
+    searchPattern = sdscatprintf(searchPattern, "VECTOR_RANGE %f $vec", radius);
+
+    // Parse optional RANGE parameters
+    if (AC_AdvanceIfMatch(ac, "EPSILON")) {
+      double epsilonValue;
+      if (AC_GetDouble(ac, &epsilonValue, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "EPSILON requires numeric value");
+        goto error;
+      }
+      searchPattern = sdscatprintf(searchPattern, "=>{$EPSILON:%f}", epsilonValue);
+    }
+
+    if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
+      const char *distField;
+      if (AC_GetString(ac, &distField, NULL, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "YIELD_DISTANCE_AS requires field name");
+        goto error;
+      }
+      if (sdslen(searchPattern) > 0 && searchPattern[sdslen(searchPattern)-1] != '}') {
+        searchPattern = sdscatprintf(searchPattern, "=>{$YIELD_DISTANCE_AS:%s}", distField);
+      } else {
+        // Append to existing attributes
+        sdsrange(searchPattern, 0, sdslen(searchPattern) - 2); // Remove "}
+        searchPattern = sdscatprintf(searchPattern, ";$YIELD_DISTANCE_AS:%s}", distField);
+      }
+    }
+
+  } else {
+    // Default to KNN if no method specified
+    searchPattern = sdscatprintf(searchPattern, "KNN 10 $vec");
+  }
+
+  // Extract filter clause if present
+  if (AC_AdvanceIfMatch(ac, "FILTER")) {
+    const char *filterExpr;
+    size_t filterLen;
+    if (AC_GetString(ac, &filterExpr, &filterLen, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "FILTER requires expression string");
+      goto error;
+    }
+    preFilter = rm_strndup(filterExpr, filterLen);
+  }
+
+  // Save filter clause in AREQ for validation
+  vectorRequest->filterClause = preFilter;
+
+  // Reorganize into old syntax: [prefilter]=>{search_pattern}
+  sds oldSyntax = sdsempty();
+
+  if (preFilter) {
+    // Format: (filter_expression)=>{@vector_field:[search_pattern]}
+    oldSyntax = sdscatprintf(oldSyntax, "(%s)=>{%s:[%s]}",
+                            preFilter, vectorField, searchPattern);
+  } else {
+    // Format: @vector_field:[search_pattern]
+    oldSyntax = sdscatprintf(oldSyntax, "%s:[%s]", vectorField, searchPattern);
+  }
+
+  // Set the reorganized query
+  vectorRequest->query = oldSyntax;
+
+  // Initialize other AREQ fields
+  AGPLN_Init(&vectorRequest->ap);
+  RSSearchOptions_Init(&vectorRequest->searchopts);
+
+  // Store vector data for $vec parameter resolution
+  // TODO: This requires extending the parameter system to handle binary data
+
+  sdsfree(searchPattern);
+  rm_free(vectorField);
   return REDISMODULE_OK;
+
+error:
+  if (searchPattern) sdsfree(searchPattern);
+  if (preFilter) rm_free((void*)preFilter);
+  if (vectorField) rm_free(vectorField);
+  return REDISMODULE_ERR;
 }
 
 static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {

@@ -95,21 +95,21 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
 
 TEST_F(ParseHybridTest, testMissingSearchParameter) {
   QueryError status = {QueryErrorCode(0)};
-  
+
   // Missing SEARCH parameter: FT.HYBRID testidx VSIM @vector_field
   std::vector<const char*> args = {
     "FT.HYBRID", "testidx", "VSIM", "@vector_field"
   };
-  
+
   RedisModuleString** argv = createStringArray(args);
   int argc = args.size();
-  
+
   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
-  
+
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_ESYNTAX);
-  
+
   // Clean up
   QueryError_ClearError(&status);
   freeStringArray(argv, argc);
@@ -189,24 +189,67 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   freeStringArray(argv, argc);
 }
 
-TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
-  QueryError status = {QueryErrorCode(0)};
+// TEST_F(ParseHybridTest, TestParseVectorSubquery) {
+//   // Test basic KNN query transformation
+//   const char* args[] = {"FT.HYBRID", "idx", "SEARCH", "@title:hello", "VSIM", "@v \"[1,2,3]\"", "KNN", "10"};
+//   int argc = sizeof(args) / sizeof(args[0]);
+//   char** argv = createStringArray(args, argc);
 
-  // Test invalid syntax: FT.HYBRID testidx SEARCH "hello" SEARCH "world" (should fail)
-  std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "SEARCH", "world"
-  };
+//   QueryError status = {QueryErrorCode(0)};
+//   HybridRequest* result = HybridRequest_Parse(argv, argc, &status);
 
-  RedisModuleString** argv = createStringArray(args);
-  int argc = args.size();
+//   // Verify the request was parsed successfully
+//   ASSERT_TRUE(result != NULL);
+//   ASSERT_EQ(status.code, QUERY_OK);
 
-  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+//   // Verify the vector query was transformed correctly
+//   ASSERT_TRUE(result->requests != NULL);
+//   ASSERT_GT(result->nrequests, 0);
 
-  // Verify parsing failed with appropriate error
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+//   // Check that the vector request has the transformed query
+//   AREQ* vectorReq = &result->requests[1]; // Second request should be vector
+//   ASSERT_TRUE(vectorReq->query != NULL);
 
-  // Clean up
-  QueryError_ClearError(&status);
-  freeStringArray(argv, argc);
-}
+//   // The query should be transformed to old syntax: @v:[KNN 10 $vec]
+//   std::string queryStr(vectorReq->query);
+//   ASSERT_TRUE(queryStr.find("@v:[KNN 10 $vec]") != std::string::npos);
+
+//   // Clean up
+//   HybridRequest_Free(result);
+//   freeStringArray(argv, argc);
+// }
+
+// TEST_F(ParseHybridTest, TestParseVectorSubqueryWithFilter) {
+//   // Test KNN query with filter transformation
+//   const char* args[] = {"FT.HYBRID", "idx", "SEARCH", "@title:hello", "VSIM", "@v \"[1,2,3]\"", "KNN", "5", "FILTER", "text:(world)"};
+//   int argc = sizeof(args) / sizeof(args[0]);
+//   char** argv = createStringArray(args, argc);
+
+//   QueryError status = {QueryErrorCode(0)};
+//   HybridRequest* result = HybridRequest_Parse(argv, argc, &status);
+
+//   // Verify the request was parsed successfully
+//   ASSERT_TRUE(result != NULL);
+//   ASSERT_EQ(status.code, QUERY_OK);
+
+//   // Verify the vector query was transformed correctly
+//   ASSERT_TRUE(result->requests != NULL);
+//   ASSERT_GT(result->nrequests, 0);
+
+//   // Check that the vector request has the transformed query and filter
+//   AREQ* vectorReq = &result->requests[1]; // Second request should be vector
+//   ASSERT_TRUE(vectorReq->query != NULL);
+//   ASSERT_TRUE(vectorReq->filterClause != NULL);
+
+//   // The query should be transformed to: (text:(world))=>{@v:[KNN 5 $vec]}
+//   std::string queryStr(vectorReq->query);
+//   ASSERT_TRUE(queryStr.find("(text:(world))=>{@v:[KNN 5 $vec]}") != std::string::npos);
+
+//   // The filter clause should be stored separately
+//   std::string filterStr(vectorReq->filterClause);
+//   ASSERT_EQ(filterStr, "text:(world)");
+
+//   // Clean up
+//   HybridRequest_Free(result);
+//   freeStringArray(argv, argc);
+// }

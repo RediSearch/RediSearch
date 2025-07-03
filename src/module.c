@@ -3515,6 +3515,19 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (NumShards == 1) {
+    // There is only one shard in the cluster. We can handle the command locally.
+    return RSHybridCommand(ctx, argv, argc);
+  } else if (cannotBlockCtx(ctx)) {
+    return ReplyBlockDeny(ctx, argv[0]);
+  }
+
+  // For multi-shard clusters, hybrid queries are not yet supported
+  // TODO: Implement distributed hybrid query execution
+  return RedisModule_ReplyWithError(ctx, "Hybrid queries not yet supported in multi-shard clusters");
+}
+
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 5) {
@@ -3775,6 +3788,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID", SafeCmd(DistHybridCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
   if (clusterConfig.type == ClusterType_RedisLabs) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.CURSOR", SafeCmd(CursorCommand), "readonly", 3, 1, -3, "read", false))

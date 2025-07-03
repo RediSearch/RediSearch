@@ -134,6 +134,9 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
+  /** Filter clause extracted from vector query for validation */
+  const char *filterClause;
+
   /** Fields to be output and otherwise processed */
   FieldList outFields;
 
