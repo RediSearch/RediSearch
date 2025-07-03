@@ -213,7 +213,6 @@ def server_version_less_than(env: Env, ver):
 def server_version_is_at_least(ver):
     global server_ver
     if server_ver is None:
-        # import subprocess
         # Expecting something like "Redis server v=7.2.3 sha=******** malloc=jemalloc-5.3.0 bits=64 build=***************"
         v = subprocess.run([Defaults.binary, '--version'], stdout=subprocess.PIPE).stdout.decode().split()[2].split('=')[1]
         server_ver = version.parse(v)
@@ -630,7 +629,6 @@ def get_TLS_args():
     with_pass = server_version_is_at_least('6.2')
 
     # If any of the files are missing, generate them
-    # import subprocess
     subprocess.run([os.path.join(root, 'sbin', 'gen-test-certs'), str(1 if with_pass else 0)]).check_returncode()
 
     def get_passphrase():

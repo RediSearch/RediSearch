@@ -1,167 +1,167 @@
-# from common import *
+from common import *
 
-# # Global variables
-# bgIndexingStatusStr = "background indexing status"
-# indexing_failures_str = 'indexing failures'
-# last_indexing_error_key_str = 'last indexing error key'
-# last_indexing_error_str = 'last indexing error'
-# OOM_indexing_failure_str = 'Index background scan did not complete due to OOM. New documents will not be indexed.'
-# OOMfailureStr = "OOM failure"
-# partial_results_warning_str = 'Index contains partial data due to an indexing failure caused by insufficient memory'
+# Global variables
+bgIndexingStatusStr = "background indexing status"
+indexing_failures_str = 'indexing failures'
+last_indexing_error_key_str = 'last indexing error key'
+last_indexing_error_str = 'last indexing error'
+OOM_indexing_failure_str = 'Index background scan did not complete due to OOM. New documents will not be indexed.'
+OOMfailureStr = "OOM failure"
+partial_results_warning_str = 'Index contains partial data due to an indexing failure caused by insufficient memory'
 
-# def get_memory_consumption_ratio(env):
-#   used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
-#   max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
-#   return used_memory/max_memory
+def get_memory_consumption_ratio(env):
+  used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
+  max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
+  return used_memory/max_memory
 
-# def get_index_errors_dict(env, idx = 'idx'):
-#   info = index_info(env, idx)
-#   error_dict = to_dict(info["Index Errors"])
-#   return error_dict
-# def get_index_num_docs(env, idx = 'idx'):
-#   info = index_info(env, idx)
-#   num_docs = info['num_docs']
-#   return int(num_docs)
+def get_index_errors_dict(env, idx = 'idx'):
+  info = index_info(env, idx)
+  error_dict = to_dict(info["Index Errors"])
+  return error_dict
+def get_index_num_docs(env, idx = 'idx'):
+  info = index_info(env, idx)
+  num_docs = info['num_docs']
+  return int(num_docs)
 
-# def oom_test_config(env):
-#   # Set the memory limit to 80% so it can be tested without colliding with redis memory limit
-#   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+def oom_test_config(env):
+  # Set the memory limit to 80% so it can be tested without colliding with redis memory limit
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
 
-# def oom_pseudo_enterprise_config(env):
-#   oom_test_config(env)
-#   # Set the pause time to 1 second so we can test the retry
-#   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+def oom_pseudo_enterprise_config(env):
+  oom_test_config(env)
+  # Set the pause time to 1 second so we can test the retry
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
-# @skip(cluster=True)
-# def test_stop_background_indexing_on_low_mem(env):
-#   oom_test_config(env)
+@skip(cluster=True)
+def test_stop_background_indexing_on_low_mem(env):
+  oom_test_config(env)
 
-#   num_docs = 1000
-#   for i in range(num_docs):
-#       env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+  num_docs = 1000
+  for i in range(num_docs):
+      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-#   # Set pause on OOM
-#   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-#   # Set pause after quarter of the docs were scanned
-#   num_docs_scanned = num_docs//4
-#   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+  # Set pause on OOM
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  # Set pause after quarter of the docs were scanned
+  num_docs_scanned = num_docs//4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
 
-#   # Create an index
-#   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-#   waitForIndexPauseScan(env, 'idx')
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, 'idx')
 
-#   # At this point num_docs_scanned were scanned
-#   # Now we set the tight memory limit
-#   set_tight_maxmemory_for_oom(env, 0.85)
-#   # After we resume, an OOM should trigger
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   # Wait for OOM
-#   waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
-#   # Resume the indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   # Wait for the indexing to finish
-#   waitForIndexFinishScan(env, 'idx')
-#   # Verify that only num_docs_scanned were indexed
-#   docs_in_index = get_index_num_docs(env)
-#   env.assertEqual(docs_in_index, num_docs_scanned)
-#   # Verify that used_memory is close to 80% (config set) of maxmemory
-#   memory_ratio = get_memory_consumption_ratio(env)
-#   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
+  # At this point num_docs_scanned were scanned
+  # Now we set the tight memory limit
+  set_tight_maxmemory_for_oom(env, 0.85)
+  # After we resume, an OOM should trigger
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for OOM
+  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+  # Resume the indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
+  # Verify that only num_docs_scanned were indexed
+  docs_in_index = get_index_num_docs(env)
+  env.assertEqual(docs_in_index, num_docs_scanned)
+  # Verify that used_memory is close to 80% (config set) of maxmemory
+  memory_ratio = get_memory_consumption_ratio(env)
+  env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
-# @skip(cluster=True)
-# def test_stop_indexing_low_mem_verbosity(env):
-#   # Change to resp3
-#   env = Env(protocol=3)
-#   oom_test_config(env)
+@skip(cluster=True)
+def test_stop_indexing_low_mem_verbosity(env):
+  # Change to resp3
+  env = Env(protocol=3)
+  oom_test_config(env)
 
-#   # Create OOM
-#   num_docs = 10
-#   for i in range(num_docs):
-#       env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
-#   # Set pause on OOM
-#   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-#   # Set pause before scanning
-#   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 1).ok()
-#   # Create an index
-#   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-#   # Wait for pause before scanning
-#   waitForIndexPauseScan(env, 'idx')
-#   # Set tight memory limit
-#   set_tight_maxmemory_for_oom(env, 0.85)
-#   # Resume indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   # Wait for OOM
-#   waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
-#   # Resume the indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   # Wait for the indexing to finish
-#   waitForIndexFinishScan(env, 'idx')
+  # Create OOM
+  num_docs = 10
+  for i in range(num_docs):
+      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+  # Set pause on OOM
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  # Set pause before scanning
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 1).ok()
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  # Wait for pause before scanning
+  waitForIndexPauseScan(env, 'idx')
+  # Set tight memory limit
+  set_tight_maxmemory_for_oom(env, 0.85)
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for OOM
+  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+  # Resume the indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
 
-#   # Verify ft info
-#   error_dict = get_index_errors_dict(env)
+  # Verify ft info
+  error_dict = get_index_errors_dict(env)
 
-#   expected_error_dict = {
-#                         indexing_failures_str: 1, # 1 OOM error
-#                         last_indexing_error_str:  "Used memory is more than 80 percent of max memory, cancelling the scan",
-#                         bgIndexingStatusStr: OOMfailureStr,
-#                         }
-#   # Last indexing error key is not checked because it is not deterministic
-#   # OOM is triggered after the first doc, the second doc is not indexed
-#   assertEqual_dicts_on_intersection(env, error_dict, expected_error_dict)
+  expected_error_dict = {
+                        indexing_failures_str: 1, # 1 OOM error
+                        last_indexing_error_str:  "Used memory is more than 80 percent of max memory, cancelling the scan",
+                        bgIndexingStatusStr: OOMfailureStr,
+                        }
+  # Last indexing error key is not checked because it is not deterministic
+  # OOM is triggered after the first doc, the second doc is not indexed
+  assertEqual_dicts_on_intersection(env, error_dict, expected_error_dict)
 
-#   # Verify info metric
-#   # Only one index was created
-#   index_oom_count = env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
-#   env.assertEqual(index_oom_count, 1)
+  # Verify info metric
+  # Only one index was created
+  index_oom_count = env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+  env.assertEqual(index_oom_count, 1)
 
-#   # Check verbosity of HSET after OOM
-#   env.expect('HSET', 'NewDoc', 'name', f'DoNotIndex').equal(1)
-#   # Verify that the new doc was not indexed
-#   docs_in_index = get_index_num_docs(env)
-#   env.assertEqual(docs_in_index, 1)
+  # Check verbosity of HSET after OOM
+  env.expect('HSET', 'NewDoc', 'name', f'DoNotIndex').equal(1)
+  # Verify that the new doc was not indexed
+  docs_in_index = get_index_num_docs(env)
+  env.assertEqual(docs_in_index, 1)
 
-#   error_dict = get_index_errors_dict(env)
-#   # Assert error dict
-#   expected_error_dict = {
-#                         indexing_failures_str: expected_error_dict[indexing_failures_str]+1, # Add 1 to the count
-#                         last_indexing_error_str: OOM_indexing_failure_str,
-#                         last_indexing_error_key_str: 'NewDoc', # OOM error triggered by the new doc
-#                         bgIndexingStatusStr: OOMfailureStr,
-#                         }
-#   env.assertEqual(error_dict, expected_error_dict)
+  error_dict = get_index_errors_dict(env)
+  # Assert error dict
+  expected_error_dict = {
+                        indexing_failures_str: expected_error_dict[indexing_failures_str]+1, # Add 1 to the count
+                        last_indexing_error_str: OOM_indexing_failure_str,
+                        last_indexing_error_key_str: 'NewDoc', # OOM error triggered by the new doc
+                        bgIndexingStatusStr: OOMfailureStr,
+                        }
+  env.assertEqual(error_dict, expected_error_dict)
 
-#   # Update a doc indexed
-#   # The doc should not be reindexed
-#   env.expect('HSET', 'doc0', 'name', 'newName').equal(0)
-#   docs_in_index = get_index_num_docs(env)
-#   env.assertEqual(docs_in_index, 1)
-#   # Verify Index Errors
-#   error_dict = get_index_errors_dict(env)
-#   # Assert error dict
-#   expected_error_dict = {
-#                         indexing_failures_str: expected_error_dict[indexing_failures_str]+1, # Add 1 to the count
-#                         last_indexing_error_str: OOM_indexing_failure_str,
-#                         last_indexing_error_key_str: 'doc0', # OOM error triggered by the new doc
-#                         bgIndexingStatusStr: OOMfailureStr,
-#                         }
-#   env.assertEqual(error_dict, expected_error_dict)
+  # Update a doc indexed
+  # The doc should not be reindexed
+  env.expect('HSET', 'doc0', 'name', 'newName').equal(0)
+  docs_in_index = get_index_num_docs(env)
+  env.assertEqual(docs_in_index, 1)
+  # Verify Index Errors
+  error_dict = get_index_errors_dict(env)
+  # Assert error dict
+  expected_error_dict = {
+                        indexing_failures_str: expected_error_dict[indexing_failures_str]+1, # Add 1 to the count
+                        last_indexing_error_str: OOM_indexing_failure_str,
+                        last_indexing_error_key_str: 'doc0', # OOM error triggered by the new doc
+                        bgIndexingStatusStr: OOMfailureStr,
+                        }
+  env.assertEqual(error_dict, expected_error_dict)
 
-#   # Check resp3 warning for OOM
-#   res = env.cmd('FT.SEARCH', 'idx','*')
-#   warning = res['warning'][0]
-#   env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
-#   # Check resp3 warning in FT.PROFILE
-#   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
-#   warning = res['warning'][0]
-#   env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
-#   # Check resp2 warning in FT.PROFILE
-#   env.cmd('HELLO', '2')
-#   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
-#   results_str = res[1]
-#   # find warning index (results_str is a list of pairs)
-#   warning_index = [pair[0] for pair in results_str].index('Warning')
-#   warning = results_str[warning_index][1]
-#   env.assertEqual(warning, partial_results_warning_str)
+  # Check resp3 warning for OOM
+  res = env.cmd('FT.SEARCH', 'idx','*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.PROFILE
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp2 warning in FT.PROFILE
+  env.cmd('HELLO', '2')
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  results_str = res[1]
+  # find warning index (results_str is a list of pairs)
+  warning_index = [pair[0] for pair in results_str].index('Warning')
+  warning = results_str[warning_index][1]
+  env.assertEqual(warning, partial_results_warning_str)
 
 # @skip(cluster=True)
 # def test_idx_delete_during_bg_indexing(env):
