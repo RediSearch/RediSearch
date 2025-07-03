@@ -801,7 +801,7 @@ DECODER(readDocIdsOnly) {
 
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
-  readNumeric(blockReader, ctx, res);
+  return readNumeric(blockReader, ctx, res);
 }
 
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
