@@ -70,10 +70,23 @@ pub struct RSNumericRecord(pub f64);
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSOffsetVector_Iterator
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub struct RSOffsetVector {
     pub data: *mut c_char,
     pub len: u32,
+}
+
+impl std::fmt::Debug for RSOffsetVector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.data.is_null() {
+            return write!(f, "RSOffsetVector(null)");
+        }
+        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
+        let offsets =
+            unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
+
+        write!(f, "RSOffsetVector {offsets:?}")
+    }
 }
 
 impl RSOffsetVector {
