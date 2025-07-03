@@ -21,7 +21,10 @@ pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fie
 
 pub mod freqs_fields;
 pub mod freqs_only;
+pub mod full;
 pub mod numeric;
+#[doc(hidden)]
+pub mod test_utils;
 
 /// Trait used to correctly derive the delta needed for different encoders
 pub trait IdDelta
