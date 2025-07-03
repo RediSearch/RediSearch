@@ -338,6 +338,37 @@ impl<'a> RLookup<'a> {
         debug_assert!(self.spcache.is_none());
         self.spcache = Some(spcache);
     }
+
+    // =====  Get key for writing =====
+
+    pub fn get_key_write(
+        &mut self,
+        name: &'a CStr,
+        mut flags: RlookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        // remove all flags that are not relevant to getting a key
+        flags &= GET_KEY_FLAGS;
+
+        // A. we found the key at the lookup table:
+        //    1. if we are in exclusive mode, return NULL
+        //    2. if we are in create mode, overwrite the key (remove schema related data, mark with new flags)
+        // B. we didn't find the key at the lookup table:
+        //    create a new key with the name and flags
+        if let Some(key) = self.keys.find(name) {
+            if flags.contains(RlookupKeyFlag::Override) {
+                todo!("override key {key:?} flags | Flags::QUERYSRC");
+            } else {
+                None
+            }
+        } else {
+            let key = self
+                .keys
+                .push(RLookupKey::new(name, flags | RlookupKeyFlag::QuerySrc));
+
+            // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
+            Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+        }
+    }
 }
 
 // ===== impl KeyList =====
