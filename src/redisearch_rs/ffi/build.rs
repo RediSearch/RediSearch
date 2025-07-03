@@ -53,6 +53,7 @@ fn main() {
         root.join("src").join("buffer.h"),
         root.join("src").join("result_processor.h"),
         root.join("src").join("obfuscation").join("hidden.h"),
+        root.join("src").join("spec.h"),
     ];
 
     let mut bindings = bindgen::Builder::default();

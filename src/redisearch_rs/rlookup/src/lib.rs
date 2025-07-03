@@ -10,4 +10,6 @@
 mod bindings;
 mod lookup;
 
-pub use lookup::{RLookupKey, RlookupKeyFlag, RlookupKeyFlags};
+pub use lookup::{
+    RLookup, RLookupKey, RlookupKeyFlag, RlookupKeyFlags, RlookupOption, RlookupOptions,
+};
