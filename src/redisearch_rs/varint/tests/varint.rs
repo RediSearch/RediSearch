@@ -109,8 +109,7 @@ fn test_u32_encoded_bytes() {
         value.write_as_varint(&mut buf).unwrap();
         assert_eq!(
             buf, expected_bytes,
-            "Encoded bytes for value {} don't match expected: got {:?}, expected {:?}",
-            value, buf, expected_bytes
+            "Encoded bytes for value {value} don't match expected: got {buf:?}, expected {expected_bytes:?}"
         );
 
         // Verify round-trip decoding still works.
@@ -161,8 +160,7 @@ fn test_u64_encoded_bytes() {
         value.write_as_varint(&mut buf).unwrap();
         assert_eq!(
             buf, expected_bytes,
-            "Encoded bytes for field mask {} don't match expected: got {:?}, expected {:?}",
-            value, buf, expected_bytes
+            "Encoded bytes for field mask {value} don't match expected: got {buf:?}, expected {expected_bytes:?}"
         );
 
         // Verify round-trip decoding still works.
@@ -238,8 +236,7 @@ fn test_u128_encoded_bytes() {
         value.write_as_varint(&mut buf).unwrap();
         assert_eq!(
             buf, expected_bytes,
-            "Encoded bytes for {} don't match expected: got {:?}, expected {:?}",
-            value, buf, expected_bytes
+            "Encoded bytes for {value} don't match expected: got {buf:?}, expected {expected_bytes:?}"
         );
 
         // Verify round-trip decoding still works.

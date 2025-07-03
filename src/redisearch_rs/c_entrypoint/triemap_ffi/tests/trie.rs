@@ -54,7 +54,7 @@ where
     F: FnOnce(*mut TrieMap),
 {
     let t = NewTrieMap();
-    let entries = vec![
+    let entries = [
         (b"bike".as_slice(), 0u8),
         (b"biker", 1),
         (b"bis", 2),
