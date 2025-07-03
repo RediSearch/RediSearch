@@ -386,16 +386,41 @@ pub trait Decoder {
     }
 }
 
+/// An inverted index is a data structure that maps terms to their occurrences in documents. It is
+/// used to efficiently search for documents that contain specific terms.
 pub struct InvertedIndex<E> {
+    /// The blocks of the index. Each block contains a set of entries for a specific range of
+    /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
+    /// block contains entries for the lowest document IDs, and the last block contains entries for
+    /// the highest document IDs.
     blocks: Vec<IndexBlock>,
+
+    /// Number of unique documents in the index. This is not the total number of entries, but rather the
+    /// number of unique documents that have been indexed.
     num_docs: usize,
+
+    /// The encoder to use when adding new entries to the index
     encoder: E,
 }
 
+/// Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
+/// are ordered by document ID, so the first entry in the block has the lowest document ID, and the
+/// last entry has the highest document ID. The block also contains a buffer that is used to
+/// store the encoded entries. The buffer is dynamically resized as needed when new entries are
+/// added to the block.
 pub struct IndexBlock {
+    /// The first document ID in this block. This is used to determine the range of document IDs
+    /// that this block covers.
     first_doc_id: t_docId,
+
+    /// The last document ID in this block. This is used to determine the range of document IDs
+    /// that this block covers.
     last_doc_id: t_docId,
+
+    /// The total number of non-unique entries in this block
     num_entries: usize,
+
+    /// The encoded entries in this block
     buffer: Vec<u8>,
 }
 
@@ -405,15 +430,15 @@ impl IndexBlock {
     /// Make a new index block with the given initial doc ID. This returns the block and how much
     /// memory grew by.
     pub fn new(doc_id: t_docId) -> (Self, usize) {
-        (
-            Self {
-                first_doc_id: doc_id,
-                last_doc_id: doc_id,
-                num_entries: 0,
-                buffer: Vec::new(),
-            },
-            Self::SIZE,
-        )
+        let this = Self {
+            first_doc_id: doc_id,
+            last_doc_id: doc_id,
+            num_entries: 0,
+            buffer: Vec::new(),
+        };
+        let buf_cap = this.buffer.capacity();
+
+        (this, Self::SIZE + buf_cap)
     }
 
     fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
@@ -427,6 +452,8 @@ impl IndexBlock {
 }
 
 impl<E: Encoder> InvertedIndex<E> {
+    /// Create a new inverted index with the given encoder. The encoder is used to write new
+    /// entries to the index.
     pub fn new(encoder: E) -> Self {
         Self {
             blocks: Vec::new(),
@@ -435,7 +462,8 @@ impl<E: Encoder> InvertedIndex<E> {
         }
     }
 
-    /// Add a new record to the index and return by how much memory grew.
+    /// Add a new record to the index and return by how much memory grew. It is expected that
+    /// the document ID of the record is greater than or equal the last document ID in the index.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let doc_id = record.doc_id;
 
@@ -454,7 +482,7 @@ impl<E: Encoder> InvertedIndex<E> {
 
         // We take ownership of the block since we are going to keep using self. So we can't have a
         // mutable reference to the block we are working with at the same time.
-        let (mut block, mut new_mem_size) = self.take_block(doc_id, same_doc);
+        let (mut block, mut mem_growth) = self.take_block(doc_id, same_doc);
 
         let delta = match E::calculate_delta(&block, doc_id) {
             Some(delta) => delta,
@@ -466,15 +494,17 @@ impl<E: Encoder> InvertedIndex<E> {
                 // We won't use the block so make sure to put it back
                 self.blocks.push(block);
                 block = new_block;
-                new_mem_size += block_size;
+                mem_growth += block_size;
 
                 Default::default()
             }
         };
 
+        let buf_cap = block.buffer.capacity();
         let writer = block.writer();
+        let _bytes_written = self.encoder.encode(writer, delta, record)?;
 
-        let bytes_written = self.encoder.encode(writer, delta, record)?;
+        let buf_growth = block.buffer.capacity() - buf_cap;
 
         block.num_entries += 1;
         block.last_doc_id = doc_id;
@@ -486,13 +516,14 @@ impl<E: Encoder> InvertedIndex<E> {
             self.num_docs += 1;
         }
 
-        Ok(bytes_written + new_mem_size)
+        Ok(buf_growth + mem_growth)
     }
 
     fn last_doc_id(&self) -> Option<t_docId> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
+    /// Take a block that can be written to and report by how much memory grew
     fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> (IndexBlock, usize) {
         if self.blocks.is_empty() ||
             // If the block is full

@@ -1,5 +1,6 @@
 use crate::{Encoder, InvertedIndex, RSIndexResult};
 
+/// Dummy encoder which allows defaults for testing
 struct Dummy;
 
 impl Encoder for Dummy {
@@ -18,16 +19,15 @@ impl Encoder for Dummy {
 }
 
 #[test]
-fn add_records() {
+fn adding_records() {
     let mut ii = InvertedIndex::new(Dummy);
     let record = RSIndexResult::numeric(10, 5.0);
 
-    let mem_size = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap();
 
     assert_eq!(
-        mem_size,
-        8 + 48,
-        "should write 8 bytes for delta and 48 bytes for the index block"
+        mem_growth, 56,
+        "size of the index block plus initial buffer capacity"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -38,9 +38,9 @@ fn add_records() {
 
     let record = RSIndexResult::numeric(11, 5.0);
 
-    let mem_size = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(mem_size, 8, "no new index block needed to be created");
+    assert_eq!(mem_growth, 0, "buffer should not need to grow again");
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
     assert_eq!(ii.blocks[0].num_entries, 2);
@@ -50,7 +50,7 @@ fn add_records() {
 }
 
 #[test]
-fn writting_same_record_twice() {
+fn adding_same_record_twice() {
     let mut ii = InvertedIndex::new(Dummy);
     let record = RSIndexResult::numeric(10, 5.0);
 
@@ -59,10 +59,10 @@ fn writting_same_record_twice() {
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
     assert_eq!(ii.blocks[0].num_entries, 1);
 
-    let bytes_written = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap();
 
     assert_eq!(
-        bytes_written, 0,
+        mem_growth, 0,
         "duplicate record should not be written by default"
     );
     assert_eq!(ii.blocks.len(), 1);
@@ -76,6 +76,7 @@ fn writting_same_record_twice() {
     assert_eq!(ii.blocks[0].last_doc_id, 10);
     assert_eq!(ii.num_docs, 1, "this second doc was not added");
 
+    /// Dummy encoder which allows duplicates for testing
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
@@ -101,12 +102,8 @@ fn writting_same_record_twice() {
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [255]);
 
-    let bytes_written = ii.add_record(&record).unwrap();
+    let _mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(
-        bytes_written, 1,
-        "duplicate record should be written when allowed"
-    );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(
         ii.blocks[0].buffer,
@@ -123,7 +120,8 @@ fn writting_same_record_twice() {
 }
 
 #[test]
-fn writing_creates_new_blocks_when_entries_is_reached() {
+fn adding_creates_new_blocks_when_entries_is_reached() {
+    /// Dummy encoder which only allows 2 entries per block for testing
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -146,53 +144,54 @@ fn writing_creates_new_blocks_when_entries_is_reached() {
 
     let mut ii = InvertedIndex::new(SmallBlocksDummy);
 
-    let mem_size = ii.add_record(&RSIndexResult::numeric(10, 5.0)).unwrap();
+    let mem_growth = ii.add_record(&RSIndexResult::numeric(10, 5.0)).unwrap();
     assert_eq!(
-        mem_size,
-        1 + 48,
-        "should write 1 byte for encoding and 48 bytes for the index block"
+        mem_growth, 56,
+        "size of the index block plus initial buffer capacity"
     );
     assert_eq!(ii.blocks.len(), 1);
-    let mem_size = ii.add_record(&RSIndexResult::numeric(11, 6.0)).unwrap();
-    assert_eq!(mem_size, 1, "should write 1 byte for encoding");
+    let mem_growth = ii.add_record(&RSIndexResult::numeric(11, 6.0)).unwrap();
+    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
     assert_eq!(ii.blocks.len(), 1);
 
-    let mem_size = ii.add_record(&RSIndexResult::numeric(12, 4.0)).unwrap();
+    // 3 entry should create a new block
+    let mem_growth = ii.add_record(&RSIndexResult::numeric(12, 4.0)).unwrap();
     assert_eq!(
-        mem_size,
-        1 + 48,
-        "should write 1 byte for encoding and 48 bytes for the new index block"
+        mem_growth, 56,
+        "size of the new index block plus initial buffer capacity"
     );
     assert_eq!(
         ii.blocks.len(),
         2,
         "should create a new block after reaching the limit"
     );
-    let mem_size = ii.add_record(&RSIndexResult::numeric(13, 2.0)).unwrap();
-    assert_eq!(mem_size, 1, "should write 1 byte for encoding");
+    let mem_growth = ii.add_record(&RSIndexResult::numeric(13, 2.0)).unwrap();
+    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
     assert_eq!(ii.blocks.len(), 2);
 
-    let mem_size = ii.add_record(&RSIndexResult::numeric(13, 1.0)).unwrap();
-    assert_eq!(
-        mem_size, 1,
-        "should write 1 byte for encoding since the duplicate used the same block"
-    );
+    // But duplicate entry does not go in new block even if the current block is full
+    let mem_growth = ii.add_record(&RSIndexResult::numeric(13, 1.0)).unwrap();
+    assert_eq!(mem_growth, 0, "buffer does not need to grow again");
     assert_eq!(
         ii.blocks.len(),
         2,
         "duplicates should stay on the same block"
     );
+    assert_eq!(
+        ii.blocks[1].num_entries, 3,
+        "should have 3 entries in the second block because duplicate was added"
+    );
 }
 
 #[test]
-fn writting_big_delta_makes_new_block() {
+fn adding_big_delta_makes_new_block() {
     let mut ii = InvertedIndex::new(Dummy);
     let record = RSIndexResult::numeric(10, 5.0);
 
-    let mem_size = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap();
 
     assert_eq!(
-        mem_size,
+        mem_growth,
         8 + 48,
         "should write 8 bytes for delta and 48 bytes for the index block"
     );
@@ -203,13 +202,14 @@ fn writting_big_delta_makes_new_block() {
     assert_eq!(ii.blocks[0].last_doc_id, 10);
     assert_eq!(ii.num_docs, 1);
 
+    // This will create a delta that is larger than the default u32 acceptable delta size
     let doc_id = (u32::MAX as u64) + 11;
     let record = RSIndexResult::numeric(doc_id, 5.0);
 
-    let mem_size = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap();
 
     assert_eq!(
-        mem_size,
+        mem_growth,
         8 + 48,
         "should write 8 bytes for delta and 48 bytes for the new index block"
     );
