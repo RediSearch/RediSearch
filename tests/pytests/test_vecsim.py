@@ -571,6 +571,14 @@ def test_create_errors():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'COMPRESSION', 'LWQ4x4') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `COMPRESSION`')
 
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'LEANVEC_DIM', 'str') \
+        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `LEANVEC_DIM`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'LEANVEC_DIM', '-1') \
+        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `LEANVEC_DIM`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'LEANVEC_DIM', '0.5') \
+        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `LEANVEC_DIM`')
+
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', '200', 'EPSILON', 'str') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `EPSILON`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8','CONSTRUCTION_WINDOW_SIZE', '200', 'EPSILON', '-1') \
@@ -584,6 +592,12 @@ def test_create_errors():
         .error().contains('Invalid TRAINING_THRESHOLD')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048') \
         .error().contains('TRAINING_THRESHOLD is irrelevant when compression was not requested')
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'LEANVEC_DIM', '10') \
+        .error().contains('LEANVEC_DIM is irrelevant when compression is not of type LeanVec')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'Lvq8', 'LEANVEC_DIM', '10') \
+        .error().contains('LEANVEC_DIM is irrelevant when compression is not of type LeanVec')
+
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048', 'COMPRESSION', 'LVQ8') \
         .ok()   # valid case when training threshold is set while compression is set also, but after.
 
@@ -2493,14 +2507,10 @@ def test_vector_index_ptr_valid(env):
 
 
 @skip(cluster=True)
-def test_svs_vamana_info():
+def test_svs_vamana_info_with_compression():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     dim = 16
     data_type = 'FLOAT32'
-
-    # Create SVS VAMANA index with LVQ8 compression
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '8', 'TYPE', data_type,
-                'DIM', dim, 'DISTANCE_METRIC', 'L2', 'COMPRESSION', 'LVQ8').ok()
 
     # Simple platform-agnostic check for Intel CPU.
     import platform
@@ -2516,10 +2526,21 @@ def test_svs_vamana_info():
         except (IOError, FileNotFoundError):
             return False
 
-    # Validate that ft.info returns the default params for SVS VAMANA, along with compression
-    # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
-    compression_runtime = 'LVQ8' if is_intel_cpu() else 'GlobalSQ8'
-    assertInfoField(env, 'idx', 'attributes',
-                    [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
-                      'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
-                      'construction_window_size', 200, 'compression', compression_runtime, 'training_threshold', 10240]])
+
+    # Create SVS VAMANA index with all compression flavors (except for global SQ8).
+    for compression_type in ['LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '8', 'TYPE', data_type,
+                    'DIM', dim, 'DISTANCE_METRIC', 'L2', 'COMPRESSION', compression_type).ok()
+
+        # Validate that ft.info returns the default params for SVS VAMANA, along with compression
+        # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
+        compression_runtime = compression_type if is_intel_cpu() else 'GlobalSQ8'
+        expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
+                          'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
+                          'construction_window_size', 200, 'compression', compression_runtime, 'training_threshold',
+                          10240]]
+        if compression_type == 'LeanVec4x8' or compression_type == 'LeanVec8x8':
+            expected_info[0].extend(['leanvec_dim', dim // 2])
+        assertInfoField(env, 'idx', 'attributes',
+                        expected_info)
+        env.expect('FT.DROPINDEX', 'idx').ok()

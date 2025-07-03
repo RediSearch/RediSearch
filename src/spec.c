@@ -635,22 +635,20 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
   }
   if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_8))
     *quantBits = VecSimSvsQuant_8;
-  // TODO: enable other quantisation flavors
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
-  //   *quantBits = VecSimSvsQuant_4;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
-  //   *quantBits = VecSimSvsQuant_4x4;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
-  //   *quantBits = VecSimSvsQuant_4x8;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
-  //   *quantBits = VecSimSvsQuant_4x8_LeanVec;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
-  //   *quantBits = VecSimSvsQuant_8x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
+    *quantBits = VecSimSvsQuant_4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
+    *quantBits = VecSimSvsQuant_4x4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
+    *quantBits = VecSimSvsQuant_4x8;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
+    *quantBits = VecSimSvsQuant_4x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
+    *quantBits = VecSimSvsQuant_8x8_LeanVec;
   else
     return AC_ERR_ENOENT;
   return AC_OK;
 }
-
 
 // memoryLimit / 10 - default is 10% of global memory limit
 #define ACTUAL_MEMORY_LIMIT ((memoryLimit == 0) ? SIZE_MAX : memoryLimit)
@@ -974,6 +972,11 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_EPSILON), rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_LEANVEC_DIM)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.leanvec_dim, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_LEANVEC_DIM), rc);
+        return 0;
+      }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_TRAINING_THRESHOLD)) {
       if ((rc = AC_GetSize(ac, &tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TRAINING_THRESHOLD), rc);
@@ -1006,6 +1009,10 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
   }
   if (params->algoParams.svsParams.quantBits == 0 && tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold > 0) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
+    return 0;
+  }
+  if (!VecSim_IsLeanVecCompressionType(params->algoParams.svsParams.quantBits) && params->algoParams.svsParams.leanvec_dim > 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "LEANVEC_DIM is irrelevant when compression is not of type LeanVec", "");
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
@@ -1183,10 +1190,16 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
     params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
     params->primaryIndexParams->algoParams.svsParams.num_threads = workersThreadPool_NumThreads();
+    params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
     if (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0) {
       params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
+    }
+    if (VecSim_IsLeanVecCompressionType(params->primaryIndexParams->algoParams.svsParams.quantBits) &&
+        params->primaryIndexParams->algoParams.svsParams.leanvec_dim == 0) {
+      params->primaryIndexParams->algoParams.svsParams.leanvec_dim =
+        params->primaryIndexParams->algoParams.svsParams.dim / 2;  // default value
     }
 
   } else {

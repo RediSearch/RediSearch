@@ -276,6 +276,11 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   return NULL;
 }
 
+bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
+  return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
+}
+
+
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
   // If quantBits is not NONE, We need to check if we are running on intel machine,  and if not, we
   // need to fall back to scalar quantization.
@@ -345,6 +350,7 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
       RedisModule_SaveUnsigned(rdb, primaryParams->quantBits);
       RedisModule_SaveUnsigned(rdb, primaryParams->graph_max_degree);
       RedisModule_SaveUnsigned(rdb, primaryParams->construction_window_size);
+      RedisModule_SaveUnsigned(rdb, primaryParams->leanvec_dim);
       RedisModule_SaveUnsigned(rdb, primaryParams->search_window_size);
       RedisModule_SaveDouble(rdb, primaryParams->epsilon);
     }
@@ -410,6 +416,7 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
       primaryParams->algoParams.svsParams.quantBits = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.graph_max_degree = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.construction_window_size = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.leanvec_dim = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.search_window_size = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.epsilon = LoadDouble_IOError(rdb, goto fail);
     } else {
