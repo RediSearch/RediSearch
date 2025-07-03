@@ -15,7 +15,6 @@
 #include "util/timeout.h"
 #include "util/workers.h"
 #include "score_explain.h"
-#include "commands.h"
 #include "profile.h"
 #include "query_optimizer.h"
 #include "resp3.h"
@@ -1140,7 +1139,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   }
 
   // This function also builds the RedisSearchCtx
-  // It will search for the spec according the the name given in the argv array,
+  // It will search for the spec according to the name given in the argv array,
   // and ensure the spec is valid.
   if (buildRequest(ctx, argv, argc, type, status, r_ptr) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
