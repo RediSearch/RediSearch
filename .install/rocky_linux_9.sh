@@ -4,7 +4,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 $MODE dnf update -y
 
-$MODE dnf install -y clang-18 --nobest --allowerasing
+$MODE  wget -qO- https://apt.llvm.org/llvm.sh | bash -s -- 19
 
 $MODE dnf install -y make wget git \
     openssl openssl-devel python3 python3-devel which rsync unzip clang curl --nobest --allowerasing
