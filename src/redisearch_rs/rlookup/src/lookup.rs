@@ -539,6 +539,47 @@ impl<'a> RLookup<'a> {
         None
     }
 
+    // =====  Get key for writing =====
+
+    pub fn get_key_write(
+        &mut self,
+        name: &'a CStr,
+        mut flags: RLookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        // remove all flags that are not relevant to getting a key
+        flags &= GET_KEY_FLAGS;
+
+        // A. we found the key at the lookup table:
+        //    1. if we are in exclusive mode, return NULL
+        //    2. if we are in create mode, overwrite the key (remove schema related data, mark with new flags)
+        // B. we didn't find the key at the lookup table:
+        //    create a new key with the name and flags
+
+        // Safety: The non-lexical lifetime analysis of current Rust, incorrectly handles borrows in early
+        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
+        // obviously not correct as `key` is either found and borrowed in which case we never reach the code below
+        // this early return OR it is *not* found and *not* borrowed which means the code below is fine to
+        // borrow self again. The current compiler is not smart enough to get this though, so we create a disjoint
+        // borrow below.
+        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
+        let me = unsafe { &mut *(self as *mut Self) };
+
+        let key = if let Some(c) = me.keys.find_by_name_mut(name) {
+            if flags.contains(RLookupKeyFlag::Override) {
+                c.override_current(flags | RLookupKeyFlag::QuerySrc)
+                    .unwrap()
+            } else {
+                return None;
+            }
+        } else {
+            self.keys
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
+        };
+
+        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
+        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+    }
+
     // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
     // has promised to load the entire document.
     fn gen_key_from_spec(
@@ -565,7 +606,6 @@ impl<'a> RLookup<'a> {
 
 // ===== impl KeyList =====
 
-#[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
 impl<'a> KeyList<'a> {
     /// Construct a new, empty `KeyList`.
     pub const fn new() -> Self {
@@ -868,7 +908,6 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     /// receive a **new pointer identity**. The new key is returned.
     ///
     /// The old key remains as a hidden tombstone in the linked list.
-    #[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
     pub fn override_current(
         mut self,
         flags: RLookupKeyFlags,
