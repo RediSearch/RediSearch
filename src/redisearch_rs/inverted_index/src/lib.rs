@@ -26,7 +26,10 @@ pub mod doc_ids_only;
 pub mod fields_only;
 pub mod freqs_fields;
 pub mod freqs_only;
+pub mod full;
 pub mod numeric;
+#[doc(hidden)]
+pub mod test_utils;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
