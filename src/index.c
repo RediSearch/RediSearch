@@ -593,8 +593,6 @@ void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool as
   iter->Read = UI_ReadUnsorted;
 }
 
- #define HISTORY_SIZE 10
-
 /* The context used by the intersection methods during iterating an intersect
  * iterator */
 typedef struct {
@@ -1897,7 +1895,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
   if (config->printProfileClock) {
     printProfileTime(cpuTime);
   }
-  
+
   printProfileCounters(counters);
 
   RedisModule_ReplyKV_Array(reply, "Child iterators");
