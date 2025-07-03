@@ -87,10 +87,6 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
  * downstream.
  *******************************************************************************************************************/
 
-// Get the index spec from the result processor - this should be used only if the spec
-// can be accessed safely.
-#define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
-
 static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status) {
   RedisSearchCtx_UnlockSpec(sctx);
   return result_status;
@@ -1460,6 +1456,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  *******************************************************************************************************************/
 typedef struct {
   ResultProcessor base;             // Base result processor struct
+  RedisSearchCtx *sctx;             // Search context
   arrayof(SearchResult *) results;  // Array of pointers to SearchResult, filled by the depleting thread
   bool done_depleting;              // Set to `true` when depleting is finished (under lock)
   uint cur_idx;                     // Current index for yielding results
@@ -1529,7 +1526,7 @@ static void RPDepleter_Deplete(void *arg) {
 
   if (sync->take_index_lock) {
     // Lock the index for read
-    RedisSearchCtx_LockSpecRead(RP_SCTX(&self->base));
+    RedisSearchCtx_LockSpecRead(self->sctx);
     // Increment the counter
     atomic_fetch_add(&sync->num_locked, 1);
   }
@@ -1547,7 +1544,7 @@ static void RPDepleter_Deplete(void *arg) {
   // Verify the index is unlocked (in case the pipeline did not release the lock,
   // e.g., limit + no Loader)
   if (sync->take_index_lock) {
-    RedisSearchCtx_UnlockSpec(RP_SCTX(&self->base));
+    RedisSearchCtx_UnlockSpec(self->sctx);
   }
 
   // Signal completion under mutex protection
@@ -1603,7 +1600,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
     RS_ASSERT(num_locked <= sync->num_depleters);
     if (num_locked == sync->num_depleters) {
       // Release the index
-      RedisSearchCtx_UnlockSpec(RP_SCTX(base));
+      RedisSearchCtx_UnlockSpec(self->sctx);
       // Mark the index as released
       sync->index_released = true;
     } else {
@@ -1644,7 +1641,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
 /**
  * Constructs a new RPDepleter processor. Consumes the StrongRef given.
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *sctx) {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPDepleter_Next_Dispatch;
@@ -1652,6 +1649,7 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
   ret->base.type = RP_DEPLETER;
   ret->first_call = true;
   ret->sync_ref = sync_ref;
+  ret->sctx = sctx;
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;

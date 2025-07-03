@@ -331,7 +331,7 @@ void PipelineAddCrash(struct AREQ *r);
  * @param sync_ref Reference to shared synchronization object
  * @param take_index_lock Whether this depleter should participate in index locking
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref);
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *sctx);
 
 /**
  * Creates a new shared sync object for a pipeline.
