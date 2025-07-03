@@ -307,18 +307,6 @@ static void signalCallback(uv_timer_t *tm) {
     return;  // Nothing to do here!
   }
 
-  if (conn->state == MRConn_Freeing) {
-    if (conn->conn) {
-      redisAsyncContext *ac = conn->conn;
-      // detach the connection
-      ac->data = NULL;
-      conn->conn = NULL;
-      redisAsyncDisconnect(ac);
-    }
-    freeConn(conn);
-    return;
-  }
-
   if (conn->state == MRConn_ReAuth) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
       detachFromConn(conn, 1);
@@ -343,15 +331,22 @@ static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   }
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
 
-  uint64_t nextTimeout = 0;
-
   if (nextState == MRConn_Freeing) {
-    nextTimeout = 0;
     conn->state = MRConn_Freeing;
-    goto activate_timer;
+    if (conn->conn) {
+      redisAsyncContext *ac = conn->conn;
+      // detach the connection
+      ac->data = NULL;
+      conn->conn = NULL;
+      redisAsyncDisconnect(ac);
+    }
+    freeConn(conn);
+    return;
   } else if (conn->state == MRConn_Freeing) {
     return;
   }
+
+  uint64_t nextTimeout = 0;
 
   switch (nextState) {
     case MRConn_Disconnected:
