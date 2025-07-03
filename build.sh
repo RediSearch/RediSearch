@@ -35,6 +35,10 @@ RUN_MICRO_BENCHMARKS=0 # Run micro-benchmarks
 RUST_PROFILE=""  # Which profile should be used to build/test Rust code
                  # If unspecified, the correct profile will be determined based
                  # the operations to be performed
+RUST_SKIP=0      # Skips the explicit first cargo build of redisearch_rs
+                 # This is useful during the investigation of the C code by introducing errors,
+                 # e.g., messing up field names, to find usages in the C codebase.
+                 # Without this, parsing the C headers may fail during Rust compilation.
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -75,6 +79,9 @@ parse_arguments() {
         ;;
       RUST_PROFILE=*)
         RUST_PROFILE="${arg#*=}"
+        ;;
+      RUST_SKIP=*)
+        RUST_SKIP="${arg#*=}"
         ;;
       SAN=*)
         SAN="${arg#*=}"
@@ -366,7 +373,9 @@ build_redisearch_rs() {
 #-----------------------------------------------------------------------------
 build_project() {
   # Build redisearch_rs explicitly
-  build_redisearch_rs
+  if [[ $RUST_SKIP == 0 ]]; then
+    build_redisearch_rs
+  fi
 
   # Determine number of parallel jobs for make
   if command -v nproc &> /dev/null; then
