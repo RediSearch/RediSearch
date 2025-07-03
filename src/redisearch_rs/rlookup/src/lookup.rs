@@ -468,7 +468,6 @@ impl<'a> RLookupKey<'a> {
 
 // ===== impl KeyList =====
 
-#[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
 impl<'a> KeyList<'a> {
     /// Construct a new, empty `KeyList`.
     pub const fn new() -> Self {
@@ -772,7 +771,6 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     /// receive a **new pointer identity**. The *new key* is returned.
     ///
     /// The old key remains as a hidden tombstone in the linked list.
-    #[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
     pub fn override_current(
         mut self,
         flags: RLookupKeyFlags,
@@ -954,6 +952,45 @@ impl<'a> RLookup<'a> {
         let mut key = RLookupKey::new(name, flags);
         key.update_from_field_spec(fs);
         Some(key)
+    }
+
+    pub fn get_key_write(
+        &mut self,
+        name: &'a CStr,
+        mut flags: RLookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        // remove all flags that are not relevant to getting a key
+        flags &= GET_KEY_FLAGS;
+
+        // Safety: The non-lexical lifetime analysis of Rust, incorrectly handles borrows in early
+        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
+        // not correct here as `key` is either found and borrowed in which case we never reach the code in
+        // the outer else branch. If we reach the outer else branch then `self` is *not* found and *not*
+        // borrowed which means the last line of code is fine to borrow self again.
+        //
+        // The current compiler is not smart enough to get this though, so we create a disjoint borrow below.
+        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
+        let me = unsafe { &mut *(self as *mut Self) };
+
+        let key = if let Some(c) = me.keys.find_by_name_mut(name) {
+            // A. we found the key at the lookup table:
+            if flags.contains(RLookupKeyFlag::Override) {
+                // We are in create mode, overwrite the key (remove schema related data, mark with new flags)
+                c.override_current(flags | RLookupKeyFlag::QuerySrc)
+                    .unwrap()
+            } else {
+                // 1. if we are in exclusive mode, return None
+                return None;
+            }
+        } else {
+            // B. we didn't find the key at the lookup table:
+            // create a new key with the name and flags
+            self.keys
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
+        };
+
+        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
+        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
     }
 }
 
