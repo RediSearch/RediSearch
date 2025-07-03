@@ -101,7 +101,7 @@ impl RSOffsetVector {
 
 /// Represents a single record of a document inside a term in the inverted index
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub struct RSTermRecord {
     /// The term that brought up this record
     pub term: *mut RSQueryTerm,
@@ -117,6 +117,47 @@ impl RSTermRecord {
             term: ptr::null_mut(),
             offsets: RSOffsetVector::empty(),
         }
+    }
+}
+
+/// Wrapper to provide better Debug output for `RSQueryTerm`.
+/// Can be removed once `RSQueryTerm` is fully ported to Rust.
+struct QueryTermDebug(*mut RSQueryTerm);
+
+impl std::fmt::Debug for QueryTermDebug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_null() {
+            return write!(f, "RSQueryTerm(null)");
+        }
+        // SAFETY: we just checked that `self.0` is not null.
+        let term = unsafe { &*self.0 };
+
+        let term_str = if term.str_.is_null() {
+            "<null>"
+        } else {
+            // SAFETY: we just checked than `str_` is not null and `len`
+            // is guaranteed to be a valid length for the data pointer.
+            let slice = unsafe { std::slice::from_raw_parts(term.str_ as *const u8, term.len) };
+            // SAFETY: term.str_ is used as a string in the C code.
+            unsafe { std::str::from_utf8_unchecked(slice) }
+        };
+
+        f.debug_struct("RSQueryTerm")
+            .field("str", &term_str)
+            .field("idf", &term.idf)
+            .field("id", &term.id)
+            .field("flags", &term.flags)
+            .field("bm25_idf", &term.bm25_idf)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for RSTermRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RSTermRecord")
+            .field("term", &QueryTermDebug(self.term))
+            .field("offsets", &self.offsets)
+            .finish()
     }
 }
 
