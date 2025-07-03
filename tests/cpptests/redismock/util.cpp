@@ -10,6 +10,7 @@
 #include "util.h"
 #include "internal.h"
 #include <cstring>
+#include <cctype>
 
 using namespace RMCK;
 
@@ -83,4 +84,46 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 void RMCK::init() {
   RMCK_Bootstrap(my_OnLoad, NULL, 0);
+}
+
+RMCK::ArgvList::ArgvList(RedisModuleCtx *ctx, const char* cmd) : m_ctx(ctx) {
+  auto command = std::string(cmd);
+  std::vector<std::string> tokens;
+
+  const char* str = command.c_str();
+  const char* end = str + command.length();
+
+  while (str < end) {
+    // Skip leading whitespace
+    while (str < end && std::isspace(*str)) {
+      ++str;
+    }
+
+    if (str >= end) break;
+
+    std::string token;
+
+    if (*str == '"' || *str == '\'') {
+      // Handle quoted string
+      char quote_char = *str++;
+      while (str < end && *str != quote_char) {
+        token += *str++;
+      }
+      if (str < end) ++str; // Skip closing quote
+    } else {
+      // Handle unquoted token
+      while (str < end && !std::isspace(*str)) {
+        token += *str++;
+      }
+    }
+
+    if (!token.empty()) {
+      tokens.push_back(std::move(token));
+    }
+  }
+
+  // Create RedisModuleString objects directly from parsed tokens
+  for (const auto& token : tokens) {
+    m_list.push_back(RedisModule_CreateString(ctx, token.c_str(), token.length()));
+  }
 }

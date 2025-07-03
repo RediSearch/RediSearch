@@ -48,35 +48,15 @@ class ParseHybridTest : public ::testing::Test {
     }
   }
 
-  // Helper function to create RedisModuleString array from C strings
-  RedisModuleString** createStringArray(const std::vector<const char*>& strings) {
-    RedisModuleString** argv = (RedisModuleString**)malloc(strings.size() * sizeof(RedisModuleString*));
-    for (size_t i = 0; i < strings.size(); i++) {
-      argv[i] = RedisModule_CreateString(ctx, strings[i], strlen(strings[i]));
-    }
-    return argv;
-  }
-
-  void freeStringArray(RedisModuleString** argv, size_t count) {
-    for (size_t i = 0; i < count; i++) {
-      RedisModule_FreeString(ctx, argv[i]);
-    }
-    free(argv);
-  }
 };
 
 TEST_F(ParseHybridTest, testBasicValidInput) {
   QueryError status = {QueryErrorCode(0)};
 
-  // Create a basic hybrid query: FT.HYBRID testidx SEARCH "hello" VSIM "world"
-  std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "world"
-  };
+  // Create a basic hybrid query: FT.HYBRID testidx SEARCH hello VSIM world
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx SEARCH hello VSIM world");
 
-  RedisModuleString** argv = createStringArray(args);
-  int argc = args.size();
-
-  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
 
   // Verify the request was parsed successfully
   ASSERT_TRUE(result != NULL);
@@ -90,43 +70,31 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
 
   // Clean up
   HybridRequest_Free(result);
-  freeStringArray(argv, argc);
 }
 
 TEST_F(ParseHybridTest, testMissingSearchParameter) {
   QueryError status = {QueryErrorCode(0)};
-  
+
   // Missing SEARCH parameter: FT.HYBRID testidx VSIM @vector_field
-  std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "VSIM", "@vector_field"
-  };
-  
-  RedisModuleString** argv = createStringArray(args);
-  int argc = args.size();
-  
-  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
-  
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx VSIM @vector_field");
+
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
+
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_ESYNTAX);
-  
+
   // Clean up
   QueryError_ClearError(&status);
-  freeStringArray(argv, argc);
 }
 
 TEST_F(ParseHybridTest, testMissingSecondSearchParameter) {
   QueryError status = {QueryErrorCode(0)};
 
-  // Missing second search parameter: FT.HYBRID testidx SEARCH "hello"
-  std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello"
-  };
+  // Missing second search parameter: FT.HYBRID testidx SEARCH hello
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx SEARCH hello");
 
-  RedisModuleString** argv = createStringArray(args);
-  int argc = args.size();
-
-  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
 
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
@@ -134,22 +102,15 @@ TEST_F(ParseHybridTest, testMissingSecondSearchParameter) {
 
   // Clean up
   QueryError_ClearError(&status);
-  freeStringArray(argv, argc);
 }
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   QueryError status = {QueryErrorCode(0)};
 
-  // Test with LINEAR combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE LINEAR 0.7 0.3
-  std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "world",
-    "COMBINE", "LINEAR", "0.7", "0.3"
-  };
+  // Test with LINEAR combine method
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx SEARCH hello VSIM world COMBINE LINEAR 0.7 0.3");
 
-  RedisModuleString** argv = createStringArray(args);
-  int argc = args.size();
-
-  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
 
   // Verify the request was parsed successfully
   ASSERT_TRUE(result != NULL);
@@ -160,22 +121,15 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
 
   // Clean up
   HybridRequest_Free(result);
-  freeStringArray(argv, argc);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRF) {
   QueryError status = {QueryErrorCode(0)};
 
-  // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
-  std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "world",
-    "COMBINE", "RRF"
-  };
+  // Test with RRF combine method
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx SEARCH hello VSIM world COMBINE RRF");
 
-  RedisModuleString** argv = createStringArray(args);
-  int argc = args.size();
-
-  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
 
   // Verify the request was parsed successfully
   ASSERT_TRUE(result != NULL);
@@ -186,21 +140,15 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
 
   // Clean up
   HybridRequest_Free(result);
-  freeStringArray(argv, argc);
 }
 
 TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
   QueryError status = {QueryErrorCode(0)};
 
-  // Test invalid syntax: FT.HYBRID testidx SEARCH "hello" SEARCH "world" (should fail)
-  std::vector<const char*> args = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "SEARCH", "world"
-  };
+  // Test invalid syntax: FT.HYBRID testidx SEARCH hello SEARCH world (should fail)
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx SEARCH hello SEARCH world");
 
-  RedisModuleString** argv = createStringArray(args);
-  int argc = args.size();
-
-  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
 
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
@@ -208,5 +156,86 @@ TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
 
   // Clean up
   QueryError_ClearError(&status);
-  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVectorParameterAdvancing) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test that vector parameters are properly skipped until COMBINE keyword
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx SEARCH hello VSIM vector_query param1 value1 param2 value2 COMBINE RRF");
+
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set (meaning COMBINE was found and parsed)
+  ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_RRF);
+
+  // Clean up
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testVectorParameterAdvancingToLimit) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test that vector parameters are properly skipped until LIMIT keyword
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx SEARCH hello VSIM vector_query method HNSW ef_runtime 100 LIMIT 0 10");
+
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Clean up
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Example of a complex command in a single line
+  RMCK::ArgvList args(ctx, "FT.HYBRID testidx SEARCH hello VSIM @vector_field method HNSW k 10 "
+                            " COMBINE LINEAR 2 search 0.7 vector 0.3 SORTBY 1 @score DESC LIMIT 0 20");
+
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify LINEAR scoring type was set
+  ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_LINEAR);
+
+  // Clean up
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testMultiLineCommand) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Example of how to write multi-line commands for better readability
+  auto command =
+    "FT.HYBRID testidx "
+    "SEARCH hello "
+    "VSIM @vector_field method HNSW k 10 "
+    "COMBINE LINEAR 2 search 0.7 vector 0.3 "
+    "SORTBY 1 @score DESC "
+    "LIMIT 0 20";
+
+  RMCK::ArgvList args(ctx, command);
+
+  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), sctx, &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify LINEAR scoring type was set
+  ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_LINEAR);
+
+  // Clean up
+  HybridRequest_Free(result);
 }

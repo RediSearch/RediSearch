@@ -62,6 +62,35 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
 }
 
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
+  // Advance the cursor until we encounter one of the specified keywords or reach the end
+  while (!AC_IsAtEnd(ac)) {
+    const char *cur;
+    if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) != AC_OK) {
+      break;
+    }
+
+    // Check if current argument is one of the keywords that should stop parsing
+    if (!strcasecmp(cur, "COMBINE") ||
+        !strcasecmp(cur, "LOAD") ||
+        !strcasecmp(cur, "GROUPBY") ||
+        !strcasecmp(cur, "APPLY") ||
+        !strcasecmp(cur, "SORTBY") ||
+        !strcasecmp(cur, "FILTER") ||
+        !strcasecmp(cur, "LIMIT") ||
+        !strcasecmp(cur, "PARAMS") ||
+        !strcasecmp(cur, "EXPLAINSCORE") ||
+        !strcasecmp(cur, "TIMEOUT")) {
+      // Found a keyword that should stop parsing, don't advance past it
+      break;
+    }
+
+    // just for the unsafe free
+    vectorRequest->query = RedisModule_CreateString(NULL, "", 0);
+
+    // Not a stopping keyword, advance to next argument
+    AC_Advance(ac);
+  }
+
   // TODO: Parse additional vector parameters (method, FILTER, etc.)
   return REDISMODULE_OK;
 }
