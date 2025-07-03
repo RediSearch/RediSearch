@@ -4,7 +4,12 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 $MODE dnf update -y
 
-$MODE  wget -qO- https://apt.llvm.org/llvm.sh | bash -s -- 19
+for i in {1..10000}; do
+    $MODE dnf clean all
+    $MODE dnf install -y clang && break || echo "Attempt $i failed, retrying..."
+done
+
+clang --version
 
 $MODE dnf install -y make wget git \
     openssl openssl-devel python3 python3-devel which rsync unzip clang curl --nobest --allowerasing
