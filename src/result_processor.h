@@ -79,9 +79,6 @@ typedef struct {
   // Last processor
   struct ResultProcessor *endProc;
 
-  // Contains our spec
-  // RedisSearchCtx *sctx;
-
   struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
   struct timespec GILTime;  //milliseconds
 
