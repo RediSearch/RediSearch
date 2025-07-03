@@ -190,6 +190,7 @@ typedef struct {
   double weight;
   int phonetic;
   char *distField;
+  bool explicitWeight; // Whether the weight was explicitly set by the user in the query.
 } QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;
