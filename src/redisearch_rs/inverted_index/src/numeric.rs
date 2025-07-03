@@ -162,6 +162,9 @@ pub struct Numeric {
     /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
     /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
     compress_floats: bool,
+
+    /// Keeps track of the number of entries help by the parent inverted index.
+    num_entries: usize,
 }
 
 impl Numeric {
@@ -175,6 +178,7 @@ impl Numeric {
     pub fn new() -> Self {
         Self {
             compress_floats: false,
+            num_entries: 0,
         }
     }
 
@@ -184,6 +188,11 @@ impl Numeric {
         self.compress_floats = true;
 
         self
+    }
+
+    /// Returns the number of entries encoded by this encoder.
+    pub fn num_entries(&self) -> usize {
+        self.num_entries
     }
 }
 
@@ -197,7 +206,7 @@ impl Encoder for Numeric {
     type DeltaType = u64;
 
     fn encode<W: Write + std::io::Seek>(
-        &self,
+        &mut self,
         mut writer: W,
         delta: Self::DeltaType,
         record: &RSIndexResult,
@@ -359,6 +368,7 @@ impl Encoder for Numeric {
             }
         };
 
+        self.num_entries += 1;
         Ok(bytes_written)
     }
 
