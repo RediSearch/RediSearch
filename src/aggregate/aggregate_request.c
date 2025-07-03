@@ -1257,6 +1257,10 @@ void AREQ_Free(AREQ *req) {
   if (req->searchopts.params) {
     Param_DictFree(req->searchopts.params);
   }
+  FieldList_Free(&req->outFields);
+  if (thctx) {
+    RedisModule_FreeThreadSafeContext(thctx);
+  }
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
