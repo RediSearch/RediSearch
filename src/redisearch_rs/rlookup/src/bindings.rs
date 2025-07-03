@@ -10,7 +10,13 @@
 //! Bindings and wrapper types for as-of-yet unported types and modules. This makes the actual RLookup code cleaner and safer
 //! isolating much of the unsafe FFI code.
 
+use core::slice;
 use enumflags2::{BitFlags, bitflags};
+use std::{
+    ffi::CStr,
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
 #[bitflags]
@@ -43,3 +49,75 @@ pub enum FieldSpecType {
     Geometry = 32,
 }
 pub type FieldSpecTypes = BitFlags<FieldSpecType>;
+
+// TODO [MOD-10342] remove once IndexSpecCache is ported to Rust
+#[derive(Debug)]
+pub struct IndexSpecCache(NonNull<ffi::IndexSpecCache>);
+
+impl IndexSpecCache {
+    /// # Safety
+    ///
+    /// The caller must ensure the following invariants are upheld for the *entire lifetime* of this [`RLookup`]:
+    /// 1. The `spcache` pointer MUST point to a valid [`ffi::IndexSpecCache`].
+    /// 2. The [`ffi::IndexSpecCache`] being pointed MUST NOT get mutated.
+    pub unsafe fn from_raw(ptr: NonNull<ffi::IndexSpecCache>) -> Self {
+        debug_assert!(ptr.is_aligned());
+
+        Self(ptr)
+    }
+
+    pub fn fields(&self) -> &[ffi::FieldSpec] {
+        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
+        let me = unsafe { self.0.as_ref() };
+        debug_assert!(!me.fields.is_null());
+
+        // Safety: we have to trust that these two values are correct
+        unsafe { slice::from_raw_parts(me.fields, me.nfields) }
+    }
+
+    pub fn find_field(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
+        self.fields().iter().find(|field| {
+            debug_assert!(!field.fieldName.is_null());
+
+            // Safety: we have to trust that the `fieldName` pointer is valid
+            unsafe {
+                ffi::HiddenString_CompareC(field.fieldName, name.as_ptr(), name.count_bytes()) != 0
+            }
+        })
+    }
+}
+
+impl Clone for IndexSpecCache {
+    fn clone(&self) -> Self {
+        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
+        let refcount = unsafe { &raw const self.0.as_ref().refcount };
+
+        // Safety: See above
+        let refcount = unsafe { AtomicUsize::from_ptr(refcount.cast_mut()) };
+
+        refcount.fetch_add(1, Ordering::Relaxed);
+
+        Self(self.0)
+    }
+}
+
+impl Drop for IndexSpecCache {
+    fn drop(&mut self) {
+        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
+
+        unsafe {
+            ffi::IndexSpecCache_Decref(self.0.as_ptr());
+        }
+    }
+}
+
+impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
+    fn as_ref(&self) -> &ffi::IndexSpecCache {
+        // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
+        // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
+        unsafe { self.0.as_ref() }
+    }
+}
