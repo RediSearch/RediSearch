@@ -24,18 +24,12 @@ CONFIGS = [
     # New 16-primaries matrix - master branch (no SEARCH_IO_THREADS)
     BenchmarkConfig("oss-cluster-16-primaries", "master", 10, 10, None),
     BenchmarkConfig("oss-cluster-16-primaries", "master", 10, 20, None),
-    BenchmarkConfig("oss-cluster-16-primaries", "master", 20, 10, None),
-    BenchmarkConfig("oss-cluster-16-primaries", "master", 20, 20, None),
 
     # New 16-primaries matrix - joan-uv-threads branch (with SEARCH_IO_THREADS)
     BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 10, 10),
     BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 20, 10),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 20, 10, 10),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 20, 20, 10),
     BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 10, 20),
     BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 20, 20),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 20, 10, 20),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 20, 20, 20),
 ]
 
 # Path to the original YAML file
@@ -121,6 +115,21 @@ def update_yaml(yaml_path, workers, search_threads, search_io_threads):
     # Load the YAML file
     with open(temp_path, 'r') as f:
         config = yaml.safe_load(f)
+
+    # Add all the custom setups to the setups list if they don't already exist
+    if 'setups' in config:
+        for benchmark_config in CONFIGS:
+            setup = benchmark_config.setup
+            branch = benchmark_config.branch
+            workers = benchmark_config.workers
+            search_threads = benchmark_config.search_threads
+            search_io_threads = benchmark_config.search_io_threads
+
+            sio_part = f"_sio{search_io_threads}" if search_io_threads is not None else ""
+            new_setup_name = f"{setup}_{branch}_w{workers}_st{search_threads}{sio_part}"
+
+            if new_setup_name not in config['setups']:
+                config['setups'].append(new_setup_name)
 
     # Update the module configuration parameters
     for element in config['dbconfig']:
@@ -243,7 +252,7 @@ def main():
       config_id = f"{branch}_{setup}_w{workers}_st{search_threads}_sio{search_io_threads}"
 
       # Run the benchmark
-      success = run_benchmark("1", "oss-cluster", setup, branch, temp_yaml)
+      success = run_benchmark("1", "oss-cluster", new_setup_name, branch, temp_yaml)
 
       if success:
           print(f"Benchmark completed!!!!")
