@@ -271,8 +271,6 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // There may be a delay between the thread starting and the loop running, we need to account for it
-    // I could perhaps try to give one last chance to PendingQueues by calling triggerPendingQueues
-    //(we may need to have a logic on how many times we try to do it...)
     uv_async_send(&io_runtime_ctx->uv_runtime.shutdownAsync);
   }
 }
@@ -292,6 +290,7 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   } else {
     UV_Close(io_runtime_ctx);
   }
+  array_free(io_runtime_ctx->pendingQueues);
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(io_runtime_ctx->conn_mgr);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
@@ -314,7 +313,7 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   rm_free(io_runtime_ctx);
 }
 
-//TODO: Joan (Handle potential error from uv_thread_create, what if thread is not properly created)
+//TODO(Joan): Handle potential error from uv_thread_create, what if thread is not properly created (Not sure other thdpools handle it)
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   // Initialize the loop and timers
   // Verify that we are running on the event loop thread
