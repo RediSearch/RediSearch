@@ -9,19 +9,70 @@
 
 #include "result_processor.h"
 #include "gtest/gtest.h"
+#include "spec.h"
+#include "search_ctx.h"
+#include "rmalloc.h"
+#include "common.h"
+#include "redismock/redismock.h"
 #include <thread>
 #include <chrono>
 #include <atomic>
 
-class RPDepleterTest : public ::testing::Test {};
+// Base test class for parameterized tests
+class RPDepleterTest : public ::testing::Test, public ::testing::WithParamInterface<bool> {
+protected:
+  void SetUp() override {
+    // Create a real index for testing index locking
+    if (GetParam()) {  // Only create spec when testing with index locking
+      ctx = RedisModule_GetThreadSafeContext(NULL);
 
-TEST_F(RPDepleterTest, RPDepleter_Basic) {
+      // Generate a unique index name for each test to avoid conflicts
+      const ::testing::TestInfo* const test_info =
+        ::testing::UnitTest::GetInstance()->current_test_info();
+      std::string index_name = std::string("test_index_") + test_info->test_case_name() + "_" + test_info->name();
+
+      QueryError err = {};
+      RMCK::ArgvList argv(ctx, "FT.CREATE", index_name.c_str(), "SKIPINITIALSCAN", "SCHEMA", "field1", "TEXT");
+      mockSpec = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);
+      if (!mockSpec) {
+        printf("Failed to create index spec. Error code: %d, Error message: %s\n",
+               err.code, QueryError_GetUserError(&err));
+      }
+      ASSERT_NE(mockSpec, nullptr) << "Failed to create index spec. Error: " << QueryError_GetUserError(&err);
+      mockSctx = SEARCH_CTX_STATIC(ctx, mockSpec);
+      mockSctx2 = SEARCH_CTX_STATIC(ctx, mockSpec);
+    }
+  }
+
+  void TearDown() override {
+    if (GetParam()) {
+      if (ctx) {
+        RedisModule_FreeThreadSafeContext(ctx);
+      }
+    }
+  }
+
+  RedisModuleCtx* ctx = nullptr;
+  IndexSpec* mockSpec = nullptr;
+  RedisSearchCtx mockSctx;
+  RedisSearchCtx mockSctx2;
+};
+
+TEST_P(RPDepleterTest, RPDepleter_Basic) {
   // Tests basic RPDepleter functionality: background thread depletes upstream results,
   // main thread waits on condition variable, then yields results in order.
+
+  bool take_index_lock = GetParam();
 
   // Mock upstream processor: yields 3 results, then EOF
   const size_t n_docs = 3;
   QueryIterator qitr = {0};
+
+  // Set up the query iterator with mock search context if needed
+  if (take_index_lock) {
+    qitr.sctx = &mockSctx;
+  }
+
   struct MockUpstream : public ResultProcessor {
     int count = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
@@ -37,7 +88,7 @@ TEST_F(RPDepleterTest, RPDepleter_Basic) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New());
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock));
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -69,13 +120,21 @@ TEST_F(RPDepleterTest, RPDepleter_Basic) {
   depleter->Free(depleter);
 }
 
-TEST_F(RPDepleterTest, RPDepleter_Timeout) {
+TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   // Tests RPDepleter handling of upstream timeout: background thread gets timeout,
   // main thread waits on condition variable, then yields results and timeout.
+
+  bool take_index_lock = GetParam();
 
   // Mock upstream processor: yields 3 results, then timeout.
   const size_t n_docs = 3;
   QueryIterator qitr = {0};
+
+  // Set up the query iterator with mock search context if needed
+  if (take_index_lock) {
+    qitr.sctx = &mockSctx;
+  }
+
   struct MockUpstream : public ResultProcessor {
     int count = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
@@ -91,7 +150,7 @@ TEST_F(RPDepleterTest, RPDepleter_Timeout) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New());
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock));
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -123,7 +182,7 @@ TEST_F(RPDepleterTest, RPDepleter_Timeout) {
   depleter->Free(depleter);
 }
 
-TEST_F(RPDepleterTest, RPDepleter_CrossWakeup) {
+TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   // Tests cross-depleter condition variable signaling: when one depleter finishes,
   // it signals the shared condition variable, waking up other depleters that return
   // `RS_RESULT_DEPLETING` (allowing downstream to try other depleters for results).
@@ -131,8 +190,16 @@ TEST_F(RPDepleterTest, RPDepleter_CrossWakeup) {
   // This tests the core mechanism where depleters share sync objects and signal each other.
   // High sleep times are used in order to avoid flakiness.
 
+  bool take_index_lock = GetParam();
+
   const size_t n_docs = 2;
   QueryIterator qitr1 = {0}, qitr2 = {0};
+
+  // Set up the query iterators with the same search context if needed
+  if (take_index_lock) {
+    qitr1.sctx = &mockSctx;
+    qitr2.sctx = &mockSctx2;
+  }
 
   // Mock upstream that finishes quickly.
   struct FastUpstream : public ResultProcessor {
@@ -171,7 +238,7 @@ TEST_F(RPDepleterTest, RPDepleter_CrossWakeup) {
   } slowUpstream;
 
   // Create shared sync reference and two depleters sharing it
-  StrongRef sync_ref = DepleterSync_New();
+  StrongRef sync_ref = DepleterSync_New(2, take_index_lock);
   ResultProcessor *fastDepleter = RPDepleter_New(StrongRef_Clone(sync_ref));
   ResultProcessor *slowDepleter = RPDepleter_New(StrongRef_Clone(sync_ref));
   StrongRef_Release(sync_ref);  // Release our reference
@@ -194,6 +261,13 @@ TEST_F(RPDepleterTest, RPDepleter_CrossWakeup) {
   // that the fast depleter-thread has finished and woke it up.
   rc2 = slowDepleter->Next(slowDepleter, &res);
   ASSERT_EQ(rc2, RS_RESULT_DEPLETING);
+
+  if (take_index_lock) {
+    // Wait for the locks to be taken
+    while ((rc1 = fastDepleter->Next(fastDepleter, &res)) == RS_RESULT_DEPLETING) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  }
 
   // Deplete the fast depleter - each result should be available immediately,
   // until we reach the end.
@@ -226,12 +300,19 @@ TEST_F(RPDepleterTest, RPDepleter_CrossWakeup) {
   slowDepleter->Free(slowDepleter);
 }
 
-TEST_F(RPDepleterTest, RPDepleter_Error) {
+TEST_P(RPDepleterTest, RPDepleter_Error) {
   // Tests RPDepleter handling of upstream error: background thread gets error,
   // main thread waits on condition variable, then propagates the error.
   // Mock upstream processor sends an error on the first call.
 
+  bool take_index_lock = GetParam();
+
   QueryIterator qitr = {0};
+
+  // Set up the query iterator with mock search context if needed
+  if (take_index_lock) {
+    qitr.sctx = &mockSctx;
+  }
 
   struct MockUpstream : public ResultProcessor {
     int count = 0;
@@ -245,7 +326,7 @@ TEST_F(RPDepleterTest, RPDepleter_Error) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New());
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock));
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -277,3 +358,13 @@ TEST_F(RPDepleterTest, RPDepleter_Error) {
   SearchResult_Destroy(&res);
   depleter->Free(depleter);
 }
+
+// Instantiate the parameterized test with both true and false values
+INSTANTIATE_TEST_SUITE_P(
+    LockingVariants,
+    RPDepleterTest,
+    ::testing::Values(false, true),
+    [](const ::testing::TestParamInfo<bool>& info) {
+      return info.param ? "WithIndexLock" : "WithoutIndexLock";
+    }
+);

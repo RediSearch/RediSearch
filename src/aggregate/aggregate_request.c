@@ -1497,9 +1497,9 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
       }
       rp = RPMaxScoreNormalizer_New(scoreKey);
       PUSH_RP();
-      }
     }
   }
+}
 
 /**
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
