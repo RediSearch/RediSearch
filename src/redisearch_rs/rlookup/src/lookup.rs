@@ -12,16 +12,14 @@ use crate::bindings::{
 };
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
-#[cfg(any(debug_assertions, test))]
-use std::ptr;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
     ffi::{CStr, c_char},
     mem,
-    ops::DerefMut,
-    pin::Pin,
-    ptr::NonNull,
+    ops::{Deref, DerefMut},
+    pin::{Pin, pin},
+    ptr::{self, NonNull},
     slice,
 };
 
@@ -257,8 +255,9 @@ impl<'a> RLookupKey<'a> {
     }
 
     /// Updates this `RLookupKey`'s fields according to the provided [`ffi::FieldSpec`].
-    pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
-        self.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
+    pub fn update_from_field_spec(self: Pin<&mut Self>, fs: &ffi::FieldSpec) {
+        let mut me = self.project();
+        *me.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
 
         let path = {
             debug_assert!(!fs.fieldPath.is_null());
@@ -271,38 +270,38 @@ impl<'a> RLookupKey<'a> {
             debug_assert!(!path_ptr.is_null());
             // Safety: We assume the `path_ptr` and `length` information returned by the field spec
             // point to a valid null-terminated C string. Importantly `length` here is value as returned by
-            // `strlen` so **does not** include the null terminator (that is why we do `path_len  1` below)
+            // `strlen` so **does not** include the null terminator (that is why we do `path_len + 1` below)
             let bytes = unsafe { slice::from_raw_parts(path_ptr.cast::<u8>(), path_len + 1) };
             let path = CStr::from_bytes_with_nul(bytes)
                 .expect("string returned by HiddenString_GetUnsafe is malformed");
 
             // When the name is owned, we also want the path to be owned
-            if matches!(self._name, Cow::Owned(_)) {
+            if matches!(me._name.deref(), Cow::Owned(_)) {
                 Cow::Owned(path.to_owned())
             } else {
                 Cow::Borrowed(path)
             }
         };
-        self._path = Some(path);
-        self.path = self._path.as_ref().unwrap().as_ptr();
+        *me._path = Some(path);
+        *me.path = me._path.as_deref().unwrap().as_ptr();
 
         let fs_options = FieldSpecOptions::from_bits(fs.options()).unwrap();
 
         if fs_options.contains(FieldSpecOption::Sortable) {
-            self.flags |= RLookupKeyFlag::SvSrc;
-            self.svidx = u16::try_from(fs.sortIdx).unwrap();
+            *me.flags |= RLookupKeyFlag::SvSrc;
+            *me.svidx = u16::try_from(fs.sortIdx).unwrap();
 
             if fs_options.contains(FieldSpecOption::Unf) {
                 // If the field is sortable and not normalized (UNF), the available data in the
                 // sorting vector is the same as the data in the document.
-                self.flags |= RLookupKeyFlag::ValAvailable;
+                *me.flags |= RLookupKeyFlag::ValAvailable;
             }
         }
 
         let fs_types = FieldSpecTypes::from_bits(fs.types()).unwrap();
 
         if fs_types.contains(FieldSpecType::Numeric) {
-            self.flags |= RLookupKeyFlag::Numeric;
+            *me.flags |= RLookupKeyFlag::Numeric;
         }
     }
 
@@ -384,6 +383,7 @@ impl<'a> RLookupKey<'a> {
         unsafe { Pin::new_unchecked(b) }
     }
 
+    #[cfg(any(debug_assertions, test))]
     fn is_tombstone(&self) -> bool {
         self.name.is_null()
             && self.name_len == usize::MAX
@@ -970,6 +970,99 @@ impl<'a> RLookup<'a> {
         Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
     }
 
+    // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
+
+    pub fn get_key_load(
+        &mut self,
+        name: &'a CStr,
+        field_name: &'a CStr,
+        mut flags: RLookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        // remove all flags that are not relevant to getting a key
+        flags &= GET_KEY_FLAGS;
+
+        // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
+        // 2. create a new key with the name of the field, and mark it as doc-source.
+        // 3. if the key is in the schema, mark it as schema-source and apply all the relevant flags according to the field spec.
+        // 4. if the key is "loaded" at this point (in schema, sortable and un-normalized), create the key but return NULL
+        //    (no need to load it from the document).
+
+        // Safety: The non-lexical lifetime analysis of current Rust, incorrectly handles borrows in early
+        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
+        // obviously not correct as `key` is either found and borrowed in which case we never reach the code below
+        // this early return OR it is *not* found and *not* borrowed which means the code below is fine to
+        // borrow self again. The current compiler is not smart enough to get this though, so we create a disjoint
+        // borrow below.
+        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
+        let me = unsafe { &mut *(self as *mut Self) };
+
+        let mut key = if let Some(mut c) = me.keys.find_by_name_mut(name) {
+            let key = c.current().unwrap();
+
+            if (key.flags.contains(RLookupKeyFlag::ValAvailable)
+                && !key.flags.contains(RLookupKeyFlag::IsLoaded))
+                && !key
+                    .flags
+                    .intersects(RLookupKeyFlag::Override | RLookupKeyFlag::ForceLoad)
+                || (key.flags.contains(RLookupKeyFlag::IsLoaded)
+                    && !flags.contains(RLookupKeyFlag::Override))
+                || (key.flags.contains(RLookupKeyFlag::QuerySrc)
+                    && !flags.contains(RLookupKeyFlag::Override))
+            {
+                // We found a key with the same name. We return NULL if:
+                // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
+                //    request to override or forced loading.
+                // 2. The key is already loaded (from the document) and the caller didn't request to override.
+                // 3. The key was created by the query (upstream) and the caller didn't request to override.
+
+                let key = key.project();
+
+                // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
+                *key.flags |= flags & RLookupKeyFlag::ExplicitReturn;
+
+                return None;
+            } else {
+                c.override_current(flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded)
+                    .unwrap()
+            }
+        } else {
+            self.keys.push(RLookupKey::new(
+                name,
+                flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
+            ))
+        };
+
+        if let Some(fs) = self.spcache.as_ref()?.find_field(name) {
+            key.as_mut().update_from_field_spec(fs);
+
+            if key.flags.contains(RLookupKeyFlag::ValAvailable)
+                && !flags.contains(RLookupKeyFlag::ForceLoad)
+            {
+                // If the key is marked as "value available", it means that it is sortable and un-normalized.
+                // so we can use the sorting vector as the source, and we don't need to load it from the document.
+                return None;
+            }
+        } else {
+            // Field not found in the schema.
+            let mut key = key.as_mut().project();
+
+            // We assume `field_name` is the path to load from in the document.
+            if !key.flags.contains(RLookupKeyFlag::NameAlloc) {
+                *key.path = field_name.as_ptr();
+                *key._path = Some(Cow::Borrowed(field_name));
+            } else if name != field_name {
+                let field_name: Cow<'_, CStr> = Cow::Owned(field_name.to_owned());
+                *key.path = field_name.as_ptr();
+                *key._path = Some(field_name);
+            } // else
+            // If the caller requested to allocate the name, and the name is the same as the path,
+            // it was already set to the same allocation for the name, so we don't need to do anything.
+        }
+
+        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned reference.
+        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+    }
+
     // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
     // has promised to load the entire document.
     fn gen_key_from_spec(
@@ -988,9 +1081,17 @@ impl<'a> RLookup<'a> {
             return None;
         }
 
-        let mut key = RLookupKey::new(name, flags);
-        key.update_from_field_spec(fs);
-        Some(key)
+        let mut key = pin!(RLookupKey::new(name, flags));
+
+        key.as_mut().update_from_field_spec(fs);
+
+        // Safety: we can safely move the key by value here, since this key is not part of the List yet.
+        unsafe {
+            Some(mem::replace(
+                Pin::into_inner_unchecked(key),
+                RLookupKey::new(c"", RLookupKeyFlags::empty()),
+            ))
+        }
     }
 }
 
@@ -999,6 +1100,7 @@ mod tests {
     use super::*;
     use std::{
         mem::{MaybeUninit, offset_of},
+        pin::pin,
         sync::atomic::{AtomicUsize, Ordering},
     };
 
@@ -1059,7 +1161,7 @@ mod tests {
 
     #[test]
     fn update_from_field_spec() {
-        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        let mut key = pin!(RLookupKey::new(c"test", RLookupKeyFlags::empty()));
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -1069,7 +1171,7 @@ mod tests {
         fs.fieldPath =
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
 
-        key.update_from_field_spec(&fs);
+        key.as_mut().update_from_field_spec(&fs);
 
         assert!(
             key.flags
@@ -1093,7 +1195,7 @@ mod tests {
 
     #[test]
     fn update_from_field_spec_sortable() {
-        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        let mut key = pin!(RLookupKey::new(c"test", RLookupKeyFlags::empty()));
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -1107,7 +1209,7 @@ mod tests {
         );
         fs.sortIdx = 43;
 
-        key.update_from_field_spec(&fs);
+        key.as_mut().update_from_field_spec(&fs);
 
         assert!(key.flags.contains(
             RLookupKeyFlag::DocSrc
@@ -1134,7 +1236,7 @@ mod tests {
 
     #[test]
     fn update_from_field_spec_numeric() {
-        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        let mut key = pin!(RLookupKey::new(c"test", RLookupKeyFlags::empty()));
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -1145,7 +1247,7 @@ mod tests {
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
         fs.set_types(ffi::FieldType_INDEXFLD_T_NUMERIC);
 
-        key.update_from_field_spec(&fs);
+        key.as_mut().update_from_field_spec(&fs);
 
         assert!(key.flags.contains(
             RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc | RLookupKeyFlag::Numeric
@@ -1169,7 +1271,10 @@ mod tests {
     // `update_from_field_spec` clones the name if key`RLookupKey.flags` contains `NameAlloc`
     #[test]
     fn update_from_field_spec_namealloc() {
-        let mut key = RLookupKey::new(c"test", make_bitflags!(RLookupKeyFlag::NameAlloc));
+        let mut key = pin!(RLookupKey::new(
+            c"test",
+            make_bitflags!(RLookupKeyFlag::NameAlloc)
+        ));
 
         let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
         let field_name = c"this is the field name";
@@ -1179,7 +1284,7 @@ mod tests {
         fs.fieldPath =
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
 
-        key.update_from_field_spec(&fs);
+        key.as_mut().update_from_field_spec(&fs);
 
         assert!(
             key.flags
