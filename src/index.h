@@ -104,15 +104,8 @@ typedef struct {
   int eof;
 } ProfileCounters;
 
-typedef struct {
-  t_docId first;
-  t_docId last;
-  t_docId firstSkippedTo;
-  t_docId lastSkippedTo;
-} ProfileDocIds;
-
 // Print profile of iterators
-void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, ProfileDocIds *docIds,
+void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
 #ifdef __cplusplus

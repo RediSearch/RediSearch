@@ -16,7 +16,9 @@
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
 #define printProfileCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcount))
-#define printProfileCounters(counters) RedisModule_ReplyKV_LongLong(reply, "Read Counter", (counters->read)); RedisModule_ReplyKV_LongLong(reply, "Skip Counter", (counters->skipTo))  
+// For now we only print the total counter in order to avoid breaking the response format of profile
+// If we get a chance to break it then consider splitting the count into separate fields
+#define printProfileCounters(counters) printProfileCounter(counters->read + counters->skipTo)
 
 #define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (rs_timer_ms(&(vtime))))
 #define printProfileNumBatches(hybrid_reader) \
@@ -28,14 +30,12 @@
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
 // Print the profile of a single shard, in full format
 
-void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, ProfileDocIds *docIds, double cpuTime,
+void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, double cpuTime,
                 PrintProfileConfig *config);
 
 #define PROFILE_STR "Profile"
 #define PROFILE_SHARDS_STR "Shards"
 #define PROFILE_COORDINATOR_STR "Coordinator"
-
-void printProfileDocIds(RedisModule_Reply *reply, ProfileDocIds *docIds);
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 

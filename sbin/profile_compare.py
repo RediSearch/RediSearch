@@ -2058,16 +2058,14 @@ class RediSearchTester:
 
         iter_type = iterator_data['Type']
         iter_counter = iterator_data.get('Counter')  # Legacy fallback
-        iter_read_counter = iterator_data.get('Read Counter')  # New format
-        iter_skip_counter = iterator_data.get('Skip Counter')  # New format
         iter_term = iterator_data.get('Term')  # May be None
         iter_size = iterator_data.get('Size')  # May be None
 
-        print(f"     Extracted - Type: {iter_type}, Read: {iter_read_counter}, Skip: {iter_skip_counter}, Term: {iter_term}, Size: {iter_size}")
+        print(f"     Extracted - Type: {iter_type}, Counter: {iter_counter}, Term: {iter_term}, Size: {iter_size}")
 
         # Check for missing critical fields
-        if iter_read_counter is None and iter_counter is None:
-            print(f"     ⚠ No Read Counter or Counter found for {iter_type}")
+        if iter_counter is None:
+            print(f"     ⚠ No Counter found for {iter_type}")
         if iter_size is None:
             print(f"     ⚠ No Size found for {iter_type}")
 
@@ -2075,41 +2073,9 @@ class RediSearchTester:
         details_parts = [
             f"Type: {iter_type}",
             f"Term: {iter_term}",
-            f"Read Counter: {iter_read_counter}",
-            f"Skip Counter: {iter_skip_counter}",
+            f"Counter: {iter_counter}",
             f"Size: {iter_size}"
         ]
-
-        # Add document ID range fields
-        iter_first_doc_id = iterator_data.get('First docId')
-        iter_last_doc_id = iterator_data.get('Last docId')
-        iter_first_skipped_to = iterator_data.get('First Skipped To')
-        iter_last_skipped_to = iterator_data.get('Last Skipped To')
-
-        if iter_first_doc_id is not None:
-            details_parts.append(f"First docId: {iter_first_doc_id}")
-        if iter_last_doc_id is not None:
-            details_parts.append(f"Last docId: {iter_last_doc_id}")
-        if iter_first_skipped_to is not None:
-            details_parts.append(f"First Skipped To: {iter_first_skipped_to}")
-        if iter_last_skipped_to is not None:
-            details_parts.append(f"Last Skipped To: {iter_last_skipped_to}")
-
-        # Add Quick Exit for UNION iterators
-        iter_quick_exit = iterator_data.get('Quick Exit')
-        if iter_quick_exit is not None:
-            details_parts.append(f"Quick Exit: {iter_quick_exit}")
-
-        # Add History for INTERSECTION iterators
-        iter_history = iterator_data.get('History')
-        if iter_history is not None:
-            if isinstance(iter_history, list):
-                history_str = ', '.join(map(str, iter_history))
-                details_parts.append(f"History: [{history_str}]")
-            else:
-                details_parts.append(f"History: {iter_history}")
-        else:
-            print(f"     ⚠ No History found for {iter_type}")
 
         # Create main iterator node with type for coloring
         iterator_node = {
@@ -2148,35 +2114,35 @@ class RediSearchTester:
             if child_node:
                 iterator_node["children"].append(child_node)
 
-        # Sort children by Read Counter (higher count = higher position)
-        iterator_node = self.sort_children_by_read_counter(iterator_node)
+        # Sort children by Counter (higher count = higher position)
+        iterator_node = self.sort_children_by_counter(iterator_node)
 
         # Calculate missing Size for UNION/INTERSECT iterators
         iterator_node = self.calculate_missing_iterator_size(iterator_node)
 
         return iterator_node
 
-    def sort_children_by_read_counter(self, iterator_node):
-        """Sort child iterators by Read Counter (higher count = higher position)"""
+    def sort_children_by_counter(self, iterator_node):
+        """Sort child iterators by Counter (higher count = higher position)"""
         if not iterator_node.get('children'):
             return iterator_node
 
-        def get_read_counter(child):
-            """Extract Read Counter from child iterator"""
+        def get_counter(child):
+            """Extract Counter from child iterator"""
             details = child.get('details', '')
             parsed_details = self.parse_details_string(details)
-            read_counter = parsed_details.get('Read Counter')
+            read_counter = parsed_details.get('Counter')
             return read_counter if read_counter is not None else 0
 
-        # Sort children by Read Counter in descending order (highest first)
-        sorted_children = sorted(iterator_node['children'], key=get_read_counter, reverse=True)
+        # Sort children by Counter in descending order (highest first)
+        sorted_children = sorted(iterator_node['children'], key=get_counter, reverse=True)
         iterator_node['children'] = sorted_children
 
         if len(sorted_children) > 1:
-            print(f"     Sorted {len(sorted_children)} children by Read Counter:")
+            print(f"     Sorted {len(sorted_children)} children by Counter:")
             for i, child in enumerate(sorted_children):
-                read_count = get_read_counter(child)
-                print(f"       {i+1}. {child['name']} (Read Counter: {read_count})")
+                read_count = get_counter(child)
+                print(f"       {i+1}. {child['name']} (Counter: {read_count})")
 
         return iterator_node
 
@@ -2278,7 +2244,7 @@ class RediSearchTester:
                         except ValueError as e:
                             print(f"       ✗ Failed to parse {key} '{value}': {e}")
                             parsed[key] = None
-                elif key in ['Counter', 'Read Counter', 'Skip Counter', 'Size', 'First docId', 'Last docId', 'First Skipped To', 'Last Skipped To']:
+                elif key in ['Counter', 'Size']:
                     if value == 'N/A':
                         parsed[key] = None
                     else:
@@ -2291,42 +2257,6 @@ class RediSearchTester:
                         except ValueError as e:
                             print(f"       ✗ Failed to parse {key} '{value}': {e}")
                             parsed[key] = None
-                elif key in ['Quick Exit']:
-                    # Boolean field for UNION iterator
-                    if value == 'N/A':
-                        parsed[key] = None
-                    else:
-                        try:
-                            parsed[key] = value.lower() in ['true', '1', 'yes', 'on']
-                            print(f"       Parsed {key}: {parsed[key]}")
-                        except Exception as e:
-                            print(f"       ✗ Failed to parse {key} '{value}': {e}")
-                            parsed[key] = None
-                elif key in ['History']:
-                    # Array field for INTERSECTION iterator (already parsed, not a JSON string)
-                    if value == 'N/A' or value is None:
-                        parsed[key] = None
-                    elif isinstance(value, list):
-                        # Already a parsed list/array
-                        parsed[key] = value
-                        history_len = len(value)
-                        print(f"       Parsed {key}: Array with {history_len} items")
-                    elif isinstance(value, str):
-                        # String that needs JSON parsing
-                        try:
-                            import json
-                            parsed[key] = json.loads(value)
-                            history_len = len(parsed[key]) if isinstance(parsed[key], list) else 'unknown'
-                            print(f"       Parsed {key}: JSON string to array with {history_len} items")
-                        except json.JSONDecodeError as e:
-                            print(f"       ✗ Failed to parse {key} JSON '{value[:50]}...': {e}")
-                            parsed[key] = None
-                        except Exception as e:
-                            print(f"       ✗ Failed to parse {key} '{value[:50]}...': {e}")
-                            parsed[key] = None
-                    else:
-                        print(f"       ⚠ Unexpected {key} type: {type(value)} = {value}")
-                        parsed[key] = value
                 else:
                     # String fields like Term, Type, Query type
                     parsed[key] = value if value != 'N/A' else None
@@ -2375,10 +2305,6 @@ class RediSearchTester:
                     if 'child' in item.lower() or 'iterator' in item.lower():
                         child_iterators.append(next_item)
                         print(f"         Added as child iterator")
-                    elif item.lower() == 'history':
-                        # History field should be stored as data, not child iterator
-                        parsed_data[item] = next_item
-                        print(f"         Stored as History field: {len(next_item)} items")
                     else:
                         print(f"         Skipping list field '{item}' (not child iterator or history)")
                     i += 2
@@ -2416,8 +2342,6 @@ class RediSearchTester:
         query_type = parsed_data.get('Query type')
         time_val = parsed_data.get('Time')
         counter = parsed_data.get('Counter')  # Legacy fallback
-        read_counter = parsed_data.get('Read Counter')  # New format
-        skip_counter = parsed_data.get('Skip Counter')  # New format
         term = parsed_data.get('Term') or parsed_data.get('term')
         size = parsed_data.get('Size')  # May be None
 
@@ -2426,8 +2350,6 @@ class RediSearchTester:
             print(f"     ⚠ No Query type found for {iter_type}")
         if time_val is None:
             print(f"     ⚠ No Time found for {iter_type}")
-        if read_counter is None and counter is None:
-            print(f"     ⚠ No Read Counter or Counter found for {iter_type}")
         if term is None:
             print(f"     ⚠ No Term found for {iter_type}")
 
@@ -2437,40 +2359,11 @@ class RediSearchTester:
             f"Term: {term}",
             f"Query type: {query_type}",
             f"Time: {time_val}",
-            f"Read Counter: {read_counter}",
-            f"Skip Counter: {skip_counter}"
+            f"Counter: {counter}",
         ]
 
-        # Add document ID range fields
-        first_doc_id = parsed_data.get('First docId')
-        last_doc_id = parsed_data.get('Last docId')
-        first_skipped_to = parsed_data.get('First Skipped To')
-        last_skipped_to = parsed_data.get('Last Skipped To')
-
-        if first_doc_id is not None:
-            details_parts.append(f"First docId: {first_doc_id}")
-        if last_doc_id is not None:
-            details_parts.append(f"Last docId: {last_doc_id}")
-        if first_skipped_to is not None:
-            details_parts.append(f"First Skipped To: {first_skipped_to}")
-        if last_skipped_to is not None:
-            details_parts.append(f"Last Skipped To: {last_skipped_to}")
         if size is not None:
             details_parts.append(f"Size: {size}")
-
-        # Add Quick Exit for UNION iterators
-        quick_exit = parsed_data.get('Quick Exit')
-        if quick_exit is not None:
-            details_parts.append(f"Quick Exit: {quick_exit}")
-
-        # Add History for INTERSECTION iterators
-        history = parsed_data.get('History')
-        if history is not None:
-            if isinstance(history, list):
-                history_str = ', '.join(map(str, history))
-                details_parts.append(f"History: [{history_str}]")
-            else:
-                details_parts.append(f"History: {history}")
 
         # Create iterator node with type for coloring
         iterator_node = {
@@ -2492,8 +2385,8 @@ class RediSearchTester:
 
         print(f"     Iterator {iter_type} has {len(iterator_node['children'])} children")
 
-        # Sort children by Read Counter (higher count = higher position)
-        iterator_node = self.sort_children_by_read_counter(iterator_node)
+        # Sort children by Counter (higher count = higher position)
+        iterator_node = self.sort_children_by_counter(iterator_node)
 
         # Calculate missing Size for UNION/INTERSECT iterators
         iterator_node = self.calculate_missing_iterator_size(iterator_node)
@@ -2585,11 +2478,7 @@ class RediSearchTester:
                 term = parsed_details.get('Term')
                 time = parsed_details.get('Time')
                 counter = parsed_details.get('Counter')  # Fallback counter
-                read_counter = parsed_details.get('Read Counter')
-                skip_counter = parsed_details.get('Skip Counter')
                 size = parsed_details.get('Size')
-                # Note: Quick Exit is only in UNION iterator nodes, not leaf nodes
-                # Note: History is only in INTERSECTION iterator nodes, not leaf nodes
 
                 # Check for parsing failures
                 parsing_issues = []
@@ -2597,10 +2486,8 @@ class RediSearchTester:
                     parsing_issues.append("term")
                 if time is None:
                     parsing_issues.append("time")
-                if read_counter is None and counter is None:
-                    parsing_issues.append("read_counter/counter")
-                if skip_counter is None:
-                    parsing_issues.append("skip_counter")
+                if counter is None:
+                    parsing_issues.append("counter")
                 if size is None:
                     parsing_issues.append("size")
 
@@ -2663,19 +2550,7 @@ class RediSearchTester:
         return None
 
     def extract_counter_from_details(self, details):
-        """Extract counter from details string (Read Counter preferred, fallback to Counter)"""
-        # First try to find Read Counter (new format)
-        if 'Read Counter:' in details:
-            lines = details.split('\\n')
-            for line in lines:
-                if line.startswith('Read Counter:'):
-                    counter_str = line.split(':', 1)[1].strip()
-                    try:
-                        return int(counter_str) if counter_str != 'N/A' else 0
-                    except:
-                        return 0
-
-        # Fallback to old Counter format
+        """Extract counter from details string"""
         if 'Counter:' in details:
             lines = details.split('\\n')
             for line in lines:
@@ -2687,25 +2562,6 @@ class RediSearchTester:
                         return 0
         return 0
 
-    def extract_read_counter_from_details(self, details):
-        """Extract Read Counter from details string"""
-        if 'Read Counter:' in details:
-            lines = details.split('\\n')
-            for line in lines:
-                if line.startswith('Read Counter:'):
-                    counter_str = line.split(':', 1)[1].strip()
-                    if counter_str == 'N/A':
-                        print(f"       Read Counter is N/A")
-                        return None
-                    try:
-                        counter_val = int(counter_str)
-                        print(f"       Extracted Read Counter: {counter_val}")
-                        return counter_val
-                    except ValueError as e:
-                        print(f"       ✗ Failed to parse Read Counter '{counter_str}': {e}")
-                        return None
-        print(f"       ✗ No 'Read Counter:' found in details: {details[:100]}...")
-        return None
 
     def extract_skip_counter_from_details(self, details):
         """Extract Skip Counter from details string"""
@@ -2787,10 +2643,8 @@ class RediSearchTester:
                 'type2': safe_get(leaf2, 'type'),
                 'time1': safe_get(leaf1, 'time', 0),
                 'time2': safe_get(leaf2, 'time', 0),
-                'read_counter1': safe_get(leaf1, 'read_counter', 0),
-                'read_counter2': safe_get(leaf2, 'read_counter', 0),
-                'skip_counter1': safe_get(leaf1, 'skip_counter', 0),
-                'skip_counter2': safe_get(leaf2, 'skip_counter', 0),
+                'counter1': safe_get(leaf1, 'counter', 0),
+                'counter2': safe_get(leaf2, 'counter', 0),
                 'size1': safe_get(leaf1, 'size', 0),
                 'size2': safe_get(leaf2, 'size', 0),
                 'path1': safe_get(leaf1, 'path'),
@@ -2810,17 +2664,14 @@ class RediSearchTester:
                         <th onclick="sortTable(0, 'string')">Term <span class="sort-arrow">↕</span></th>
                         <th onclick="sortTable(1, 'string')">{index1} Type <span class="sort-arrow">↕</span></th>
                         <th onclick="sortTable(2, 'number')">{index1} Time (ms) <span class="sort-arrow">↕</span></th>
-                        <th onclick="sortTable(3, 'number')">{index1} Read <span class="sort-arrow">↕</span></th>
-                        <th onclick="sortTable(4, 'number')">{index1} Skip <span class="sort-arrow">↕</span></th>
+                        <th onclick="sortTable(3, 'number')">{index1} Counter <span class="sort-arrow">↕</span></th>
                         <th onclick="sortTable(5, 'number')">{index1} Size <span class="sort-arrow">↕</span></th>
                         <th onclick="sortTable(6, 'string')">{index2} Type <span class="sort-arrow">↕</span></th>
                         <th onclick="sortTable(7, 'number')">{index2} Time (ms) <span class="sort-arrow">↕</span></th>
-                        <th onclick="sortTable(8, 'number')">{index2} Read <span class="sort-arrow">↕</span></th>
-                        <th onclick="sortTable(9, 'number')">{index2} Skip <span class="sort-arrow">↕</span></th>
+                        <th onclick="sortTable(8, 'number')">{index2} Counter <span class="sort-arrow">↕</span></th>
                         <th onclick="sortTable(10, 'number')">{index2} Size <span class="sort-arrow">↕</span></th>
                         <th onclick="sortTable(11, 'number')">Time Diff <span class="sort-arrow">↕</span></th>
-                        <th onclick="sortTable(12, 'number')">Read Diff <span class="sort-arrow">↕</span></th>
-                        <th onclick="sortTable(13, 'number')">Skip Diff <span class="sort-arrow">↕</span></th>
+                        <th onclick="sortTable(12, 'number')">Counter Diff <span class="sort-arrow">↕</span></th>
                         <th onclick="sortTable(14, 'number')">Size Diff <span class="sort-arrow">↕</span></th>
                     </tr>
                 </thead>
