@@ -245,91 +245,91 @@ def test_delete_docs_during_bg_indexing(env):
 
 
 
-# @skip(cluster=True)
-# def test_change_config_during_bg_indexing(env):
-#   oom_test_config(env)
+@skip(cluster=True)
+def test_change_config_during_bg_indexing(env):
+  oom_test_config(env)
 
-#   # Test deleting docs while they are being indexed in the background
-#   # Using a large number of docs to make sure the test is not flaky
-#   n_docs = 10000
-#   for i in range(n_docs):
-#     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
+  # Test deleting docs while they are being indexed in the background
+  # Using a large number of docs to make sure the test is not flaky
+  n_docs = 10000
+  for i in range(n_docs):
+    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
-#   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '70').ok()
-#   # Set pause after half of the docs were scanned
-#   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//10).ok()
-#   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '70').ok()
+  # Set pause after half of the docs were scanned
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//10).ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
 
-#   # Create an index with a text field.
-#   env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
-#   waitForIndexPauseScan(env, 'idx')
-#   # Set tight memory limit
-#   set_tight_maxmemory_for_oom(env, 0.7)
-#   # Change the memory limit
-#   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-#   # Resume indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Create an index with a text field.
+  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+  waitForIndexPauseScan(env, 'idx')
+  # Set tight memory limit
+  set_tight_maxmemory_for_oom(env, 0.7)
+  # Change the memory limit
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
-#   waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
-#   # Resume the indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   # Wait for the indexing to finish
-#   waitForIndexFinishScan(env, 'idx')
-#   # Verify memory consumption
-#   memory_ratio = get_memory_consumption_ratio(env)
-#   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
+  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+  # Resume the indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
+  # Verify memory consumption
+  memory_ratio = get_memory_consumption_ratio(env)
+  env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
-# @skip(cluster=False)
-# def test_cluster_oom_all_shards(env):
-#   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-#   verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
+@skip(cluster=False)
+def test_cluster_oom_all_shards(env):
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
 
-#   conn = getConnectionByEnv(env)
-#   n_docs_per_shard = 1000
-#   n_docs = n_docs_per_shard * env.shardsCount
-#   for i in range(n_docs):
-#     res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
-#     env.assertEqual(res, 1)
+  conn = getConnectionByEnv(env)
+  n_docs_per_shard = 1000
+  n_docs = n_docs_per_shard * env.shardsCount
+  for i in range(n_docs):
+    res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+    env.assertEqual(res, 1)
 
-#   # Set pause on OOM for all shards
-#   pause_on_oom_cmd = ' '.join([bgScanCommand(),' SET_PAUSE_ON_OOM', 'true'])
-#   run_command_on_all_shards(env, pause_on_oom_cmd)
-#   # Set pause on half of the docs for all shards
-#   pause_on_scanned_docs_cmd = ' '.join([bgScanCommand(),' SET_PAUSE_ON_SCANNED_DOCS', str(n_docs_per_shard//50)])
-#   run_command_on_all_shards(env, pause_on_scanned_docs_cmd)
-#   # Set pause before scan for all shards
-#   pause_before_scan_cmd = ' '.join([bgScanCommand(),' SET_PAUSE_BEFORE_SCAN', 'true'])
-#   run_command_on_all_shards(env, pause_before_scan_cmd)
+  # Set pause on OOM for all shards
+  pause_on_oom_cmd = ' '.join([bgScanCommand(),' SET_PAUSE_ON_OOM', 'true'])
+  run_command_on_all_shards(env, pause_on_oom_cmd)
+  # Set pause on half of the docs for all shards
+  pause_on_scanned_docs_cmd = ' '.join([bgScanCommand(),' SET_PAUSE_ON_SCANNED_DOCS', str(n_docs_per_shard//50)])
+  run_command_on_all_shards(env, pause_on_scanned_docs_cmd)
+  # Set pause before scan for all shards
+  pause_before_scan_cmd = ' '.join([bgScanCommand(),' SET_PAUSE_BEFORE_SCAN', 'true'])
+  run_command_on_all_shards(env, pause_before_scan_cmd)
 
-#   # Create an index
-#   idx_str = 'idx'
-#   res = conn.execute_command('FT.CREATE', idx_str, 'SCHEMA', 'txt', 'TEXT')
-#   env.assertEqual(res, 'OK')
-#   # Wait for pause before scan
-#   allShards_waitForIndexStatus(env, 'NEW', idx_str)
-#   # Resume all shards
-#   resume_cmd = ' '.join([bgScanCommand(),' SET_BG_INDEX_RESUME'])
-#   run_command_on_all_shards(env, resume_cmd)
-#   # Wait for pause on docs scanned
-#   allShards_waitForIndexPauseScan(env, idx_str)
-#   # Set tight memory limit for all shards
-#   allShards_set_tight_maxmemory_for_oom(env, 0.85)
-#   run_command_on_all_shards(env, resume_cmd)
-#   # Wait for OOM on all shards
-#   allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_str)
-#   # Resume all shards
-#   run_command_on_all_shards(env, resume_cmd)
-#   # Resume all shards
-#   # Wait for finish scan on all shards
-#   allShards_waitForIndexFinishScan(env, idx_str)
+  # Create an index
+  idx_str = 'idx'
+  res = conn.execute_command('FT.CREATE', idx_str, 'SCHEMA', 'txt', 'TEXT')
+  env.assertEqual(res, 'OK')
+  # Wait for pause before scan
+  allShards_waitForIndexStatus(env, 'NEW', idx_str)
+  # Resume all shards
+  resume_cmd = ' '.join([bgScanCommand(),' SET_BG_INDEX_RESUME'])
+  run_command_on_all_shards(env, resume_cmd)
+  # Wait for pause on docs scanned
+  allShards_waitForIndexPauseScan(env, idx_str)
+  # Set tight memory limit for all shards
+  allShards_set_tight_maxmemory_for_oom(env, 0.85)
+  run_command_on_all_shards(env, resume_cmd)
+  # Wait for OOM on all shards
+  allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_str)
+  # Resume all shards
+  run_command_on_all_shards(env, resume_cmd)
+  # Resume all shards
+  # Wait for finish scan on all shards
+  allShards_waitForIndexFinishScan(env, idx_str)
 
-#   # Verify OOM status
-#   error_dict = get_index_errors_dict(env, idx_str)
-#   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
-#   # Verify all shards individual OOM status
-#   for shard_id in range(1, env.shardsCount + 1):
-#     res = env.getConnection(shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
-#     env.assertEqual(res,1)
+  # Verify OOM status
+  error_dict = get_index_errors_dict(env, idx_str)
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+  # Verify all shards individual OOM status
+  for shard_id in range(1, env.shardsCount + 1):
+    res = env.getConnection(shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+    env.assertEqual(res,1)
 
 # @skip(cluster=False)
 # def test_cluster_oom_single_shard(env):
