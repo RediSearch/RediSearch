@@ -99,8 +99,18 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
 /* Recursively trim empty nodes from tree  */
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 
+/* Create a new tree */
+NumericRangeTree *NewNumericRangeTree();
+
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we split nodes */
 NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
+
+/* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
+ * Returns a vector with range node pointers. */
+Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf);
+
+/* Free the tree and all nodes */
+void NumericRangeTree_Free(NumericRangeTree *t);
 
 /* Return the estimated cardinality of the numeric range */
 size_t NumericRange_GetCardinality(const NumericRange *nr);

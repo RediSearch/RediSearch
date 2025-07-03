@@ -308,7 +308,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
 
 /* Find the numeric ranges that fit the range we are looking for. We try to minimize the number of
  * nodes we'll later need to union */
-static inline Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf) {
+Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf) {
 
   Vector *leaves = NewVector(NumericRange *, 8);
   size_t total = 0;
@@ -331,7 +331,7 @@ static void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
 uint16_t numericTreesUniqueId = 0;
 
 /* Create a new numeric range tree */
-static NumericRangeTree *NewNumericRangeTree() {
+NumericRangeTree *NewNumericRangeTree() {
   NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode();
