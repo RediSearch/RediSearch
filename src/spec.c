@@ -635,17 +635,16 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
   }
   if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_8))
     *quantBits = VecSimSvsQuant_8;
-  // TODO: enable other quantisation flavors
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
-  //   *quantBits = VecSimSvsQuant_4;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
-  //   *quantBits = VecSimSvsQuant_4x4;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
-  //   *quantBits = VecSimSvsQuant_4x8;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
-  //   *quantBits = VecSimSvsQuant_4x8_LeanVec;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
-  //   *quantBits = VecSimSvsQuant_8x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
+    *quantBits = VecSimSvsQuant_4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
+    *quantBits = VecSimSvsQuant_4x4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
+    *quantBits = VecSimSvsQuant_4x8;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
+    *quantBits = VecSimSvsQuant_4x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
+    *quantBits = VecSimSvsQuant_8x8_LeanVec;
   else
     return AC_ERR_ENOENT;
   return AC_OK;
