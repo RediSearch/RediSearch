@@ -1429,7 +1429,9 @@ version = "0.0.1"
 dependencies = [
  "enumflags2",
  "ffi",
+ "libc",
  "pin-project",
+ "proptest",
 ]
 
 [[package]]
