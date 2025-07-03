@@ -171,24 +171,7 @@ fn test_memory_size() -> Result<(), IndexOutOfBounds> {
 #[test]
 #[cfg(not(miri))]
 fn test_case_folding_aka_normlization_rust_impl() -> Result<(), IndexOutOfBounds> {
-    // not miri because the C implementation `normalizeStr` is called as part of `put_string_and_normalize`
-    // and calling C code from Miri is not supported.
-
-    // The underlying implementation still uses C because ICU raised errors over Miri
-    // The ICU package is the official package for Unicode, also unicode casing which is called normalization
-    // in RediSearch.
-    //
-    // ```
-    // = help: this indicates a potential bug in the program: it performed an invalid operation, but the Stacked Borrows rules it violated are still experimental`
-    // ```
-    //
-    // Further Information:
-    // As long as we use SortingVector over the C interface we won't call this function directly, but stick to
-    // the Method used in the C API, called `normalizeStr`.
-    //
-    // Issue opened: https://github.com/unicode-org/icu4x/issues/6723
-    //
-    // For now the actual implementation binds the C code based on nulib.
+    // Not in Miri because icu_casemap raised errors over Miri, see https://github.com/unicode-org/icu4x/issues/6723
 
     let str = "Straße";
     let mut vec: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
