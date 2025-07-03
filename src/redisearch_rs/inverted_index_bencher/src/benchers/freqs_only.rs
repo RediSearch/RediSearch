@@ -44,7 +44,7 @@ impl Bencher {
             .map(|(freq, delta)| {
                 let record = inverted_index::RSIndexResult::freqs_only(100, freq);
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = FreqsOnly::new()
+                let _grew_size = FreqsOnly::default()
                     .encode(&mut buffer, Delta::new(delta as usize), &record)
                     .unwrap();
                 let encoded = buffer.into_inner();
@@ -120,7 +120,7 @@ impl Bencher {
                     for test in &self.test_values {
                         let record = inverted_index::RSIndexResult::freqs_only(100, test.freq);
 
-                        let grew_size = FreqsOnly::new()
+                        let grew_size = FreqsOnly::default()
                             .encode(&mut buffer, Delta::new(test.delta as usize), &record)
                             .unwrap();
 

@@ -16,14 +16,8 @@ use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
 
 /// Encode and decode only the delta and frequencies of a record, without any other data.
 /// The delta and frequency are encoded using [qint encoding](qint).
+#[derive(Default)]
 pub struct FreqsOnly;
-
-impl FreqsOnly {
-    /// Create a new instance of the FreqsOnly encoder/decoder.
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl Encoder for FreqsOnly {
     fn encode<W: Write + Seek>(
