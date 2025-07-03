@@ -6,7 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-
 use crate::bindings::{
     FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache,
 };
@@ -254,18 +253,15 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    /// Updates this `RLookupKey`'s fields according to the provided [`ffi::FieldSpec`].
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
         self.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
 
         let path = {
             debug_assert!(!fs.fieldPath.is_null());
-
             let mut path_len = 0;
             // Safety: we received the pointer from the field spec and have to assume it is valid
             let path_ptr =
                 unsafe { ffi::HiddenString_GetUnsafe(fs.fieldPath, ptr::from_mut(&mut path_len)) };
-
             debug_assert!(!path_ptr.is_null());
             // Safety: We assume the `path_ptr` and `length` information returned by the field spec
             // point to a valid null-terminated C string. Importantly `length` here is value as returned by
@@ -425,6 +421,8 @@ impl<'a> RLookupKey<'a> {
         );
 
         if !self.is_tombstone() {
+            use std::ptr;
+
             assert!(
                 ptr::eq(self.name, self._name.as_ptr()),
                 "{ctx}`key.name` did not match `key._name`. ({self:?})",
@@ -454,7 +452,6 @@ impl<'a> RLookupKey<'a> {
                 "{ctx}tail key must not have a next link; node={self:#?}",
             );
         }
-
         if let Some(next) = self.next() {
             assert_ne!(
                 // Safety:
@@ -995,6 +992,99 @@ impl<'a> RLookup<'a> {
         };
 
         // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
+        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+    }
+
+    // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
+
+    pub fn get_key_load(
+        &mut self,
+        name: &'a CStr,
+        field_name: &'a CStr,
+        mut flags: RLookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        // remove all flags that are not relevant to getting a key
+        flags &= GET_KEY_FLAGS;
+
+        // 1. if the key is already loaded, or it has created by earlier RP for writing, return NULL (unless override was requested)
+        // 2. create a new key with the name of the field, and mark it as doc-source.
+        // 3. if the key is in the schema, mark it as schema-source and apply all the relevant flags according to the field spec.
+        // 4. if the key is "loaded" at this point (in schema, sortable and un-normalized), create the key but return NULL
+        //    (no need to load it from the document).
+
+        // Safety: The non-lexical lifetime analysis of current Rust, incorrectly handles borrows in early
+        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
+        // obviously not correct as `key` is either found and borrowed in which case we never reach the code below
+        // this early return OR it is *not* found and *not* borrowed which means the code below is fine to
+        // borrow self again. The current compiler is not smart enough to get this though, so we create a disjoint
+        // borrow below.
+        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
+        let me = unsafe { &mut *(self as *mut Self) };
+
+        let mut key = if let Some(mut c) = me.keys.find_by_name_mut(name) {
+            let key = c.current().unwrap();
+
+            if (key.flags.contains(RLookupKeyFlag::ValAvailable)
+                && !key.flags.contains(RLookupKeyFlag::IsLoaded))
+                && !key
+                    .flags
+                    .intersects(RLookupKeyFlag::Override | RLookupKeyFlag::ForceLoad)
+                || (key.flags.contains(RLookupKeyFlag::IsLoaded)
+                    && !flags.contains(RLookupKeyFlag::Override))
+                || (key.flags.contains(RLookupKeyFlag::QuerySrc)
+                    && !flags.contains(RLookupKeyFlag::Override))
+            {
+                // We found a key with the same name. We return NULL if:
+                // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
+                //    request to override or forced loading.
+                // 2. The key is already loaded (from the document) and the caller didn't request to override.
+                // 3. The key was created by the query (upstream) and the caller didn't request to override.
+
+                let key = key.project();
+
+                // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
+                *key.flags |= flags & RLookupKeyFlag::ExplicitReturn;
+
+                return None;
+            } else {
+                c.override_current(flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded)
+                    .unwrap()
+            }
+        } else {
+            self.keys.push(RLookupKey::new(
+                name,
+                flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
+            ))
+        };
+
+        if let Some(fs) = self.index_spec_cache.as_ref()?.find_field(name) {
+            key.update_from_field_spec(fs);
+
+            if key.flags.contains(RLookupKeyFlag::ValAvailable)
+                && !flags.contains(RLookupKeyFlag::ForceLoad)
+            {
+                // If the key is marked as "value available", it means that it is sortable and un-normalized.
+                // so we can use the sorting vector as the source, and we don't need to load it from the document.
+                return None;
+            }
+        } else {
+            // Field not found in the schema.
+            let mut key = key.as_mut().project();
+
+            // We assume `field_name` is the path to load from in the document.
+            if !key.flags.contains(RLookupKeyFlag::NameAlloc) {
+                *key.path = field_name.as_ptr();
+                *key._path = Some(Cow::Borrowed(field_name));
+            } else if name != field_name {
+                let field_name: Cow<'_, CStr> = Cow::Owned(field_name.to_owned());
+                *key.path = field_name.as_ptr();
+                *key._path = Some(field_name);
+            } // else
+            // If the caller requested to allocate the name, and the name is the same as the path,
+            // it was already set to the same allocation for the name, so we don't need to do anything.
+        }
+
+        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned reference.
         Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
     }
 }
