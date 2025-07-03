@@ -116,6 +116,21 @@ def update_yaml(yaml_path, workers, search_threads, search_io_threads):
     with open(temp_path, 'r') as f:
         config = yaml.safe_load(f)
 
+    # Add all the custom setups to the setups list if they don't already exist
+    if 'setups' in config:
+        for benchmark_config in CONFIGS:
+            setup = benchmark_config.setup
+            branch = benchmark_config.branch
+            workers = benchmark_config.workers
+            search_threads = benchmark_config.search_threads
+            search_io_threads = benchmark_config.search_io_threads
+
+            sio_part = f"_sio{search_io_threads}" if search_io_threads is not None else ""
+            new_setup_name = f"{setup}_{branch}_w{workers}_st{search_threads}{sio_part}"
+
+            if new_setup_name not in config['setups']:
+                config['setups'].append(new_setup_name)
+
     # Update the module configuration parameters
     for element in config['dbconfig']:
       if isinstance(element, dict):
