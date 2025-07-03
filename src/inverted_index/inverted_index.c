@@ -375,7 +375,7 @@ ENCODER(encodeNumeric) {
 
 // Wrapper around the private static `encodeFreqsOnly` function to expose it to benchmarking.
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
-  encodeFreqsOnly(bw, delta, res);
+  return encodeFreqsOnly(bw, delta, res);
 }
 
 // Wrapper around the private static `encodeNumeric` function to expose it to benchmarking
