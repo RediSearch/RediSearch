@@ -316,6 +316,10 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
       type = params->algoParams.bfParams.type;
       dim = params->algoParams.bfParams.dim;
       break;
+    case VecSimAlgo_SVS:
+      type = params->algoParams.svsParams.type;
+      dim = params->algoParams.svsParams.dim;
+      break;
     default: {
       QueryError_SetError(status, QUERY_EGENERIC, "Invalid vector similarity algorithm");
       return REDISMODULE_ERR;
@@ -368,6 +372,8 @@ switch (params->algo) {
       dim = params->algoParams.bfParams.dim;
       multi = params->algoParams.bfParams.multi;
       break;
+  // TODO: support svs in multi
+  break;
     default: goto fail;
   }
 

@@ -54,7 +54,7 @@ fn test_bytes_and_bytes_mut() {
 
     // Test immutable access
     let bytes = writer.bytes();
-    assert!(bytes.len() > 0);
+    assert!(!bytes.is_empty());
 
     // Test mutable access
     let bytes_mut = writer.bytes_mut();

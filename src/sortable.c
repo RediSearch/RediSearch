@@ -74,10 +74,9 @@ void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num) {
   vec->values[idx] = RS_NumVal(num);
 }
 
-void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str, bool is_normalized) {
+void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str) {
   RSPUT_SANITY_CHECK
-  char *param_str = is_normalized ? rm_strdup(str) : normalizeStr(str);
-  vec->values[idx] = RS_StringValT(param_str, strlen(param_str), RSString_RMAlloc);
+  vec->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
 }
 
 void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val) {

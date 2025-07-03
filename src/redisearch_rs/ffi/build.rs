@@ -99,10 +99,10 @@ fn rerun_if_c_changes(dir: &Path) {
         let path = entry.path();
         if path.is_dir() {
             rerun_if_c_changes(&path);
-        } else if let Some(extension) = path.extension() {
-            if extension == "c" || extension == "h" {
-                println!("cargo:rerun-if-changed={}", path.display());
-            }
+        } else if let Some(extension) = path.extension()
+            && (extension == "c" || extension == "h")
+        {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
     }
 }
