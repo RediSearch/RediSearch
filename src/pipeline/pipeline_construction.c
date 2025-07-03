@@ -1,4 +1,4 @@
-#include "aggregate_pipeline.h"
+#include "pipeline/pipeline_construction.h"
 #include "ext/default.h"
 #include "query_optimizer.h"
 
@@ -81,8 +81,8 @@ static ResultProcessor *pushRP(QueryProcessingCtx *ctx, ResultProcessor *rp, Res
   return rp;
 }
 
-static ResultProcessor *getGroupRP(AggregationPipeline *pipeline, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
-                                   QueryError *status, bool forceLoad) {
+static ResultProcessor *getGroupRP(QueryPipeline *pipeline, const AggregationPipelineParams *params, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
+                                   QueryError *status, bool forceLoad, uint32_t *outStateFlags) {
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
@@ -95,7 +95,7 @@ static ResultProcessor *getGroupRP(AggregationPipeline *pipeline, PLN_GroupStep 
 
   // See if we need a LOADER group here...?
   if (loadKeys) {
-    ResultProcessor *rpLoader = RPLoader_New(pipeline, firstLk, loadKeys, array_len(loadKeys), forceLoad);
+    ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, firstLk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
     array_free(loadKeys);
     RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
     rpUpstream = pushRP(&pipeline->qctx, rpLoader, rpUpstream);
@@ -104,7 +104,7 @@ static ResultProcessor *getGroupRP(AggregationPipeline *pipeline, PLN_GroupStep 
   return pushRP(&pipeline->qctx, groupRP, rpUpstream);
 }
 
-static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, QueryAST* ast, RLookup *rl, QueryError *status) {
+static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const QueryAST* ast, RLookup *rl, QueryError *status) {
   MetricRequest *requests = ast->metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
     const char *name = requests[i].metric_name;
@@ -129,12 +129,12 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, QueryAST* a
   return RPMetricsLoader_New();
 }
 
-static ResultProcessor *getArrangeRP(AggregationPipeline *pipeline, QOptimizer *optimizer, const PLN_BaseStep *stp,
-                                     QueryError *status, ResultProcessor *up, bool forceLoad, size_t maxResultsLimit) {
+static ResultProcessor *getArrangeRP(QueryPipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
+                                     QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
   PLN_ArrangeStep *astp = (PLN_ArrangeStep *)stp;
-  IndexSpec *spec = pipeline->sctx ? pipeline->sctx->spec : NULL; // check for sctx?
+  IndexSpec *spec = params->common.sctx ? params->common.sctx->spec : NULL; // check for sctx?
   // Store and count keys that require loading from Redis.
   const RLookupKey **loadKeys = NULL;
 
@@ -149,15 +149,15 @@ static ResultProcessor *getArrangeRP(AggregationPipeline *pipeline, QOptimizer *
 
   // TODO: unify if when req holds only maxResults according to the query type.
   //(SEARCH / AGGREGATE)
-  maxResults = MIN(maxResults, maxResultsLimit);
+  maxResults = MIN(maxResults, params->maxResultsLimit);
 
-  if (IsCount(pipeline) || !maxResults) {
+  if (IsCount(&params->common) || !maxResults) {
     rp = RPCounter_New();
     up = pushRP(&pipeline->qctx, rp, up);
     return up;
   }
 
-  if (optimizer->type != Q_OPT_NO_SORTER) {
+  if (params->common.optimizer->type != Q_OPT_NO_SORTER) {
     if (astp->sortKeys) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
@@ -186,12 +186,12 @@ static ResultProcessor *getArrangeRP(AggregationPipeline *pipeline, QOptimizer *
       }
       if (loadKeys) {
         // If we have keys to load, add a loader step.
-        ResultProcessor *rpLoader = RPLoader_New(pipeline, lk, loadKeys, array_len(loadKeys), forceLoad);
+        ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsSearch(pipeline) && (!IsOptimized(pipeline) || HasScorer(optimizer))) {
+    } else if (IsSearch(&params->common) && (!IsOptimized(&params->common) || HasScorer(params->common.optimizer))) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
@@ -202,7 +202,7 @@ static ResultProcessor *getArrangeRP(AggregationPipeline *pipeline, QOptimizer *
   if (astp->offset || (astp->limit && !rp)) {
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(&pipeline->qctx, rp, up);
-  } else if (IsSearch(pipeline) && IsOptimized(pipeline) && !rp) {
+  } else if (IsSearch(&params->common) && IsOptimized(&params->common) && !rp) {
     rp = RPPager_New(0, maxResults);
     up = pushRP(&pipeline->qctx, rp, up);
   }
@@ -213,26 +213,26 @@ end:
 }
 
 // Assumes that the spec is locked
-static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
-  const char *scorer = req->searchopts.scorerName;
+static ResultProcessor *getScorerRP(QueryPipeline *pipeline, RLookup *rl, const IndexingPipelineParams *params) {
+  const char *scorer = params->scorerName;
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
   }
   ScoringFunctionArgs scargs = {0};
-  if (AREQ_RequestFlags(req) & QEXEC_F_SEND_SCOREEXPLAIN) {
+  if (params->common.reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
   }
   if (!strcmp(scorer, BM25_STD_NORMALIZED_TANH_SCORER_NAME)) {
     // Add the tanh factor to the scoring function args
-    scargs.tanhFactor = req->reqConfig.BM25STD_TanhFactor;
+    scargs.tanhFactor = params->reqConfig->BM25STD_TanhFactor;
   }
   ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
-  IndexSpec_GetStats(AREQ_SearchCtx(req)->spec, &scargs.indexStats);
-  scargs.qdata = req->ast.udata;
-  scargs.qdatalen = req->ast.udatalen;
+  IndexSpec_GetStats(params->common.sctx->spec, &scargs.indexStats);
+  scargs.qdata = params->ast->udata;
+  scargs.qdatalen = params->ast->udatalen;
   const RLookupKey *scoreKey = NULL;
-  if (HasScoreInPipeline(&req->pipeline)) {
+  if (HasScoreInPipeline(&params->common)) {
     scoreKey = RLookup_GetKey_Write(rl, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
   }
   ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
@@ -249,33 +249,26 @@ bool hasQuerySortby(const AGGPlan *pln) {
   rpUpstream = pushRP(&pipeline->qctx, rp, rpUpstream); \
   rp = NULL;
 
-static void initializePipeline(AggregationPipeline *pipeline, QueryError *status) {
-  pipeline->qctx.err = status;
-  pipeline->qctx.sctx = pipeline->sctx;
-  pipeline->qctx.rootProc = pipeline->qctx.endProc = NULL;
-}
-
 /**
  * Builds the implicit pipeline for querying and scoring, and ensures that our
  * subsequent execution stages actually have data to operate on.
  */
-static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, ConcurrentSearchCtx *conc, AREQ *req, QueryError *Status) {
-  AggregationPipeline *pipeline = &req->pipeline;
-  IndexSpecCache *cache = IndexSpec_GetSpecCache(AREQ_SearchCtx(req)->spec);
+void QueryPipeline_BuildIndexingPart(QueryPipeline *pipeline, const IndexingPipelineParams *params) {
+  IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
-  RLookup *first = AGPLN_GetLookup(AREQ_AGGPlan(req), NULL, AGPLN_GETLOOKUP_FIRST);
+  RLookup *first = AGPLN_GetLookup(params->common.pln, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(rootiter, conc);
+  ResultProcessor *rp = RPIndexIterator_New(params->rootiter, params->common.sctx, params->conc);
   ResultProcessor *rpUpstream = NULL;
-  AREQ_QueryProcessingCtx(req)->rootProc = AREQ_QueryProcessingCtx(req)->endProc = rp;
+  pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();
 
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.
-  if (ast->metricRequests) {
-    rp = getAdditionalMetricsRP(AREQ_SearchCtx(req), ast, first, Status);
+  if (params->ast->metricRequests) {
+    rp = getAdditionalMetricsRP(params->common.sctx, params->ast, first, pipeline->qctx.err);
     if (!rp) {
       return;
     }
@@ -285,15 +278,16 @@ static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, Concur
   /** Create a scorer if:
    *  * WITHSCORES is defined
    *  * there is no subsequent sorter within this grouping */
-  if ((AREQ_RequestFlags(req) & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
-      ((AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH) && !(AREQ_RequestFlags(req) & QEXEC_F_NOROWS) &&
-       ((AREQ_RequestFlags(req) & QEXEC_OPTIMIZE) ? (req->optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(AREQ_AGGPlan(req))))) {
-    rp = getScorerRP(req, first);
+  const int reqflags = params->common.reqflags;
+  if ((reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
+      ((reqflags & QEXEC_F_IS_SEARCH) && !(reqflags & QEXEC_F_NOROWS) &&
+       ((reqflags & QEXEC_OPTIMIZE) ? (params->common.optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(params->common.pln)))) {
+    rp = getScorerRP(pipeline, first, params);
     PUSH_RP();
-    const char *scorerName = req->searchopts.scorerName;
+    const char *scorerName = params->scorerName;
     if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
       const RLookupKey *scoreKey = NULL;
-      if (AREQ_RequestFlags(req) & QEXEC_F_SEND_SCORES_AS_FIELD) {
+      if (params->common.reqflags & QEXEC_F_SEND_SCORES_AS_FIELD) {
         scoreKey = RLookup_GetKey_Write(first, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
       }
       rp = RPMaxScoreNormalizer_New(scoreKey);
@@ -306,18 +300,18 @@ static void buildImplicitPipeline(QueryAST *ast, IndexIterator *rootiter, Concur
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
  * which is about to be returned. It is only used in FT.SEARCH mode
  */
-int buildOutputPipeline(AggregationPipeline *pipeline, RSSearchOptions* searchOpts, uint32_t loadFlags, QueryError *status, bool forceLoad) {
+int buildOutputPipeline(QueryPipeline *pipeline, const AggregationPipelineParams* params, uint32_t loadFlags, QueryError *status, bool forceLoad, uint32_t *outStateFlags) {
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
 
   RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
   // Add a LOAD step...
   const RLookupKey **loadkeys = NULL;
-  if (pipeline->outFields.explicitReturn) {
+  if (params->outFields->explicitReturn) {
     // Go through all the fields and ensure that each one exists in the lookup stage
     loadFlags |= RLOOKUP_F_EXPLICITRETURN;
-    for (size_t ii = 0; ii < pipeline->outFields.numFields; ++ii) {
-      const ReturnedField *rf = pipeline->outFields.fields + ii;
+    for (size_t ii = 0; ii < params->outFields->numFields; ++ii) {
+      const ReturnedField *rf = params->outFields->fields + ii;
       RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, loadFlags);
       if (lk) {
         *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
@@ -327,9 +321,9 @@ int buildOutputPipeline(AggregationPipeline *pipeline, RSSearchOptions* searchOp
 
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
-  if (loadkeys || !pipeline->outFields.explicitReturn) {
-    rp = RPLoader_New(pipeline, lookup, loadkeys, array_len(loadkeys), forceLoad);
-    if (isSpecJson(pipeline->sctx->spec)) {
+  if (loadkeys || !params->outFields->explicitReturn) {
+    rp = RPLoader_New(params->common.sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys), forceLoad, outStateFlags);
+    if (isSpecJson(params->common.sctx->spec)) {
       // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
       lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
     }
@@ -337,11 +331,11 @@ int buildOutputPipeline(AggregationPipeline *pipeline, RSSearchOptions* searchOp
     PUSH_RP();
   }
 
-  if (pipeline->reqflags & QEXEC_F_SEND_HIGHLIGHT) {
+  if (params->common.reqflags & QEXEC_F_SEND_HIGHLIGHT) {
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
-    for (size_t ii = 0; ii < pipeline->outFields.numFields; ++ii) {
-      ReturnedField *ff = pipeline->outFields.fields + ii;
-      if (pipeline->outFields.defaultField.mode == SummarizeMode_None && ff->mode == SummarizeMode_None) {
+    for (size_t ii = 0; ii < params->outFields->numFields; ++ii) {
+      ReturnedField *ff = params->outFields->fields + ii;
+      if (params->outFields->defaultField.mode == SummarizeMode_None && ff->mode == SummarizeMode_None) {
         // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
         // (Default mode is not any of the summarize modes, and also there is no mode explicitly specified for this field)
         continue;
@@ -356,7 +350,7 @@ int buildOutputPipeline(AggregationPipeline *pipeline, RSSearchOptions* searchOp
       }
       ff->lookupKey = kk;
     }
-    rp = RPHighlighter_New(searchOpts, &pipeline->outFields, lookup);
+    rp = RPHighlighter_New(params->searchOptions, params->outFields, lookup);
     PUSH_RP();
   }
 
@@ -365,12 +359,12 @@ error:
   return REDISMODULE_ERR;
 }
 
-int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy, size_t maxResultsLimit) {
+int QueryPipeline_BuildAggregationPart(QueryPipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags) {
   AGGPlan *pln = &pipeline->ap;
-  int outStateflags = 0;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
-  RedisSearchCtx *sctx = pipeline->sctx;
-  int requestFlags = pipeline->reqflags;
+  RedisSearchCtx *sctx = params->common.sctx;
+  int requestFlags = params->common.reqflags;
+  QueryError *status = pipeline->qctx.err;
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
@@ -386,7 +380,7 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
     switch (stp->type) {
       case PLN_T_GROUP: {
         // Adds group result processor and loader if needed.
-        rpUpstream = getGroupRP(pipeline, (PLN_GroupStep *)stp, rpUpstream, status, forceLoad);
+        rpUpstream = getGroupRP(pipeline, params, (PLN_GroupStep *)stp, rpUpstream, status, forceLoad, outStateFlags);
         if (!rpUpstream) {
           goto error;
         }
@@ -394,7 +388,7 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
       }
 
       case PLN_T_ARRANGE: {
-        rp = getArrangeRP(pipeline, optimizer, stp, status, rpUpstream, forceLoad, maxResultsLimit);
+        rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
         if (!rp) {
           goto error;
         }
@@ -473,7 +467,7 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
           }
         }
         if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
-          rp = RPLoader_New(pipeline, curLookup, lstp->keys, lstp->nkeys, forceLoad);
+          rp = RPLoader_New(params->common.sctx, params->common.reqflags, curLookup, lstp->keys, lstp->nkeys, forceLoad, outStateFlags);
           if (isSpecJson(sctx->spec)) {
             // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
             curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
@@ -499,7 +493,7 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && (requestFlags & QEXEC_F_IS_SEARCH)) {
-    rp = getArrangeRP(pipeline, optimizer, NULL, status, rpUpstream, forceLoad, maxResultsLimit);
+    rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     if (!rp) {
       goto error;
     }
@@ -509,7 +503,7 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
   // If this is an FT.SEARCH command which requires returning of some of the
   // document fields, handle those options in this function
   if ((requestFlags & QEXEC_F_IS_SEARCH) && !(requestFlags & QEXEC_F_SEND_NOFIELDS)) {
-    if (buildOutputPipeline(pipeline, searchOpts, loadFlags, status, forceLoad) != REDISMODULE_OK) {
+    if (buildOutputPipeline(pipeline, params, loadFlags, status, forceLoad, outStateFlags) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -519,29 +513,10 @@ int buildPipeline(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearch
     Profile_AddRPs(&pipeline->qctx);
   }
 
-  // Copy timeout policy to the parent struct of the result processors
-  pipeline->qctx.timeoutPolicy = timeoutPolicy;
-
-  pipeline->stateflags |= outStateflags;
+  //pipeline->stateflags |= outStateflags;
   return REDISMODULE_OK;
 error:
   return REDISMODULE_ERR;
-}
-
-int AggregationPipeline_Build(AggregationPipeline *pipeline, QOptimizer* optimizer, RSSearchOptions* searchOpts, QueryError *status, RSTimeoutPolicy timeoutPolicy, size_t maxResultsLimit) {
-    initializePipeline(pipeline, status);
-    return buildPipeline(pipeline, optimizer, searchOpts, status, timeoutPolicy, maxResultsLimit);
-}
-
-int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
-  initializePipeline(&req->pipeline, status); 
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
-    buildImplicitPipeline(&req->ast, req->rootiter, &req->conc, req, status);
-    if (status->code != QUERY_OK) {
-      return REDISMODULE_ERR;
-    }
-  }
-  return buildPipeline(&req->pipeline, req->optimizer, &req->searchopts, status, req->reqConfig.timeoutPolicy, IsSearch(&req->pipeline) ? req->maxSearchResults : req->maxAggregateResults);
 }
 
 #ifdef __cplusplus

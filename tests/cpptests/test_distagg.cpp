@@ -10,7 +10,6 @@
 #include "redismodule.h"
 #include "dist_plan.h"
 #include "aggregate/aggregate.h"
-#include "aggregate/aggregate_pipeline.h"
 #include "tests/cpptests/redismock/util.h"
 
 #include <vector>

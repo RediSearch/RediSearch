@@ -33,11 +33,11 @@ extern RSConfig RSGlobalConfig;
  *   formatting
  * @param status the error object
  */
-static bool ensureSimpleMode(AggregationPipeline *pipeline) {
-  if(pipeline->reqflags & QEXEC_F_IS_AGGREGATE) {
+static bool ensureSimpleMode(AREQ *req) {
+  if (req->reqflags & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
-  pipeline->reqflags |= QEXEC_F_IS_SEARCH;
+  req->reqflags |= QEXEC_F_IS_SEARCH;
   return true;
 }
 
@@ -248,7 +248,6 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
 static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
   int rv;
   bool dialect_specified = false;
-  AggregationPipeline *pipeline = &req->pipeline;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(req));
@@ -327,7 +326,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
   } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
-    if (parseValueFormat(&req->pipeline.reqflags, ac, status) != REDISMODULE_OK) {
+    if (parseValueFormat(&req->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
@@ -492,7 +491,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   ArgsCursor returnFields = {0};
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
-  AggregationPipeline *pipeline = &req->pipeline;
+  QueryPipeline *pipeline = &req->pipeline;
   ACArgSpec querySpecs[] = {
       {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
       {.name = "SLOP",
@@ -506,13 +505,13 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {.name = "RETURN", .type = AC_ARGTYPE_SUBARGS, .target = &returnFields},
       {AC_MKBITFLAG("INORDER", &searchOpts->flags, Search_InOrder)},
       {AC_MKBITFLAG("VERBATIM", &searchOpts->flags, Search_Verbatim)},
-      {AC_MKBITFLAG("WITHSCORES", &pipeline->reqflags, QEXEC_F_SEND_SCORES)},
-      {AC_MKBITFLAG("ADDSCORES", &pipeline->reqflags, QEXEC_F_SEND_SCORES_AS_FIELD)},
-      {AC_MKBITFLAG("WITHSORTKEYS", &pipeline->reqflags, QEXEC_F_SEND_SORTKEYS)},
-      {AC_MKBITFLAG("WITHPAYLOADS", &pipeline->reqflags, QEXEC_F_SEND_PAYLOADS)},
-      {AC_MKBITFLAG("NOCONTENT", &pipeline->reqflags, QEXEC_F_SEND_NOFIELDS)},
+      {AC_MKBITFLAG("WITHSCORES", &req->reqflags, QEXEC_F_SEND_SCORES)},
+      {AC_MKBITFLAG("ADDSCORES", &req->reqflags, QEXEC_F_SEND_SCORES_AS_FIELD)},
+      {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
+      {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
+      {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
       {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)},
-      {AC_MKBITFLAG("EXPLAINSCORE", &pipeline->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
+      {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
        .target = &ast->udata,
@@ -536,23 +535,23 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
-      if(!ensureSimpleMode(pipeline)) {
+      if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
-      if (ParseSummarize(ac, &pipeline->outFields) == REDISMODULE_ERR) {
+      if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
       }
       AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
-      if(!ensureSimpleMode(pipeline)) {
+      if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "HIGHLIGHT is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
 
-      if (ParseHighlight(ac, &pipeline->outFields) == REDISMODULE_ERR) {
+      if (ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
       }
@@ -598,7 +597,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  if (IsSearch(&req->pipeline) && HasScoreInPipeline(&req->pipeline)) {
+  if (IsSearch(req) && HasScoreInPipeline(req)) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "ADDSCORES is not supported on FT.SEARCH");
     return REDISMODULE_ERR;
   }
@@ -616,12 +615,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   if (AC_IsInitialized(&returnFields)) {
-    if(!ensureSimpleMode(&req->pipeline)) {
+    if(!ensureSimpleMode(req)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "RETURN is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
     }
 
-    pipeline->outFields.explicitReturn = 1;
+    req->outFields.explicitReturn = 1;
     if (returnFields.argc == 0) {
       AREQ_AddRequestFlags(req, QEXEC_F_SEND_NOFIELDS);
     }
@@ -639,10 +638,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
           return REDISMODULE_ERR;
         }
       }
-      ReturnedField *f = FieldList_GetCreateField(&pipeline->outFields, name, path);
+      ReturnedField *f = FieldList_GetCreateField(&req->outFields, name, path);
       f->explicitReturn = 1;
     }
-    FieldList_RestrictReturn(&pipeline->outFields);
+    FieldList_RestrictReturn(&req->outFields);
   }
   return REDISMODULE_OK;
 }
@@ -984,7 +983,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     }
   }
 
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(&req->pipeline) && (!IsSearch(&req->pipeline) || hasQuerySortby(AREQ_AGGPlan(req)))) {
+  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(AREQ_AGGPlan(req)))) {
     // We can skip collecting full results structure and metadata from the iterators if:
     // 1. We don't have a highlight/summarize step,
     // 2. We are not required to return scores explicitly,
@@ -1105,7 +1104,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
-  req->pipeline.sctx = sctx;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
@@ -1153,7 +1151,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   bool resp3 = req->protocol == 3;
-  if (SetValueFormat(resp3, isSpecJson(index), &req->pipeline.reqflags, status) != REDISMODULE_OK) {
+  if (SetValueFormat(resp3, isSpecJson(index), &req->reqflags, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1192,7 +1190,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // set queryAST configuration parameters
   iteratorsConfig_init(&ast->config);
 
-  if (IsOptimized(&req->pipeline)) {
+  if (IsOptimized(req)) {
     // parse inputs for optimizations
     QOptimizer_Parse(req);
     // check possible optimization after creation of QueryNode tree
@@ -1206,34 +1204,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-void AggregationPipeline_Free(AggregationPipeline *pipeline) {
-  ResultProcessor *rp = pipeline->qctx.endProc;
-  // Free result processors
-  QITR_FreeChain(&pipeline->qctx);
-  // Go through each of the steps and free it..
-  AGPLN_FreeSteps(&pipeline->ap);
-
-  // Finally, free the context. If we are a cursor or have multi workers threads,
-  // we need also to detach the ("Thread Safe") context.
-  RedisModuleCtx *thctx = NULL;
-  if (pipeline->sctx) {
-    if (pipeline->reqflags & QEXEC_F_IS_CURSOR) {
-      thctx = pipeline->sctx->redisCtx;
-      pipeline->sctx->redisCtx = NULL;
-    }
-    // Here we unlock the spec
-    SearchCtx_Free(pipeline->sctx);
-  }
-  if (thctx) {
-    RedisModule_FreeThreadSafeContext(thctx);
-  }
-
-  FieldList_Free(&pipeline->outFields);
-}
-
 void AREQ_Free(AREQ *req) {
   // First, free the pipeline
-  AggregationPipeline_Free(&req->pipeline);
+  QueryPipeline_Clean(&req->pipeline);
   
   if (req->rootiter) {
     req->rootiter->Free(req->rootiter);
@@ -1275,4 +1248,39 @@ void AREQ_Free(AREQ *req) {
   }
   rm_free(req->args);
   rm_free(req);
+}
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
+  QueryPipeline_Initialize(&req->pipeline, req-> reqConfig.timeoutPolicy, status); 
+  if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
+    IndexingPipelineParams params = {
+      .common = {
+        .pln = &req->pipeline.ap,
+        .sctx = req->sctx,
+        .reqflags = req->reqflags,
+      },
+      .ast = &req->ast,
+      .rootiter = req->rootiter,
+      .scorerName = req->searchopts.scorerName,
+      .conc = &req->conc,
+      .reqConfig = &req->reqConfig,
+    };
+    QueryPipeline_BuildIndexingPart(&req->pipeline, &params);
+    if (status->code != QUERY_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+  AggregationPipelineParams params = { 
+    .common = {
+      .pln = &req->pipeline.ap,
+      .sctx = req->sctx,
+      .reqflags = req->reqflags,
+      .optimizer = req->optimizer,
+    },
+    .outFields = &req->outFields,
+    .stateflags = req->stateflags,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .searchOptions = &req->searchopts,
+  };
+  return QueryPipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
 }

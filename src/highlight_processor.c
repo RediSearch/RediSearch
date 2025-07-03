@@ -274,7 +274,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
 }
 
 static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
-  IndexIterator *it = QITR_GetRootFilter(rp->parent);
+  const IndexIterator *it = QITR_GetRootFilter(rp->parent);
   RSIndexResult *ir = NULL;
   if (!it) {
     return NULL;

@@ -80,7 +80,7 @@ typedef struct {
   struct ResultProcessor *endProc;
 
   // Contains our spec
-  RedisSearchCtx *sctx;
+  // RedisSearchCtx *sctx;
 
   struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
   struct timespec GILTime;  //milliseconds
@@ -107,7 +107,7 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
-IndexIterator *QITR_GetRootFilter(QueryIterator *it);
+const IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
 
@@ -212,7 +212,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr, ConcurrentSearchCtx *conc);
+ResultProcessor *RPIndexIterator_New(const IndexIterator *itr, RedisSearchCtx *sctx, ConcurrentSearchCtx *conc);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -255,8 +255,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
-struct AggregationPipeline;
-ResultProcessor *RPLoader_New(struct AggregationPipeline *pipeline, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
+ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
 
 void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);
@@ -297,7 +296,7 @@ const char *RPTypeToString(ResultProcessorType type);
  *
  * returns timeout after N results, N >= 0.
  *******************************************************************************************************************/
-ResultProcessor *RPTimeoutAfterCount_New(size_t count);
+ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx);
 void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 
 /*******************************************************************************************************************

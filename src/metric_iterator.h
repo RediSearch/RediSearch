@@ -23,7 +23,7 @@ extern "C" {
 
 IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, bool yields_metric);
 
-Metric GetMetric(IndexIterator *it);
+Metric GetMetric(const IndexIterator *it);
 
 #ifdef __cplusplus
 }

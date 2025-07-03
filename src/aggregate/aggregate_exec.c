@@ -24,7 +24,7 @@
 #include "aggregate_debug.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
-#include "aggregate_pipeline.h"
+#include "pipeline/pipeline.h"
 #include "util/units.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
@@ -230,7 +230,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisSearchCtx *sctx = AREQ_SearchCtx(req);
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
       int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = (req->pipeline.outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
@@ -322,7 +322,7 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
       // Excludes hidden fields, fields not included in RETURN and, score and language fields.
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
       int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = (req->pipeline.outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
@@ -442,13 +442,13 @@ static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
       && (rp->parent->err->code != QUERY_ETIMEDOUT
           || (rp->parent->err->code == QUERY_ETIMEDOUT
               && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
-              && !IsProfile(&req->pipeline)));
+              && !IsProfile(req)));
 }
 
 static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
   return rc == RS_RESULT_TIMEDOUT
          && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
-         && !IsProfile(&req->pipeline);
+         && !IsProfile(req);
 }
 
 static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
@@ -460,7 +460,7 @@ void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, Sear
       // Aggregate all results before populating the response
       *results = AggregateResults(rp, rc);
       // Check timeout after aggregation
-      if (TimedOut(&RP_SCTX(rp)->time.timeout) == TIMED_OUT) {
+      if (TimedOut(&req->sctx->time.timeout) == TIMED_OUT) {
         *rc = RS_RESULT_TIMEDOUT;
       }
     } else {
@@ -508,7 +508,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   }
 
   if (cursor_done) {
-    req->pipeline.stateflags |= QEXEC_S_ITERDONE;
+    req->stateflags |= QEXEC_S_ITERDONE;
   }
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
@@ -654,12 +654,12 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       resultsLen = calc_results_len(req, limit);
     }
 
-    if (IsOptimized(&req->pipeline)) {
+    if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
 
     // Upon `FT.PROFILE` commands, embed the response inside another map
-    if (IsProfile(&req->pipeline)) {
+    if (IsProfile(req)) {
       Profile_PrepareMapForReply(reply);
     } else if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       RedisModule_Reply_Array(reply);
@@ -715,18 +715,18 @@ done_2:
     if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
-        if (IsProfile(&req->pipeline)) {
+        if (IsProfile(req)) {
           req->profile(reply, &profileCtx);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
-        if (IsProfile(&req->pipeline)) {
+        if (IsProfile(req)) {
           // If the cursor is still alive, don't print profile info to save bandwidth
           RedisModule_Reply_Null(reply);
         }
       }
       RedisModule_Reply_ArrayEnd(reply);
-    } else if (IsProfile(&req->pipeline)) {
+    } else if (IsProfile(req)) {
       req->profile(reply, &profileCtx);
       RedisModule_Reply_ArrayEnd(reply);
     }
@@ -770,11 +770,11 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Map(reply);
 
-    if (IsProfile(&req->pipeline)) {
+    if (IsProfile(req)) {
       Profile_PrepareMapForReply(reply);
     }
 
-    if (IsOptimized(&req->pipeline)) {
+    if (IsOptimized(req)) {
       QOptimizer_UpdateTotalResults(req);
     }
 
@@ -851,7 +851,7 @@ done_3:
       .bgScanOOM = sctx->spec && sctx->spec->scan_failed_OOM,
     };
 
-    if (IsProfile(&req->pipeline)) {
+    if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) || cursor_done) {
         req->profile(reply, &profileCtx);
@@ -1015,7 +1015,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, AREQ_RequestFlags(req), status);
 
   // check possible optimization after creation of IndexIterator tree
-  if (IsOptimized(&req->pipeline)) {
+  if (IsOptimized(req)) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
@@ -1027,13 +1027,13 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (IsProfile(&req->pipeline)) {
+  if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
     Profile_AddIters(&req->rootiter);
   }
 
   clock_t parseClock;
-  bool is_profile = IsProfile(&req->pipeline);
+  bool is_profile = IsProfile(req);
   if (is_profile) {
     parseClock = clock();
     req->parseTime = parseClock - req->initClock;
@@ -1045,7 +1045,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     req->pipelineBuildTime = clock() - parseClock;
   }
 
-  if (IsDebug(&req->pipeline)) {
+  if (IsDebug(req)) {
     rc = parseAndCompileDebug((AREQ_Debug *)req, status);
     if (rc != REDISMODULE_OK) {
       return rc;
@@ -1134,7 +1134,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 
   parseProfile(r, execOptions);
 
-  if (!IsInternal(&r->pipeline) || IsProfile(&r->pipeline)) {
+  if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
     r->initClock = clock();
   }
@@ -1340,7 +1340,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
 
-  if (req->pipeline.stateflags & QEXEC_S_ITERDONE) {
+  if (req->stateflags & QEXEC_S_ITERDONE) {
     Cursor_Free(cursor);
   } else {
     // Update the idle timeout
@@ -1368,7 +1368,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
       return;
     }
 
-    if (HasLoader(&req->pipeline)) { // Quick check if the cursor has loaders.
+    if (HasLoader(req)) { // Quick check if the cursor has loaders.
       QEFlags reqFlags = AREQ_RequestFlags(req);
       bool isSetForBackground = reqFlags & QEXEC_F_RUN_IN_BACKGROUND;
       if (bg && !isSetForBackground) {
@@ -1385,7 +1385,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
     }
   }
 
-  if (IsProfile(&req->pipeline) || !IsInternal(&req->pipeline)) {
+  if (IsProfile(req) || !IsInternal(req)) {
     req->initClock = clock(); // Reset the clock for the current cursor read
   }
 

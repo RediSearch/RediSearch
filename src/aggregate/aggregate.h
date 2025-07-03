@@ -15,6 +15,8 @@
 #include "result_processor.h"
 #include "expr/expression.h"
 #include "aggregate_plan.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_construction.h"
 #include "reply.h"
 
 #include "rmutil/rm_assert.h"
@@ -123,27 +125,6 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct AggregationPipeline {
-  /* plan containing the logical sequence of steps */
-  AGGPlan ap;
-
-  /** Context for iterating over the queries themselves */
-  QueryProcessingCtx qctx;
-
-  /** Context, owned by request */
-  RedisSearchCtx *sctx;
-
-  /** Flags indicating current execution state */
-  uint32_t stateflags;
-
-  /** Flags controlling query output */
-  uint32_t reqflags;
-
-  /** Fields to be output and otherwise processed */
-  FieldList outFields;
-
-} AggregationPipeline;
-
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -151,6 +132,9 @@ typedef struct AREQ {
 
   /** Search query string */
   const char *query;
+
+  /** Fields to be output and otherwise processed */
+  FieldList outFields;
 
   /** Options controlling search behavior */
   RSSearchOptions searchopts;
@@ -161,11 +145,20 @@ typedef struct AREQ {
   /** Root iterator. This is owned by the request */
   IndexIterator *rootiter;
 
+  /** Context, owned by request */
+  RedisSearchCtx *sctx;
+
   /** Resumable context */
   ConcurrentSearchCtx conc;
 
   /** The pipeline for this request */
-  AggregationPipeline pipeline;
+  QueryPipeline pipeline;
+
+  /** Flags controlling query output */
+  uint32_t reqflags;
+
+  /** Flags indicating current execution state */
+  uint32_t stateflags;
 
   int protocol; // RESP2/3
 
@@ -260,15 +253,15 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
 static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
-  return (QEFlags)req->pipeline.reqflags;
+  return (QEFlags)req->reqflags;
 }
 
 static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
-  req->pipeline.reqflags |= flags;
+  req->reqflags |= flags;
 }
 
 static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
-  req->pipeline.reqflags &= ~flags;
+  req->reqflags &= ~flags;
 }
 
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
@@ -276,12 +269,14 @@ static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
 }
 
 static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
-  return req->pipeline.sctx;
+  return req->sctx;
 }
 
 static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
   return &req->pipeline.ap;
 }
+
+int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /******************************************************************************
  ******************************************************************************
@@ -340,7 +335,6 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
-void AggregationPipeline_Free(AggregationPipeline *pipeline);
 void AREQ_Free(AREQ *req);
 
 /**

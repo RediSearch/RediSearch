@@ -102,7 +102,7 @@ typedef struct {
 } PrintProfileConfig;
 
 // Print profile of iterators
-void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+void printIteratorProfile(RedisModule_Reply *reply, const IndexIterator *root, size_t counter,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
 #ifdef __cplusplus

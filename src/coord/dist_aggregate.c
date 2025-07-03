@@ -387,7 +387,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root || !rows || MRReply_Length(rows) == 0) {
-    if (TimedOut(&self->parent->sctx->time.timeout)) {
+    if (TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
@@ -443,7 +443,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     MRReply *fields = MRReply_MapElement(result, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
 
-    processResultFormat(&nc->areq->pipeline.reqflags, rows);
+    processResultFormat(&nc->areq->reqflags, rows);
 
     for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
       size_t len;
@@ -626,7 +626,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   rpRoot->areq = r;
 
   ResultProcessor *rpProfile = NULL;
-  if (IsProfile(&r->pipeline)) {
+  if (IsProfile(r)) {
     rpProfile = RPProfile_New(&rpRoot->base, qctx);
   }
 
@@ -635,7 +635,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   int found = 0;
   for (ResultProcessor *rp = AREQ_QueryProcessingCtx(r)->endProc; rp; rp = rp->upstream) {
     if (!rp->upstream) {
-      rp->upstream = IsProfile(&r->pipeline) ? rpProfile : &rpRoot->base;
+      rp->upstream = IsProfile(r) ? rpProfile : &rpRoot->base;
       found = 1;
       break;
     }
@@ -648,7 +648,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   }
 
   // allocate memory for replies and update endProc if necessary
-  if (IsProfile(&r->pipeline)) {
+  if (IsProfile(r)) {
     // 2 is just a starting size, as we most likely have more than 1 shard
     rpRoot->shardsProfile = array_new(MRReply*, 2);
     if (!found) {
@@ -731,21 +731,20 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
-  xcmd.forProfiling = IsProfile(&r->pipeline);
+  xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, &us);
 
-  if (IsProfile(&r->pipeline)) r->parseTime = clock() - r->initClock;
+  if (IsProfile(r)) r->parseTime = clock() - r->initClock;
 
   // Create the Search context
   // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)
-  r->pipeline.sctx = rm_new(RedisSearchCtx);
-  *r->pipeline.sctx = SEARCH_CTX_STATIC(ctx, NULL);
-  r->pipeline.sctx->apiVersion = dialect;
-  SearchCtx_UpdateTime(r->pipeline.sctx, r->reqConfig.queryTimeoutMS);
-  AREQ_QueryProcessingCtx(r)->sctx = r->pipeline.sctx;
+  r->sctx = rm_new(RedisSearchCtx);
+  *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
+  r->sctx->apiVersion = dialect;
+  SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
   // r->sctx->expanded should be received from shards
 
   return REDISMODULE_OK;
