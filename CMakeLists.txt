@@ -95,6 +95,33 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 
+
+# Define paths for the script and output files
+set(GEN_SCRIPT "${CMAKE_SOURCE_DIR}/srcutil/gen_command_info.py")
+set(COMMAND_JSON "${CMAKE_SOURCE_DIR}/commands.json")
+set(COMMAND_INFO_FILE_NAME "command_info")
+set(COMMAND_INFO_FOLDER_NAME "command_info")
+set(COMMAND_OUTPUT_FOLDER "${CMAKE_SOURCE_DIR}/src/${COMMAND_INFO_FOLDER_NAME}")
+set(COMMAND_OUTPUT_FILE "${COMMAND_OUTPUT_FOLDER}/${COMMAND_INFO_FILE_NAME}")
+set(COMMAND_OUTPUT_H "${COMMAND_OUTPUT_FILE}.h")
+set(COMMAND_OUTPUT_C "${COMMAND_OUTPUT_FILE}.c")
+set(COMMAND_TEST_EXPECTATIONS_FILE "${CMAKE_SOURCE_DIR}/tests/pytests/command_info_expectations.json")
+
+# Add custom command to run the Python script
+add_custom_command(
+        OUTPUT ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C} ${COMMAND_TEST_EXPECTATIONS_FILE}
+        COMMAND python3 ${GEN_SCRIPT} -j ${COMMAND_JSON} -f ${COMMAND_OUTPUT_FILE} -i ${COMMAND_INFO_FOLDER_NAME} -t ${COMMAND_TEST_EXPECTATIONS_FILE}
+        DEPENDS ${GEN_SCRIPT} ${COMMAND_JSON}
+        COMMENT "Generating ${COMMAND_INFO_FILE_NAME}.h, ${COMMAND_INFO_FILE_NAME}.c, and test expectations"
+        VERBATIM
+)
+
+# Create a custom target that relies on the generated files
+add_custom_target(generate_command_info ALL DEPENDS ${COMMAND_OUTPUT_H} ${COMMAND_OUTPUT_C})
+
+#----------------------------------------------------------------------------------------------
+
+
 # Configure compiler options
 setup_cc_options()
 
@@ -248,6 +275,7 @@ file(GLOB SOURCES
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
+    "src/command_info/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
     "src/query_parser/v1/*.c"
@@ -315,9 +343,10 @@ target_link_libraries(redisearch
         ${CMAKE_LD_LIBS})
 
 extract_debug_symbols(redisearch)
-add_dependencies(redisearch VectorSimilarity)
-add_dependencies(redisearch uv_a)
-
+add_dependencies(redisearch 
+                 VectorSimilarity 
+                 generate_command_info
+                 uv_a)
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
