@@ -11,7 +11,7 @@ extern "C" {
 #include "hiredis/sds.h"
 }
 
-#include "src/buffer.h"
+#include "src/buffer/buffer.h"
 #include "src/index.h"
 #include "src/forward_index.h"
 #include "src/index_result.h"
