@@ -123,15 +123,8 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 /* Return the estimated cardinality of the numeric range */
 size_t NumericRange_GetCardinality(const NumericRange *nr);
 
-extern RedisModuleType *NumericIndexType;
-
 NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName, bool create_if_missing);
 
-int NumericIndexType_Register(RedisModuleCtx *ctx);
-void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
-void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
-void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);
-void NumericIndexType_Free(void *value);
 unsigned long NumericIndexType_MemUsage(const void *value);
 
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);

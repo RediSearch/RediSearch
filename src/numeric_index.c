@@ -521,7 +521,6 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
   return it;
 }
 
-RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
 RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
@@ -554,17 +553,7 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
     return NULL;
   }
   RedisModuleKey *key = NULL;
-  NumericRangeTree *t = NULL;
-  if (!ctx->spec->keysDict) {
-    key = RedisModule_OpenKey(ctx->redisCtx, s, REDISMODULE_READ);
-    if (!key || RedisModule_ModuleTypeGetType(key) != NumericIndexType) {
-      return NULL;
-    }
-
-    t = RedisModule_ModuleTypeGetValue(key);
-  } else {
-    t = openNumericKeysDict(ctx->spec, s, DONT_CREATE_INDEX);
-  }
+  NumericRangeTree *t = openNumericKeysDict(ctx->spec, s, DONT_CREATE_INDEX);
 
   if (!t) {
     return NULL;
@@ -604,136 +593,6 @@ unsigned long NumericIndexType_MemUsage(const void *value) {
   // Our tree is a full binary tree, so `#nodes = 2 * #leaves - 1`
   ret += (2 * t->numLeaves - 1) * NumericRangeNode_sizeof();
   return ret;
-}
-
-#define NUMERIC_INDEX_ENCVER 1
-
-int NumericIndexType_Register(RedisModuleCtx *ctx) {
-
-  RedisModuleTypeMethods tm = {.version = REDISMODULE_TYPE_METHOD_VERSION,
-                               .rdb_load = NumericIndexType_RdbLoad,
-                               .rdb_save = NumericIndexType_RdbSave,
-                               .aof_rewrite = GenericAofRewrite_DisabledHandler,
-                               .free = NumericIndexType_Free,
-                               .mem_usage = NumericIndexType_MemUsage};
-
-  NumericIndexType = RedisModule_CreateDataType(ctx, "numericdx", NUMERIC_INDEX_ENCVER, &tm);
-  if (NumericIndexType == NULL) {
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
-
-/* A single entry in a numeric index's single range. Since entries are binned together, each needs
- * to have the exact value */
-typedef struct {
-  t_docId docId;
-  double value;
-} NumericRangeEntry;
-
-static int cmpdocId(const void *p1, const void *p2) {
-  NumericRangeEntry *e1 = (NumericRangeEntry *)p1;
-  NumericRangeEntry *e2 = (NumericRangeEntry *)p2;
-
-  return (int)e1->docId - (int)e2->docId;
-}
-
-/** Version 0 stores the number of entries beforehand, and then loads them */
-static size_t loadV0(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
-  uint64_t num = RedisModule_LoadUnsigned(rdb);
-  if (!num) {
-    return 0;
-  }
-
-  *entriespp = array_newlen(NumericRangeEntry, num);
-  NumericRangeEntry *entries = *entriespp;
-  for (size_t ii = 0; ii < num; ++ii) {
-    entries[ii].docId = RedisModule_LoadUnsigned(rdb);
-    entries[ii].value = RedisModule_LoadDouble(rdb);
-  }
-  return num;
-}
-
-#define NUMERIC_IDX_INITIAL_LOAD_SIZE 1 << 16
-/** Version 0 stores (id,value) pairs, with a final 0 as a terminator */
-static size_t loadV1(RedisModuleIO *rdb, NumericRangeEntry **entriespp) {
-  NumericRangeEntry *entries = array_new(NumericRangeEntry, NUMERIC_IDX_INITIAL_LOAD_SIZE);
-  while (1) {
-    NumericRangeEntry cur;
-    cur.docId = RedisModule_LoadUnsigned(rdb);
-    if (!cur.docId) {
-      break;
-    }
-    cur.value = RedisModule_LoadDouble(rdb);
-    array_append(entries, cur);
-  }
-  *entriespp = entries;
-  return array_len(entries);
-}
-
-void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver) {
-  if (encver > NUMERIC_INDEX_ENCVER) {
-    return NULL;
-  }
-
-  NumericRangeEntry *entries = NULL;
-  size_t numEntries = 0;
-  if (encver == 0) {
-    numEntries = loadV0(rdb, &entries);
-  } else if (encver == 1) {
-    numEntries = loadV1(rdb, &entries);
-  } else {
-    return NULL;  // Unknown version
-  }
-
-  // sort the entries by doc id, as they were not saved in this order
-  qsort(entries, numEntries, sizeof(NumericRangeEntry), cmpdocId);
-  NumericRangeTree *t = NewNumericRangeTree();
-
-  // now push them in order into the tree
-  for (size_t i = 0; i < numEntries; i++) {
-    NumericRangeTree_Add(t, entries[i].docId, entries[i].value, true);
-  }
-  array_free(entries);
-  return t;
-}
-
-struct niRdbSaveCtx {
-  RedisModuleIO *rdb;
-};
-
-static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
-  struct niRdbSaveCtx *rctx = ctx;
-
-  if (NumericRangeNode_IsLeaf(n) && n->range) {
-    NumericRange *rng = n->range;
-    RSIndexResult *res = NULL;
-    IndexReader *ir = NewMinimalNumericReader(rng->entries, false);
-
-    while (INDEXREAD_OK == IR_Read(ir, &res)) {
-      RedisModule_SaveUnsigned(rctx->rdb, res->docId);
-      RedisModule_SaveDouble(rctx->rdb, res->data.num.value);
-    }
-    IR_Free(ir);
-  }
-}
-void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
-
-  NumericRangeTree *t = value;
-  struct niRdbSaveCtx ctx = {rdb};
-
-  NumericRangeNode_Traverse(t->root, numericIndex_rdbSaveCallback, &ctx);
-  // Save the final record
-  RedisModule_SaveUnsigned(rdb, 0);
-}
-
-void NumericIndexType_Digest(RedisModuleDigest *digest, void *value) {
-}
-
-void NumericIndexType_Free(void *value) {
-  NumericRangeTree *t = value;
-  NumericRangeTree_Free(t);
 }
 
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t) {
