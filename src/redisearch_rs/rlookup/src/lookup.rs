@@ -77,7 +77,6 @@ pub enum RLookupKeyFlag {
 pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
-#[expect(unused, reason = "used by later stacked PRs")]
 const GET_KEY_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
 
@@ -426,6 +425,73 @@ impl<'a> RLookup<'a> {
         debug_assert!(self.spcache.is_none());
         self.spcache = Some(spcache);
     }
+
+    // ===== Get key for reading (create only if in schema and sortable) =====
+
+    pub fn get_key_read(
+        &mut self,
+        name: &'a CStr,
+        mut flags: RLookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        flags &= GET_KEY_FLAGS;
+
+        // Safety: The non-lexical lifetime analysis of current Rust, incorrectly handles borrows in early
+        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
+        // obviously not correct as `key` is either found and borrowed in which case we never reach the code below
+        // this early return OR it is *not* found and *not* borrowed which means the code below is fine to
+        // borrow self again. The current compiler is not smart enough to get this though, so we create a disjoint
+        // borrow below.
+        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
+        let me = unsafe { &*(self as *const Self) };
+        if let Some(c) = me.keys.find_by_name(name) {
+            return Some(c.into_current().unwrap());
+        }
+
+        // If we didn't find the key at the lookup table, check if it exists in
+        // the schema as SORTABLE, and create only if so.
+        if let Some(key) = self.gen_key_from_spec(name, flags) {
+            let key = self.keys.push(key);
+
+            // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
+            return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
+        }
+
+        // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
+        if self.options.contains(RLookupOption::AllowUnresolved) {
+            let mut key = RLookupKey::new(name, flags);
+            key.flags |= RLookupKeyFlag::Unresolved;
+
+            let key = self.keys.push(key);
+
+            // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
+            return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
+        }
+
+        None
+    }
+
+    // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
+    // has promised to load the entire document.
+    fn gen_key_from_spec(
+        &mut self,
+        name: &'a CStr,
+        flags: RLookupKeyFlags,
+    ) -> Option<RLookupKey<'a>> {
+        let fs = self.spcache.as_ref()?.find_field(name)?;
+        let fs_options = FieldSpecOptions::from_bits(fs.options()).unwrap();
+
+        // FIXME: LOAD ALL loads the key properties by their name, and we won't find their value by the field name
+        //        if the field has a different name (alias) than its path.
+        if !fs_options.contains(FieldSpecOption::Sortable)
+            && !self.options.contains(RLookupOption::AllLoaded)
+        {
+            return None;
+        }
+
+        let mut key = RLookupKey::new(name, flags);
+        key.update_from_field_spec(fs);
+        Some(key)
+    }
 }
 
 // ===== impl KeyList =====
@@ -698,7 +764,7 @@ impl<'a> Link<'a> {
 
 // ===== impl Cursor =====
 
-impl<'a> Cursor<'_, 'a> {
+impl<'list, 'a> Cursor<'list, 'a> {
     /// Move the cursor to the next [`RLookupKey`] in the [`KeyList`].
     ///
     /// Note that contrary to [`Self::next`] this **does not** skip over hidden keys.
@@ -718,6 +784,12 @@ impl<'a> Cursor<'_, 'a> {
     pub fn current(&self) -> Option<&RLookupKey<'a>> {
         // Safety: See Self::move_next.
         Some(unsafe { self.current?.as_ref() })
+    }
+
+    /// Consume this cursor returning an immutable reference to the current key, if any.
+    pub fn into_current(self) -> Option<&'list RLookupKey<'a>> {
+        // Safety: See Self::move_next.
+        Some(unsafe { self.curr?.as_ref() })
     }
 
     /// Skip a consecutive run of keys marked as "hidden". Used in the [`Iterator`] implementation.
