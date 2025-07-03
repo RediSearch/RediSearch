@@ -24,18 +24,12 @@ CONFIGS = [
     # New 16-primaries matrix - master branch (no SEARCH_IO_THREADS)
     BenchmarkConfig("oss-cluster-16-primaries", "master", 10, 10, None),
     BenchmarkConfig("oss-cluster-16-primaries", "master", 10, 20, None),
-    BenchmarkConfig("oss-cluster-16-primaries", "master", 20, 10, None),
-    BenchmarkConfig("oss-cluster-16-primaries", "master", 20, 20, None),
 
     # New 16-primaries matrix - joan-uv-threads branch (with SEARCH_IO_THREADS)
     BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 10, 10),
     BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 20, 10),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 20, 10, 10),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 20, 20, 10),
     BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 10, 20),
     BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 20, 20),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 20, 10, 20),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 20, 20, 20),
 ]
 
 # Path to the original YAML file
@@ -243,7 +237,7 @@ def main():
       config_id = f"{branch}_{setup}_w{workers}_st{search_threads}_sio{search_io_threads}"
 
       # Run the benchmark
-      success = run_benchmark("1", "oss-cluster", setup, branch, temp_yaml)
+      success = run_benchmark("1", "oss-cluster", new_setup_name, branch, temp_yaml)
 
       if success:
           print(f"Benchmark completed!!!!")
