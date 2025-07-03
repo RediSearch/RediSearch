@@ -252,6 +252,12 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
  */
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status);
 
+/**
+ * Constructs the pipeline objects needed to actually start processing
+ * the requests. This does not yet start iterating over the objects
+ */
+int AREQ_BuildPipeline(AREQ *req, QueryError *status);
+
 static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
   return (QEFlags)req->reqflags;
 }
@@ -275,8 +281,6 @@ static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
 static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
   return &req->pipeline.ap;
 }
-
-int AREQ_BuildPipeline(AREQ *req, QueryError *status);
 
 /******************************************************************************
  ******************************************************************************
