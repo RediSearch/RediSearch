@@ -6,6 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
+use crate::bindings::{
+    FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache,
+};
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
 #[cfg(any(debug_assertions, test))]
@@ -18,6 +22,7 @@ use std::{
     ops::DerefMut,
     pin::Pin,
     ptr::NonNull,
+    slice,
 };
 
 #[bitflags]
@@ -80,6 +85,20 @@ const GET_KEY_FLAGS: RLookupKeyFlags =
 /// Flags do not persist to the key, they are just options to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
 const TRANSIENT_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | ForceLoad | NameAlloc});
+
+#[bitflags]
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RLookupOption {
+    /// If the key cannot be found, do not mark it as an error, but create it and
+    /// mark it as F_UNRESOLVED
+    AllowUnresolved = 0x01,
+
+    /// If a loader was added to load the entire document, this flag will allow
+    /// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
+    AllLoaded = 0x02,
+}
+pub type RLookupOptions = BitFlags<RLookupOption>;
 
 /// RLookup key
 ///
@@ -162,9 +181,22 @@ pub struct RLookupKey<'a> {
     _path: Option<Cow<'a, CStr>>,
 }
 
-/// An append-only list of [`RlookupKey`]s.
+/// An append-only list of [`RLookupKey`]s.
 ///
-/// This type allows the creation and retrieval of [`RlookupKey`]s.
+/// This type allows the creation and retrieval of [`RLookupKey`]s.
+#[derive(Debug)]
+#[repr(C)]
+pub struct RLookup<'a> {
+    keys: KeyList<'a>,
+
+    // Flags/options
+    options: RLookupOptions,
+
+    // If present, then GetKey will consult this list if the value is not found in
+    // the existing list of keys.
+    spcache: Option<IndexSpecCache>,
+}
+
 #[derive(Debug)]
 #[repr(C)]
 struct KeyList<'a> {
@@ -381,6 +413,87 @@ impl<'a> RLookupKey<'a> {
                 "{ctx}key's next link cannot be to itself; node={self:#?}",
             );
         }
+    }
+
+    /// Updates this `RLookupKey`'s fields according to the provided [`ffi::FieldSpec`].
+    pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
+        self.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
+
+        let path = {
+            debug_assert!(!fs.fieldPath.is_null());
+
+            let mut path_len = 0;
+            // Safety: we received the pointer from the field spec and have to assume it is valid
+            let path_ptr =
+                unsafe { ffi::HiddenString_GetUnsafe(fs.fieldPath, ptr::from_mut(&mut path_len)) };
+
+            debug_assert!(!path_ptr.is_null());
+            // Safety: We assume the `path_ptr` and `length` information returned by the field spec
+            // point to a valid null-terminated C string. Importantly `length` here is value as returned by
+            // `strlen` so **does not** include the null terminator (that is why we do `path_len + 1` below)
+            let bytes = unsafe { slice::from_raw_parts(path_ptr.cast::<u8>(), path_len + 1) };
+            let path = CStr::from_bytes_with_nul(bytes)
+                .expect("string returned by HiddenString_GetUnsafe is malformed");
+
+            // When the name is owned, we also want the path to be owned
+            if matches!(self._name, Cow::Owned(_)) {
+                Cow::Owned(path.to_owned())
+            } else {
+                Cow::Borrowed(path)
+            }
+        };
+        self._path = Some(path);
+        self.path = self._path.as_ref().unwrap().as_ptr();
+
+        let fs_options = FieldSpecOptions::from_bits(fs.options()).unwrap();
+
+        if fs_options.contains(FieldSpecOption::Sortable) {
+            self.flags |= RLookupKeyFlag::SvSrc;
+            self.svidx = u16::try_from(fs.sortIdx).unwrap();
+
+            if fs_options.contains(FieldSpecOption::Unf) {
+                // If the field is sortable and not normalized (UNF), the available data in the
+                // sorting vector is the same as the data in the document.
+                self.flags |= RLookupKeyFlag::ValAvailable;
+            }
+        }
+
+        let fs_types = FieldSpecTypes::from_bits(fs.types()).unwrap();
+
+        if fs_types.contains(FieldSpecType::Numeric) {
+            self.flags |= RLookupKeyFlag::Numeric;
+        }
+    }
+}
+
+// ===== impl RLookup =====
+
+impl Default for RLookup<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a> RLookup<'a> {
+    pub fn new() -> Self {
+        Self {
+            keys: KeyList::new(),
+            options: RLookupOptions::empty(),
+            spcache: None,
+        }
+    }
+
+    pub const fn with_options(options: RLookupOptions) -> Self {
+        Self {
+            keys: KeyList::new(),
+            options,
+            spcache: None,
+        }
+    }
+
+    pub fn init(&mut self, spcache: IndexSpecCache) {
+        debug_assert!(self.spcache.is_none());
+        self.spcache = Some(spcache);
     }
 }
 
@@ -772,6 +885,10 @@ impl<'list, 'a> Iterator for CursorMut<'list, 'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        mem::{MaybeUninit, offset_of},
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     // Make sure that the `into_ptr` and `from_ptr` functions are inverses of each other.
     #[test]
@@ -826,6 +943,150 @@ mod tests {
         assert_eq!(key.name, name.as_ptr());
         assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
         assert!(matches!(key._name, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn update_from_field_spec() {
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+
+        let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
+        let field_name = c"this is the field name";
+        fs.fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        let field_path = c"this is the field path";
+        fs.fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+
+        key.update_from_field_spec(&fs);
+
+        assert!(
+            key.flags
+                .contains(RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc)
+        );
+        assert_ne!(key.path, key.name);
+        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert_eq!(
+            unsafe { CStr::from_ptr(key.path) },
+            c"this is the field path"
+        );
+
+        // cleanup
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldName, false);
+        }
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldPath, false);
+        }
+    }
+
+    #[test]
+    fn update_from_field_spec_sortable() {
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+
+        let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
+        let field_name = c"this is the field name";
+        fs.fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        let field_path = c"this is the field path";
+        fs.fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        fs.set_options(
+            ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
+        );
+        fs.sortIdx = 43;
+
+        key.update_from_field_spec(&fs);
+
+        assert!(key.flags.contains(
+            RLookupKeyFlag::DocSrc
+                | RLookupKeyFlag::SchemaSrc
+                | RLookupKeyFlag::SvSrc
+                | RLookupKeyFlag::ValAvailable
+        ));
+        assert_ne!(key.path, key.name);
+        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert_eq!(
+            unsafe { CStr::from_ptr(key.path) },
+            c"this is the field path"
+        );
+        assert_eq!(key.svidx, 43);
+
+        // cleanup
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldName, false);
+        }
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldPath, false);
+        }
+    }
+
+    #[test]
+    fn update_from_field_spec_numeric() {
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+
+        let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
+        let field_name = c"this is the field name";
+        fs.fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        let field_path = c"this is the field path";
+        fs.fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        fs.set_types(ffi::FieldType_INDEXFLD_T_NUMERIC);
+
+        key.update_from_field_spec(&fs);
+
+        assert!(key.flags.contains(
+            RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc | RLookupKeyFlag::Numeric
+        ));
+        assert_ne!(key.path, key.name);
+        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert_eq!(
+            unsafe { CStr::from_ptr(key.path) },
+            c"this is the field path"
+        );
+
+        // cleanup
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldName, false);
+        }
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldPath, false);
+        }
+    }
+
+    // `update_from_field_spec` clones the name if key`RLookupKey.flags` contains `NameAlloc`
+    #[test]
+    fn update_from_field_spec_namealloc() {
+        let mut key = RLookupKey::new(c"test", make_bitflags!(RLookupKeyFlag::NameAlloc));
+
+        let mut fs: ffi::FieldSpec = unsafe { MaybeUninit::zeroed().assume_init() };
+        let field_name = c"this is the field name";
+        fs.fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        let field_path = c"this is the field path";
+        fs.fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+
+        key.update_from_field_spec(&fs);
+
+        assert!(
+            key.flags
+                .contains(RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc)
+        );
+        assert_ne!(key.path, key.name);
+        assert_eq!(
+            unsafe { CStr::from_ptr(key.path) },
+            c"this is the field path"
+        );
+        assert!(matches!(key._path.as_ref().unwrap(), Cow::Owned(_)));
+
+        // cleanup
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldName, false);
+        }
+        unsafe {
+            ffi::HiddenString_Free(fs.fieldPath, false);
+        }
     }
 
     // assert that the linked list is produced and linked correctly
@@ -1122,5 +1383,112 @@ mod tests {
         // and the next item to be the new key
         c.move_next();
         assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+    }
+
+    #[test]
+    fn rlookup_init() {
+        let mut rlookup = RLookup::new();
+
+        let spcache = Box::new(ffi::IndexSpecCache {
+            fields: ptr::null_mut(),
+            nfields: 0,
+            refcount: 0,
+        });
+        let spcache =
+            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+
+        rlookup.init(spcache);
+    }
+
+    #[test]
+    #[should_panic]
+    fn rlookup_no_reinit() {
+        let mut rlookup = RLookup::new();
+
+        let spcache = Box::new(ffi::IndexSpecCache {
+            fields: ptr::null_mut(),
+            nfields: 0,
+            refcount: 0,
+        });
+        let spcache =
+            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+
+        rlookup.init(spcache);
+
+        let spcache = Box::new(ffi::IndexSpecCache {
+            fields: ptr::null_mut(),
+            nfields: 0,
+            refcount: 0,
+        });
+        let spcache =
+            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+
+        // this should panic
+        rlookup.init(spcache);
+    }
+
+    // ===== mock implementations for testing purposes =====
+
+    #[repr(C)]
+    struct UserString {
+        user: *const c_char,
+        length: usize,
+    }
+
+    /// Mock implementation of `HiddenString_GetUnsafe` from obfuscation/hidden.h for testing purposes
+    #[unsafe(no_mangle)]
+    extern "C" fn HiddenString_GetUnsafe(
+        value: *const ffi::HiddenString,
+        length: *mut usize,
+    ) -> *const c_char {
+        let text = unsafe { value.cast::<UserString>().as_ref().unwrap() };
+        if text.length != 0 {
+            unsafe {
+                *length = text.length;
+            }
+        }
+
+        text.user
+    }
+
+    /// Mock implementation of `NewHiddenString` from obfuscation/hidden.h for testing purposes
+    #[unsafe(no_mangle)]
+    extern "C" fn NewHiddenString(
+        user: *const c_char,
+        length: usize,
+        take_ownership: bool,
+    ) -> *mut ffi::HiddenString {
+        assert!(
+            !take_ownership,
+            "tests are not allowed to move ownership to C"
+        );
+        let value = Box::new(UserString { user, length });
+        Box::into_raw(value).cast()
+    }
+
+    /// Mock implementation of `HiddenString_Free` from obfuscation/hidden.h for testing purposes
+    #[unsafe(no_mangle)]
+    extern "C" fn HiddenString_Free(value: *const ffi::HiddenString, took_ownership: bool) {
+        assert!(
+            !took_ownership,
+            "tests are not allowed to move ownership to C"
+        );
+
+        drop(unsafe { Box::from_raw(value.cast_mut().cast::<UserString>()) });
+    }
+
+    /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
+    #[unsafe(no_mangle)]
+    extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
+        let s = s.unwrap();
+        let refcount = unsafe {
+            s.byte_add(offset_of!(ffi::IndexSpecCache, refcount))
+                .cast::<usize>()
+        };
+
+        let refcount = unsafe { AtomicUsize::from_ptr(refcount.as_ptr()) };
+        if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+            drop(unsafe { Box::from_raw(s.as_ptr()) });
+        }
     }
 }
