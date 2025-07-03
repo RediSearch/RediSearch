@@ -163,85 +163,85 @@ def test_stop_indexing_low_mem_verbosity(env):
   warning = results_str[warning_index][1]
   env.assertEqual(warning, partial_results_warning_str)
 
-# @skip(cluster=True)
-# def test_idx_delete_during_bg_indexing(env):
-#   oom_test_config(env)
+@skip(cluster=True)
+def test_idx_delete_during_bg_indexing(env):
+  oom_test_config(env)
 
-#   # Test deleting an index while it is being indexed in the background
-#   n_docs = 10000
-#   for i in range(n_docs):
-#     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
+  # Test deleting an index while it is being indexed in the background
+  n_docs = 10000
+  for i in range(n_docs):
+    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
-#   # Set pause before indexing
-#   env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
-#   # Create an index with a text field.
-#   env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
-#   waitForIndexStatus(env, 'NEW')
-#   # Delete the index
-#   env.expect('ft.dropindex', 'idx').ok()
-#   # Resume indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   # Check that the index does not exist
-#   env.expect('ft._list').equal([])
+  # Set pause before indexing
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+  # Create an index with a text field.
+  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+  waitForIndexStatus(env, 'NEW')
+  # Delete the index
+  env.expect('ft.dropindex', 'idx').ok()
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Check that the index does not exist
+  env.expect('ft._list').equal([])
 
-#   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//2).ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//2).ok()
 
-#   env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
-#   waitForIndexStatus(env, 'NEW')
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+  waitForIndexStatus(env, 'NEW')
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
-#   waitForIndexPauseScan(env, 'idx')
-#   # Delete the index
-#   env.expect('ft.dropindex', 'idx').ok()
-#   # Resume indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   # After the following line, the background indexing should be completed
-#   env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
-#   # Check that the index does not exist
-#   env.expect('ft._list').equal([])
+  waitForIndexPauseScan(env, 'idx')
+  # Delete the index
+  env.expect('ft.dropindex', 'idx').ok()
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # After the following line, the background indexing should be completed
+  env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
+  # Check that the index does not exist
+  env.expect('ft._list').equal([])
 
-# @skip(cluster=True)
-# def test_delete_docs_during_bg_indexing(env):
-#   oom_test_config(env)
+@skip(cluster=True)
+def test_delete_docs_during_bg_indexing(env):
+  oom_test_config(env)
 
-#   # Test deleting docs while they are being indexed in the background
-#   # Using a large number of docs to make sure the test is not flaky
-#   n_docs = 10000
-#   for i in range(n_docs):
-#     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
+  # Test deleting docs while they are being indexed in the background
+  # Using a large number of docs to make sure the test is not flaky
+  n_docs = 10000
+  for i in range(n_docs):
+    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
-#   # Set delta to 100
-#   delta = n_docs//100
+  # Set delta to 100
+  delta = n_docs//100
 
-#   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-#   env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
-#   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
 
-#   # Set pause before indexing
-#   env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+  # Set pause before indexing
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
 
-#   idx_str = 'idx'
-#   env.expect('ft.create', idx_str, 'SCHEMA', 't', 'text').ok()
-#   waitForIndexStatus(env, 'NEW')
-#   # Set tight memory limit
-#   set_tight_maxmemory_for_oom(env, 0.85)
+  idx_str = 'idx'
+  env.expect('ft.create', idx_str, 'SCHEMA', 't', 'text').ok()
+  waitForIndexStatus(env, 'NEW')
+  # Set tight memory limit
+  set_tight_maxmemory_for_oom(env, 0.85)
 
-#   # Delete the 1000 first docs
-#   for i in range(n_docs//10):
-#     env.expect('DEL', f'doc{i}').equal(1)
-#   forceInvokeGC(env, idx = idx_str)
+  # Delete the 1000 first docs
+  for i in range(n_docs//10):
+    env.expect('DEL', f'doc{i}').equal(1)
+  forceInvokeGC(env, idx = idx_str)
 
-#   # Resume indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_str)
-#   # Resume the indexing
-#   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#   # Wait for the indexing to finish
-#   waitForIndexFinishScan(env, idx_str)
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_str)
+  # Resume the indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, idx_str)
 
-#   # Verify OOM status
-#   error_dict = get_index_errors_dict(env, idx_str)
-#   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+  # Verify OOM status
+  error_dict = get_index_errors_dict(env, idx_str)
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
 
 
