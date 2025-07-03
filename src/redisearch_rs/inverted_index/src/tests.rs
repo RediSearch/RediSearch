@@ -21,8 +21,13 @@ fn add_records() {
     let mut ii = InvertedIndex::<Dummy>::new();
     let record = RSIndexResult::numeric(10, 5.0);
 
-    ii.add_record(&record).unwrap();
+    let mem_size = ii.add_record(&record).unwrap();
 
+    assert_eq!(
+        mem_size,
+        8 + 48,
+        "should write 8 bytes for delta and 48 bytes for the index block"
+    );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
     assert_eq!(ii.blocks[0].num_entries, 1);
@@ -32,8 +37,9 @@ fn add_records() {
 
     let record = RSIndexResult::numeric(11, 5.0);
 
-    ii.add_record(&record).unwrap();
+    let mem_size = ii.add_record(&record).unwrap();
 
+    assert_eq!(mem_size, 8, "no new index block needed to be created");
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0, 0, 0, 0, 1]);
     assert_eq!(ii.blocks[0].num_entries, 2);
@@ -115,7 +121,7 @@ fn writting_same_record_twice() {
 }
 
 #[test]
-fn writing_creates_new_blocks() {
+fn writing_creates_new_blocks_when_entries_is_reached() {
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -137,21 +143,37 @@ fn writing_creates_new_blocks() {
 
     let mut ii = InvertedIndex::<SmallBlocksDummy>::new();
 
-    ii.add_record(&RSIndexResult::numeric(10, 5.0)).unwrap();
+    let mem_size = ii.add_record(&RSIndexResult::numeric(10, 5.0)).unwrap();
+    assert_eq!(
+        mem_size,
+        1 + 48,
+        "should write 1 byte for encoding and 48 bytes for the index block"
+    );
     assert_eq!(ii.blocks.len(), 1);
-    ii.add_record(&RSIndexResult::numeric(11, 6.0)).unwrap();
+    let mem_size = ii.add_record(&RSIndexResult::numeric(11, 6.0)).unwrap();
+    assert_eq!(mem_size, 1, "should write 1 byte for encoding");
     assert_eq!(ii.blocks.len(), 1);
 
-    ii.add_record(&RSIndexResult::numeric(12, 4.0)).unwrap();
+    let mem_size = ii.add_record(&RSIndexResult::numeric(12, 4.0)).unwrap();
+    assert_eq!(
+        mem_size,
+        1 + 48,
+        "should write 1 byte for encoding and 48 bytes for the new index block"
+    );
     assert_eq!(
         ii.blocks.len(),
         2,
         "should create a new block after reaching the limit"
     );
-    ii.add_record(&RSIndexResult::numeric(13, 2.0)).unwrap();
+    let mem_size = ii.add_record(&RSIndexResult::numeric(13, 2.0)).unwrap();
+    assert_eq!(mem_size, 1, "should write 1 byte for encoding");
     assert_eq!(ii.blocks.len(), 2);
 
-    ii.add_record(&RSIndexResult::numeric(13, 1.0)).unwrap();
+    let mem_size = ii.add_record(&RSIndexResult::numeric(13, 1.0)).unwrap();
+    assert_eq!(
+        mem_size, 1,
+        "should write 1 byte for encoding since the duplicate used the same block"
+    );
     assert_eq!(
         ii.blocks.len(),
         2,
@@ -164,8 +186,13 @@ fn writting_big_delta_makes_new_block() {
     let mut ii = InvertedIndex::<Dummy>::new();
     let record = RSIndexResult::numeric(10, 5.0);
 
-    ii.add_record(&record).unwrap();
+    let mem_size = ii.add_record(&record).unwrap();
 
+    assert_eq!(
+        mem_size,
+        8 + 48,
+        "should write 8 bytes for delta and 48 bytes for the index block"
+    );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
     assert_eq!(ii.blocks[0].num_entries, 1);
@@ -176,8 +203,13 @@ fn writting_big_delta_makes_new_block() {
     let doc_id = (u32::MAX as u64) + 11;
     let record = RSIndexResult::numeric(doc_id, 5.0);
 
-    ii.add_record(&record).unwrap();
+    let mem_size = ii.add_record(&record).unwrap();
 
+    assert_eq!(
+        mem_size,
+        8 + 48,
+        "should write 8 bytes for delta and 48 bytes for the new index block"
+    );
     assert_eq!(ii.blocks.len(), 2);
     assert_eq!(ii.blocks[1].buffer, [0, 0, 0, 0]);
     assert_eq!(ii.blocks[1].num_entries, 1);

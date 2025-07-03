@@ -401,6 +401,8 @@ pub struct IndexBlock {
 }
 
 impl IndexBlock {
+    const SIZE: usize = std::mem::size_of::<Self>();
+
     pub fn new(doc_id: t_docId) -> Self {
         Self {
             first_doc_id: doc_id,
@@ -429,6 +431,7 @@ impl<E: Encoder> InvertedIndex<E> {
         }
     }
 
+    /// Add a new record to the index and return by how much memory grew.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         let doc_id = record.doc_id;
 
@@ -445,16 +448,17 @@ impl<E: Encoder> InvertedIndex<E> {
             (_, false) => false,
         };
 
-        let mut block = self.get_block(doc_id, same_doc);
+        let (mut block, mut new_mem_size) = self.get_block(doc_id, same_doc);
 
         let delta = match E::calculate_delta(block, doc_id) {
             Some(delta) => delta,
             None => {
                 // The delta is too large for this encoder, we need to create a new block and reset
                 // the delta.
-                self.blocks.push(IndexBlock::new(doc_id));
+                let (new_block, block_size) = self.add_block(doc_id);
 
-                block = self.blocks.last_mut().expect("we just pushed a new block");
+                block = new_block;
+                new_mem_size += block_size;
 
                 Default::default()
             }
@@ -471,33 +475,45 @@ impl<E: Encoder> InvertedIndex<E> {
             self.num_docs += 1;
         }
 
-        Ok(bytes_written)
+        Ok(bytes_written + new_mem_size)
+    }
+
+    /// Add a new block to the index with the given document ID. Returns a mutable reference to the
+    /// block and by how much memory grew.
+    pub fn add_block(&mut self, doc_id: t_docId) -> (&mut IndexBlock, usize) {
+        let block = IndexBlock::new(doc_id);
+        self.blocks.push(block);
+
+        (
+            self.blocks.last_mut().expect("we just pushed a new block"),
+            IndexBlock::SIZE,
+        )
     }
 
     fn last_doc_id(&self) -> Option<t_docId> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
-    fn get_block(&mut self, doc_id: t_docId, same_doc: bool) -> &mut IndexBlock {
-        if self.blocks.is_empty() {
-            let block = IndexBlock::new(doc_id);
-            self.blocks.push(block);
-        } else if !same_doc
+    fn get_block(&mut self, doc_id: t_docId, same_doc: bool) -> (&mut IndexBlock, usize) {
+        if self.blocks.is_empty() ||
+            // If the block is full
+        (!same_doc
             && self
                 .blocks
                 .last()
                 .expect("we just confirmed there are blocks")
                 .num_entries
-                >= E::BLOCK_ENTRIES
+                >= E::BLOCK_ENTRIES)
         {
-            // We need to create a new block since the last one is full
-            let block = IndexBlock::new(doc_id);
-            self.blocks.push(block);
+            return self.add_block(doc_id);
         }
 
-        self.blocks
-            .last_mut()
-            .expect("to get the last block or the one we just added")
+        (
+            self.blocks
+                .last_mut()
+                .expect("to get the last block since we know there is one"),
+            0,
+        )
     }
 }
 
