@@ -40,7 +40,7 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
   static const char *args[] = {
     "SCHEMA",
     "title", "text", "weight", "1.2",
-    "body", "text",
+    "body", "text", "INDEXMISSING", "INDEXEMPTY"
     "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2",
     "v2", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
@@ -58,12 +58,14 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
   assertInvalidVectorFilter("@v:[VECTOR_RANGE 0.01 $BLOB]", ctx);
   assertInvalidVectorFilter("hello | @v:[VECTOR_RANGE 0.01 $BLOB]", ctx);
 
-  // Invalid queries with weight
+  // Invalid queries with weight attribute
   assertInvalidVectorFilter("@title:hello => {$weight: 2.0}", ctx);
   assertInvalidVectorFilter("hello | @title:hello => {$weight: 2.0}", ctx);
   assertInvalidVectorFilter("@title:'hello' => {$weight: 2.0}", ctx);
   assertInvalidVectorFilter("( @title:(foo bar) @body:lol => {$weight: 2.0;} )=> {$slop:2; $inorder:true}", ctx);
   assertInvalidVectorFilter("( @title:(foo bar) @body:lol )=> {$weight:2.0; $inorder:true}", ctx);
+  assertInvalidVectorFilter("(ismissing(@body))=> {$weight: 2.0}", ctx);
+  assertInvalidVectorFilter("(@body:'')=> {$weight: 2.0}", ctx);
 
   // Complex queries with range
   assertInvalidVectorFilter("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar", ctx);
@@ -106,6 +108,7 @@ TEST_F(QueryValidationTest, testValidVectorFilter) {
   assertValidVectorFilter("", ctx);
   assertValidVectorFilter("such that their", ctx);
   assertValidVectorFilter("ismissing(@body)", ctx);
+  assertValidVectorFilter("@body:''", ctx);
 
   IndexSpec_RemoveFromGlobals(ref, false);
 }

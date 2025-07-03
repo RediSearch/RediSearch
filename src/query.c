@@ -1796,11 +1796,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_VECTOR:
       if (validationFlags & QAST_DISABLE_VECTOR_QUERIES) {
-        if (n->vn.vq->type == VECSIM_QT_KNN) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR KNN queries are not allowed in a vector filter");
-          res = REDISMODULE_ERR;
-        } else if (n->vn.vq->type == VECSIM_QT_RANGE) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR RANGE queries are not allowed in a vector filter");
+        if ((n->vn.vq->type == VECSIM_QT_KNN) || (n->vn.vq->type == VECSIM_QT_RANGE)) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR queries are not allowed");
           res = REDISMODULE_ERR;
         }
       }
@@ -1818,13 +1815,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
   }
 
+  // Check for weight attribute
+  if (res == REDISMODULE_OK && (validationFlags & QAST_NO_WEIGHT_ATTRIBUTE) && n->opts.explicitWeight) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed");
+    res = REDISMODULE_ERR;
+  }
+
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
-    if ((validationFlags & QAST_NO_WEIGHT_ATTRIBUTE) && n->opts.explicitWeight) {
-      QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed in a vector filter");
-      res = REDISMODULE_ERR;
-    }
-
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
       res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validationFlags);
       if (res == REDISMODULE_ERR)
