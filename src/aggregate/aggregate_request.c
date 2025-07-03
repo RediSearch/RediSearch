@@ -1104,6 +1104,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
+  req->sctx = sctx;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
@@ -1271,6 +1272,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         .pln = &req->pipeline.ap,
         .sctx = req->sctx,
         .reqflags = req->reqflags,
+        .optimizer = req->optimizer,
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,

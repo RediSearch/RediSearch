@@ -1032,6 +1032,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
   sl->curr_result_index = 0;
+  sl->sctx = loader->loadopts.sctx;
 
   sl->last_buffered_rc = RS_RESULT_OK;
 
