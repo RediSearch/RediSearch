@@ -155,6 +155,7 @@ const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
 const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
+bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits);
 
 void VecSimParams_Cleanup(VecSimParams *params);
 
