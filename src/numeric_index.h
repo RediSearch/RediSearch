@@ -96,36 +96,18 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
                                                ConcurrentSearchCtx *csx, FieldType forType,
                                                IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
-/* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
- * vector with range node pointers.  */
-Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf);
-
-/* Recursively free a node and its children
- * rv will be updated with the number of cleaned up records and ranges in the subtree */
-void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv);
-
 /* Recursively trim empty nodes from tree  */
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 
-/* Create a new tree */
-NumericRangeTree *NewNumericRangeTree();
-
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we split nodes */
 NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
-
-/* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
- * Returns a vector with range node pointers. */
-Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf);
-
-/* Free the tree and all nodes */
-void NumericRangeTree_Free(NumericRangeTree *t);
 
 /* Return the estimated cardinality of the numeric range */
 size_t NumericRange_GetCardinality(const NumericRange *nr);
 
 NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName, bool create_if_missing);
 
-unsigned long NumericIndexType_MemUsage(const void *value);
+unsigned long NumericIndexType_MemUsage(const NumericRangeTree *tree);
 
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);

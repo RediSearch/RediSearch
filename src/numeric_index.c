@@ -308,16 +308,16 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
 
 /* Find the numeric ranges that fit the range we are looking for. We try to minimize the number of
  * nodes we'll later need to union */
-Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf) {
+static inline Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf) {
 
   Vector *leaves = NewVector(NumericRange *, 8);
   size_t total = 0;
-  __recursiveAddRange(leaves, n, nf, &total);
+  __recursiveAddRange(leaves, t->root, nf, &total);
 
   return leaves;
 }
 
-void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
+static void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
   if (!n) return;
 
   if (NumericRangeNode_IsLeaf(n)) rv->numLeaves--;
@@ -331,7 +331,7 @@ void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv) {
 uint16_t numericTreesUniqueId = 0;
 
 /* Create a new numeric range tree */
-NumericRangeTree *NewNumericRangeTree() {
+static NumericRangeTree *NewNumericRangeTree() {
   NumericRangeTree *ret = rm_malloc(sizeof(NumericRangeTree));
 
   ret->root = NewLeafNode();
@@ -370,23 +370,6 @@ NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value,
   t->invertedIndexesSize += rv.sz;
 
   return rv;
-}
-
-Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf) {
-  return NumericRangeNode_FindRange(t->root, nf);
-}
-
-void NumericRangeNode_Traverse(NumericRangeNode *n,
-                               void (*callback)(NumericRangeNode *n, void *ctx), void *ctx) {
-
-  callback(n, ctx);
-
-  if (n->left) {
-    NumericRangeNode_Traverse(n->left, callback, ctx);
-  }
-  if (n->right) {
-    NumericRangeNode_Traverse(n->right, callback, ctx);
-  }
 }
 
 #define CHILD_EMPTY 1
@@ -552,9 +535,8 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
   if (!s) {
     return NULL;
   }
-  RedisModuleKey *key = NULL;
-  NumericRangeTree *t = openNumericKeysDict(ctx->spec, s, DONT_CREATE_INDEX);
 
+  NumericRangeTree *t = openNumericKeysDict(ctx->spec, s, DONT_CREATE_INDEX);
   if (!t) {
     return NULL;
   }
@@ -585,8 +567,7 @@ static inline size_t NumericRange_sizeof() {
   return size;
 }
 
-unsigned long NumericIndexType_MemUsage(const void *value) {
-  const NumericRangeTree *t = value;
+unsigned long NumericIndexType_MemUsage(const NumericRangeTree *t) {
   unsigned long ret = sizeof(NumericRangeTree);
   ret += t->invertedIndexesSize;
   ret += t->numRanges * NumericRange_sizeof();
