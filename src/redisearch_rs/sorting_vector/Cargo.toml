@@ -7,10 +7,8 @@ publish.workspace = true
 
 [dependencies]
 ffi.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
 icu_casemap.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

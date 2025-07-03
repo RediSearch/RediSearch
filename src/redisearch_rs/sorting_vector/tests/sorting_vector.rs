@@ -7,12 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CString, c_char};
-
-use icu_casemap::CaseMapper;
-
-use sorting_vector::InsertAndNormalizeError;
-use sorting_vector::{RSSortingVector, RSValueTrait};
+use sorting_vector::normalized_string::NormalizedString;
+use sorting_vector::{IndexOutOfBounds, RSSortingVector, RSValueTrait};
 
 #[derive(Clone, Debug, PartialEq)]
 enum RSValueMock {
@@ -27,8 +23,8 @@ impl RSValueTrait for RSValueMock {
         RSValueMock::Null
     }
 
-    fn create_string(s: &str) -> Self {
-        RSValueMock::String(s.to_string())
+    fn create_string(s: NormalizedString) -> Self {
+        RSValueMock::String(s.into())
     }
 
     fn create_num(num: f64) -> Self {
@@ -101,33 +97,33 @@ fn test_creation() {
     }
 }
 
-fn build_vector() -> Result<RSSortingVector<RSValueMock>, InsertAndNormalizeError> {
+fn build_vector() -> Result<RSSortingVector<RSValueMock>, IndexOutOfBounds> {
     let mut vector = RSSortingVector::new(5);
     vector.try_insert_num(0, 42.0)?;
-    vector.try_insert_string(1, "Hello")?;
+    vector.try_insert_string(1, "abcdefg")?;
     vector.try_insert_val_as_ref(2, RSValueMock::create_num(3.))?;
-    vector.try_insert_val(3, RSValueMock::create_string("World"))?;
+    vector.try_insert_val(3, RSValueMock::create_string("Hello World".into()))?;
     vector.try_insert_null(4)?;
     Ok(vector)
 }
 
 #[test]
-fn test_insert() -> Result<(), InsertAndNormalizeError> {
+fn test_insert() -> Result<(), IndexOutOfBounds> {
     let vector: &mut RSSortingVector<RSValueMock> = &mut build_vector()?;
 
     assert_eq!(vector[0].as_num(), Some(42.0));
     assert_eq!(vector[0].get_type(), ffi::RSValueType_RSValue_Number);
-    assert_eq!(vector[1].as_str(), Some("Hello"));
+    assert_eq!(vector[1].as_str(), Some("abcdefg"));
     assert_eq!(vector[1].get_type(), ffi::RSValueType_RSValue_String);
     assert_eq!(vector[2].get_ref().unwrap().as_num(), Some(3.0));
-    assert_eq!(vector[3].as_str(), Some("World"));
+    assert_eq!(vector[3].as_str(), Some("hello world")); // we normalize --> lowercase
     assert!(vector[4].is_null());
 
     Ok(())
 }
 
 #[test]
-fn test_override() -> Result<(), InsertAndNormalizeError> {
+fn test_override() -> Result<(), IndexOutOfBounds> {
     let src = build_vector()?;
     let mut dst: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
     assert_eq!(dst[0], RSValueMock::create_null());
@@ -148,7 +144,7 @@ fn test_override() -> Result<(), InsertAndNormalizeError> {
 }
 
 #[test]
-fn test_memory_size() -> Result<(), InsertAndNormalizeError> {
+fn test_memory_size() -> Result<(), IndexOutOfBounds> {
     let empty = RSSortingVector::<RSValueMock>::new(0);
     let size = empty.get_memory_size();
     assert!(empty.is_empty());
@@ -165,8 +161,8 @@ fn test_memory_size() -> Result<(), InsertAndNormalizeError> {
     let size = vector.get_memory_size();
 
     let expected_size = 5* std::mem::size_of::<RSValueMock>() // 4 RSValues
-            + "Hello".len() // size of the string "Hello"
-            + "World".len(); // size of the string "World"
+            + "abcdefg".len() // size of the string "Hello"
+            + "Hello World".len(); // size of the string "World"
 
     assert_eq!(size, expected_size);
     Ok(())
@@ -174,7 +170,7 @@ fn test_memory_size() -> Result<(), InsertAndNormalizeError> {
 
 #[test]
 #[cfg(not(miri))]
-fn test_case_folding_aka_normlization_rust_impl() -> Result<(), InsertAndNormalizeError> {
+fn test_case_folding_aka_normlization_rust_impl() -> Result<(), IndexOutOfBounds> {
     // not miri because the C implementation `normalizeStr` is called as part of `put_string_and_normalize`
     // and calling C code from Miri is not supported.
 
@@ -196,30 +192,7 @@ fn test_case_folding_aka_normlization_rust_impl() -> Result<(), InsertAndNormali
 
     let str = "Straße";
     let mut vec: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
-    vec.try_insert_string_and_normalize(0, str)?;
+    vec.try_insert_string(0, str)?;
     assert_eq!(vec[0].as_str(), Some("strasse"));
     Ok(())
-}
-
-#[unsafe(no_mangle)]
-#[allow(non_snake_case)]
-fn normalizeStr(input: *const c_char) -> *mut c_char {
-    // Convert the input C string to a Rust string slice.
-
-    // Safety: We assume the caller provides a valid C string pointer.
-    let str = unsafe {
-        std::ffi::CStr::from_ptr(input)
-            .to_str()
-            .expect("Invalid UTF-8 in input string")
-    };
-
-    let casemapper = CaseMapper::new();
-    let normalized = casemapper.fold_string(str).to_string();
-
-    // generate C String
-    let tmp = CString::new(normalized).expect("Failed to create CString from normalized string");
-    // leak
-    let ptr = tmp.into_raw();
-
-    ptr as *mut c_char
 }

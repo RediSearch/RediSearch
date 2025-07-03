@@ -7,15 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod normalized_string;
+
 use std::{
-    ffi::{CString, NulError, c_char},
     fmt::Display,
     ops::{Index, IndexMut},
     slice::{Iter, IterMut},
-    str::Utf8Error,
 };
 
 use thiserror::Error;
+
+use crate::normalized_string::NormalizedString;
 
 /// A trait that defines the behavior of a RediSearch RSValue.
 ///
@@ -30,7 +32,7 @@ where
     fn create_null() -> Self;
 
     /// Creates a new RSValue instance with a string value.
-    fn create_string(s: &str) -> Self;
+    fn create_string(s: NormalizedString) -> Self;
 
     /// Creates a new RSValue instance with a number (double) value.
     fn create_num(num: f64) -> Self;
@@ -91,19 +93,6 @@ impl Display for IndexOutOfBounds {
             write!(f, "Index out of bounds")
         }
     }
-}
-
-/// Error that can be returned by [`RSSortingVector::try_insert_string_and_normalize`].
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
-pub enum InsertAndNormalizeError {
-    #[error(transparent)]
-    OutOfBounds(#[from] IndexOutOfBounds),
-
-    #[error(transparent)]
-    Utf8Error(#[from] Utf8Error),
-
-    #[error(transparent)]
-    NulError(#[from] NulError),
 }
 
 /// [`RSSortingVector`] acts as a cache for sortable fields in a document.
@@ -187,46 +176,33 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         Ok(())
     }
 
-    /// Set a string at the given index
-    pub fn try_insert_string(&mut self, idx: usize, str: &str) -> Result<(), IndexOutOfBounds> {
+    /// Set a string at the given index, the string is normalized before being set.
+    pub fn try_insert_string<S: AsRef<str>>(
+        &mut self,
+        idx: usize,
+        str: S,
+    ) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;
-        self.values[idx] = T::create_string(str);
+        self.values[idx] = T::create_string(NormalizedString::new(str));
         Ok(())
     }
 
-    /// Set a string at the given index, normalizing it to lower case and to be sortable ("Straße" -> "Strasse").
-    pub fn try_insert_string_and_normalize(
+    /// Set a string at the given index, the string is assumed to be normalized.
+    /// This is unsafe because it does not check the normalization of the input.
+    ///
+    /// # Safety
+    /// The caller must ensure that the input string is already normalized.
+    pub unsafe fn try_insert_string_unchecked(
         &mut self,
         idx: usize,
-        str: &str,
-    ) -> Result<(), InsertAndNormalizeError> {
+        str: String,
+    ) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;
 
-        // The code here is a workaround which calls a C method to normalize the string.
-        // It based on libnu and shall be replaced by ICU in the future.
-        // To understand why ICU is not working, see the test case `test_case_folding_aka_normlization_rust_impl`.
+        // Safety: The caller must ensure that the string is normalized.
+        let str = unsafe { NormalizedString::new_unchecked(str) };
 
-        // -----
-
-        // the following is not working without Miri errors, see test case 'test_case_folding_aka_normlization_rust_impl'
-        /*
-        let casemapper = CaseMapper::new();
-        let normalized = casemapper.fold_string(str);
-        self.values[idx] = T::create_string(&normalized);
-        */
-
-        let str = CString::new(str)?;
-        let cptr: *mut c_char = str.as_c_str().as_ptr().cast_mut();
-
-        // Safety: The given cptr was just generated from a CString, so it is valid.
-        let cstr: *mut c_char = unsafe { ffi::normalizeStr(cptr) };
-
-        // Safety: We assume that the C function `normalizeStr` returns a valid CString pointer.
-        let normalized_str = unsafe { CString::from_raw(cstr) };
-        let normalized_str = normalized_str.to_str()?;
-
-        self.values[idx] = T::create_string(normalized_str);
-
+        self.values[idx] = T::create_string(str);
         Ok(())
     }
 
@@ -238,11 +214,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 
     /// Set a reference to the value at the given index
-    pub fn try_insert_val_as_ref(
-        &mut self,
-        idx: usize,
-        value: T,
-    ) -> Result<(), InsertAndNormalizeError> {
+    pub fn try_insert_val_as_ref(&mut self, idx: usize, value: T) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;
         self.values[idx] = T::create_ref(value);
         Ok(())
