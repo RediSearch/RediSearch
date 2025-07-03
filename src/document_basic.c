@@ -220,19 +220,19 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   }
 
   RedisModule_CloseKey(k);
-  const char *keyName = RedisModule_StringPtrLen(doc->docKey, NULL);
 
   RedisJSON jsonRoot = NULL;
   if (japi_ver >= 5) {
     jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
   } else {
-    jsonRoot = japi->openKeyFromStr(ctx, keyName);
+    jsonRoot = japi->openKey(ctx, doc->docKey);
   }
   if (!jsonRoot) {
     goto done;
   }
   Document_MakeStringsOwner(doc); // TODO: necessary??
 
+  const char *keyName = RedisModule_StringPtrLen(doc->docKey, NULL);
   doc->language = SchemaRule_JsonLang(sctx->redisCtx, rule, jsonRoot, keyName);
   doc->score = SchemaRule_JsonScore(sctx->redisCtx, rule, jsonRoot, keyName);
   // No payload on JSON as RedisJSON does not support binary fields
