@@ -9,12 +9,14 @@ extern "C" {
 typedef struct {
     arrayof(AREQ*) requests;
     size_t nrequests;
-    AggregationPipeline merge;
+    QueryError tailError;
+    QueryError *errors;
+    QueryPipeline tail;
     HybridScoringContext scoringCtx;
 } HybridRequest;
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests, AGGPlan *plan);
-int HybridRequest_BuildPipeline(HybridRequest *req, QueryError *status, RSSearchOptions *searchOpts);
+int HybridRequest_BuildPipeline(HybridRequest *req, const AggregationPipelineParams *params, bool synchronize_read_locks);
 void HybridRequest_Free(HybridRequest *req);
 
 #ifdef __cplusplus
