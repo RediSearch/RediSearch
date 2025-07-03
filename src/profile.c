@@ -137,13 +137,14 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
 
       //Print total GIL time
         if (profile_verbose){
+          QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_timer_ms(&req->qiter.GILTime));
+            rs_timer_ms(&qctx->GILTime));
           } else {
             struct timespec rpEndTime;
             clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-            rs_timersub(&rpEndTime, &req->qiter.initTime, &rpEndTime);
+            rs_timersub(&rpEndTime, &qctx->initTime, &rpEndTime);
             RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_timer_ms(&rpEndTime));
           }
         }
@@ -163,17 +164,18 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // print into array with a recursive function over result processors
 
       // Print profile of iterators
-      IndexIterator *root = QITR_GetRootFilter(&req->qiter);
+      QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+      IndexIterator *root = QITR_GetRootFilter(qctx);
       // Coordinator does not have iterators
       if (root) {
         RedisModule_Reply_SimpleString(reply, "Iterators profile");
         PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
                                      .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
+        printIteratorProfile(reply, root, 0, 0, 2, AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED, &config);
       }
 
       // Print profile of result processors
-      ResultProcessor *rp = req->qiter.endProc;
+      ResultProcessor *rp = qctx->endProc;
       RedisModule_ReplyKV_Array(reply, "Result processors profile");
         printProfileRP(reply, rp, req->reqConfig.printProfileClock);
       RedisModule_Reply_ArrayEnd(reply);

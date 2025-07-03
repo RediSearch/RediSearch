@@ -1007,7 +1007,7 @@ ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, siz
     }
   }
   r->stateflags |= QEXEC_S_HAS_LOAD;
-  if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
+  if (AREQ_RequestFlags(r) & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
     return RPSafeLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
   } else {
@@ -1038,7 +1038,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 }
 
 void SetLoadersForBG(AREQ *r) {
-  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
   while (cur) {
@@ -1219,14 +1219,15 @@ typedef struct {
 
 // Insert the result processor between the last result processor and its downstream result processor
 static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
-  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
 
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   // Search for the last result processor
   while (cur) {
     if (!cur->upstream) {
-      rp->parent = &r->qiter;
+      rp->parent = qctx;
       downstream->upstream = rp;
       rp->upstream = cur;
       break;
@@ -1235,7 +1236,7 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
     cur = cur->upstream;
   }
   // Update the endProc to the new head in case it was changed
-  r->qiter.endProc = dummyHead.upstream;
+  qctx->endProc = dummyHead.upstream;
 }
 
 /** For debugging purposes

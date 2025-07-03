@@ -48,13 +48,14 @@ static void testAverage() {
   }
 
   // so far, so good, eh?
-  rc = AGGPLN_Distribute(&r->ap, &status);
+  AGGPlan *plan = AREQ_AGGPlan(r);
+  rc = AGGPLN_Distribute(plan, &status);
   assert(rc == REDISMODULE_OK);
-  printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  printf("Dumping %p\n", plan);
+  AGPLN_Dump(plan);
 
   PLN_DistributeStep *dstp =
-      (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
+      (PLN_DistributeStep *)AGPLN_FindStep(plan, NULL, NULL, PLN_T_DISTRIBUTE);
   assert(dstp);
 
   // Serialize it!
@@ -65,13 +66,13 @@ static void testAverage() {
     printf("Serialized[%lu]: %s\n", ii, v[ii]);
   }
 
-  dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
+  dstp = (PLN_DistributeStep *)AGPLN_FindStep(plan, NULL, NULL, PLN_T_DISTRIBUTE);
   assert(dstp);
 
   printf("Printing local plan\n");
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(plan);
 
-  r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
   rc = AREQ_BuildPipeline(r, &status);
@@ -79,7 +80,7 @@ static void testAverage() {
   printf("Built pipeline.. rc=%d\n", rc);
   if (rc != REDISMODULE_OK) {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
-    AGPLN_Dump(&r->ap);
+    AGPLN_Dump(plan);
   }
   AREQ_Free(r);
 }
@@ -93,7 +94,7 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
-  r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
@@ -107,13 +108,14 @@ static void testCountDistinct() {
     abort();
   }
 
-  rc = AGGPLN_Distribute(&r->ap, &status);
+  AGGPlan *plan2 = AREQ_AGGPlan(r);
+  rc = AGGPLN_Distribute(plan2, &status);
   assert(rc == REDISMODULE_OK);
-  printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  printf("Dumping %p\n", plan2);
+  AGPLN_Dump(plan2);
 
   PLN_DistributeStep *dstp =
-      (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
+      (PLN_DistributeStep *)AGPLN_FindStep(plan2, NULL, NULL, PLN_T_DISTRIBUTE);
   assert(dstp);
 
   AREQDIST_UpstreamInfo us = {0};
@@ -122,7 +124,7 @@ static void testCountDistinct() {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
   assert(rc == REDISMODULE_OK);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(plan2);
   for (size_t ii = 0; ii < us.nserialized; ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
@@ -131,7 +133,7 @@ static void testCountDistinct() {
 
 static void testSplit() {
   AREQ *r = AREQ_New();
-  r->reqflags |= QEXEC_F_BUILDPIPELINE_NO_ROOT; // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
@@ -145,13 +147,14 @@ static void testSplit() {
     abort();
   }
 
-  rc = AGGPLN_Distribute(&r->ap, &status);
+  AGGPlan *plan3 = AREQ_AGGPlan(r);
+  rc = AGGPLN_Distribute(plan3, &status);
   assert(rc == REDISMODULE_OK);
-  printf("Dumping %p\n", &r->ap);
-  AGPLN_Dump(&r->ap);
+  printf("Dumping %p\n", plan3);
+  AGPLN_Dump(plan3);
 
   PLN_DistributeStep *dstp =
-      (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
+      (PLN_DistributeStep *)AGPLN_FindStep(plan3, NULL, NULL, PLN_T_DISTRIBUTE);
   assert(dstp);
 
   AREQDIST_UpstreamInfo us = {0};
@@ -160,7 +163,7 @@ static void testSplit() {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
   assert(rc == REDISMODULE_OK);
-  AGPLN_Dump(&r->ap);
+  AGPLN_Dump(plan3);
   for (size_t ii = 0; ii < us.nserialized; ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
