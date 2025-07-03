@@ -16,6 +16,11 @@
 #include <vector>
 
 #include "src/iterators/not_iterator.h"
+#include "src/iterators/wildcard_iterator.h"
+#include "src/iterators/empty_iterator.h"
+#include "src/iterators/inverted_index_iterator.h"
+#include "src/inverted_index/inverted_index.h"
+#include "index_utils.h"
 
 class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, std::optional<t_docId>, bool>> {
 protected:
@@ -25,12 +30,8 @@ protected:
   std::optional<t_docId> opt_max_doc_id;
   t_docId maxDocId;
   QueryIterator *iterator_base;
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
   bool optimized;
-  IndexSpec *spec = nullptr;
-  RedisSearchCtx *sctx = nullptr;
-  QueryEvalCtx *qctx = nullptr;
-  DocTable *docTable = nullptr;
-
   void SetUp() override {
     // Get child document IDs from parameter
     std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
@@ -75,38 +76,23 @@ protected:
     auto child = (QueryIterator *) new MockIterator(childDocIds);
     struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
     // Store the wildcard iterator in the NotIterator structure instead of directly in QueryIterator
+
+
     if (optimized) {
-      spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
-      spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
-      spec->rule->index_all = true;
-
-      sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
-      sctx->spec = spec;
-
-      docTable = (DocTable*)rm_calloc(1, sizeof(DocTable));
-      docTable->maxDocId = maxDocId;
-      docTable->size = maxDocId;
-
-      qctx = (QueryEvalCtx*)rm_calloc(1, sizeof(QueryEvalCtx));
-      qctx->sctx = sctx;
-      qctx->docTable = docTable;
-
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, qctx);
+      std::vector<t_docId> wildcard = {1, 2, 3};
+      mockQctx = std::make_unique<MockQueryEvalCtx>(wildcard);
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
       NotIterator *ni = (NotIterator *)iterator_base;
       ni->wcii->Free(ni->wcii);
       ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
     } else {
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
+      mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     }
   }
 
   void TearDown() override {
     iterator_base->Free(iterator_base);
-    if (spec && spec->rule) rm_free(spec->rule);
-    if (spec) rm_free(spec);
-    if (sctx) rm_free(sctx);
-    if (docTable) rm_free(docTable);
-    if (qctx) rm_free(qctx);
   }
 };
 
@@ -475,6 +461,9 @@ INSTANTIATE_TEST_SUITE_P(
 
 class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
   protected:
+  // Add member variable to store the context
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
+
   void SetUp() override {
     // Get child document IDs from parameter
     std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
@@ -506,12 +495,13 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
 
     // Define timeout only once
     struct timespec timeout = {0, 1};
-    iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
-    NotIterator *ni = (NotIterator *)iterator_base;
-
-    // Store the wildcard iterator in the NotIterator structure instead of directly in QueryIterator
     if (optimized) {
-      ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
+      std::vector<t_docId> wildcard = {1, 2, 3};
+      mockQctx = std::make_unique<MockQueryEvalCtx>(wildcard);
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
+    } else {
+      mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, &mockQctx->qctx);
     }
   }
 
@@ -575,10 +565,12 @@ class NotIteratorNoChildTest : public ::testing::Test {
 protected:
   QueryIterator *iterator_base;
   t_docId maxDocId = 50;
+  std::unique_ptr<MockQueryEvalCtx> mockQctx;
 
   void SetUp() override {
     struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
-    iterator_base = IT_V2(NewNotIterator)(nullptr, maxDocId, 1.0, timeout, nullptr);
+    mockQctx = std::make_unique<MockQueryEvalCtx>(maxDocId, maxDocId);
+    iterator_base = IT_V2(NewNotIterator)(nullptr, maxDocId, 1.0, timeout, &mockQctx->qctx);
   }
 
   void TearDown() override {
@@ -634,4 +626,98 @@ TEST_F(NotIteratorNoChildTest, Rewind) {
     ASSERT_EQ(iterator_base->lastDocId, 0);
     ASSERT_FALSE(iterator_base->atEOF);
   }
+}
+
+class NotIteratorReducerTest : public ::testing::Test {};
+
+TEST_F(NotIteratorReducerTest, TestNotWithNullChild) {
+  // Test rule 1: If the child is NULL, return a wildcard iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+
+  QueryIterator *it = IT_V2(NewNotIterator)(nullptr, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return a wildcard iterator
+  ASSERT_EQ(it->type, WILDCARD_ITERATOR);
+  it->Free(it);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithEmptyChild) {
+  // Test rule 1: If the child is an empty iterator, return a wildcard iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+
+  QueryIterator *emptyChild = IT_V2(NewEmptyIterator)();
+  QueryIterator *it = IT_V2(NewNotIterator)(emptyChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return a wildcard iterator
+  ASSERT_EQ(it->type, WILDCARD_ITERATOR);
+  it->Free(it);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithEmptyChildOptimized) {
+  // Test rule 1: If the child is an empty iterator, return a wildcard iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  std::vector<t_docId> wildcard = {1, 2, 3};
+  MockQueryEvalCtx mockQctx(wildcard);
+
+  QueryIterator *emptyChild = IT_V2(NewEmptyIterator)();
+  QueryIterator *it = IT_V2(NewNotIterator)(emptyChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return a wildcard iterator
+  ASSERT_EQ(it->type, READ_ITERATOR);
+  it->Free(it);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithWildcardChild) {
+  // Test rule 2: If the child is a wildcard iterator, return an empty iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  std::vector<t_docId> wildcard = {1, 2, 3};
+  MockQueryEvalCtx mockQctx(wildcard);
+
+  QueryIterator *wildcardChild = IT_V2(NewWildcardIterator_NonOptimized)(maxDocId, maxDocId, 1.0);
+  QueryIterator *it = IT_V2(NewNotIterator)(wildcardChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return an empty iterator
+  ASSERT_EQ(it->type, EMPTY_ITERATOR);
+  it->Free(it);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
+  // Test rule 2: If the child is a wildcard iterator, return an empty iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+  size_t memsize;
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  ASSERT_TRUE(idx != nullptr);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
+  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  for (t_docId i = 1; i < 1000; ++i) {
+    auto res = (RSIndexResult) {
+      .docId = i,
+      .fieldMask = 1,
+      .freq = 1,
+      .type = RSResultType::RSResultType_Term,
+    };
+    InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+  }
+  // Create an iterator that reads only entries with field mask 2
+  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+  InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
+  invIdxIt->isWildcard = true;
+  MockQueryEvalCtx mockQctx(maxDocId, maxDocId);
+  QueryIterator *it = IT_V2(NewNotIterator)(wildcardChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
+
+  // Should return an empty iterator
+  ASSERT_EQ(it->type, EMPTY_ITERATOR);
+  it->Free(it);
+  InvertedIndex_Free(idx);
 }

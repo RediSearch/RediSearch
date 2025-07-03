@@ -17,6 +17,9 @@
 #include "src/iterators/empty_iterator.h"
 #include "iterator_util.h"
 #include "index_utils.h"
+#include "src/iterators/wildcard_iterator.h"
+#include "src/iterators/inverted_index_iterator.h"
+#include "src/inverted_index/inverted_index.h"
 
 
 // Test optional iterator
@@ -321,8 +324,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, ReadAllVirtualResults) {
     ASSERT_EQ(iterator_base->lastDocId, i);
 
     // All hits should be virtual
-    OptionalIterator *oi = (OptionalIterator *)iterator_base;
-    ASSERT_EQ(iterator_base->current, oi->virt);
+    ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
     ASSERT_EQ(iterator_base->current->weight, weight);
     ASSERT_EQ(iterator_base->current->freq, 1);
     ASSERT_EQ(iterator_base->current->fieldMask, RS_FIELDMASK_ALL);
@@ -343,8 +345,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, SkipToVirtualHits) {
     ASSERT_EQ(iterator_base->lastDocId, target);
 
     // Should be virtual hit
-    OptionalIterator *oi = (OptionalIterator *)iterator_base;
-    ASSERT_EQ(iterator_base->current, oi->virt);
+    ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
     ASSERT_EQ(iterator_base->current->weight, weight);
   }
 }
@@ -361,13 +362,10 @@ TEST_F(OptionalIteratorWithEmptyChildTest, RewindBehavior) {
   ASSERT_EQ(iterator_base->lastDocId, 0);
   ASSERT_FALSE(iterator_base->atEOF);
 
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-  ASSERT_EQ(oi->virt->docId, 0);
-
   // After Rewind, should be able to read from the beginning
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current->docId, 1);
-  ASSERT_EQ(iterator_base->current, oi->virt);
+  ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
 }
 
 TEST_F(OptionalIteratorWithEmptyChildTest, EOFBehavior) {
@@ -377,8 +375,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, EOFBehavior) {
   ASSERT_EQ(iterator_base->lastDocId, maxDocId);
 
   // Should be virtual hit
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-  ASSERT_EQ(iterator_base->current, oi->virt);
+  ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
 
   // Next read should return EOF
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
@@ -393,8 +390,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, VirtualResultProperties) {
   // Test that virtual results have correct properties
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
 
-  OptionalIterator *oi = (OptionalIterator *)iterator_base;
-  ASSERT_EQ(iterator_base->current, oi->virt);
+  ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
   ASSERT_EQ(iterator_base->current->docId, 1);
   ASSERT_EQ(iterator_base->current->weight, weight);
   ASSERT_EQ(iterator_base->current->freq, 1);
@@ -441,6 +437,7 @@ protected:
     delete q;
   }
 };
+
 INSTANTIATE_TEST_SUITE_P(OptionalIteratorOptimizedTests, OptionalIteratorOptimized,
                          ::testing::Combine(::testing::Bool(), ::testing::Bool()));
 
@@ -550,4 +547,122 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
       }
     }
   }
+}
+
+// Test OptionalIteratorReducer optimizations
+class OptionalIteratorReducerTest : public ::testing::Test {};
+
+TEST_F(OptionalIteratorReducerTest, TestOptionalWithNullChild) {
+  // Test rule 1: If the child is NULL, return a wildcard iterator
+  t_docId maxDocId = 100;
+  size_t numDocs = 50;
+  double weight = 2.0;
+
+  // Create a mock QueryEvalCtx
+  MockQueryEvalCtx ctx(maxDocId, numDocs);
+
+  // Create optional iterator with NULL child
+  QueryIterator *it = IT_V2(NewOptionalIterator)(nullptr, &ctx.qctx, weight);
+
+  // Verify iterator type
+  ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
+
+  // Read first document and check properties
+  ASSERT_EQ(it->Read(it), ITERATOR_OK);
+  ASSERT_EQ(it->current->docId, 1);
+  ASSERT_EQ(it->current->weight, weight);
+  ASSERT_EQ(it->current->type, RSResultType_Virtual);
+
+  it->Free(it);
+}
+
+TEST_F(OptionalIteratorReducerTest, TestOptionalWithEmptyChild) {
+  // Test rule 1: If the child is an empty iterator, return a wildcard iterator
+  t_docId maxDocId = 100;
+  size_t numDocs = 50;
+  double weight = 2.0;
+
+  // Create a mock QueryEvalCtx
+  MockQueryEvalCtx ctx(maxDocId, numDocs);
+
+  // Create empty child iterator
+  QueryIterator *emptyChild = IT_V2(NewEmptyIterator)();
+
+  // Create optional iterator with empty child
+  QueryIterator *it = IT_V2(NewOptionalIterator)(emptyChild, &ctx.qctx, weight);
+
+  // Verify iterator type
+  ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
+
+  // Read first document and check properties
+  ASSERT_EQ(it->Read(it), ITERATOR_OK);
+  ASSERT_EQ(it->current->docId, 1);
+  ASSERT_EQ(it->current->weight, weight);
+  ASSERT_EQ(it->current->type, RSResultType_Virtual);
+
+  it->Free(it);
+}
+
+TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
+  // Test rule 2: If the child is a wildcard iterator, return it directly
+  t_docId maxDocId = 100;
+  size_t numDocs = 50;
+  double childWeight = 3.0;
+
+  // Create a mock QueryEvalCtx
+  MockQueryEvalCtx ctx(maxDocId, numDocs);
+
+  // Create wildcard child iterator
+  QueryIterator *wildcardChild = IT_V2(NewWildcardIterator_NonOptimized)(maxDocId, numDocs, childWeight);
+
+  // Create optional iterator with wildcard child - should return the child directly
+  QueryIterator *it = IT_V2(NewOptionalIterator)(wildcardChild, &ctx.qctx, 2.0);
+
+  // Verify it's the same iterator (optimization returns child directly)
+  ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
+  ASSERT_EQ(it, wildcardChild);
+
+  // Read first document and check properties - should have child's weight
+  ASSERT_EQ(it->Read(it), ITERATOR_OK);
+  ASSERT_EQ(it->current->docId, 1);
+  ASSERT_EQ(it->current->weight, childWeight);
+  ASSERT_EQ(it->current->type, RSResultType_Virtual);
+
+  it->Free(it);
+}
+
+TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
+  t_docId maxDocId = 100;
+  size_t numDocs = 50;
+  double childWeight = 3.0;
+
+  // Create a mock QueryEvalCtx
+  MockQueryEvalCtx ctx(maxDocId, numDocs);
+  size_t memsize;
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  ASSERT_TRUE(idx != nullptr);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
+  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  for (t_docId i = 1; i < 1000; ++i) {
+    auto res = (RSIndexResult) {
+      .docId = i,
+      .fieldMask = 1,
+      .freq = 1,
+      .type = RSResultType::RSResultType_Term,
+    };
+    InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+  }
+  // Create an iterator that reads only entries with field mask 2
+  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+  InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
+  invIdxIt->isWildcard = true;
+
+  // Create optional iterator with wildcard child - should return the child directly
+  QueryIterator *it = IT_V2(NewOptionalIterator)(wildcardChild, &ctx.qctx, 2.0);
+
+  // Verify it's the same iterator (optimization returns child directly)
+  ASSERT_TRUE(it->type == READ_ITERATOR);
+  ASSERT_EQ(it, wildcardChild);
+  it->Free(it);
+  InvertedIndex_Free(idx);
 }

@@ -53,7 +53,7 @@ protected:
                 break;
             case INDEX_TYPE_GENERIC:
                 SetGenericInvIndex();
-                it_base = NewInvIndIterator_GenericQuery(idx, nullptr, 0, FIELD_EXPIRATION_DEFAULT);
+                it_base = NewInvIndIterator_GenericQuery(idx, nullptr, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
                 break;
         }
     }
@@ -275,13 +275,13 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
     auto encoder = InvertedIndex_GetEncoder(idx->flags);
     for (t_docId i = 1; i < 1000; ++i) {
-        auto res = (RSIndexResult) {
-            .docId = i,
-            .fieldMask = 1,
-            .freq = 1,
-            .type = RSResultType::RSResultType_Term,
-        };
-        InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+      auto res = (RSIndexResult) {
+        .docId = i,
+        .fieldMask = 1,
+        .freq = 1,
+        .type = RSResultType::RSResultType_Term,
+      };
+      InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
     }
     // Create an iterator that reads only entries with field mask 2
     QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);

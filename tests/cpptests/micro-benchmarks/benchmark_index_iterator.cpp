@@ -146,7 +146,7 @@ protected:
             FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
             iterator = NewInvIndIterator_NumericQuery(index, nullptr, &fieldCtx, nullptr, -INFINITY, INFINITY);
         } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
-            iterator = NewInvIndIterator_GenericQuery(index, nullptr, 0, FIELD_EXPIRATION_DEFAULT);
+            iterator = NewInvIndIterator_GenericQuery(index, nullptr, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
         } else {
             iterator = NewInvIndIterator_TermQuery(index, nullptr, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
         }

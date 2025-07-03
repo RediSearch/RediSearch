@@ -8,6 +8,8 @@
 */
 
 #include "union_iterator.h"
+#include "wildcard_iterator.h"
+#include "empty_iterator.h"
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
   const QueryIterator *it1 = e1, *it2 = e2;
@@ -372,8 +374,59 @@ static void UI_Free(QueryIterator *base) {
   rm_free(ui);
 }
 
+/**
+ * Reduce the union iterator by applying these rules:
+ * 1. Remove all empty iterators
+ * 2. If in quick exit mode and any of the iterators is a wildcard iterator, return it and free the rest
+ * 3. Otherwise, return NULL and let the caller create the union iterator
+ */
+static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool quickExit, double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+  QueryIterator *ret = NULL;
+  // Let's remove all the empty iterators from the list
+  size_t current_size = *num;
+  size_t write_idx = 0;
+  for (size_t i = 0; i < current_size; ++i) {
+    if (its[i]) {
+      if (its[i]->type != EMPTY_ITERATOR) {
+        its[write_idx++] = its[i];
+      } else {
+        its[i]->Free(its[i]);
+      }
+    }
+  }
+  *num = write_idx;
+  if (quickExit) {
+    for (size_t i = 0; i < write_idx; ++i) {
+      if (IsWildcardIterator(its[i])) {
+        ret = its[i];
+        for (size_t j = 0; j < write_idx; ++j) {
+          if (i != j && its[j]) {
+            its[j]->Free(its[j]);
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  if (write_idx == 1) {
+    ret = its[0];
+  } else if (write_idx == 0) {
+    ret = IT_V2(NewEmptyIterator)();
+  }
+  if (ret != NULL) {
+    rm_free(its);
+  }
+  return ret;
+}
+
 QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit,
-                                double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+                                      double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+
+  QueryIterator* ret = UnionIteratorReducer(its, &num, quickExit, weight, type, q_str, config);
+  if (ret != NULL) {
+    return ret;
+  }
   // create union context
   UnionIterator *ui = rm_calloc(1, sizeof(UnionIterator));
   ui->its_orig = its;
@@ -384,14 +437,14 @@ QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickE
   ui->q_str = q_str;
 
   // bind the union iterator calls
-  QueryIterator *base = &ui->base;
-  base->type = UNION_ITERATOR;
-  base->atEOF = false;
-  base->lastDocId = 0;
-  base->current = NewUnionResult(num, weight);
-  base->NumEstimated = UI_NumEstimated;
-  base->Free = UI_Free;
-  base->Rewind = UI_Rewind;
+  ret = &ui->base;
+  ret->type = UNION_ITERATOR;
+  ret->atEOF = false;
+  ret->lastDocId = 0;
+  ret->current = NewUnionResult(num, weight);
+  ret->NumEstimated = UI_NumEstimated;
+  ret->Free = UI_Free;
+  ret->Rewind = UI_Rewind;
 
   // Choose `Read` and `SkipTo` implementations.
   // We have 2 factors for the choice:
@@ -401,15 +454,15 @@ QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickE
   // Each implementation if fine-tuned for the best performance in its scenario, and relies on the current state
   // of the iterator and how it was left by previous API calls, so we can't change implementation mid-execution.
   if (num > config->minUnionIterHeap) {
-    base->Read = quickExit ? UI_Read_Quick_Heap : UI_Read_Full_Heap;
-    base->SkipTo = quickExit ? UI_Skip_Quick_Heap : UI_Skip_Full_Heap;
+    ret->Read = quickExit ? UI_Read_Quick_Heap : UI_Read_Full_Heap;
+    ret->SkipTo = quickExit ? UI_Skip_Quick_Heap : UI_Skip_Full_Heap;
     ui->heap_min_id = rm_malloc(heap_sizeof(num));
     heap_init(ui->heap_min_id, cmpLastDocId, NULL, num);
   } else {
-    base->Read = quickExit ? UI_Read_Quick_Flat : UI_Read_Full_Flat;
-    base->SkipTo = quickExit ? UI_Skip_Quick_Flat : UI_Skip_Full_Flat;
+    ret->Read = quickExit ? UI_Read_Quick_Flat : UI_Read_Full_Flat;
+    ret->SkipTo = quickExit ? UI_Skip_Quick_Flat : UI_Skip_Full_Flat;
   }
 
   UI_SyncIterList(ui);
-  return base;
+  return ret;
 }
