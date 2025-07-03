@@ -946,8 +946,6 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
-  int hasLoad = 0;
-
   // Now we have a 'compiled' plan. Let's get some more options..
 
   while (!AC_IsAtEnd(&ac)) {
