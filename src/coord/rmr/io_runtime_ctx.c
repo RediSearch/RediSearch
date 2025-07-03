@@ -286,6 +286,7 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
     }
     uv_mutex_unlock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
     if (!io_runtime_ctx->uv_runtime.loop_th_creation_failed) {
+      // Make sure IORuntimeCtx Free is not holding the GIL
       uv_thread_join(&io_runtime_ctx->uv_runtime.loop_th);
     }
   } else {

@@ -43,10 +43,9 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 
 void MR_UpdateConnPoolSize(size_t conn_pool_size);
 
-//Dynamically update the number of IO threads present in the cluster.
-void MR_UpdateSearchIOThreads(size_t num_io_threads);
-
 void MR_Debug_ClearPendingTopo();
+
+void MR_FreeCluster();
 
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);

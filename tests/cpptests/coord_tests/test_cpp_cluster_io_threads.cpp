@@ -51,6 +51,43 @@ protected:
   }
 };
 
+static void UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads) {
+  RS_ASSERT(num_io_threads > 0);
+
+  if (num_io_threads == cl->num_io_threads) return;
+
+  if (num_io_threads < cl->num_io_threads) {
+    // Then free the runtime contexts
+    for (size_t i = num_io_threads; i < cl->num_io_threads; i++) {
+      IORuntimeCtx_FireShutdown(cl->io_runtimes_pool[i]);
+    }
+    for (size_t i = num_io_threads; i < cl->num_io_threads; i++) {
+      IORuntimeCtx_Free(cl->io_runtimes_pool[i]);
+    }
+    // Resize the pool
+    cl->io_runtimes_pool = (IORuntimeCtx**)rm_realloc(cl->io_runtimes_pool, sizeof(IORuntimeCtx*) * num_io_threads);
+  } else {
+    // Need to increase the number of IO threads
+    // Resize the pool
+    cl->io_runtimes_pool = (IORuntimeCtx**)rm_realloc(cl->io_runtimes_pool, sizeof(IORuntimeCtx*) * num_io_threads);
+
+    // Create new runtime contexts
+    for (size_t i = cl->num_io_threads; i < num_io_threads; i++) {
+      cl->io_runtimes_pool[i] = IORuntimeCtx_Create(
+          cl->io_runtimes_pool[0]->conn_mgr->nodeConns,
+          NULL,
+          i + 1,
+          false);
+      if (cl->io_runtimes_pool[0]->topo) {
+        //TODO(Joan): We should make sure this is the last topology from user, so the UpdateTopology request should wait to return
+        cl->io_runtimes_pool[i]->topo = MRClusterTopology_Clone(cl->io_runtimes_pool[0]->topo);
+        cl->io_runtimes_pool[i]->uv_runtime.loop_th_ready = true;
+      }
+    }
+  }
+  cl->num_io_threads = num_io_threads;
+}
+
 TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   // Create a cluster with 3 IO threads initially
   MRCluster *cluster = MR_NewCluster(nullptr, 2, 3);
@@ -76,7 +113,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   // make sure topology is applied, it either is put before the async, or the timer will triggerPendingQueues
 
   // Change number of IO threads (increase)
-  MRCluster_UpdateNumIOThreads(cluster, 5);
+  UpdateNumIOThreads(cluster, 5);
   ASSERT_EQ(cluster->num_io_threads, 5);
 
   // Schedule more callbacks on the new threads
@@ -88,7 +125,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   }
 
   // Change number of IO threads (decrease)
-  MRCluster_UpdateNumIOThreads(cluster, 1);
+  UpdateNumIOThreads(cluster, 1);
   ASSERT_EQ(cluster->num_io_threads, 1);
   // Schedule more callbacks on the new threads
   for (int i = 0; i < cluster->num_io_threads; i++) {

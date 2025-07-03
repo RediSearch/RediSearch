@@ -59,8 +59,6 @@ size_t MRCluster_AssignRoundRobinIORuntimeIdx(MRCluster *cl);
 
 IORuntimeCtx *MRCluster_GetIORuntimeCtx(const MRCluster *cl, size_t idx);
 
-void MRCluster_UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads);
-
 #ifdef __cplusplus
 }
 #endif

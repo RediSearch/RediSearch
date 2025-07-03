@@ -312,18 +312,6 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size) {
   }
 }
 
-void MR_UpdateSearchIOThreads(size_t num_io_threads) {
-  RS_ASSERT(num_io_threads > 0);
-
-  if (!cluster_g || NumShards == 1) return;
-  size_t old_conn_pool_size = cluster_g->io_runtimes_pool[0]->conn_mgr->nodeConns;
-  size_t old_num_io_threads = cluster_g->num_io_threads;
-  MRCluster_UpdateNumIOThreads(cluster_g, num_io_threads);
-  size_t new_conn_pool_size = CEIL_DIV(old_conn_pool_size * old_num_io_threads, num_io_threads);
-  MR_UpdateConnPoolSize(new_conn_pool_size);
-  //TODO(Joan): Wait for all threads to be updated before returning?
-}
-
 struct ReplyClusterInfoCtx {
   IORuntimeCtx *ioRuntime;
   RedisModuleBlockedClient *bc;
@@ -756,4 +744,12 @@ void MR_Debug_ClearPendingTopo() {
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Debug_ClearPendingTopo(cluster_g->io_runtimes_pool[i]);
   }
+}
+
+void MR_FreeCluster() {
+  if (!cluster_g) return;
+  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+  MRClust_Free(cluster_g);
+  cluster_g = NULL;
+  RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
