@@ -475,11 +475,7 @@ static void rpnetFree(ResultProcessor *rp) {
   }
 
   if (nc->shardsProfile) {
-    array_foreach(nc->shardsProfile, reply, {
-      if (reply != nc->current.root) {
-        MRReply_Free(reply);
-      }
-    });
+    array_foreach(nc->shardsProfile, reply, MRReply_Free(reply));
     array_free(nc->shardsProfile);
   }
 
