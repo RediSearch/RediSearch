@@ -17,6 +17,8 @@ use std::{
 use enumflags2::{BitFlags, bitflags};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 
+pub mod numeric;
+
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
 /// because document IDs are usually sequential and the difference between them are small. With the
 /// help of encoding, we can optionally store the difference (delta) efficiently instead of the full document
@@ -149,9 +151,9 @@ pub struct RSIndexResult {
 
 impl RSIndexResult {
     /// Create a new numeric index result with the given numeric value
-    pub fn numeric(num: f64) -> Self {
+    pub fn numeric(doc_id: t_docId, num: f64) -> Self {
         Self {
-            doc_id: 0,
+            doc_id,
             dmd: std::ptr::null(),
             field_mask: 0,
             freq: 0,
@@ -163,6 +165,39 @@ impl RSIndexResult {
             is_copy: false,
             metrics: std::ptr::null_mut(),
             weight: 0.0,
+        }
+    }
+
+    /// Create a new virtual index result
+    pub fn virt(doc_id: t_docId) -> Self {
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                virt: ManuallyDrop::new(RSVirtualResult),
+            },
+            result_type: RSResultType::Virtual,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight: 0.0,
+        }
+    }
+
+    /// Get this record as a numeric record if possible. If the record is not numeric, returns
+    /// `None`.
+    pub fn as_numeric(&self) -> Option<&RSNumericRecord> {
+        if matches!(
+            self.result_type,
+            RSResultType::Numeric | RSResultType::Metric,
+        ) {
+            // SAFETY: We are guaranteed the record data is numeric because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &self.data.num })
+        } else {
+            None
         }
     }
 }
@@ -266,12 +301,14 @@ pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
     fn encode<W: Write + Seek>(
+        &self,
         writer: W,
         delta: Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize>;
 }
 
+#[derive(Debug, PartialEq)]
 pub enum DecoderResult {
     /// The record was successfully decoded.
     Record(RSIndexResult),

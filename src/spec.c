@@ -47,8 +47,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver);
-
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
@@ -637,22 +635,20 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
   }
   if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_8))
     *quantBits = VecSimSvsQuant_8;
-  // TODO: enable other quantisation flavors
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
-  //   *quantBits = VecSimSvsQuant_4;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
-  //   *quantBits = VecSimSvsQuant_4x4;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
-  //   *quantBits = VecSimSvsQuant_4x8;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
-  //   *quantBits = VecSimSvsQuant_4x8_LeanVec;
-  // else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
-  //   *quantBits = VecSimSvsQuant_8x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
+    *quantBits = VecSimSvsQuant_4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
+    *quantBits = VecSimSvsQuant_4x4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
+    *quantBits = VecSimSvsQuant_4x8;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
+    *quantBits = VecSimSvsQuant_4x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
+    *quantBits = VecSimSvsQuant_8x8_LeanVec;
   else
     return AC_ERR_ENOENT;
   return AC_OK;
 }
-
 
 // memoryLimit / 10 - default is 10% of global memory limit
 #define ACTUAL_MEMORY_LIMIT ((memoryLimit == 0) ? SIZE_MAX : memoryLimit)
@@ -976,6 +972,11 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_EPSILON), rc);
         return 0;
       }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_LEANVEC_DIM)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.leanvec_dim, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_LEANVEC_DIM), rc);
+        return 0;
+      }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_TRAINING_THRESHOLD)) {
       if ((rc = AC_GetSize(ac, &tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TRAINING_THRESHOLD), rc);
@@ -1008,6 +1009,10 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
   }
   if (params->algoParams.svsParams.quantBits == 0 && tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold > 0) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
+    return 0;
+  }
+  if (!VecSim_IsLeanVecCompressionType(params->algoParams.svsParams.quantBits) && params->algoParams.svsParams.leanvec_dim > 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "LEANVEC_DIM is irrelevant when compression is not of type LeanVec", "");
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
@@ -1185,10 +1190,16 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
     params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
     params->primaryIndexParams->algoParams.svsParams.num_threads = workersThreadPool_NumThreads();
+    params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
     if (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0) {
       params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
+    }
+    if (VecSim_IsLeanVecCompressionType(params->primaryIndexParams->algoParams.svsParams.quantBits) &&
+        params->primaryIndexParams->algoParams.svsParams.leanvec_dim == 0) {
+      params->primaryIndexParams->algoParams.svsParams.leanvec_dim =
+        params->primaryIndexParams->algoParams.svsParams.dim / 2;  // default value
     }
 
   } else {
@@ -2240,8 +2251,6 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
-
-  f->indexError = IndexError_Init();
   f->ftId = RS_INVALID_FIELD_ID;
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
@@ -2356,7 +2365,6 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   return REDISMODULE_OK;
 
 fail:
-  IndexError_Clear(f->indexError);
   return REDISMODULE_ERR;
 }
 
@@ -2917,7 +2925,11 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
-  int maxSortIdx = -1;
+  // First, initialise fields IndexError before loading them.
+  // If some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
+  for (int i = 0; i < sp->numFields; i++) {
+    sp->fields[i].indexError = IndexError_Init();
+  }
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     fs->index = i;
@@ -3042,6 +3054,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
+    fs->indexError = IndexError_Init(); // Must be initialized in all fields before attempting to free the spec
     FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
@@ -3142,6 +3155,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+      QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
   }

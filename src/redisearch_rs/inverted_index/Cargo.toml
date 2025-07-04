@@ -9,5 +9,9 @@ publish.workspace = true
 enumflags2.workspace = true
 ffi.workspace = true
 
+[dev-dependencies]
+pretty_assertions.workspace = true
+proptest = { workspace = true, features = ["std"] }
+
 [lints]
 workspace = true
