@@ -22,12 +22,12 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 
-#include <err.h>
+#define CURSOR_EOF 0
 
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
-  if (cursorId == 0) {
+  if (cursorId == CURSOR_EOF) {
     // Cursor was set to 0, end of reply chain. cmd->depleted will be set in `MRIteratorCallback_Done`.
     return false;
   }
@@ -100,9 +100,12 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     size_t len = MRReply_Length(rep);
     if (isResp3) {
       bail_out = len != 2; // (map, cursor)
-      if (!bail_out) bail_out = MRReply_Type(MRReply_ArrayElement(rep, 0)) != MR_REPLY_MAP;
       if (bail_out) {
         RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2, got %ld", len);
+      }
+      if (!bail_out) bail_out = MRReply_Type(MRReply_ArrayElement(rep, 0)) != MR_REPLY_MAP;
+      if (bail_out) {
+        RedisModule_Log(RSDummyContext, "warning", "Expected reply of type map, got %d", MRReply_Type(MRReply_ArrayElement(rep, 0)));
       }
     } else {
       bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
@@ -122,7 +125,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   long long cursorId;
   MRReply* cursor = MRReply_ArrayElement(rep, 1);
   if (!MRReply_ToInteger(cursor, &cursorId)) {
-    cursorId = 0;
+    cursorId = CURSOR_EOF;
   }
 
   // Push the reply down the chain
@@ -246,7 +249,7 @@ static int getNextReply(RPNet *nc) {
   // For profile command, extract the profile data from the reply
   if (nc->cmd.forProfiling) {
     // if the cursor id is 0, this is the last reply from this shard, and it has the profile data
-    if (0 == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
+    if (CURSOR_EOF == MRReply_Integer(MRReply_ArrayElement(root, 1))) {
       MRReply *profile_data;
       if (nc->cmd.protocol == 3) {
         // [
@@ -261,7 +264,11 @@ static int getNextReply(RPNet *nc) {
       } else {
         // RESP2
         RS_ASSERT(nc->cmd.protocol == 2);
-        // [ <FT.AGGREGATE reply>, cursor_id, profile data ]
+        // [
+        //   <FT.AGGREGATE reply>,
+        //   cursor_id,
+        //   <profile data>
+        // ]
         RS_ASSERT(MRReply_Length(root) == 3);
         profile_data = MRReply_TakeArrayElement(root, 2);
       }
@@ -280,10 +287,9 @@ static int getNextReply(RPNet *nc) {
     rows = MRReply_ArrayElement(root, 0);
   }
 
-  // invariant: either rows == NULL or at least one row exists
   const size_t empty_rows_len = nc->cmd.protocol == 3 ? 0 : 1; // RESP2 has the first element as the number of results.
-  RS_ASSERT(!rows || MRReply_Type(rows) == MR_REPLY_ARRAY);
-  if (!rows || MRReply_Length(rows) <= empty_rows_len) {
+  RS_ASSERT(rows && MRReply_Type(rows) == MR_REPLY_ARRAY);
+  if (MRReply_Length(rows) <= empty_rows_len) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     MRReply_Free(root);
     root = NULL;
