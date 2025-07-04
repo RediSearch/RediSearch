@@ -39,7 +39,7 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
 
   if (cmd->rootCommand == C_AGG) {
     MRCommand newCmd;
-    char buf[128];
+    char buf[24]; // enough digits for a long long
     sprintf(buf, "%lld", cursorId);
     // AGGREGATE commands has the index name at position 1
     const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, NULL);
