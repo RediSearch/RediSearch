@@ -128,9 +128,8 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     cursorId = CURSOR_EOF;
   }
 
-  // Push the reply down the chain
-  MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-  rep = NULL; // User code now owns the reply, so we can't free it here ourselves!
+  // Push the reply down the chain, to be picked up by getNextReply
+  MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
 
   // rewrite and resend the cursor command if needed
   // should only be determined based on the cursor and not on the set of results we get
