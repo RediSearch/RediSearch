@@ -67,9 +67,7 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
     RS_ASSERT(cmd->num == 4);
     RS_ASSERT(STR_EQ(cmd->strs[0], cmd->lens[0], "_FT.CURSOR"));
     RS_ASSERT(STR_EQ(cmd->strs[1], cmd->lens[1], "READ"));
-    long long currentCursorId;
-    RS_ASSERT(MRReply_ToInteger(cmd->strs[3], &currentCursorId));
-    RS_ASSERT(currentCursorId == cursorId);
+    RS_ASSERT(atoll(cmd->strs[3]) == cursorId);
 
     // If we timed out and not in cursor mode, we want to send the shard a DEL
     // command instead of a READ command (here we know it has more results)
@@ -112,6 +110,10 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 
   // Normal reply from the shard.
+  // In any case, the cursor id is the second element in the reply
+  RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
+  long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
+
   // Assert that the reply is in the expected format.
   if (cmd->protocol == 3) {
     // RESP3 reply structure:
@@ -130,6 +132,12 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
         MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results") != NULL &&
         MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile") != NULL
       );
+      // If this is the last reply from this shard, the profile reply should set, otherwise it should be NULL
+      if (cursorId == CURSOR_EOF) {
+        RS_ASSERT(MRReply_Type(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile")) == MR_REPLY_MAP);
+      } else {
+        RS_ASSERT(MRReply_Type(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile")) == MR_REPLY_NIL);
+      }
     }
   } else {
     // RESP2 reply structure:
@@ -142,9 +150,14 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       RS_ASSERT(
         MRReply_Length(rep) == 3 &&
         MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_ARRAY &&
-        MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER &&
-        MRReply_Type(MRReply_ArrayElement(rep, 2)) == MR_REPLY_ARRAY
+        MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER
       );
+      // If this is the last reply from this shard, the profile reply should be set, otherwise it should be NULL
+      if (cursorId == CURSOR_EOF) {
+        RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 2)) == MR_REPLY_ARRAY);
+      } else {
+        RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 2)) == MR_REPLY_NIL);
+      }
     } else {
       // If the command is not for profiling, the reply should contain 2 elements:
       // [results, cursor]
@@ -155,9 +168,6 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       );
     }
   }
-  // In any case, the cursor id is the second element in the reply
-  RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
-  long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
 
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
