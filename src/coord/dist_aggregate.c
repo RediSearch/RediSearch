@@ -118,26 +118,31 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   if (cmd->protocol == 3) {
     // RESP3 reply structure:
     // [map, cursor] - map contains the results, cursor is the next cursor id
-    RS_ASSERT(
-      MRReply_Type(rep) == MR_REPLY_ARRAY && MRReply_Length(rep) == 2 &&
-      MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_MAP &&
-      MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER
-    );
+    RS_ASSERT(MRReply_Type(rep) == MR_REPLY_ARRAY);
+    RS_ASSERT(MRReply_Length(rep) == 2);
+    RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_MAP);
+    RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
+
     if (cmd->forProfiling) {
       // If the command is for profiling, the map at index 0 contains 2 elements:
       // 1. "results" - the results of the command
-      // 2. "profile" - the profile reply
-      RS_ASSERT(
-        MRReply_Length(MRReply_ArrayElement(rep, 0)) == 4 &&  // 2 elements in the map, key and value
-        MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results") != NULL &&
-        MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile") != NULL
-      );
+      // 2. "profile" - the profile reply, if this is the last reply from this shard
       // If this is the last reply from this shard, the profile reply should set, otherwise it should be NULL
+      RS_ASSERT(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results") != NULL); // Query reply, nested
+      RS_ASSERT(MRReply_Type(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results")) == MR_REPLY_MAP);
+      RS_ASSERT(MRReply_MapElement(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results"), "results") != NULL); // Actual reply results
       if (cursorId == CURSOR_EOF) {
+        RS_ASSERT(MRReply_Length(MRReply_ArrayElement(rep, 0)) == 4); // 2 elements in the map, key and value
+        RS_ASSERT(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile") != NULL);
         RS_ASSERT(MRReply_Type(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile")) == MR_REPLY_MAP);
       } else {
-        RS_ASSERT(MRReply_Type(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile")) == MR_REPLY_NIL);
+        RS_ASSERT(MRReply_Length(MRReply_ArrayElement(rep, 0)) == 2); // 1 elements in the map, key and value
+        RS_ASSERT(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile") == NULL);
       }
+    } else {
+      // If the command is not for profiling, the map at index 0 is the query reply
+      // and contains the results of the command, and additional metadata.
+      RS_ASSERT(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results") != NULL);
     }
   } else {
     // RESP2 reply structure:
@@ -147,11 +152,9 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     if (cmd->forProfiling) {
       // If the command is for profiling, the reply should contain 3 elements:
       // [results, cursor, profile]
-      RS_ASSERT(
-        MRReply_Length(rep) == 3 &&
-        MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_ARRAY &&
-        MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER
-      );
+      RS_ASSERT(MRReply_Length(rep) == 3);
+      RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_ARRAY);
+      RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
       // If this is the last reply from this shard, the profile reply should be set, otherwise it should be NULL
       if (cursorId == CURSOR_EOF) {
         RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 2)) == MR_REPLY_ARRAY);
@@ -161,11 +164,9 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     } else {
       // If the command is not for profiling, the reply should contain 2 elements:
       // [results, cursor]
-      RS_ASSERT(
-        MRReply_Length(rep) == 2 &&
-        MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_ARRAY &&
-        MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER
-      );
+      RS_ASSERT(MRReply_Length(rep) == 2);
+      RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_ARRAY);
+      RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
     }
   }
 
