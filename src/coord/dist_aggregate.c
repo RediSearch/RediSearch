@@ -37,35 +37,53 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   // Check if the coordinator experienced a timeout or not
   bool timedout = MRIteratorCallback_GetTimedOut(ctx);
 
-  MRCommand newCmd;
-  char buf[128];
-  sprintf(buf, "%lld", cursorId);
-  // AGGREGATE commands has the index name at position 1
-  // while CURSOR READ/DEL commands has it at position 2
-  const char *idx = MRCommand_ArgStringPtrLen(cmd, cmd->rootCommand == C_AGG ? 1 : 2, NULL);
-  // If we timed out and not in cursor mode, we want to send the shard a DEL
-  // command instead of a READ command (here we know it has more results)
-  if (timedout && !cmd->forCursor) {
-    newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
-    // Mark that the last command was a DEL command
-    newCmd.rootCommand = C_DEL;
+  if (cmd->rootCommand == C_AGG) {
+    MRCommand newCmd;
+    char buf[128];
+    sprintf(buf, "%lld", cursorId);
+    // AGGREGATE commands has the index name at position 1
+    const char *idx = MRCommand_ArgStringPtrLen(cmd, 1, NULL);
+    // If we timed out and not in cursor mode, we want to send the shard a DEL
+    // command instead of a READ command (here we know it has more results)
+    if (timedout && !cmd->forCursor) {
+      newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
+      // Mark that the last command was a DEL command
+      newCmd.rootCommand = C_DEL;
+    } else {
+      newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
+      newCmd.rootCommand = C_READ;
+    }
+
+    newCmd.targetSlot = cmd->targetSlot;
+    newCmd.protocol = cmd->protocol;
+    newCmd.forCursor = cmd->forCursor;
+    newCmd.forProfiling = cmd->forProfiling;
+    MRCommand_Free(cmd);
+    *cmd = newCmd;
+
   } else {
-    newCmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, buf);
-    newCmd.rootCommand = C_READ;
+    // The previous command was a _FT.CURSOR READ command, so we may not need to change anything.
+    RS_LOG_ASSERT(cmd->rootCommand == C_READ, "calling `getCursorCommand` after a DEL command");
+    RS_ASSERT(cmd->num == 4);
+    RS_ASSERT(STR_EQ(cmd->strs[0], cmd->lens[0], "_FT.CURSOR"));
+    RS_ASSERT(STR_EQ(cmd->strs[1], cmd->lens[1], "READ"));
+    long long currentCursorId;
+    RS_ASSERT(MRReply_ToInteger(cmd->strs[3], &currentCursorId));
+    RS_ASSERT(currentCursorId == cursorId);
+
+    // If we timed out and not in cursor mode, we want to send the shard a DEL
+    // command instead of a READ command (here we know it has more results)
+    if (timedout && !cmd->forCursor) {
+      MRCommand_ReplaceArg(cmd, 1, "DEL", 3);
+      cmd->rootCommand = C_DEL;
+    }
   }
 
-  if(timedout && cmd->forCursor) {
+  if (timedout && cmd->forCursor) {
     // Reset the `timedOut` value in case it was set (for next iterations, as
     // we're in cursor mode)
     MRIteratorCallback_ResetTimedOut(ctx);
   }
-
-  newCmd.targetSlot = cmd->targetSlot;
-  newCmd.protocol = cmd->protocol;
-  newCmd.forCursor = cmd->forCursor;
-  newCmd.forProfiling = cmd->forProfiling;
-  MRCommand_Free(cmd);
-  *cmd = newCmd;
 
   return true;
 }
@@ -93,40 +111,53 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     return;
   }
 
-  const bool isResp3 = cmd->protocol == 3;
-  bool bail_out = MRReply_Type(rep) != MR_REPLY_ARRAY;
-
-  if (!bail_out) {
-    size_t len = MRReply_Length(rep);
-    if (isResp3) {
-      bail_out = len != 2; // (map, cursor)
-      if (bail_out) {
-        RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2, got %ld", len);
-      }
-      if (!bail_out) bail_out = MRReply_Type(MRReply_ArrayElement(rep, 0)) != MR_REPLY_MAP;
-      if (bail_out) {
-        RedisModule_Log(RSDummyContext, "warning", "Expected reply of type map, got %d", MRReply_Type(MRReply_ArrayElement(rep, 0)));
-      }
+  // Normal reply from the shard.
+  // Assert that the reply is in the expected format.
+  if (cmd->protocol == 3) {
+    // RESP3 reply structure:
+    // [map, cursor] - map contains the results, cursor is the next cursor id
+    RS_ASSERT(
+      MRReply_Type(rep) == MR_REPLY_ARRAY && MRReply_Length(rep) == 2 &&
+      MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_MAP &&
+      MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER
+    );
+    if (cmd->forProfiling) {
+      // If the command is for profiling, the map at index 0 contains 2 elements:
+      // 1. "results" - the results of the command
+      // 2. "profile" - the profile reply
+      RS_ASSERT(
+        MRReply_Length(MRReply_ArrayElement(rep, 0)) == 4 &&  // 2 elements in the map, key and value
+        MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results") != NULL &&
+        MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile") != NULL
+      );
+    }
+  } else {
+    // RESP2 reply structure:
+    // [results, cursor] or [results, cursor, profile]
+    // results is an array of results, cursor is the next cursor id, and profile is
+    // an optional profile reply (if the command was for profiling).
+    if (cmd->forProfiling) {
+      // If the command is for profiling, the reply should contain 3 elements:
+      // [results, cursor, profile]
+      RS_ASSERT(
+        MRReply_Length(rep) == 3 &&
+        MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_ARRAY &&
+        MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER &&
+        MRReply_Type(MRReply_ArrayElement(rep, 2)) == MR_REPLY_ARRAY
+      );
     } else {
-      bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
-      if (bail_out) {
-        RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2 or 3, got %ld", len);
-      }
+      // If the command is not for profiling, the reply should contain 2 elements:
+      // [results, cursor]
+      RS_ASSERT(
+        MRReply_Length(rep) == 2 &&
+        MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_ARRAY &&
+        MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER
+      );
     }
   }
-
-  if (bail_out) {
-    RedisModule_Log(RSDummyContext, "warning", "An unexpected reply was received from a shard");
-    MRReply_Free(rep);
-    MRIteratorCallback_Done(ctx, 1);
-    return;
-  }
-
-  long long cursorId;
-  MRReply* cursor = MRReply_ArrayElement(rep, 1);
-  if (!MRReply_ToInteger(cursor, &cursorId)) {
-    cursorId = CURSOR_EOF;
-  }
+  // In any case, the cursor id is the second element in the reply
+  RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
+  long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
 
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
@@ -372,10 +403,10 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       }
   }
 
-  int new_reply = !root;
+  bool new_reply = !root;
 
   // get the next reply from the channel
-  while (!root || !rows || MRReply_Length(rows) == 0) {
+  while (!root) {
     if (TimedOut(&self->parent->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
@@ -412,6 +443,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     if (resp3) { // RESP3
       nc->curIdx = 0;
       nc->base.parent->totalResults += MRReply_Length(rows);
+      processResultFormat(&nc->areq->reqflags, nc->current.meta);
     } else { // RESP2
       // Get the index from the first
       nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
@@ -419,36 +451,22 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
   }
 
-  if (resp3) // RESP3
-  {
-    MRReply *result = MRReply_ArrayElement(rows, nc->curIdx++);
-    RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
-    MRReply *fields = MRReply_MapElement(result, "extra_attributes");
+  MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
+  if (resp3) {
+    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid result record");
+    fields = MRReply_MapElement(fields, "extra_attributes");
     RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
-
-    processResultFormat(&nc->areq->reqflags, nc->current.meta);
-
-    for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
-      size_t len;
-      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-      MRReply *val = MRReply_ArrayElement(fields, i + 1);
-      RSValue *v = MRReply_ToValue(val);
-      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
-    }
+  } else {
+    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_ARRAY, "invalid result record");
+    RS_LOG_ASSERT(MRReply_Length(fields) % 2 == 0, "invalid fields record");
   }
-  else // RESP2
-  {
-    MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
-    for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
-      size_t len;
-      const char *field = MRReply_String(MRReply_ArrayElement(rep, i), &len);
-      RSValue *v = RS_NullVal();
-      if (i + 1 < MRReply_Length(rep)) {
-        MRReply *val = MRReply_ArrayElement(rep, i + 1);
-        v = MRReply_ToValue(val);
-      }
-      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
-    }
+
+  for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
+    size_t len;
+    const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
+    MRReply *val = MRReply_ArrayElement(fields, i + 1);
+    RSValue *v = MRReply_ToValue(val);
+    RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
   }
   return RS_RESULT_OK;
 }
