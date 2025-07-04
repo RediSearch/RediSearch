@@ -14,6 +14,7 @@
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
 #include <unistd.h>
+#include "coord/config.h"
 
 // Helper function to create a test topology
 // Callback for regular tasks
@@ -109,8 +110,10 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
     }
   }
 
-  usleep(1000); // 100ms
-  // make sure topology is applied, it either is put before the async, or the timer will triggerPendingQueues
+  // make sure topology is applied, it either is put before the async, or the Topology timer will triggerPendingQueues.
+  // Since the order of the callbacks is not guaranteed, we can't assert on the counters (even if 2 async_t are sent in an specific order,
+  // the order of processing is not guaranteed in the uvloop)
+  usleep(DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT*1000); // 100ms
 
   // Change number of IO threads (increase)
   UpdateNumIOThreads(cluster, 5);
