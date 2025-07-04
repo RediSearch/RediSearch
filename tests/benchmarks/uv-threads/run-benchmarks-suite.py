@@ -16,20 +16,25 @@ class BenchmarkConfig:
     setup: str
     branch: str
     # from here down this is not split
-    workers: int
-    search_threads: int
-    search_io_threads: Optional[int]
+    workers: int # 8 and 12
+    search_threads: int # 20
+    search_io_threads: Optional[int] # 1, 5, 10, 20
 
+# 8 primaries 8 workers (8 cores per shard) makes 64 cores machines
 CONFIGS = [
-    # New 16-primaries matrix - master branch (no SEARCH_IO_THREADS)
-    BenchmarkConfig("oss-cluster-16-primaries", "master", 10, 10, None),
-    BenchmarkConfig("oss-cluster-16-primaries", "master", 10, 20, None),
+    # 8 workers 20 Coordinator configurations
+    BenchmarkConfig("oss-cluster-08-primaries", "master", 8, 20, None),
+    BenchmarkConfig("oss-cluster-08-primaries", "joan-uv-threads", 8, 20, 1),
+    BenchmarkConfig("oss-cluster-08-primaries", "joan-uv-threads", 8, 20, 5),
+    BenchmarkConfig("oss-cluster-08-primaries", "joan-uv-threads", 8, 20, 10),
+    BenchmarkConfig("oss-cluster-08-primaries", "joan-uv-threads", 8, 20, 20),
 
-    # New 16-primaries matrix - joan-uv-threads branch (with SEARCH_IO_THREADS)
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 10, 10),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 20, 10),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 10, 20),
-    BenchmarkConfig("oss-cluster-16-primaries", "joan-uv-threads", 10, 20, 20),
+    # 12 workers 20 Coordinator configurations
+    BenchmarkConfig("oss-cluster-08-primaries", "master", 12, 20, None),
+    BenchmarkConfig("oss-cluster-08-primaries", "joan-uv-threads", 12, 20, 1),
+    BenchmarkConfig("oss-cluster-08-primaries", "joan-uv-threads", 12, 20, 5),
+    BenchmarkConfig("oss-cluster-08-primaries", "joan-uv-threads", 12, 20, 10),
+    BenchmarkConfig("oss-cluster-08-primaries", "joan-uv-threads", 12, 20, 20),
 ]
 
 # Path to the original YAML file
