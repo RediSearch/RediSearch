@@ -45,7 +45,6 @@ jobs:
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
           ec2-image-id: ${{ inputs.ami-id }}
           ec2-instance-type: ${{ inputs.instance-type }}
-          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
           security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
           aws-resource-tags: ${{ env.TAGS }}
 
