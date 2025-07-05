@@ -16,19 +16,20 @@ def generate_hybrid_test_data(env, index_name="idx", dim=128, num_vectors=10, da
         index_name: Name of the index to create
         dim: Vector dimension
         num_vectors: Number of vectors to generate
-        data_type: Vector data type (FLOAT32 or FLOAT64)v
+        data_type: Vector data type (FLOAT32 or FLOAT64)
 
     Returns:
-        A tuple containing (index_name, vector_field_name, text_field_name)
+        index_name
     """
-    vector_field = "vector"
-    text_field = "text"
 
-    # Create index with vector and text fields
-    env.expect('FT.CREATE', index_name, 'SCHEMA',
-               vector_field, 'VECTOR', 'HNSW', '6', 'TYPE', data_type,
-               'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               text_field, 'TEXT').ok()
+    # Create index with vector, text, numeric and tag fields
+    env.expect(
+        'FT.CREATE', index_name, 'SCHEMA',
+        'vector', 'VECTOR', 'HNSW', '6', 'TYPE', data_type, 'DIM', dim,
+        'DISTANCE_METRIC', 'L2',
+        'text', 'TEXT',
+        'number', 'NUMERIC',
+        'tag', 'TAG').ok()
 
     # Generate and load data
     np.random.seed(42)  # For reproducibility
@@ -38,43 +39,32 @@ def generate_hybrid_test_data(env, index_name="idx", dim=128, num_vectors=10, da
     words = ["zero", "one", "two", "three", "four", "five", "six", "seven",
              "eight", "nine"]
 
-    # Create documents with only text
     for i in range(1, num_vectors + 1):
-        text_value = f"Only text number {words[i % len(words)]}"
+        # Generate field values
+        vector = create_np_array_typed([i] * dim)
+
         if i % 2 == 0:
-            text_value += " even"
+            tag_value = "even"
         else:
-            text_value += " odd"
+            tag_value = "odd"
 
-        p.execute_command('HSET', f'only_text_{i:02d}', text_field, text_value)
+        text_value = f"Only text number {words[i % len(words)]} {tag_value}"
 
-    p.execute()
+        # Create documents with only text
+        p.execute_command('HSET', f'only_text_{i:02d}',
+                          'text', text_value, 'number', i, 'tag', tag_value)
 
-    # Create documents with only vector
-    for i in range(1, num_vectors + 1):
-        vector = create_np_array_typed([i] * dim)
-        # vector = np.random.rand(dim).astype(np.float32 if data_type == "FLOAT32" else np.float64)
-        p.execute_command('HSET', f'only_vector_{i:02d}', vector_field, vector.tobytes())
+        # Create documents with only vector
+        p.execute_command('HSET', f'only_vector_{i:02d}',
+                          'vector', vector.tobytes(), 'number', i, 'tag', tag_value)
 
-    p.execute()
-
-    # Create documents with both vector and text data
-    for i in range(1, num_vectors + 1):
-        # Create a random vector
-        vector = create_np_array_typed([i] * dim)
-        # vector = np.random.rand(dim).astype(np.float32 if data_type == "FLOAT32" else np.float64)
-
-        # Assign text based on vector properties
-        # Documents with even IDs contain "even" for our test case
-        text_value = f"Number {words[i % len(words)]}"
-        if i % 2 == 0:
-            text_value += " even"
-
-        p.execute_command('HSET', f'both_{i:02d}', vector_field, vector.tobytes(), text_field, text_value)
+        # Create documents with both vector and text data
+        p.execute_command('HSET', f'both_{i:02d}', 'vector', vector.tobytes(),
+                          'text', text_value, 'number', i, 'tag', tag_value)
 
     p.execute()
 
-    return index_name, vector_field, text_field
+    return index_name
 
 # =============================================================================
 # QUERY TRANSLATION LAYER
@@ -309,52 +299,145 @@ def run_test_scenario(env, index_name, scenario):
     # env.assertEqual(hybrid_results, expected_rrf)
     return True
 
+
 def test_knn_single_token_search(env):
     """Test hybrid search using KNN + single token search scenario"""
-    index_name, vector_field, text_field = generate_hybrid_test_data(env)
+    index_name = generate_hybrid_test_data(env)
     scenario = {
         "test_name": "Single token text search",
-        "hybrid_query": "FT.HYBRID idx SEARCH two VSIM @vector $BLOB",
+        "hybrid_query": "SEARCH two VSIM @vector $BLOB",
         "search_equivalent": "two",
         "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
     }
     run_test_scenario(env, index_name, scenario)
 
+
 def test_knn_wildcard_search(env):
     """Test hybrid search using KNN + wildcard search scenario"""
 
-    index_name, vector_field, text_field = generate_hybrid_test_data(env)
+    index_name = generate_hybrid_test_data(env)
     scenario = {
         "test_name": "Wildcard text search",
-        "hybrid_query": "FT.HYBRID idx SEARCH * VSIM @vector $vector",
+        "hybrid_query": "SEARCH * VSIM @vector $BLOB",
         "search_equivalent": "*",
         "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
     }
-    # TODO: Why the search query returns 'only_vector_' docs with higher scores
-    # than the ones from 'both_' docs?
+    # TODO: Why the search_equivalent query returns 'only_vector_' docs with
+    # higher scores than the ones from 'both_' docs?
     run_test_scenario(env, index_name, scenario)
+
 
 def test_knn_custom_k(env):
     """Test hybrid search using KNN with custom k scenario"""
 
-    index_name, vector_field, text_field = generate_hybrid_test_data(env)
+    index_name = generate_hybrid_test_data(env)
     scenario = {
         "test_name": "KNN with custom k",
-        "hybrid_query": "FT.HYBRID idx SEARCH even VSIM @vector $vector KNN 2 K 5",
+        "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 5",
         "search_equivalent": "even",
         "vector_equivalent": "*=>[KNN 5 @vector $BLOB AS vector_distance]"
     }
     run_test_scenario(env, index_name, scenario)
 
-def test_hybrid_range_basic(env):
-    """Test hybrid search using range query scenario"""
 
-    index_name, vector_field, text_field = generate_hybrid_test_data(env)
+def test_knn_with_parameters(env):
+    """Test hybrid search using KNN + EF_RUNTIME parameter"""
+
+    index_name = generate_hybrid_test_data(env)
     scenario = {
-        "test_name": "Range query",
-        "hybrid_query": "FT.HYBRID idx SEARCH @text_field:(four|even) VSIM @vector $vector",
-        "search_equivalent": f"@{text_field}:(four|even)",
-        "vector_equivalent": "@vector:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
+        "test_name": "KNN query with parameters",
+        "hybrid_query": "SEARCH even VECTOR @vector $BLOB KNN 4 EF_RUNTIME 100 YIELD_DISTANCE_AS vector_distance",
+        "search_equivalent": "even",
+        "vector_equivalent": "*=>[KNN 10 @vector $BLOB EF_RUNTIME 100 AS vector_distance]"
+        }
+    run_test_scenario(env, index_name, scenario)
+
+
+def test_knn_text_vector_prefilter(env):
+    """Test hybrid search using KNN + text prefilter"""
+
+    index_name = generate_hybrid_test_data(env)
+    scenario = {
+        "test_name": "KNN with text prefilter",
+        "hybrid_query": "SEARCH @text:(even) VSIM @vector $BLOB FILTER @text:(six|four)",
+        "search_equivalent": "@text:(even)",
+        "vector_equivalent": "(@text:(six|four))=>[KNN 10 @vector $BLOB AS vector_distance]"
     }
     run_test_scenario(env, index_name, scenario)
 
+
+def test_knn_numeric_vector_prefilter(env):
+    """Test hybrid search using KNN + numeric prefilter"""
+
+    index_name = generate_hybrid_test_data(env)
+    scenario = {
+        "test_name": "KNN with numeric prefilter",
+        "hybrid_query": f"SEARCH @text:even VSIM @vector $BLOB FILTER @number:[2 5]",
+        "search_equivalent": "@text:even",
+        "vector_equivalent": "(@number:[2 5])=>[KNN 10 @vector $BLOB AS vector_distance]"
+    }
+    run_test_scenario(env, index_name, scenario)
+
+def test_knn_tag_vector_prefilter(env):
+    """Test hybrid search using KNN + tag prefilter"""
+
+    index_name = generate_hybrid_test_data(env)
+    scenario = {
+        "test_name": "KNN with tag prefilter",
+        "hybrid_query": "SEARCH @text:even VSIM @vector $BLOB FILTER @tag:{odd}",
+        "search_equivalent": "@text:even",
+        "vector_equivalent": "(@tag:{odd})=>[KNN 10 @vector $BLOB AS vector_distance]"
+    }
+    run_test_scenario(env, index_name, scenario)
+
+
+def test_knn_no_vector_results(env):
+    """Test hybrid search using KNN + vector prefilter that returns zero results"""
+
+    index_name = generate_hybrid_test_data(env)
+    scenario = {
+        "test_name": "KNN with vector prefilter that returns zero results",
+        "hybrid_query": "SEARCH @text:even VSIM @vector $BLOB FILTER @tag:{invalid_tag}",
+        "search_equivalent": "@text:even",
+        "vector_equivalent": "(@tag:{invalid_tag})=>[KNN 10 @vector $BLOB AS vector_distance]"
+    }
+    run_test_scenario(env, index_name, scenario)
+
+
+def test_knn_no_text_results(env):
+    """Test hybrid search using KNN + text prefilter that returns zero results"""
+
+    index_name = generate_hybrid_test_data(env)
+    scenario = {
+        "test_name": "KNN with vector prefilter that returns zero results",
+        "hybrid_query": "SEARCH @text:(invalid_text) VSIM @vector $BLOB",
+        "search_equivalent": "@text:(invalid_text)",
+        "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
+    }
+    run_test_scenario(env, index_name, scenario)
+
+
+def test_range_basic(env):
+    """Test hybrid search using range query scenario"""
+
+    index_name = generate_hybrid_test_data(env)
+    scenario = {
+        "test_name": "Range query",
+        "hybrid_query": "SEARCH @text:(four|even) VSIM @vector $BLOB RANGE 2 RADIUS 5",
+        "search_equivalent": "@text:(four|even)",
+        "vector_equivalent": "@vector:[VECTOR_RANGE 5 $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
+    }
+    run_test_scenario(env, index_name, scenario)
+
+
+def test_range_with_parameters(env):
+    """Test hybrid search using range with parameters"""
+
+    index_name = generate_hybrid_test_data(env)
+    scenario = {
+        "test_name": "Range query",
+        "hybrid_query": "SEARCH @text:(four|even) VSIM @vector $BLOB RANGE 6 RADIUS 5 EPSILON 0.5 YIELD_DISTANCE_AS vector_distance",
+        "search_equivalent": "@text:(four|even)",
+        "vector_equivalent": "@vector:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
+    }
+    run_test_scenario(env, index_name, scenario)
