@@ -10,7 +10,7 @@
 #include "reply_macros.h"
 #include "util/units.h"
 
-void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
+void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
@@ -44,8 +44,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
-
+  printProfileCounters(counters);
   RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(ir));
 
   RedisModule_Reply_MapEnd(reply);
