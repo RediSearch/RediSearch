@@ -381,6 +381,7 @@ int QueryExplainCLICommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RSHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
@@ -1286,6 +1287,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
          INDEX_ONLY_CMD_ARGS, "", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,
+         "readonly", INDEX_ONLY_CMD_ARGS, "read", true))
+
+  RM_TRY(RMCreateSearchCommand(ctx, RS_HYBRID_CMD, RSHybridCommand,
          "readonly", INDEX_ONLY_CMD_ARGS, "read", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand,
@@ -3150,6 +3154,10 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                                StrongRef_Demote(spec_ref));
 }
 
+int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return RSHybridCommand(ctx, argv, argc);
+}
+
 static void CursorCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
   RSCursorCommand(ctx, argv, argc);
 }
@@ -3740,6 +3748,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
            SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
+           SafeCmd(DistHybridCommand), "readonly", 0, 0, -1, "read", false))
   }
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))

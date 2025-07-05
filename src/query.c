@@ -1442,9 +1442,16 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     // There are no documents to traverse.
     goto done;
   }
+  // For backward compatibility, we use the weight for the tag node only for
+  // FT.SEARCH and FT.AGGREGATE.
+  int use_weight = 1;
+  if (q->reqFlags & QEXEC_F_IS_HYBRID) {
+    // For FT.HYBRID, we don't use weights for tag fields.
+    use_weight = 0;
+  }
   if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
-    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, node->fs);
+    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight * use_weight, node->fs);
     if (ret) {
       if (q->conc) {
         TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
@@ -1460,7 +1467,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   size_t n = 0;
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
     IndexIterator *it =
-        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight, node->fs);
+        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight * use_weight, node->fs);
     if (it) {
       iters[n++] = it;
     }
@@ -1591,7 +1598,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 }
 
 IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx,
-                            ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status) {
+                            ConcurrentSearchCtx *conc, uint64_t reqflags, QueryError *status) {
   QueryEvalCtx qectx = {
       .conc = conc,
       .opts = opts,
