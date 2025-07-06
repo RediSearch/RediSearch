@@ -15,7 +15,7 @@ typedef struct {
     HybridScoringContext scoringCtx;
 } HybridRequest;
 
-HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests, AGGPlan *plan);
+HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
 int HybridRequest_BuildPipeline(HybridRequest *req, const AggregationPipelineParams *params, bool synchronize_read_locks);
 void HybridRequest_Free(HybridRequest *req);
 

@@ -102,20 +102,10 @@ TEST_F(HybridRequestTest, testHybridRequestCreationBasic) {
   AREQ *req1 = AREQ_New();
   AREQ *req2 = AREQ_New();
 
-  // Initialize the pipeline for each AREQ to avoid segfault
-  QueryError err1, err2;
-  QueryError_Init(&err1);
-  QueryError_Init(&err2);
-  QueryPipeline_Initialize(&req1->pipeline, req1->reqConfig.timeoutPolicy, &err1);
-  QueryPipeline_Initialize(&req2->pipeline, req2->reqConfig.timeoutPolicy, &err2);
-
   requests = array_ensure_append_1(requests, req1);
   requests = array_ensure_append_1(requests, req2);
 
-  AGGPlan plan;
-  AGPLN_Init(&plan);
-
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2, &plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 2);
   ASSERT_TRUE(hybridReq->requests != nullptr);
@@ -132,24 +122,17 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   AREQ **requests = array_new(AREQ*, 1);
   AREQ *req = AREQ_New();
 
-  // Initialize the pipeline to avoid segfault
-  QueryError err;
-  QueryError_Init(&err);
-  QueryPipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, &err);
-
   requests = array_ensure_append_1(requests, req);
 
   // Initialize basic pipeline components
   AGPLN_Init(&requests[0]->pipeline.ap);
 
-  AGGPlan plan;
-  AGPLN_Init(&plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 1);
 
   // Add a basic LOAD step to test pipeline building
   const char *loadFields[] = {"test_field"};
-  AddLoadStepToPlan(&plan, loadFields, 1);
+  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 1);
 
-  HybridRequest *hybridReq = HybridRequest_New(requests, 1, &plan);
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Test that the structure is properly initialized
@@ -182,12 +165,8 @@ TEST_F(HybridRequestTest, testHybridRequestCreationWithRedis) {
   requests = array_ensure_append_1(requests, req1);
   requests = array_ensure_append_1(requests, req2);
 
-  // Create a basic AGGPlan for the merge pipeline
-  AGGPlan plan;
-  AGPLN_Init(&plan);
-
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2, &plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 2);
   ASSERT_TRUE(hybridReq->requests != nullptr);
@@ -219,15 +198,12 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   requests = array_ensure_append_1(requests, req1);
   requests = array_ensure_append_1(requests, req2);
 
-  // Create AGGPlan with LOAD step for the merge pipeline
-  AGGPlan plan;
-  AGPLN_Init(&plan);
-  const char *loadFields[] = {"title", "score"};
-  AddLoadStepToPlan(&plan, loadFields, 2);
-
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2, &plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
+
+  const char *loadFields[] = {"title", "score"};
+  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 2);
 
   AggregationPipelineParams params = {
       .common = {
@@ -280,16 +256,13 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   requests = array_ensure_append_1(requests, req2);
   requests = array_ensure_append_1(requests, req3);
 
-  // Create AGGPlan with LOAD step
-  AGGPlan plan;
-  AGPLN_Init(&plan);
-  const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&plan, loadFields, 3);
-
   // Create HybridRequest with 3 requests
-  HybridRequest *hybridReq = HybridRequest_New(requests, 3, &plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 3);
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 3);
+
+  const char *loadFields[] = {"title", "score", "category"};
+  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
 
   AggregationPipelineParams params = {
       .common = {
@@ -334,12 +307,8 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   AREQ **requests = array_new(AREQ*, 1);
   requests = array_ensure_append_1(requests, req1);
 
-  // Create AGGPlan without LOAD step (should handle gracefully)
-  AGGPlan plan;
-  AGPLN_Init(&plan);
-
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 1, &plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 1);
   ASSERT_TRUE(hybridReq != nullptr);
 
   AggregationPipelineParams params = {
@@ -385,15 +354,13 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
   requests = array_ensure_append_1(requests, categoryReq);
   requests = array_ensure_append_1(requests, numericReq);
 
-  // Create AGGPlan with comprehensive LOAD step
-  AGGPlan plan;
-  AGPLN_Init(&plan);
-  const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&plan, loadFields, 3);
-
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 3, &plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 3);
   ASSERT_TRUE(hybridReq != nullptr);
+
+  // Create AGGPlan with comprehensive LOAD step
+  const char *loadFields[] = {"title", "score", "category"};
+  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
 
   AggregationPipelineParams params = {
       .common = {
@@ -447,15 +414,13 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
   AREQ **requests = array_new(AREQ*, 1);
   requests = array_ensure_append_1(requests, req1);
 
-  // Create AGGPlan with LOAD step
-  AGGPlan plan;
-  AGPLN_Init(&plan);
-  const char *loadFields[] = {"title"};
-  AddLoadStepToPlan(&plan, loadFields, 1);
-
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 1, &plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 1);
   ASSERT_TRUE(hybridReq != nullptr);
+
+  // Create AGGPlan with LOAD step
+  const char *loadFields[] = {"title"};
+  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 1);
 
   AggregationPipelineParams params = {
       .common = {
@@ -499,15 +464,13 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   requests = array_ensure_append_1(requests, req1);
   requests = array_ensure_append_1(requests, req2);
 
-  // Create AGGPlan with LOAD step
-  AGGPlan plan;
-  AGPLN_Init(&plan);
-  const char *loadFields[] = {"title", "score"};
-  AddLoadStepToPlan(&plan, loadFields, 2);
-
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2, &plan);
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
+
+  // Create AGGPlan with LOAD step
+  const char *loadFields[] = {"title", "score"};
+  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 2);
 
   // Build pipeline
   AggregationPipelineParams params = {
@@ -576,17 +539,13 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
   requests = array_ensure_append_1(requests, simpleReq);
   requests = array_ensure_append_1(requests, complexReq);
 
-  // Create more complex AGGPlan with multiple steps
-  AGGPlan plan;
-  AGPLN_Init(&plan);
+  // Create HybridRequest
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  ASSERT_TRUE(hybridReq != nullptr);
 
   // Add LOAD step
   const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&plan, loadFields, 3);
-
-  // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2, &plan);
-  ASSERT_TRUE(hybridReq != nullptr);
+  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
 
   AggregationPipelineParams params = {
       .common = {

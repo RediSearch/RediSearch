@@ -34,7 +34,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const AggregationPipelinePar
         if (loadStep) {
             RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
             const RLookupKey **clonedKeys = CloneKeysInDifferentRLookup(loadStep, lastLookup);
-            ResultProcessor *loader = RPLoader_New(&areq->sctx, areq->reqflags, lastLookup, clonedKeys, loadStep->nkeys, false, &areq->stateflags);
+            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), areq->reqflags, lastLookup, clonedKeys, loadStep->nkeys, false, &areq->stateflags);
             QITR_PushRP(qctx, loader);
         }
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), AREQ_SearchCtx(areq));
@@ -57,15 +57,21 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const AggregationPipelinePar
     return REDISMODULE_OK;
 }
 
-HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests, AGGPlan *plan) {
+HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
     HybridRequest *req = rm_calloc(1, sizeof(*req));
     req->requests = requests;
     req->nrequests = nrequests;
     req->errors = array_new(QueryError, nrequests);
-    req->tail.ap = *plan;
+    AGPLN_Init(&req->tail.ap);
     req->tail.qctx.timeoutPolicy = requests[0]->pipeline.qctx.timeoutPolicy;
     req->tail.qctx.rootProc = req->tail.qctx.endProc = NULL;
     req->tail.qctx.err = &req->tailError;
+    QueryError_Init(&req->tailError);
+    QueryPipeline_Initialize(&req->tail, requests[0]->pipeline.qctx.timeoutPolicy, &req->tailError);
+    for (size_t i = 0; i < nrequests; i++) {
+        QueryError_Init(&req->errors[i]);
+        QueryPipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
+    }
     return req;
 }
 
