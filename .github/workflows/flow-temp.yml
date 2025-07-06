@@ -19,7 +19,6 @@ jobs:
     with:
       rejson-branch: master
       platform: ubuntu:jammy
-      architecture: 'x86_64'
       coordinator: false
 
   basic-focal:
@@ -28,5 +27,4 @@ jobs:
     with:
       rejson-branch: master
       platform: ubuntu:focal
-      architecture: 'x86_64'
       coordinator: false
