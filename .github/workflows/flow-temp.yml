@@ -9,24 +9,14 @@ name: temporary testing
 
 on:
   push:
-    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
-  basic-jammy:
+  basic-test:
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
       rejson-branch: master
-      platform: ubuntu:jammy
+      platform: "amazonlinux:2"
       architecture: 'x86_64'
-      coordinator: false
-
-  basic-focal:
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      rejson-branch: master
-      platform: ubuntu:focal
-      architecture: 'x86_64'
-      coordinator: false
