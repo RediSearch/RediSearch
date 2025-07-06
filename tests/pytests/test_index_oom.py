@@ -806,7 +806,7 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
     # Let background indexing go up to 80 % of Redis' limit
     verify_command_OK_on_all_shards(
         env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
-    # 1-second grace so the test doesn’t take too long
+    # 1-second grace so the test doesn't take too long
     verify_command_OK_on_all_shards(
         env, '_FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
 
@@ -850,7 +850,7 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
     index_errors = get_index_errors_dict(env, idx=idx)
     env.assertEqual(indexed_num_docs, total_docs)
     env.assertEqual(index_errors[bgIndexingStatusStr], 'OK')
-    # Every shard’s failure counter must stay at 0
+    # Every shard's failure counter must stay at 0
     for shard_id in range(1, env.shardsCount + 1):
         failures = env.getConnection(shard_id).execute_command(
             'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
