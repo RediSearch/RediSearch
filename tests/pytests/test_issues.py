@@ -1557,33 +1557,50 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.assertGreaterEqual(yields_count, expected_min_yields,
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 
-def mod_8157(env:Env):
+def _mod_8157(env:Env):
     """
     Test missing profile info on aggregate query
     """
     shard_chunk_size = 1000 # Hardcoded chunk size from the shards
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    def verify_profile(reply):
+        if env.protocol == 2:
+            # RESP2 returns a list of lists
+            profile = reply[1]
+        else:
+            # RESP3 returns a dictionary
+            profile = reply['Profile']
+        profile = to_dict(profile)
+        env.assertContains('Shards', profile, depth=1)
+        env.assertEqual(len(profile['Shards']), env.shardsCount, depth=1)
+
+    # Case 1: Profile info arrives in an empty reply (some shards have no documents,
+    # one have exactly `shard_chunk_size` documents, so another read is required to get EOF)
+    env.expect('FT.CREATE', 'idx1', 'PREFIX', '1', 'case1:', 'SCHEMA', 't', 'TEXT').ok()
     # Add to some shard exactly `shard_chunk_size` documents
     with env.getClusterConnectionIfNeeded() as conn:
       for i in range(shard_chunk_size):
         # Use `{x}` suffix to ensure that the documents are added to the same shard
-        conn.execute_command('HSET', f'doc{i}{{x}}', 't', 'foo')
+        conn.execute_command('HSET', f'case1:{i}{{x}}', 't', 'foo')
 
-    reply = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*')
-    if env.protocol == 2:
-        # RESP2 returns a list of lists
-        profile = reply[1]
-    else:
-        # RESP3 returns a dictionary
-        profile = reply['Profile']
-    profile = to_dict(profile)
-    env.assertContains('Shards', profile)
-    env.assertEqual(len(profile['Shards']), env.shardsCount)
+    reply = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*')
+    verify_profile(reply)
 
-@skip(cluster=False)
+    # Case 2: Profile info arrives but the coordinator doesn't consume the reply fully
+    # (previously, we didn't pass the reply to the profile reply aggregation)
+    env.expect('FT.CREATE', 'idx2', 'PREFIX', '1', 'case2:', 'SCHEMA', 't', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+      # `chunk_size` documents spread across all shards, so each shard will have less than `shard_chunk_size` documents
+      for i in range(shard_chunk_size):
+        conn.execute_command('HSET', f'case2:{i}', 't', 'foo')
+    # Search for a bit less than `shard_chunk_size` documents, so the coordinator will not deplete the last shard reply
+    reply = env.cmd('FT.PROFILE', 'idx2', 'AGGREGATE', 'QUERY', '*', 'LIMIT', '0', str(int(shard_chunk_size * 0.95)))
+    verify_profile(reply)
+
+@skip(cluster=False, min_shards=2)
 def test_mod_8157_RESP2():
-  mod_8157(Env(protocol=2))
+  _mod_8157(Env(protocol=2))
 
-@skip(cluster=False)
+@skip(cluster=False, min_shards=2)
 def test_mod_8157_RESP3():
-  mod_8157(Env(protocol=3))
+  _mod_8157(Env(protocol=3))
