@@ -16,6 +16,6 @@ $MODE apt install -yqq wget make clang-format gcc python3.10 python3.10-venv pyt
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
 
 curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
-sudo rm /usr/bin/python3
-sudo ln -s python3.10 /usr/bin/python3
+$MODE rm /usr/bin/python3
+$MODE ln -s python3.10 /usr/bin/python3
 python3 --version
