@@ -64,6 +64,7 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "legacy_types.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1234,19 +1235,15 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  // register trie type
+  // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
 
+  // register the trie type (half-legacy, still used by `FT.SUG*` commands)
   RM_TRY_F(TrieType_Register, ctx);
 
   RM_TRY_F(IndexSpec_RegisterType, ctx);
 
-  RM_TRY_F(TagIndex_RegisterType, ctx);
-
-  RM_TRY_F(InvertedIndex_RegisterType, ctx);
-
-  RM_TRY_F(NumericIndexType_Register, ctx);
-
+  RM_TRY_F(RegisterLegacyTypes, ctx);
 
 // With coordinator we do not want to raise a move error for index commands so we do not specify
 // any key.
