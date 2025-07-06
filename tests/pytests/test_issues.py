@@ -1571,8 +1571,8 @@ def _mod_8157(env:Env):
             # RESP3 returns a dictionary
             profile = reply['Profile']
         profile = to_dict(profile)
-        env.assertContains('Shards', profile, depth=1)
-        env.assertEqual(len(profile['Shards']), env.shardsCount, depth=1)
+        env.assertContains('Shards', profile, message='missing `Shards` section', depth=1)
+        env.assertEqual(len(profile['Shards']), env.shardsCount, message='missing some shards profile info', depth=1)
 
     # Case 1: Profile info arrives in an empty reply (some shards have no documents,
     # one have exactly `shard_chunk_size` documents, so another read is required to get EOF)
