@@ -330,6 +330,7 @@ run_tests() {
 	echo "python path: $(which python3)"
 	echo "AFTER PRINTING VERSIONS"
 	echo "OP is: $OP"
+	apt install -y strace || true
 	OP="strace -e file "
 
 	local E=0
