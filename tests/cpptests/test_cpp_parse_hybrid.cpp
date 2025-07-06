@@ -29,7 +29,7 @@ class ParseHybridTest : public ::testing::Test {
     // Create a simple index for testing (without vector field to avoid setup complexity)
     QueryError qerr = {QueryErrorCode(0)};
     RMCK::ArgvList args(ctx, "FT.CREATE", "testidx", "ON", "HASH",
-                        "SCHEMA", "title", "TEXT", "content", "TEXT");
+                        "SCHEMA", "title", "TEXT", "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
     spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
     ASSERT_TRUE(spec);
 
@@ -64,6 +64,62 @@ class ParseHybridTest : public ::testing::Test {
     free(argv);
   }
 };
+
+
+TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
+  std::vector<const char*> args = {
+    "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"ABCDEFG==" ,"KNN" ,"4" ,"K" ,"10" ,"FILTER" ,"@text:hello",
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set
+  ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_RRF);
+
+  // Clean up
+  HybridRequest_Free(result);
+  freeStringArray(argv, argc);
+}
+
+
+TEST_F(ParseHybridTest, testVsimSubqueryBasic) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
+  std::vector<const char*> args = {
+    "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"ABCDEFG==" ,"KNN" ,"2" ,"K" ,"10" ,"FILTER" ,"@text:hello",
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set
+  ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_RRF);
+
+  // Clean up
+  HybridRequest_Free(result);
+  freeStringArray(argv, argc);
+}
+
+
+
+
 
 TEST_F(ParseHybridTest, testBasicValidInput) {
   QueryError status = {QueryErrorCode(0)};
@@ -189,67 +245,5 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   freeStringArray(argv, argc);
 }
 
-// TEST_F(ParseHybridTest, TestParseVectorSubquery) {
-//   // Test basic KNN query transformation
-//   const char* args[] = {"FT.HYBRID", "idx", "SEARCH", "@title:hello", "VSIM", "@v \"[1,2,3]\"", "KNN", "10"};
-//   int argc = sizeof(args) / sizeof(args[0]);
-//   char** argv = createStringArray(args, argc);
 
-//   QueryError status = {QueryErrorCode(0)};
-//   HybridRequest* result = HybridRequest_Parse(argv, argc, &status);
 
-//   // Verify the request was parsed successfully
-//   ASSERT_TRUE(result != NULL);
-//   ASSERT_EQ(status.code, QUERY_OK);
-
-//   // Verify the vector query was transformed correctly
-//   ASSERT_TRUE(result->requests != NULL);
-//   ASSERT_GT(result->nrequests, 0);
-
-//   // Check that the vector request has the transformed query
-//   AREQ* vectorReq = &result->requests[1]; // Second request should be vector
-//   ASSERT_TRUE(vectorReq->query != NULL);
-
-//   // The query should be transformed to old syntax: @v:[KNN 10 $vec]
-//   std::string queryStr(vectorReq->query);
-//   ASSERT_TRUE(queryStr.find("@v:[KNN 10 $vec]") != std::string::npos);
-
-//   // Clean up
-//   HybridRequest_Free(result);
-//   freeStringArray(argv, argc);
-// }
-
-// TEST_F(ParseHybridTest, TestParseVectorSubqueryWithFilter) {
-//   // Test KNN query with filter transformation
-//   const char* args[] = {"FT.HYBRID", "idx", "SEARCH", "@title:hello", "VSIM", "@v \"[1,2,3]\"", "KNN", "5", "FILTER", "text:(world)"};
-//   int argc = sizeof(args) / sizeof(args[0]);
-//   char** argv = createStringArray(args, argc);
-
-//   QueryError status = {QueryErrorCode(0)};
-//   HybridRequest* result = HybridRequest_Parse(argv, argc, &status);
-
-//   // Verify the request was parsed successfully
-//   ASSERT_TRUE(result != NULL);
-//   ASSERT_EQ(status.code, QUERY_OK);
-
-//   // Verify the vector query was transformed correctly
-//   ASSERT_TRUE(result->requests != NULL);
-//   ASSERT_GT(result->nrequests, 0);
-
-//   // Check that the vector request has the transformed query and filter
-//   AREQ* vectorReq = &result->requests[1]; // Second request should be vector
-//   ASSERT_TRUE(vectorReq->query != NULL);
-//   ASSERT_TRUE(vectorReq->filterClause != NULL);
-
-//   // The query should be transformed to: (text:(world))=>{@v:[KNN 5 $vec]}
-//   std::string queryStr(vectorReq->query);
-//   ASSERT_TRUE(queryStr.find("(text:(world))=>{@v:[KNN 5 $vec]}") != std::string::npos);
-
-//   // The filter clause should be stored separately
-//   std::string filterStr(vectorReq->filterClause);
-//   ASSERT_EQ(filterStr, "text:(world)");
-
-//   // Clean up
-//   HybridRequest_Free(result);
-//   freeStringArray(argv, argc);
-// }
