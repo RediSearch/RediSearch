@@ -177,7 +177,7 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
     # Drop memory to 85 % of the configured threshold
     allShards_set_tight_maxmemory_for_oom(env, 0.85)
 
-    # Resume – this will push every shard into PAUSED_BEFORE_OOM_RETRY
+    # Resume - this will push every shard into PAUSED_BEFORE_OOM_RETRY
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_BG_INDEX_RESUME')
     allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY', idx)
@@ -185,7 +185,7 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
     # While paused, free memory so the retry can succeed
     allShards_set_unlimited_maxmemory_for_oom(env)
 
-    # Resume again – indexing should now complete
+    # Resume again - indexing should now complete
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_BG_INDEX_RESUME')
     allShards_waitForIndexFinishScan(env, idx)
@@ -227,17 +227,17 @@ def test_pseudo_enterprise_cluster_oom_retry_failure(env):
     allShards_waitForIndexPauseScan(env, idx)
     allShards_set_tight_maxmemory_for_oom(env, 0.85)
 
-    # Resume – shards pause *before* OOM retry
+    # Resume - shards pause *before* OOM retry
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_BG_INDEX_RESUME')
     allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY', idx)
 
-    # Resume again with memory still tight → PAUSED_ON_OOM
+    # Resume again with memory still tight -> PAUSED_ON_OOM
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_BG_INDEX_RESUME')
     allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', idx)
 
-    # One last resume – the second OOM turns into failure
+    # One last resume - the second OOM turns into failure
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_BG_INDEX_RESUME')
     allShards_waitForIndexFinishScan(env, idx)
