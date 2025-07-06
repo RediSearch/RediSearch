@@ -1753,11 +1753,10 @@ IndexIterator *NewEmptyIterator(void) {
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   clock_t begin = clock();
+  pi->counters.read++;
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) {
     pi->counters.eof = 1;
-  } else {
-    pi->counters.read++;
   }
   pi->base.current = pi->child->current;
   pi->cpuTime += clock() - begin;
@@ -1767,11 +1766,10 @@ static int PI_Read(void *ctx, RSIndexResult **e) {
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   clock_t begin = clock();
+  pi->counters.skipTo++;
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) {
     pi->counters.eof = 1;
-  } else {
-    pi->counters.skipTo++;
   }
   pi->base.current = pi->child->current;
   pi->cpuTime += clock() - begin;

@@ -18,7 +18,7 @@
 #define printProfileCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcount))
 // For now we only print the total counter in order to avoid breaking the response format of profile
 // If we get a chance to break it then consider splitting the count into separate fields
-#define printProfileCounters(counters) printProfileCounter(counters->read + counters->skipTo)
+#define printProfileCounters(counters) printProfileCounter(counters->read + counters->skipTo - counters->eof)
 
 #define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (rs_timer_ms(&(vtime))))
 #define printProfileNumBatches(hybrid_reader) \
