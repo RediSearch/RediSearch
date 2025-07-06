@@ -101,8 +101,14 @@ typedef struct {
     int printProfileClock;
 } PrintProfileConfig;
 
+typedef struct {
+  size_t read;
+  size_t skipTo;
+  int eof;
+} ProfileCounters;
+
 // Print profile of iterators
-void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
 #ifdef __cplusplus

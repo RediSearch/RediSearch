@@ -50,14 +50,12 @@ int cmpMinId(const void *e1, const void *e2, const void *udata) {
   return 0;
 }
 
-
 // Profile iterator, used for profiling. PI is added between all iterator
 typedef struct {
   IndexIterator base;
   IndexIterator *child;
-  size_t counter;
+  ProfileCounters counters;
   clock_t cpuTime;
-  int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 typedef struct {
@@ -921,7 +919,6 @@ static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
       //          continue;
       //        }
       //      }
-
       ic->len++;
       // printf("Returning OK\n");
       return INDEXREAD_OK;
@@ -1787,10 +1784,12 @@ IndexIterator *NewEmptyIterator(void) {
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
-  pi->counter++;
   clock_t begin = clock();
+  pi->counters.read++;
   int ret = pi->child->Read(pi->child->ctx, e);
-  if (ret == INDEXREAD_EOF) pi->eof = 1;
+  if (ret == INDEXREAD_EOF) {
+    pi->counters.eof = 1;
+  }
   pi->base.current = pi->child->current;
   pi->cpuTime += clock() - begin;
   return ret;
@@ -1798,10 +1797,12 @@ static int PI_Read(void *ctx, RSIndexResult **e) {
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
-  pi->counter++;
   clock_t begin = clock();
+  pi->counters.skipTo++;
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
-  if (ret == INDEXREAD_EOF) pi->eof = 1;
+  if (ret == INDEXREAD_EOF) {
+    pi->counters.eof = 1;
+  }
   pi->base.current = pi->child->current;
   pi->cpuTime += clock() - begin;
   return ret;
@@ -1834,9 +1835,10 @@ static int PI_HasNext(void *ctx) {
 IndexIterator *NewProfileIterator(IndexIterator *child) {
   ProfileIteratorCtx *pc = rm_calloc(1, sizeof(*pc));
   pc->child = child;
-  pc->counter = 0;
+  pc->counters.read = 0;
+  pc->counters.skipTo = 0;
   pc->cpuTime = 0;
-  pc->eof = 0;
+  pc->counters.eof = 0;
 
   IndexIterator *ret = &pc->base;
   ret->ctx = pc;
@@ -1855,7 +1857,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
 
 #define PRINT_PROFILE_FUNC(name) static void name(RedisModule_Reply *reply,   \
                                                   IndexIterator *root,        \
-                                                  size_t counter,             \
+                                                  ProfileCounters *counters,  \
                                                   double cpuTime,             \
                                                   int depth,                  \
                                                   int limited,                \
@@ -1897,7 +1899,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileCounters(counters);
 
   RedisModule_Reply_SimpleString(reply, "Child iterators");
   if (printFull) {
@@ -1924,7 +1926,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileCounters(counters);
 
   RedisModule_ReplyKV_Array(reply, "Child iterators");
     for (int i = 0; i < ii->num; i++) {
@@ -1957,12 +1959,12 @@ PRINT_PROFILE_FUNC(printMetricIt) {
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
+  printProfileCounters(counters);
 
   RedisModule_Reply_MapEnd(reply);
 }
 
-void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime,
+void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, double cpuTime,
                   int depth, int limited, PrintProfileConfig *config, IndexIterator *child, const char *text) {
   size_t nlen = 0;
   RedisModule_Reply_Map(reply);
@@ -1970,7 +1972,7 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, si
     if (config->printProfileClock) {
       printProfileTime(cpuTime);
     }
-    printProfileCounter(counter);
+    printProfileCounters(counters);
 
     if (root->type == HYBRID_ITERATOR) {
       HybridIterator *hi = root->ctx;
@@ -1994,13 +1996,13 @@ void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, si
 
 #define PRINT_PROFILE_SINGLE_NO_CHILD(name, text)                                      \
   PRINT_PROFILE_FUNC(name) {                                                           \
-    PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, \
+    PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config, \
       NULL, (text));                                                                   \
   }
 
 #define PRINT_PROFILE_SINGLE(name, IterType, text)                                     \
   PRINT_PROFILE_FUNC(name) {                                                           \
-    PrintIteratorChildProfile(reply, (root), counter, cpuTime, depth, limited, config, \
+    PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config, \
       ((IterType *)(root))->child, (text));                                            \
   }
 
@@ -2014,11 +2016,11 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(reply, pi->child, pi->counter - pi->eof,
+  printIteratorProfile(reply, pi->child, &pi->counters,
     (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
 }
 
-void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config) {
   if (root == NULL) return;
 
@@ -2030,20 +2032,20 @@ void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t 
 
   switch (root->type) {
     // Reader
-    case READ_ITERATOR:       { printReadIt(reply, root, counter, cpuTime, config);                       break; }
+    case READ_ITERATOR:       { printReadIt(reply, root, counters, cpuTime, config);                       break; }
     // Multi values
-    case UNION_ITERATOR:      { printUnionIt(reply, root, counter, cpuTime, depth, limited, config);      break; }
-    case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counter, cpuTime, depth, limited, config);  break; }
+    case UNION_ITERATOR:      { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
+    case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);  break; }
     // Single value
-    case NOT_ITERATOR:        { printNotIt(reply, root, counter, cpuTime, depth, limited, config);        break; }
-    case OPTIONAL_ITERATOR:   { printOptionalIt(reply, root, counter, cpuTime, depth, limited, config);   break; }
-    case WILDCARD_ITERATOR:   { printWildcardIt(reply, root, counter, cpuTime, depth, limited, config);   break; }
-    case EMPTY_ITERATOR:      { printEmptyIt(reply, root, counter, cpuTime, depth, limited, config);      break; }
-    case ID_LIST_ITERATOR:    { printIdListIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
+    case NOT_ITERATOR:        { printNotIt(reply, root, counters, cpuTime, depth, limited, config);        break; }
+    case OPTIONAL_ITERATOR:   { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
+    case WILDCARD_ITERATOR:   { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
+    case EMPTY_ITERATOR:      { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
+    case ID_LIST_ITERATOR:    { printIdListIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
     case PROFILE_ITERATOR:    { printProfileIt(reply, root, 0, 0, depth, limited, config);                break; }
-    case HYBRID_ITERATOR:     { printHybridIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
-    case METRIC_ITERATOR:     { printMetricIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
-    case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counter, cpuTime, depth, limited, config);    break; }
+    case HYBRID_ITERATOR:     { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case METRIC_ITERATOR:     { printMetricIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);    break; }
     case MAX_ITERATOR:        { RS_ABORT("nope");   break; }
   }
 }
