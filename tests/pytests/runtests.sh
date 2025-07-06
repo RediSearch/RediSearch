@@ -327,6 +327,7 @@ run_tests() {
 	echo "PRINTING VERSIONS"
 	python3 --version
 	python3 -m RLTest --version
+	echo "python path: $(which python3)"
 	echo "AFTER PRINTING VERSIONS"
 	echo "OP is: $OP"
 	OP="strace -e file "
