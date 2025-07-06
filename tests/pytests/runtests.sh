@@ -324,6 +324,12 @@ run_tests() {
 
 	[[ $RLEC == 1 ]] && export RLEC_CLUSTER=1
 
+	echo "PRINTING VERSIONS"
+	python3 --version
+	python3 -m RLTest --version
+	echo "AFTER PRINTING VERSIONS"
+	echo "OP is: $OP"
+
 	local E=0
 	if [[ $NOP != 1 ]]; then
 		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
