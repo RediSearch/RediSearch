@@ -1026,13 +1026,13 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
+  sl->sctx = loader->loadopts.sctx;
   rm_free(loader);
 
   // Reset the loader's buffer and state
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
   sl->curr_result_index = 0;
-  sl->sctx = loader->loadopts.sctx;
 
   sl->last_buffered_rc = RS_RESULT_OK;
 
