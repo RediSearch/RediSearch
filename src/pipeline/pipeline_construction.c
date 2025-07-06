@@ -250,8 +250,9 @@ bool hasQuerySortby(const AGGPlan *pln) {
   rp = NULL;
 
 /**
- * Builds the implicit pipeline for querying and scoring, and ensures that our
- * subsequent execution stages actually have data to operate on.
+ * Builds the document search and scoring pipeline that executes queries against the index.
+ * This creates the initial pipeline components that find matching documents and calculate
+ * their relevance scores, providing the foundation for subsequent aggregation and filtering stages.
  */
 void QueryPipeline_BuildIndexingPart(QueryPipeline *pipeline, const IndexingPipelineParams *params) {
   IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);

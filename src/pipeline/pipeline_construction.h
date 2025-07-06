@@ -5,10 +5,14 @@
 extern "C" {
 #endif
 
-/** Build the indexing part of the pipeline */
+/** Build the document search and scoring part of the pipeline.
+ *  This creates the initial pipeline components that execute the query against
+ *  the index to find matching documents and calculate their relevance scores. */
 void QueryPipeline_BuildIndexingPart(QueryPipeline *pipeline, const IndexingPipelineParams *params);
 
-/** Build the aggregation part of the pipeline */
+/** Build the result processing and output formatting part of the pipeline.
+ *  This creates pipeline components that process search results through operations
+ *  like filtering, sorting, grouping, field loading, and output formatting. */
 int QueryPipeline_BuildAggregationPart(QueryPipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags);
 
 bool hasQuerySortby(const AGGPlan *pln);
