@@ -23,7 +23,7 @@ DEBUG=0          # Debug build flag
 PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
-QUICK=0          # Quick test mode (subset of tests)
+QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
 # Use environment variable if set, otherwise default to 0
 ENABLE_ASSERT=${ENABLE_ASSERT:-0}
