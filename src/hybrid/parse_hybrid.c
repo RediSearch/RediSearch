@@ -62,7 +62,71 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
   return REDISMODULE_OK;
 }
 
-static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {}
+static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
+  // assert VSIM is current
+  const char *cur;
+  if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) != AC_OK || strcasecmp("VSIM", cur)) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
+    return REDISMODULE_ERR;
+  }
+  AC_Advance(ac);
+  const char *vectorField;
+  const char * vectorBlob;
+  if (AC_GetString(ac, &vectorField, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector field name");
+    return REDISMODULE_ERR;
+  }
+  if (AC_GetString(ac, &vectorBlob, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector blob");
+    return REDISMODULE_ERR;
+  }
+
+  const char *current;
+  if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Unknown parameter after VSIM");
+    return REDISMODULE_ERR;
+  }
+  if (!strcasecmp(current, "KNN")) {
+    AC_Advance(ac);
+    int params;
+    AC_GetLongLong(ac, &params, 0);
+    current = AC_GetStringNC(ac, NULL);
+    if (!strcasecmp(current, "K")) {
+      int k = AC_GetInt(ac, &k, 0);
+      current = AC_GetStringNC(ac, NULL);
+    }
+    if (!strcasecmp(current, "EF_RUNTIME")) {
+      int efRuntime = AC_GetInt(ac, &efRuntime, 0);
+      current = AC_GetStringNC(ac, NULL);
+    }
+    if (!strcasecmp(current, "YIELD_DISTANCE_AS")){
+      const char *distField = AC_GetStringNC(ac, NULL);
+      current = AC_GetStringNC(ac, NULL);
+    }
+  } else if (!strcasecmp(current, "RANGE")) {
+    AC_Advance(ac);
+    int params = AC_GetInt(ac, &params, 0);
+    current = AC_GetStringNC(ac, NULL);
+    if (!strcasecmp(current, "K")) {
+      double radius = AC_GetDouble(ac, &radius, 0);
+      current = AC_GetStringNC(ac, NULL);
+    }
+    if (!strcasecmp(current, "EF_RUNTIME")) {
+      int epsilon = AC_GetInt(ac, &epsilon, 0);
+      current = AC_GetStringNC(ac, NULL);
+    }
+    if (!strcasecmp(current, "YIELD_DISTANCE_AS")){
+      const char *distField = AC_GetStringNC(ac, NULL);
+      current = AC_GetStringNC(ac, NULL);
+    }
+  }
+  if (!strcasecmp(current, "FILTER")) {
+    vectorRequest->query = AC_GetStringNC(ac, NULL);
+  }
+  return REDISMODULE_OK;
+
+
+}
 
 static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
   // Default to RRF if method not specified
