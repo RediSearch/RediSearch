@@ -19,3 +19,4 @@ jobs:
       platform: ubuntu:focal
       architecture: x86_64
       test-config: QUICK=1
+      coordinator: false
