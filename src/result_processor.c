@@ -1867,7 +1867,7 @@ dictType dictTypeHybridSearchResult = {
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
    // Calculate maximal dictionary size based on scoring type
-   size_t window = hybridScoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridScoringCtx->rrfCtx.window : 1000; // Default window for linear
+   size_t window = (hybridScoringCtx && hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) ? hybridScoringCtx->rrfCtx.window : 1000; // Default window for linear
    size_t maximalSize = window * numUpstreams;
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);

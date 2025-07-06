@@ -9,6 +9,7 @@
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
+#include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_scoring.h"
@@ -81,15 +82,37 @@ AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, Qu
   return req;
 }
 
-// Helper function to add a LOAD step to an AGGPlan
+/**
+ * Helper function to add a LOAD step to an AGGPlan with properly initialized RLookupKeys.
+ * This function creates a LOAD step that specifies which document fields should be loaded
+ * during query execution. Unlike the previous version that used NULL keys, this properly
+ * initializes RLookupKey objects using the plan's RLookup context.
+ *
+ * @param plan The AGGPlan to add the LOAD step to
+ * @param fields Array of field names to load
+ * @param nfields Number of fields in the array
+ */
 void AddLoadStepToPlan(AGGPlan *plan, const char **fields, size_t nfields) {
   PLN_LoadStep *loadStep = (PLN_LoadStep*)rm_calloc(1, sizeof(PLN_LoadStep));
   loadStep->base.type = PLN_T_LOAD;
   loadStep->nkeys = nfields;
   if (nfields > 0) {
     loadStep->keys = (const RLookupKey**)rm_calloc(nfields, sizeof(RLookupKey*));
-    // Note: In real usage, these would be properly initialized RLookupKeys
-    // For testing purposes, we'll set them to NULL and handle appropriately
+
+    // Get the RLookup from the plan to create proper RLookupKeys
+    RLookup *lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST);
+    if (!lookup) {
+      // If no lookup exists yet, create one at the end of the plan
+      lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_FIRST);
+    }
+
+    // Create proper RLookupKeys for each field
+    for (size_t i = 0; i < nfields; i++) {
+      // Use RLookup_GetKey_Load to create keys for loading these fields
+      // This will create the key if it doesn't exist and mark it for loading
+      RLookupKey *key = RLookup_GetKey_Load(lookup, fields[i], fields[i], RLOOKUP_F_NOFLAGS);
+      loadStep->keys[i] = key;
+    }
   }
   AGPLN_AddStep(plan, &loadStep->base);
 }
@@ -176,7 +199,9 @@ TEST_F(HybridRequestTest, testHybridRequestCreationWithRedis) {
 
   // Clean up
   HybridRequest_Free(hybridReq);
-  IndexSpec_Free(spec);
+  // Use IndexSpec_RemoveFromGlobals instead of IndexSpec_Free because the spec
+  // was added to the global registry by IndexSpec_CreateNew and holds a reference
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
@@ -205,18 +230,22 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   const char *loadFields[] = {"title", "score"};
   AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 2);
 
-  AggregationPipelineParams params = {
-      .common = {
-        .pln = &hybridReq->tail.ap,
-        .sctx = hybridReq->requests[0]->sctx,
-        .reqflags = hybridReq->requests[0]->reqflags,
-        .optimizer = hybridReq->requests[0]->optimizer,
+  HybridPipelineParams params = {
+      .aggregation = {
+        .common = {
+          .pln = &hybridReq->tail.ap,
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
       },
-      .outFields = &hybridReq->requests[0]->outFields,
-      .maxResultsLimit = 10,
+      .synchronize_read_locks = true,
+      .scoringCtx = nullptr,
   };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify that individual request pipelines were built
@@ -230,7 +259,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
 
   // Clean up
   HybridRequest_Free(hybridReq);
-  IndexSpec_Free(spec);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
@@ -264,18 +293,22 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   const char *loadFields[] = {"title", "score", "category"};
   AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
 
-  AggregationPipelineParams params = {
-      .common = {
-        .pln = &hybridReq->tail.ap,
-        .sctx = hybridReq->requests[0]->sctx,
-        .reqflags = hybridReq->requests[0]->reqflags,
-        .optimizer = hybridReq->requests[0]->optimizer,
+  HybridPipelineParams params = {
+      .aggregation = {
+        .common = {
+          .pln = &hybridReq->tail.ap,
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
       },
-      .outFields = &hybridReq->requests[0]->outFields,
-      .maxResultsLimit = 10,
+      .synchronize_read_locks = true,
+      .scoringCtx = nullptr,
   };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify all individual request pipelines were built
@@ -291,7 +324,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
 
   // Clean up
   HybridRequest_Free(hybridReq);
-  IndexSpec_Free(spec);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
@@ -311,24 +344,28 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 1);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  AggregationPipelineParams params = {
-      .common = {
-        .pln = &hybridReq->tail.ap,
-        .sctx = hybridReq->requests[0]->sctx,
-        .reqflags = hybridReq->requests[0]->reqflags,
-        .optimizer = hybridReq->requests[0]->optimizer,
+  HybridPipelineParams params = {
+      .aggregation = {
+        .common = {
+          .pln = &hybridReq->tail.ap,
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
       },
-      .outFields = &hybridReq->requests[0]->outFields,
-      .maxResultsLimit = 10,
+      .synchronize_read_locks = true,
+      .scoringCtx = nullptr,
   };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   // Should handle missing LOAD step gracefully
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build should handle missing LOAD step: " << QueryError_GetUserError(&qerr);
 
   // Clean up
   HybridRequest_Free(hybridReq);
-  IndexSpec_Free(spec);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
@@ -362,18 +399,22 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
   const char *loadFields[] = {"title", "score", "category"};
   AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
 
-  AggregationPipelineParams params = {
-      .common = {
-        .pln = &hybridReq->tail.ap,
-        .sctx = hybridReq->requests[0]->sctx,
-        .reqflags = hybridReq->requests[0]->reqflags,
-        .optimizer = hybridReq->requests[0]->optimizer,
+  HybridPipelineParams params = {
+      .aggregation = {
+        .common = {
+          .pln = &hybridReq->tail.ap,
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
       },
-      .outFields = &hybridReq->requests[0]->outFields,
-      .maxResultsLimit = 10,
+      .synchronize_read_locks = true,
+      .scoringCtx = nullptr,
   };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed with diverse queries: " << QueryError_GetUserError(&qerr);
 
   // Verify all pipelines are properly built
@@ -396,7 +437,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
 
   // Clean up
   HybridRequest_Free(hybridReq);
-  IndexSpec_Free(spec);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
@@ -422,18 +463,22 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
   const char *loadFields[] = {"title"};
   AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 1);
 
-  AggregationPipelineParams params = {
-      .common = {
-        .pln = &hybridReq->tail.ap,
-        .sctx = hybridReq->requests[0]->sctx,
-        .reqflags = hybridReq->requests[0]->reqflags,
-        .optimizer = hybridReq->requests[0]->optimizer,
+  HybridPipelineParams params = {
+      .aggregation = {
+        .common = {
+          .pln = &hybridReq->tail.ap,
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
       },
-      .outFields = &hybridReq->requests[0]->outFields,
-      .maxResultsLimit = 10,
+      .synchronize_read_locks = true,
+      .scoringCtx = nullptr,
   };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify proper cleanup - this test mainly ensures no memory leaks
@@ -442,7 +487,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
 
   // Clean up - this should not crash or leak memory
   HybridRequest_Free(hybridReq);
-  IndexSpec_Free(spec);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
@@ -473,17 +518,21 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 2);
 
   // Build pipeline
-  AggregationPipelineParams params = {
-      .common = {
-        .pln = &hybridReq->tail.ap,
-        .sctx = hybridReq->requests[0]->sctx,
-        .reqflags = hybridReq->requests[0]->reqflags,
-        .optimizer = hybridReq->requests[0]->optimizer,
+  HybridPipelineParams params = {
+      .aggregation = {
+        .common = {
+          .pln = &hybridReq->tail.ap,
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
       },
-      .outFields = &hybridReq->requests[0]->outFields,
-      .maxResultsLimit = 10,
+      .synchronize_read_locks = true,
+      .scoringCtx = nullptr,
     };
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
 
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
@@ -517,7 +566,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
 
   // Clean up
   HybridRequest_Free(hybridReq);
-  IndexSpec_Free(spec);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
@@ -547,18 +596,22 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
   const char *loadFields[] = {"title", "score", "category"};
   AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
 
-  AggregationPipelineParams params = {
-      .common = {
-        .pln = &hybridReq->tail.ap,
-        .sctx = hybridReq->requests[0]->sctx,
-        .reqflags = hybridReq->requests[0]->reqflags,
-        .optimizer = hybridReq->requests[0]->optimizer,
+  HybridPipelineParams params = {
+      .aggregation = {
+        .common = {
+          .pln = &hybridReq->tail.ap,
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
       },
-      .outFields = &hybridReq->requests[0]->outFields,
-      .maxResultsLimit = 10,
+      .synchronize_read_locks = true,
+      .scoringCtx = nullptr,
   };
 
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params, true);
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Complex pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify complex pipeline structure
@@ -573,5 +626,5 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
 
   // Clean up
   HybridRequest_Free(hybridReq);
-  IndexSpec_Free(spec);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
