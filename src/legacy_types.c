@@ -16,7 +16,7 @@
 #define LEGACY_LEGACY_ENC_VER 0
 
 // RDB load callback cannot return NULL, as it indicates an error
-void *dummyNoNull = (void*)0xDEADBEEF;
+void *dummyNonNull = (void*)0xDEADBEEF;
 
 // Dummy no-op functions for type methods
 void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value) {
@@ -24,7 +24,7 @@ void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value) {
 }
 
 void GenericType_DummyFree(void *value) {
-  RS_ASSERT(value == dummyNoNull);
+  RS_ASSERT(value == dummyNonNull);
 }
 
 // Consume an inverted index type from RDB
@@ -44,7 +44,7 @@ void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
     RedisModule_LoadUnsigned(rdb); // Consume the number of entries in the block
     RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL)); // Consume the buffer of the block
   }
-  return dummyNoNull;
+  return dummyNonNull;
 }
 
 // Consume a numeric index type from RDB
@@ -67,7 +67,7 @@ void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
     }
   }
 
-  return dummyNoNull;
+  return dummyNonNull;
 }
 
 // Consume a tag index type from RDB
@@ -78,7 +78,7 @@ void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver) {
     RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL)); // Consume the tag value
     InvertedIndex_RdbLoad_Consume(rdb, encver); // Consume the inverted index for the tag
   }
-  return dummyNoNull;
+  return dummyNonNull;
 }
 
 int RegisterLegacyTypes(RedisModuleCtx *ctx) {
