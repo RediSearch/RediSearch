@@ -1235,7 +1235,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  // register trie-map type
+  // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
 
   // register the trie type (half-legacy, still used by `FT.SUG*` commands)
