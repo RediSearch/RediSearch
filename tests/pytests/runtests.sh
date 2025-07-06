@@ -329,6 +329,7 @@ run_tests() {
 	python3 -m RLTest --version
 	echo "AFTER PRINTING VERSIONS"
 	echo "OP is: $OP"
+	OP="strace -e file "
 
 	local E=0
 	if [[ $NOP != 1 ]]; then
