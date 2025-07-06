@@ -219,19 +219,36 @@ inline const char *MRReply_String(const MRReply *reply, size_t *len) {
 }
 
 inline MRReply *MRReply_ArrayElement(const MRReply *reply, size_t idx) {
-  // TODO: check out of bounds
+  RS_ASSERT(reply->elements > idx);
   return reply->element[idx];
 }
 
-inline MRReply *MRReply_MapElement(const MRReply *reply, const char *key) {
-  if (reply->type != MR_REPLY_MAP) return NULL;
-  for (int i = 0; i < reply->elements; i += 2) {
+inline MRReply *MRReply_TakeArrayElement(const MRReply *reply, size_t idx) {
+  RS_ASSERT(reply->elements > idx);
+  MRReply *ret = reply->element[idx];
+  reply->element[idx] = NULL; // Take ownership
+  return ret;
+}
+
+static inline int MRReply_FindMapElement(const MRReply *reply, const char *key) {
+  if (reply->type != MR_REPLY_MAP) return -1;
+  for (int i = 0; i < reply->elements - 1; i += 2) {
     if (MRReply_StringEquals(reply->element[i], key, false)) {
-      ++i;
-      return i < reply->elements ? reply->element[i] : NULL;
+      return i + 1; // Return the index of the value
     }
   }
-  return NULL;
+  return -1; // Not found
+}
+
+inline MRReply *MRReply_MapElement(const MRReply *reply, const char *key) {
+  int idx = MRReply_FindMapElement(reply, key);
+  return idx >= 0 ? reply->element[idx] : NULL;
+}
+
+inline MRReply *MRReply_TakeMapElement(const MRReply *reply, const char *key) {
+  int idx = MRReply_FindMapElement(reply, key);
+  if (idx < 0) return NULL; // Not found
+  return MRReply_TakeArrayElement(reply, idx); // Take ownership of the value
 }
 
 
