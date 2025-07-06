@@ -21,6 +21,7 @@
 #include "util/references.h"
 #include "info/info_redis/threads/current_thread.h"
 
+
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *status) {
   searchRequest->query = AC_GetStringNC(ac, NULL);
   AGPLN_Init(&searchRequest->ap);
@@ -63,6 +64,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
 }
 
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
+  struct VectorQueryData *vqData = rm_calloc(1, sizeof(struct VectorQueryData));
   // assert VSIM is current
   const char *cur;
   if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) != AC_OK || strcasecmp("VSIM", cur)) {
@@ -70,13 +72,13 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
     return REDISMODULE_ERR;
   }
   AC_Advance(ac);
-  const char *vectorField;
-  const char * vectorBlob;
-  if (AC_GetString(ac, &vectorField, NULL, 0) != AC_OK) {
+
+  // Parse vector field and blob
+  if (AC_GetString(ac, &vqData->vectorField, NULL, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector field name");
     return REDISMODULE_ERR;
   }
-  if (AC_GetString(ac, &vectorBlob, NULL, 0) != AC_OK) {
+  if (AC_GetString(ac, &vqData->vectorBlob, NULL, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector blob");
     return REDISMODULE_ERR;
   }
@@ -86,46 +88,93 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
     QueryError_SetError(status, QUERY_ESYNTAX, "Unknown parameter after VSIM");
     return REDISMODULE_ERR;
   }
+
   if (!strcasecmp(current, "KNN")) {
+    vqData->type = VECSIM_QT_KNN;
     AC_Advance(ac);
-    int params;
-    AC_GetLongLong(ac, &params, 0);
-    current = AC_GetStringNC(ac, NULL);
-    if (!strcasecmp(current, "K")) {
-      int k = AC_GetInt(ac, &k, 0);
-      current = AC_GetStringNC(ac, NULL);
+    long long params;
+    if (AC_GetLongLong(ac, &params, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for KNN");
+      return REDISMODULE_ERR;
     }
-    if (!strcasecmp(current, "EF_RUNTIME")) {
-      int efRuntime = AC_GetInt(ac, &efRuntime, 0);
-      current = AC_GetStringNC(ac, NULL);
-    }
-    if (!strcasecmp(current, "YIELD_DISTANCE_AS")){
-      const char *distField = AC_GetStringNC(ac, NULL);
-      current = AC_GetStringNC(ac, NULL);
+
+    for (int i=0; i<params; i+=2) {
+      AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+      if (!vqData->hasK && !strcasecmp(current, "K")) {
+        AC_Advance(ac);
+        if (AC_GetInt(ac, &vqData->k, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
+          return REDISMODULE_ERR;
+        }
+        vqData->hasK = true;
+      } else if (!vqData->hasEfRuntime && !strcasecmp(current, "EF_RUNTIME")) {
+        AC_Advance(ac);
+        if (AC_GetInt(ac, &vqData->efRuntime, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
+          return REDISMODULE_ERR;
+        }
+        vqData->hasEfRuntime = true;
+      } else if (!vqData->hasDistField && !strcasecmp(current, "YIELD_DISTANCE_AS")) {
+        AC_Advance(ac);
+        if (AC_GetString(ac, &vqData->distField, NULL, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+          return REDISMODULE_ERR;
+        }
+        vqData->hasDistField = true;
+      } else {
+        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in KNN", current);
+        return REDISMODULE_ERR;
+      }
+      // AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
     }
   } else if (!strcasecmp(current, "RANGE")) {
+    vqData->type = VECSIM_QT_RANGE;
     AC_Advance(ac);
-    int params = AC_GetInt(ac, &params, 0);
-    current = AC_GetStringNC(ac, NULL);
-    if (!strcasecmp(current, "K")) {
-      double radius = AC_GetDouble(ac, &radius, 0);
-      current = AC_GetStringNC(ac, NULL);
+    long long params;
+    if (AC_GetLongLong(ac, &params, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for RANGE");
+      return REDISMODULE_ERR;
     }
-    if (!strcasecmp(current, "EF_RUNTIME")) {
-      int epsilon = AC_GetInt(ac, &epsilon, 0);
-      current = AC_GetStringNC(ac, NULL);
-    }
-    if (!strcasecmp(current, "YIELD_DISTANCE_AS")){
-      const char *distField = AC_GetStringNC(ac, NULL);
-      current = AC_GetStringNC(ac, NULL);
+    for (int i=0; i<params; i+=2) {
+      AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+      if (!vqData->hasRadius && !strcasecmp(current, "RADIUS")) {
+        AC_Advance(ac);
+        if (AC_GetInt(ac, &vqData->radius, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
+          return REDISMODULE_ERR;
+        }
+        vqData->hasRadius = true;
+      } else if (!vqData->hasEpsilon && !strcasecmp(current, "EPSILON")) {
+        AC_Advance(ac);
+        if (AC_GetInt(ac, &vqData->epsilon, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
+          return REDISMODULE_ERR;
+        }
+        vqData->hasEpsilon = true;
+      } else if (!vqData->hasDistField && !strcasecmp(current, "YIELD_DISTANCE_AS")) {
+        AC_Advance(ac);
+        if (AC_GetString(ac, &vqData->distField, NULL, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+          return REDISMODULE_ERR;
+        }
+        vqData->hasDistField = true;
+      }
+      // AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
     }
   }
+  AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+
+  // Check for optional FILTER clause - parameter may not be in our scope
   if (!strcasecmp(current, "FILTER")) {
+    // FILTER is in our scope, advance and process it
+    AC_Advance(ac);
     vectorRequest->query = AC_GetStringNC(ac, NULL);
   }
+  // If not FILTER, the parameter may be for the next parsing function (COMBINE, etc.)
+
+  vectorRequest->vsimQueryParams = vqData;
+
   return REDISMODULE_OK;
-
-
 }
 
 static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
