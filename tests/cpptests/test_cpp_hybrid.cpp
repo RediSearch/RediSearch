@@ -101,6 +101,14 @@ TEST_F(HybridRequestTest, testHybridRequestCreationBasic) {
   // Initialize the AREQ structures
   AREQ *req1 = AREQ_New();
   AREQ *req2 = AREQ_New();
+
+  // Initialize the pipeline for each AREQ to avoid segfault
+  QueryError err1, err2;
+  QueryError_Init(&err1);
+  QueryError_Init(&err2);
+  QueryPipeline_Initialize(&req1->pipeline, req1->reqConfig.timeoutPolicy, &err1);
+  QueryPipeline_Initialize(&req2->pipeline, req2->reqConfig.timeoutPolicy, &err2);
+
   requests = array_ensure_append_1(requests, req1);
   requests = array_ensure_append_1(requests, req2);
 
@@ -123,6 +131,12 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   // Test pipeline building logic without Redis dependencies
   AREQ **requests = array_new(AREQ*, 1);
   AREQ *req = AREQ_New();
+
+  // Initialize the pipeline to avoid segfault
+  QueryError err;
+  QueryError_Init(&err);
+  QueryPipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, &err);
+
   requests = array_ensure_append_1(requests, req);
 
   // Initialize basic pipeline components
