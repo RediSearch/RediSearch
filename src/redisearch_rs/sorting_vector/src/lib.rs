@@ -179,23 +179,20 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         _idx: usize,
         _str: S,
     ) -> Result<(), IndexOutOfBounds> {
-        unimplemented!(
-            "We cannot yet use `NormalizedString` here, as the RSValue string allocations still happen\
-                in the C layer and the workaround for linking C code for allocations is not ready."
-        );
-    }
+        let rs_value_from_c = T::is_ptr_type();
+        if rs_value_from_c {
+            // If the RSValue type is owned and allocated by C, we cannot allocate parts of it in Rust yet.
+            // See MOD-10347 for details.
+            unimplemented!("We cannot yet allocate RSValues in Rust. See MOD-10347 for details.");
+        }
 
-    pub fn try_insert_string_for_tests<S: AsRef<str>>(
-        &mut self,
-        _idx: usize,
-        _str: S,
-    ) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(_idx)?;
         let casemapper = CaseMapper::new();
         let normalized = casemapper.fold_string(_str.as_ref()).into_owned();
         self.values[_idx] = T::create_string(normalized);
         Ok(())
     }
+
     /// Set a value at the given index
     pub fn try_insert_val(&mut self, idx: usize, value: T) -> Result<(), IndexOutOfBounds> {
         self.in_bounds(idx)?;

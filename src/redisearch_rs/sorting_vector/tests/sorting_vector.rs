@@ -99,9 +99,9 @@ fn test_creation() {
 fn build_vector() -> Result<RSSortingVector<RSValueMock>, IndexOutOfBounds> {
     let mut vector = RSSortingVector::new(5);
     vector.try_insert_num(0, 42.0)?;
-    vector.try_insert_string_for_tests(1, "abcdefg")?;
+    vector.try_insert_string(1, "abcdefg")?;
     vector.try_insert_val_as_ref(2, RSValueMock::create_num(3.))?;
-    vector.try_insert_string_for_tests(3, "Hello World")?;
+    vector.try_insert_string(3, "Hello World")?;
     vector.try_insert_null(4)?;
     Ok(vector)
 }
@@ -174,7 +174,7 @@ fn test_case_folding_aka_normlization() -> Result<(), IndexOutOfBounds> {
 
     let str = "Straße";
     let mut vec: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
-    vec.try_insert_string_for_tests(0, str)?;
+    vec.try_insert_string(0, str)?;
     assert_eq!(vec[0].as_str(), Some("strasse"));
     Ok(())
 }
