@@ -83,7 +83,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx, &mockSctx);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -140,7 +140,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx, &mockSctx);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -223,8 +223,8 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
 
   // Create shared sync reference and two depleters sharing it
   StrongRef sync_ref = DepleterSync_New(2, take_index_lock);
-  ResultProcessor *fastDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &mockSctx);
-  ResultProcessor *slowDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &mockSctx2);
+  ResultProcessor *fastDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &mockSctx, &mockSctx);
+  ResultProcessor *slowDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &mockSctx2, &mockSctx2);
   StrongRef_Release(sync_ref);  // Release our reference
 
   // Set up pipelines
@@ -305,7 +305,7 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx, &mockSctx);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);

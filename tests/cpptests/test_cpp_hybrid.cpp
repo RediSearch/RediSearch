@@ -66,6 +66,9 @@ AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, Qu
     return nullptr;
   }
 
+  // Set VERBATIM flag to ensure the AREQ always uses verbatim search
+  req->searchopts.flags |= (Search_Verbatim | Search_NoStopWords);
+
   const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, specName, true);
   if (!sctx) {
@@ -82,6 +85,12 @@ AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, Qu
   return req;
 }
 
+static void loadDtor(PLN_BaseStep *bstp) {
+  PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
+  rm_free(lstp->keys);
+  rm_free(lstp);
+}
+
 /**
  * Helper function to add a LOAD step to an AGGPlan with properly initialized RLookupKeys.
  * This function creates a LOAD step that specifies which document fields should be loaded
@@ -95,7 +104,9 @@ AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, Qu
 void AddLoadStepToPlan(AGGPlan *plan, const char **fields, size_t nfields) {
   PLN_LoadStep *loadStep = (PLN_LoadStep*)rm_calloc(1, sizeof(PLN_LoadStep));
   loadStep->base.type = PLN_T_LOAD;
+  loadStep->base.dtor = loadDtor;
   loadStep->nkeys = nfields;
+
   if (nfields > 0) {
     loadStep->keys = (const RLookupKey**)rm_calloc(nfields, sizeof(RLookupKey*));
 

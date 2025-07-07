@@ -7,26 +7,6 @@ extern "C" {
 #endif
 
 /**
- * Clone RLookupKeys from a LOAD step into a different RLookup context.
- * This is necessary because each AREQ has its own RLookup context, but we need
- * to ensure that field loading keys are properly mapped across different lookup
- * contexts when building the hybrid pipeline. The lookup doesn't automatically
- * know about the load step, so we must explicitly clone the keys.
- *
- * @param loadStep The LOAD step containing the original RLookupKeys
- * @param lookup The target RLookup context where keys should be cloned
- * @return Array of cloned RLookupKeys that can be used in the target lookup context
- */
-const RLookupKey **CloneKeysInDifferentRLookup(PLN_LoadStep *loadStep, RLookup *lookup) {
-    const RLookupKey **clonedKeys = array_new(const RLookupKey *, loadStep->nkeys);
-    for (size_t index = 0; index < loadStep->nkeys; index++) {
-        const RLookupKey *key = loadStep->keys[index];
-        clonedKeys[index] = RLookup_CloneKey(lookup, key);
-    }
-    return clonedKeys;
-}
-
-/**
  * Build the complete hybrid search pipeline for processing multiple search requests.
  * This function constructs a sophisticated pipeline that:
  * 1. Builds individual pipelines for each AREQ (search request)
@@ -51,6 +31,9 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Find any LOAD step in the tail pipeline that specifies which fields to load
     // This step will be temporarily removed and re-added after merger setup
     PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->tail.ap, NULL, NULL, PLN_T_LOAD);
+    if (!loadStep) {
+        return REDISMODULE_ERR;
+    }
 
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
@@ -70,17 +53,14 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
 
-        // If there's a LOAD step, add a loader to this individual pipeline
-        // We use the last lookup since we push the loader at the end of the pipeline
-        if (loadStep && lastLookup) {
-            const RLookupKey **clonedKeys = CloneKeysInDifferentRLookup(loadStep, lastLookup);
-            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), areq->reqflags, lastLookup, clonedKeys, loadStep->nkeys, false, &areq->stateflags);
-            QITR_PushRP(qctx, loader);
-        }
+        ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), areq->reqflags, lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
+        QITR_PushRP(qctx, loader);
 
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
-        ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), AREQ_SearchCtx(areq));
+        RedisSearchCtx *nextThread = params->aggregation.common.sctx; // We will use the context provided in the params
+        RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
+        ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
         array_ensure_append_1(depleters, depleter);
         QITR_PushRP(qctx, depleter);
     }
