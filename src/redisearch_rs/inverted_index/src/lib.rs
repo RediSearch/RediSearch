@@ -8,7 +8,7 @@
 */
 
 use std::{
-    alloc::{Layout, alloc_zeroed},
+    alloc::{Layout, alloc_zeroed, dealloc},
     ffi::{c_char, c_int},
     fmt::Debug,
     io::{Read, Seek, Write},
@@ -149,6 +149,22 @@ impl RSAggregateResult {
             children_cap: cap as c_int,
             children,
             type_mask: RSResultTypeMask::empty(),
+        }
+    }
+}
+
+impl Drop for RSAggregateResult {
+    fn drop(&mut self) {
+        if !self.children.is_null() && self.children_cap > 0 {
+            let layout = Layout::array::<*mut RSIndexResult>(self.children_cap as usize)
+                .expect("Failed to create layout for deallocating children array");
+
+            // SAFETY:
+            // 1. We made `children` using the same allocator in `new`.
+            // 2. We are deallocating the same number of elements as we allocated, therefore the layout is the same.
+            unsafe {
+                dealloc(self.children as *mut u8, layout);
+            }
         }
     }
 }
