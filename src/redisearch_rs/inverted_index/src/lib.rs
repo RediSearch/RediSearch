@@ -17,6 +17,7 @@ use std::{
 use enumflags2::{BitFlags, bitflags};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 
+pub mod freqs_only;
 pub mod numeric;
 
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
@@ -200,6 +201,24 @@ impl RSIndexResult {
             None
         }
     }
+
+    /// Create a new freqs only index result with the given frequency.
+    pub fn freqs_only(doc_id: t_docId, freq: u32) -> Self {
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                virt: ManuallyDrop::new(RSVirtualResult),
+            },
+            result_type: RSResultType::Virtual,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight: 0.0,
+        }
+    }
 }
 
 impl Debug for RSIndexResult {
@@ -300,6 +319,11 @@ impl PartialEq for RSIndexResult {
 pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
+    ///
+    /// # Panics
+    /// Non-numeric encoders only accept deltas that fit in a `u32`, and so will panic if the delta
+    /// is larger than `u32::MAX`.
+    /// When using such encoders the inverted index should create new blocks if the delta exceeds `u32::MAX`.
     fn encode<W: Write + Seek>(
         &self,
         writer: W,
@@ -320,13 +344,7 @@ pub enum DecoderResult {
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
-    ///
-    /// Returns `Ok(None)` if there is nothing left on the reader to decode.
-    fn decode<R: Read>(
-        &self,
-        reader: &mut R,
-        base: t_docId,
-    ) -> std::io::Result<Option<DecoderResult>>;
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
@@ -338,12 +356,13 @@ pub trait Decoder {
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult>> {
         loop {
-            match self.decode(reader, base)? {
-                Some(DecoderResult::Record(record)) if record.doc_id >= target => {
+            match self.decode(reader, base) {
+                Ok(DecoderResult::Record(record)) if record.doc_id >= target => {
                     return Ok(Some(record));
                 }
-                Some(DecoderResult::Record(_)) | Some(DecoderResult::FilteredOut) => continue,
-                None => return Ok(None),
+                Ok(DecoderResult::Record(_)) | Ok(DecoderResult::FilteredOut) => continue,
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(err) => return Err(err),
             }
         }
     }

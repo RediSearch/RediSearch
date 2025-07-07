@@ -208,6 +208,7 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 
 include_directories(
     ${root}/src
+    ${root}/src/buffer
     ${root}/src/coord
     ${root}/src/inverted_index
     ${root}/src/redisearch_rs/headers
@@ -234,6 +235,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/buffer)
 add_subdirectory(src/inverted_index)
 add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
@@ -275,6 +277,7 @@ add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
+    $<TARGET_OBJECTS:buffer>
     $<TARGET_OBJECTS:inverted_index>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
@@ -306,6 +309,7 @@ target_link_libraries(redisearch
         VectorSimilarity
         redisearch-coord
         arr
+        buffer
         inverted_index
         wildcard
         uv_a

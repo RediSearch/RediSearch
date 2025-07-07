@@ -52,6 +52,12 @@ impl Drop for TestBuffer {
     }
 }
 
+impl std::fmt::Debug for TestBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
 pub fn encode_numeric(
     buffer: &mut TestBuffer,
     record: &mut inverted_index::RSIndexResult,
@@ -70,6 +76,28 @@ pub fn read_numeric(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index:
     let mut result = inverted_index::RSIndexResult::numeric(0, 0.0);
 
     let returned = unsafe { bindings::read_numeric(&mut block_reader, &mut ctx, &mut result) };
+
+    (returned, result)
+}
+
+pub fn encode_freqs_only(
+    buffer: &mut TestBuffer,
+    record: &mut inverted_index::RSIndexResult,
+    delta: u64,
+) -> usize {
+    let mut buffer_writer = BufferWriter::new(&mut buffer.0);
+
+    unsafe { bindings::encode_freqs_only(&mut buffer_writer as *const _ as *mut _, delta, record) }
+}
+
+pub fn read_freqs(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::RSIndexResult) {
+    let buffer_reader = BufferReader::new(buffer);
+    let mut block_reader =
+        unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
+    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
+    let mut result = inverted_index::RSIndexResult::freqs_only(base_id, 0);
+
+    let returned = unsafe { bindings::read_freqs(&mut block_reader, &mut ctx, &mut result) };
 
     (returned, result)
 }
@@ -152,6 +180,47 @@ mod tests {
                 "does not match for input: {}",
                 input
             );
+        }
+    }
+
+    #[test]
+    fn test_encode_freqs_only() {
+        // Test cases for the frequencies only encoder and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+        let tests = [
+            // (frequency, delta, expected encoding)
+            (0, 0, vec![0, 0, 0]),
+            (0, 1, vec![0, 1, 0]),
+            (2, 0, vec![0, 0, 2]),
+            (2, 1, vec![0, 1, 2]),
+            (256, 0, vec![4, 0, 0, 1]),
+            (256, 256, vec![5, 0, 1, 0, 1]),
+            (2, 65536, vec![2, 0, 0, 1, 2]),
+            (
+                u16::MAX as u32 + 1,
+                u16::MAX as u64 + 1,
+                vec![10, 0, 0, 1, 0, 0, 1],
+            ),
+            (2, u32::MAX as u64, vec![3, 255, 255, 255, 255, 2]),
+            (
+                u32::MAX,
+                u32::MAX as u64,
+                vec![15, 255, 255, 255, 255, 255, 255, 255, 255],
+            ),
+        ];
+        let doc_id = 4294967296;
+
+        for (freq, delta, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+            let mut record = inverted_index::RSIndexResult::freqs_only(doc_id, freq);
+
+            let _buffer_grew_size = encode_freqs_only(&mut buffer, &mut record, delta);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_freqs(&mut buffer.0, base_id);
+            assert!(returned);
+            assert_eq!(decoded_result, record);
         }
     }
 }

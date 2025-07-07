@@ -66,6 +66,7 @@ wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 result_processor = { path = "./result_processor" }
 varint = { path = "./varint" }
+qint = { path = "./qint" }
 
 cbindgen = "0.28.0"
 cc = "1"

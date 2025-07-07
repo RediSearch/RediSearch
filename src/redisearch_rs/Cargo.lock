@@ -652,6 +652,7 @@ dependencies = [
  "ffi",
  "pretty_assertions",
  "proptest",
+ "qint",
 ]
 
 [[package]]
