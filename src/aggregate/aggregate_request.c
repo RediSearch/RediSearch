@@ -916,7 +916,50 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
-bool hasQuerySortby(const AGGPlan *pln);
+int parseAggPlan(AREQ *req, ArgsCursor *ac, QueryError *status) {
+  while (!AC_IsAtEnd(ac)) {
+    int rv = handleCommonArgs(req, ac, status, AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH);
+    if (rv == ARG_HANDLED) {
+      continue;
+    } else if (rv == ARG_ERROR) {
+      return REDISMODULE_ERR;
+    }
+
+    if (AC_AdvanceIfMatch(ac, "GROUPBY")) {
+      if (!ensureExtendedMode(req, "GROUPBY", status)) {
+        return REDISMODULE_ERR;
+      }
+      if (parseGroupby(req, ac, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+    } else if (AC_AdvanceIfMatch(ac, "APPLY")) {
+      if (handleApplyOrFilter(req, ac, status, 1) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+    } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
+      if (handleLoad(req, ac, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+    } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
+      if (handleApplyOrFilter(req, ac, status, 0) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+    } else {
+      QueryError_FmtUnknownArg(status, ac, "<main>");
+        return REDISMODULE_ERR;
+    }
+  }
+
+  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(AREQ_AGGPlan(req)))) {
+    // We can skip collecting full results structure and metadata from the iterators if:
+    // 1. We don't have a highlight/summarize step,
+    // 2. We are not required to return scores explicitly,
+    // 3. This is not a search query with implicit sorting by query score.
+    req->searchopts.flags |= Search_CanSkipRichResults;
+  }
+
+  return REDISMODULE_OK;
+}
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
@@ -948,45 +991,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  while (!AC_IsAtEnd(&ac)) {
-    int rv = handleCommonArgs(req, &ac, status, AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH);
-    if (rv == ARG_HANDLED) {
-      continue;
-    } else if (rv == ARG_ERROR) {
-      goto error;
-    }
-
-    if (AC_AdvanceIfMatch(&ac, "GROUPBY")) {
-      if (!ensureExtendedMode(req, "GROUPBY", status)) {
-        goto error;
-      }
-      if (parseGroupby(req, &ac, status) != REDISMODULE_OK) {
-        goto error;
-      }
-    } else if (AC_AdvanceIfMatch(&ac, "APPLY")) {
-      if (handleApplyOrFilter(req, &ac, status, 1) != REDISMODULE_OK) {
-        goto error;
-      }
-    } else if (AC_AdvanceIfMatch(&ac, "LOAD")) {
-      if (handleLoad(req, &ac, status) != REDISMODULE_OK) {
-        goto error;
-      }
-    } else if (AC_AdvanceIfMatch(&ac, "FILTER")) {
-      if (handleApplyOrFilter(req, &ac, status, 0) != REDISMODULE_OK) {
-        goto error;
-      }
-    } else {
-      QueryError_FmtUnknownArg(status, &ac, "<main>");
-      goto error;
-    }
-  }
-
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(AREQ_AGGPlan(req)))) {
-    // We can skip collecting full results structure and metadata from the iterators if:
-    // 1. We don't have a highlight/summarize step,
-    // 2. We are not required to return scores explicitly,
-    // 3. This is not a search query with implicit sorting by query score.
-    searchOpts->flags |= Search_CanSkipRichResults;
+  if (parseAggPlan(req, &ac, status) != REDISMODULE_OK) {
+    goto error;
   }
 
   return REDISMODULE_OK;
@@ -1206,7 +1212,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 void AREQ_Free(AREQ *req) {
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
-  
+
   if (req->rootiter) {
     req->rootiter->Free(req->rootiter);
     req->rootiter = NULL;
@@ -1267,7 +1273,7 @@ void AREQ_Free(AREQ *req) {
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
-  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status); 
+  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
       .common = {
@@ -1287,7 +1293,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = { 
+  AggregationPipelineParams params = {
     .common = {
       .pln = &req->pipeline.ap,
       .sctx = req->sctx,
