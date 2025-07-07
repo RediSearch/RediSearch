@@ -5,7 +5,6 @@ name: Get Linux Configurations
 env:
   ALL_X86_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic',
                     'rockylinux:8',
                     'debian:bullseye',
                     'amazonlinux:2',
@@ -13,8 +12,7 @@ env:
                     ]"
                     # TODO: Add back 'rockylinux:9' when RedisJSON 2.4 supports it
   ALL_ARM_IMAGES: "['ubuntu:jammy',
-                    'ubuntu:focal',
-                    'ubuntu:bionic']"
+                    'ubuntu:focal']"
 
 on:
   workflow_call:
@@ -112,7 +110,7 @@ jobs:
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates"})
 
           # Ubuntu and Debian distributions need git pre-checkout dependencies
-          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'ubuntu:xenial', 'debian:bullseye', 'gcc:12-bookworm']
+          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'debian:bullseye', 'gcc:12-bookworm']
           for os_name in debian_based_os:
             if os_name in x86_platforms:
               x86_include.append({

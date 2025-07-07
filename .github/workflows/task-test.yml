@@ -70,7 +70,7 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
-          for platform in ubuntu:xenial ubuntu:bionic centos:7 amazonlinux:2; do
+          for platform in amazonlinux:2; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -88,20 +88,7 @@ jobs:
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            ubuntu:xenial | ubuntu:bionic | centos:7 | amazonlinux:2)
-
-              if [[ ${{ inputs.container }} == centos:7 ]]; then
-                # Install git (platform-specific package management)
-                echo "Installing prerequisites for ${{ inputs.container }}..."
-                # http://mirror.centos.org/centos/7/ is deprecated, so we have to disable mirrorlists
-                # and change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
-                for file in /etc/yum.repos.d/*.repo; do
-                  sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
-                  sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
-                done
-                yum update -y
-                yum install -y git
-              fi
+            amazonlinux:2)
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
