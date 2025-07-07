@@ -327,10 +327,8 @@ run_tests() {
 
 	local E=0
 	if [[ $NOP != 1 ]]; then
-		cat $rltest_config
 		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
-		cat $rltest_config
 		$OP python3 -m RLTest @$rltest_config
 	fi
 
