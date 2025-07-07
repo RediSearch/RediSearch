@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use sorting_vector::{IndexOutOfBounds, RSSortingVector, RSValueTrait};
+use sorting_vector::{IndexOutOfBounds, RSSortingVector};
+use value::RSValueTrait;
 
 #[derive(Clone, Debug, PartialEq)]
 enum RSValueMock {
