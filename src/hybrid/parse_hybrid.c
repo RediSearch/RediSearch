@@ -21,8 +21,13 @@
 #include "info/info_redis/threads/current_thread.h"
 
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "No query string provided for SEARCH");
+    return REDISMODULE_ERR;
+  }
+
   searchRequest->query = AC_GetStringNC(ac, NULL);
-  AGPLN_Init(&searchRequest->ap);
+  AGPLN_Init(AREQ_AGGPlan(searchRequest));
 
   RSSearchOptions *searchOpts = &searchRequest->searchopts;
   RSSearchOptions_Init(searchOpts);
@@ -96,16 +101,11 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
 }
 
 static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
-  // Default to RRF if method not specified
-  HybridScoringType scoringType = HYBRID_SCORING_RRF;
-
   // Check if a specific method is provided
   if (AC_AdvanceIfMatch(ac, "LINEAR")) {
     combineCtx->scoringType = HYBRID_SCORING_LINEAR;
   } else if (AC_AdvanceIfMatch(ac, "RRF")) {
     combineCtx->scoringType = HYBRID_SCORING_RRF;
-  } else {
-    // If no method specified, use default RRF
   }
 
   // Parse parameters based on scoring type
@@ -198,12 +198,49 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
   return REDISMODULE_OK;
 }
 
+
+HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
+  HybridRequest *req = rm_calloc(1, sizeof(*req));
+  req->requests = requests;
+  req->nrequests = nrequests;
+
+  // Initialize error tracking for each individual request plus the tail pipeline
+  req->errors = array_new(QueryError, nrequests);
+
+  // Initialize the tail pipeline that will merge results from all requests
+  AGPLN_Init(&req->tail.ap);
+  QueryError_Init(&req->tailError);
+  Pipeline_Initialize(&req->tail, requests[0]->pipeline.qctx.timeoutPolicy, &req->tailError);
+
+  // Initialize pipelines for each individual request
+  for (size_t i = 0; i < nrequests; i++) {
+    QueryError_Init(&req->errors[i]);
+    Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
+  }
+  return req;
+}
+int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params) { return REDISMODULE_OK; }
+void HybridRequest_Free(HybridRequest *req) {
+  // Free all individual AREQ requests and their pipelines
+  for (size_t i = 0; i < req->nrequests; i++) {
+    AREQ_Free(req->requests[i]);
+  }
+
+  // Free the arrays and tail pipeline
+  array_free(req->requests);
+  array_free(req->errors);
+  Pipeline_Clean(&req->tail);  // Cleans up the merger and aggregation pipeline
+  rm_free(req);
+}
+
+
 HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 RedisSearchCtx *sctx, QueryError *status) {
+                                 RedisSearchCtx *sctx, HybridPipelineParams *hybridParams,
+                                 QueryError *status) {
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
   AREQ *mergeAreq = NULL;
-  arrayof(AREQ) requestsArray = NULL;
+  AREQ **requests = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
   vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
 
@@ -222,17 +259,15 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     goto error;
   }
 
-  HybridScoringContext combineCtx = {
-    .scoringType = HYBRID_SCORING_RRF,
-    .rrfCtx = {
-      .k = 1,
-      .window = 20
-    }
+  hybridParams->scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  hybridParams->scoringCtx->rrfCtx = (HybridRRFContext) {
+    .k = 1,
+    .window = 20
   };
 
   // Look for optional COMBINE parameter
   if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
-    if (parseCombine(&ac, &combineCtx, status) != REDISMODULE_OK) {
+    if (parseCombine(&ac, hybridParams->scoringCtx, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -241,43 +276,61 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   const int remainingOffset = (int) ac.offset;
   const int remainingArgs = argc - 2 - remainingOffset;
 
-  AGGPlan* mergePlan = NULL;
-  // If there are remaining arguments, compile them into the request
+  // If there are remaining arguments, parse them into the aggregate plan
+  bool hasMerge = false;
   if (remainingArgs > 0) {
+    hasMerge = true;
     mergeAreq = AREQ_New();
-    if (AREQ_Compile(mergeAreq, argv + 2 + remainingOffset, remainingArgs, status) != REDISMODULE_OK) {
+
+    AGPLN_Init(AREQ_AGGPlan(mergeAreq));
+    RSSearchOptions_Init(&mergeAreq->searchopts);
+    if (parseAggPlan(mergeAreq, &ac, status) != REDISMODULE_OK) {
       goto error;
     }
-    mergePlan = &mergeAreq->ap;
 
     mergeAreq->protocol = is_resp3(ctx) ? 3 : 2;
 
     searchRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
     vectorRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
+
+    if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
+      goto error;
+    }
   }
 
-  // Apply context to the requests as part of parsing
   if (AREQ_ApplyContext(searchRequest, sctx, status) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (AREQ_ApplyContext(vectorRequest, sctx, status) != REDISMODULE_OK) {
-    goto error;
-  }
-
   // Create the hybrid request with proper structure
-  requestsArray = array_new(AREQ, 2);
-  array_append(requestsArray, *searchRequest);
-  array_append(requestsArray, *vectorRequest);
-
-  AggregationPipeline mergePipeline = {0};
-  if (mergePlan) {
-    mergePipeline.ap = *mergePlan;
-  }
-  mergePipeline.sctx = sctx;
+  requests = array_new(AREQ*, 2);
+  array_ensure_append_1(requests, searchRequest);
+  array_ensure_append_1(requests, vectorRequest);
 
   HybridRequest *hybridRequest = rm_malloc(sizeof(HybridRequest));
-  *hybridRequest = (HybridRequest){requestsArray, 2, mergePipeline, combineCtx};
+  HybridRequest_New(requests, 2);
+
+  // thread safe context
+  const AggregationPipelineParams params = {
+      .common =
+          {
+              .pln = NULL,  // I think. should be copied in HybridRequest_BuildPipeline
+              .sctx = sctx,  // should be a separate context?
+              .reqflags = hasMerge ? mergeAreq->reqflags : 0,
+              .optimizer = NULL,  // is it?
+          },
+      .outFields = NULL,
+      .maxResultsLimit = hasMerge ? mergeAreq->maxAggregateResults : RSGlobalConfig.maxAggregateResults,
+      .language = searchRequest->searchopts.language,
+  };
+
+  hybridParams->aggregation = params;
+  hybridParams->synchronize_read_locks = true;
+
+  if (hasMerge) {
+    hybridRequest->tail.ap = mergeAreq->pipeline.ap;
+    AGPLN_Init(&mergeAreq->pipeline.ap);
+  }
 
   if (mergeAreq) {
     AREQ_Free(mergeAreq);
@@ -291,42 +344,16 @@ error:
   if (mergeAreq) {
     AREQ_Free(mergeAreq);
   }
-  array_free(requestsArray);
+  if (requests) {
+    array_free(requests);
+  }
 
-  if (combineCtx.scoringType == HYBRID_SCORING_LINEAR && combineCtx.linearCtx.linearWeights) {
-    rm_free(combineCtx.linearCtx.linearWeights);
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR &&
+        hybridParams->scoringCtx->linearCtx.linearWeights) {
+    rm_free(hybridParams->scoringCtx->linearCtx.linearWeights);
   }
 
   return NULL;
-}
-
-void HybridRequest_Free(HybridRequest *hybridRequest) {
-  if (!hybridRequest) return;
-
-  // Free the merge pipeline's result processors
-  QueryProcessingCtx *qctx = &hybridRequest->merge.qctx;
-  ResultProcessor *rp = qctx->endProc;
-  while (rp) {
-    ResultProcessor *next = rp->upstream;
-    rp->Free(rp);
-    rp = next;
-  }
-
-  // Free the merge pipeline's AGGPlan steps
-  AGPLN_FreeSteps(&hybridRequest->merge.ap);
-
-  // Free the merge pipeline's output fields
-  FieldList_Free(&hybridRequest->merge.outFields);
-
-  if (hybridRequest->combineCtx.scoringType == HYBRID_SCORING_LINEAR &&
-      hybridRequest->combineCtx.linearCtx.linearWeights) {
-    rm_free(hybridRequest->combineCtx.linearCtx.linearWeights);
-  }
-  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
-    AREQ_Free(&hybridRequest->requests[i]);
-  }
-  array_free(hybridRequest->requests);
-  rm_free(hybridRequest);
 }
 
 int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -348,13 +375,18 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   QueryError status = {0};
 
-  // Parse the hybrid request parameters (includes context application)
-  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  HybridPipelineParams params = {0};  
+
+  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, &params, &status);
   if (!hybridRequest) {
     goto error;
   }
 
-  // TODO: Add build pipeline and execute command here
+  if (HybridRequest_BuildPipeline(hybridRequest, &params) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  // TODO: Add execute command here
 
   StrongRef_Release(spec_ref);
   HybridRequest_Free(hybridRequest);
