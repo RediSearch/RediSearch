@@ -90,6 +90,7 @@ impl RSValueTrait for RSValueMock {
 fn test_creation() {
     let vector: RSSortingVector<RSValueMock> = RSSortingVector::new(10);
     assert_eq!(vector.len(), 10);
+    assert_eq!(vector.iter().count(), 10);
 
     for value in vector {
         assert!(value.is_null());
@@ -118,6 +119,16 @@ fn test_insert() -> Result<(), IndexOutOfBounds> {
     assert_eq!(vector[3].as_str(), Some("hello world")); // we normalize --> lowercase
     assert!(vector[4].is_null());
 
+    Ok(())
+}
+
+#[test]
+fn test_out_of_bounds() -> Result<(), IndexOutOfBounds> {
+    let mut vector = build_vector()?;
+
+    assert_eq!(vector.len(), 5);
+    let reval = vector.try_insert_num(5, 1.0);
+    assert!(reval.is_err());
     Ok(())
 }
 
