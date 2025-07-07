@@ -24,10 +24,6 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-/** Reset the state of an existing index hit. This can be used to
-recycle index hits during reads */
-void IndexResult_Init(RSIndexResult *h);
-
 static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
   if (child->metrics) {
     // Passing ownership over the RSValues in the child metrics, but not on the array itself
