@@ -30,8 +30,14 @@ jobs:
         github.event.action == 'labeled' &&
         github.event.label.name == 'action:run-micro-benchmark'
       ) || (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'action:run-rust-micro-benchmark'
+      ) || (
         contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
         contains(github.event.pull_request.labels.*.name, 'action:run-micro-benchmark')
+      ) || (
+        contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
+        contains(github.event.pull_request.labels.*.name, 'action:run-rust-micro-benchmark')
       )
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.number }}-rust-micro-benchmark
@@ -46,8 +52,14 @@ jobs:
         github.event.action == 'labeled' &&
         github.event.label.name == 'action:run-micro-benchmark'
       ) || (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'action:run-c-micro-benchmark'
+      ) || (
         contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
         contains(github.event.pull_request.labels.*.name, 'action:run-micro-benchmark')
+      ) || (
+        contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
+        contains(github.event.pull_request.labels.*.name, 'action:run-c-micro-benchmark')
       )
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.number }}-micro-benchmark

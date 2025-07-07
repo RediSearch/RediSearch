@@ -129,11 +129,12 @@ def do_burst_threads_sanity(algo, data_type, test_name):
     k = 10
     expected_total_jobs = 0
 
-    additional_params = ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors] if algo == 'HNSW' else []
+    additional_params = {'HNSW': ['EF_CONSTRUCTION', n_vectors, 'EF_RUNTIME', n_vectors],
+    'FLAT': [], 'SVS-VAMANA': ['CONSTRUCTION_WINDOW_SIZE', n_vectors, 'SEARCH_WINDOW_SIZE', n_vectors]}
     # Load random vectors into redis, save the first one to use as query vector later on. We set EF_C and
     # EF_R to n_vectors to ensure that all vectors would be reachable in HNSW and avoid flakiness in search.
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params)),
-                'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', *additional_params).ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params[algo])),
+                'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', *additional_params[algo]).ok()
     query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
     n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
 
@@ -146,7 +147,7 @@ def do_burst_threads_sanity(algo, data_type, test_name):
     waitForRdbSaveToFinish(env)
     for i in env.reloadingIterator():
         debug_info = get_vecsim_debug_dict(env, 'idx', 'vector')
-        env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' else algo)
+        env.assertEqual(debug_info['ALGORITHM'], 'TIERED' if algo == 'HNSW' or algo == 'SVS-VAMANA' else algo)
         if algo == 'HNSW':
             env.assertEqual(debug_info['BACKGROUND_INDEXING'], 0,
                             message=f"{'before loading' if i==1 else 'after loading'}")
@@ -168,6 +169,8 @@ def do_burst_threads_sanity(algo, data_type, test_name):
 func_gen = lambda al, dt, tn: lambda: do_burst_threads_sanity(al, dt, tn)
 for algo in VECSIM_ALGOS:
     for data_type in VECSIM_DATA_TYPES:
+        if algo == 'SVS-VAMANA' and data_type not in ('FLOAT32', 'FLOAT16'):
+            continue
         test_name = f"test_burst_threads_sanity_{algo}_{data_type}"
         globals()[test_name] = func_gen(algo, data_type, test_name)
 

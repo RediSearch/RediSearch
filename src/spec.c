@@ -47,8 +47,6 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver);
-
 const char *(*IndexAlias_GetUserTableName)(RedisModuleCtx *, const char *) = NULL;
 
 RedisModuleType *IndexSpecType;
@@ -627,58 +625,94 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   return AC_OK;
 }
 
+// Parsing for Quantization parameter in SVS algorithm
+static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *quantBits) {
+  const char *quantBitsStr;
+  size_t len;
+  int rc;
+  if ((rc = AC_GetString(ac, &quantBitsStr, &len, 0)) != AC_OK) {
+    return rc;
+  }
+  if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_8))
+    *quantBits = VecSimSvsQuant_8;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
+    *quantBits = VecSimSvsQuant_4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
+    *quantBits = VecSimSvsQuant_4x4;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
+    *quantBits = VecSimSvsQuant_4x8;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
+    *quantBits = VecSimSvsQuant_4x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
+    *quantBits = VecSimSvsQuant_8x8_LeanVec;
+  else
+    return AC_ERR_ENOENT;
+  return AC_OK;
+}
+
 // memoryLimit / 10 - default is 10% of global memory limit
-#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : memoryLimit / 10)
+#define ACTUAL_MEMORY_LIMIT ((memoryLimit == 0) ? SIZE_MAX : memoryLimit)
+#define BLOCK_MEMORY_LIMIT ((RSGlobalConfig.vssMaxResize) ? RSGlobalConfig.vssMaxResize : ACTUAL_MEMORY_LIMIT / 10)
 
 static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *status) {
+  // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
+  size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
-  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / VecSimIndex_EstimateElementSize(params);
-  // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (params->algoParams.hnswParams.blockSize == 0) { // indicates that block size was not set by the user
-    params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
-  }
-  if (params->algoParams.hnswParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
-    params->algoParams.hnswParams.initialCapacity = params->algoParams.hnswParams.blockSize;
-  }
-  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
-  size_t free_memory = memoryLimit - used_memory;
-  if (params->algoParams.hnswParams.initialCapacity > maxBlockSize) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index initial capacity", " %zu exceeded server limit (%zu with the given parameters)", params->algoParams.hnswParams.initialCapacity, maxBlockSize);
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
+  params->algoParams.hnswParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (params->algoParams.hnswParams.blockSize == 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index element size",
+      " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
     return 0;
   }
-  if (params->algoParams.hnswParams.blockSize > maxBlockSize) {
-    // TODO: uncomment when BLOCK_SIZE is added to FT.CREATE on HNSW
-    // QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index block size", " %zu exceeded server limit (%zu with the given parameters)", fs->vectorOpts.vecSimParams.bfParams.blockSize, maxBlockSize);
-    // return 0;
-  }
-  RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zuB, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
+  index_size_estimation += elementSize * params->algoParams.hnswParams.blockSize;
+
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
+    "Creating vector index of type HNSW. Required memory for a block of %zu vectors: %zuB",
+    params->algoParams.hnswParams.blockSize,  index_size_estimation);
   return 1;
 }
 
 static int parseVectorField_validate_flat(VecSimParams *params, QueryError *status) {
+  // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
   size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
-  // if Block size was not set by user, sets the default to min(maxBlockSize, DEFAULT_BLOCK_SIZE)
-  if (params->algoParams.bfParams.blockSize == 0) { // indicates that block size was not set by the user
-    params->algoParams.bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
-  }
-  if (params->algoParams.bfParams.initialCapacity == SIZE_MAX) { // indicates that initial capacity was not set by the user
-    params->algoParams.bfParams.initialCapacity = params->algoParams.bfParams.blockSize;
+  params->algoParams.bfParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+  if (params->algoParams.bfParams.blockSize == 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index element size",
+      " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
+    return 0;
   }
   // Calculating index size estimation, after first vector block was allocated.
   size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
   index_size_estimation += elementSize * params->algoParams.bfParams.blockSize;
-  size_t free_memory = memoryLimit - used_memory;
-  if (params->algoParams.bfParams.initialCapacity > maxBlockSize) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index initial capacity", " %zu exceeded server limit (%zu with the given parameters)", params->algoParams.bfParams.initialCapacity, maxBlockSize);
+
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
+    "Creating vector index of type FLAT. Required memory for a block of %zu vectors: %zuB",
+    params->algoParams.bfParams.blockSize, index_size_estimation);
+  return 1;
+}
+
+static int parseVectorField_validate_svs(VecSimParams *params, QueryError *status) {
+  size_t elementSize = VecSimIndex_EstimateElementSize(params);
+  // Calculating max block size (in # of vectors), according to memory limits
+  size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
+  // Block size should be min(maxBlockSize, DEFAULT_BLOCK_SIZE)
+  params->algoParams.svsParams.blockSize = MIN(DEFAULT_BLOCK_SIZE, maxBlockSize);
+
+  // Calculating index size estimation, after first vector block was allocated.
+  size_t index_size_estimation = VecSimIndex_EstimateInitialSize(params);
+  index_size_estimation += elementSize * params->algoParams.svsParams.blockSize;
+  if (params->algoParams.svsParams.blockSize == 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index element size",
+      " %zu exceeded maximum size allowed by server limit which is %zu", elementSize, maxBlockSize);
     return 0;
   }
-  if (params->algoParams.bfParams.blockSize > maxBlockSize) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ELIMIT, "Vector index block size", " %zu exceeded server limit (%zu with the given parameters)", params->algoParams.bfParams.blockSize, maxBlockSize);
-    return 0;
-  }
-  RedisModule_Log(RSDummyContext, "warning", "creating vector index. Server memory limit: %zuB, required memory: %zuB, available memory: %zuB", memoryLimit, index_size_estimation, free_memory);
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_NOTICE,
+    "Creating vector index of type SVS-VAMANA. Required memory for a block of %zu vectors: %zuB",
+    params->algoParams.svsParams.blockSize,  index_size_estimation);
   return 1;
 }
 
@@ -689,6 +723,8 @@ int VecSimIndex_validate_params(RedisModuleCtx *ctx, VecSimParams *params, Query
     valid = parseVectorField_validate_hnsw(params, status);
   } else if (VecSimAlgo_BF == params->algo) {
     valid = parseVectorField_validate_flat(params, status);
+  } else if (VecSimAlgo_SVS == params->algo) {
+    valid = parseVectorField_validate_svs(params, status);
   } else if (VecSimAlgo_TIERED == params->algo) {
     return VecSimIndex_validate_params(ctx, params->algoParams.tieredParams.primaryIndexParams, status);
   }
@@ -866,6 +902,125 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
+static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, ArgsCursor *ac, QueryError *status) {
+  int rc;
+
+  // SVS-VAMANA mandatory params.
+  bool mandtype = false;
+  bool mandsize = false;
+  bool mandmetric = false;
+
+  VecSimParams *params = tieredParams->primaryIndexParams;
+
+  // Get number of parameters
+  size_t expNumParam, numParam = 0;
+  if ((rc = AC_GetSize(ac, &expNumParam, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "vector similarity number of parameters", rc);
+    return 0;
+  } else if (expNumParam % 2) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad number of arguments for vector similarity index:", " got %d but expected even number as algorithm parameters (should be submitted as named arguments)", expNumParam);
+    return 0;
+  } else {
+    expNumParam /= 2;
+  }
+
+  while (expNumParam > numParam && !AC_IsAtEnd(ac)) {
+    if (AC_AdvanceIfMatch(ac, VECSIM_TYPE)) {
+      if ((rc = parseVectorField_GetType(ac, &params->algoParams.svsParams.type)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TYPE), rc);
+        return 0;
+      } else if (params->algoParams.svsParams.type != VecSimType_FLOAT16 &&
+                 params->algoParams.svsParams.type != VecSimType_FLOAT32){
+            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Not supported data type is given. ", "Expected: FLOAT16, FLOAT32");
+            return 0;
+      }
+      mandtype = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.dim, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_DIM), rc);
+        return 0;
+      }
+      mandsize = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_DISTANCE_METRIC)) {
+      if ((rc = parseVectorField_GetMetric(ac, &params->algoParams.svsParams.metric)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_DISTANCE_METRIC), rc);
+        return 0;
+      }
+      mandmetric = true;
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_GRAPH_DEGREE)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.graph_max_degree, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_GRAPH_DEGREE), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_WINDOW_SIZE)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.construction_window_size, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_WINDOW_SIZE), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_COMPRESSION)) {
+      if ((rc = parseVectorField_GetQuantBits(ac, &params->algoParams.svsParams.quantBits)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_COMPRESSION), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_WSSEARCH)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.search_window_size, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_WSSEARCH), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(ac, &params->algoParams.svsParams.epsilon, AC_F_GE0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_EPSILON), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_LEANVEC_DIM)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.leanvec_dim, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_LEANVEC_DIM), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_TRAINING_THRESHOLD)) {
+      if ((rc = AC_GetSize(ac, &tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TRAINING_THRESHOLD), rc);
+        return 0;
+      } else if (tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold < DEFAULT_BLOCK_SIZE) {
+           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Invalid TRAINING_THRESHOLD: cannot be lower than DEFAULT_BLOCK_SIZE ", "(%d)", DEFAULT_BLOCK_SIZE);
+          return 0;
+      }
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_SVS, AC_GetStringNC(ac, NULL));
+      return 0;
+    }
+    numParam++;
+  }
+  if (expNumParam > numParam) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
+    return 0;
+  }
+  if (!mandtype) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_SVS, VECSIM_TYPE);
+    return 0;
+  }
+  if (!mandsize) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_SVS, VECSIM_DIM);
+    return 0;
+  }
+  if (!mandmetric) {
+    VECSIM_ERR_MANDATORY(status, VECSIM_ALGORITHM_SVS, VECSIM_DISTANCE_METRIC);
+    return 0;
+  }
+  if (params->algoParams.svsParams.quantBits == 0 && tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold > 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "TRAINING_THRESHOLD is irrelevant when compression was not requested", "");
+    return 0;
+  }
+  if (!VecSim_IsLeanVecCompressionType(params->algoParams.svsParams.quantBits) && params->algoParams.svsParams.leanvec_dim > 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "LEANVEC_DIM is irrelevant when compression is not of type LeanVec", "");
+    return 0;
+  }
+  // Calculating expected blob size of a vector in bytes.
+  fs->vectorOpts.expBlobSize = params->algoParams.svsParams.dim * VecSimType_sizeof(params->algoParams.svsParams.type);
+
+  return parseVectorField_validate_svs(params, status);
+}
+
 // Parse the arguments of a TEXT field
 static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
@@ -1017,6 +1172,36 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     // Point to the same logCtx as the external wrapping VecSimParams object, which is the owner.
     params->logCtx = logCtx;
     result = parseVectorField_hnsw(fs, params, ac, status);
+  } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
+    // TODO: remove when multi is supported
+    if (multi) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Multi-value index is currently not supported for SVS-VAMANA algorithm", AC_Strerror(rc));
+      return 0;
+    }
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+
+    // primary index params allocated in VecSim_TieredParams_Init()
+    TieredIndexParams *params = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+    params->specificParams.tieredSVSParams.trainingTriggerThreshold = 0;  // will be set to default value if not specified by user.
+    params->primaryIndexParams->algo = VecSimAlgo_SVS;
+    params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
+    params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
+    params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
+    params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
+    params->primaryIndexParams->algoParams.svsParams.num_threads = workersThreadPool_NumThreads();
+    params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
+    params->primaryIndexParams->logCtx = logCtx;
+    result = parseVectorField_svs(fs, params, ac, status);
+    if (params->specificParams.tieredSVSParams.trainingTriggerThreshold == 0) {
+      params->specificParams.tieredSVSParams.trainingTriggerThreshold = SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD;
+    }
+    if (VecSim_IsLeanVecCompressionType(params->primaryIndexParams->algoParams.svsParams.quantBits) &&
+        params->primaryIndexParams->algoParams.svsParams.leanvec_dim == 0) {
+      params->primaryIndexParams->algoParams.svsParams.leanvec_dim =
+        params->primaryIndexParams->algoParams.svsParams.dim / 2;  // default value
+    }
+
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
     return 0;
@@ -2066,8 +2251,6 @@ static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_F
 
 static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref, int encver) {
 
-
-  f->indexError = IndexError_Init();
   f->ftId = RS_INVALID_FIELD_ID;
   // Fall back to legacy encoding if needed
   if (encver < INDEX_MIN_TAGFIELD_VERSION) {
@@ -2115,7 +2298,11 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     if (encver >= INDEX_VECSIM_2_VERSION) {
       f->vectorOpts.expBlobSize = LoadUnsigned_IOError(rdb, goto fail);
     }
-    if (encver >= INDEX_VECSIM_TIERED_VERSION) {
+    if (encver >= INDEX_VECSIM_SVS_VAMANA_VERSION) {
+      if (VecSim_RdbLoad_v4(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
+        goto fail;
+      }
+    } else if (encver >= INDEX_VECSIM_TIERED_VERSION) {
       if (VecSim_RdbLoad_v3(rdb, &f->vectorOpts.vecSimParams, sp_ref, HiddenString_GetUnsafe(f->fieldName, NULL)) != REDISMODULE_OK) {
         goto fail;
       }
@@ -2129,7 +2316,8 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
           goto fail;
         }
       }
-      // If we're loading an old (< 2.8) rdb, we need to convert an HNSW index to a tiered index
+      // If we're loading an old (< INDEX_VECSIM_TIERED_VERSION) rdb, we need to convert an HNSW
+      // index to a tiered index.
       VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
       logCtx->index_field_name = HiddenString_GetUnsafe(f->fieldName, NULL);
       f->vectorOpts.vecSimParams.logCtx = logCtx;
@@ -2143,7 +2331,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
       }
     }
     // Calculate blob size limitation on lower encvers.
-    if(encver < INDEX_VECSIM_2_VERSION) {
+    if (encver < INDEX_VECSIM_2_VERSION) {
       switch (f->vectorOpts.vecSimParams.algo) {
       case VecSimAlgo_HNSWLIB:
         f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.hnswParams.type);
@@ -2152,8 +2340,14 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
         f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.bfParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.bfParams.type);
         break;
       case VecSimAlgo_TIERED:
-        f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.type);
+        if (f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
+          f->vectorOpts.expBlobSize = f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.dim * VecSimType_sizeof(f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.type);
+        } else if (f->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_SVS) {
+          goto fail;  // svs is not supported in old encvers
+        }
         break;
+      case VecSimAlgo_SVS:
+        goto fail;  // svs is not supported in old encvers
       }
     }
   }
@@ -2171,7 +2365,6 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   return REDISMODULE_OK;
 
 fail:
-  IndexError_Clear(f->indexError);
   return REDISMODULE_ERR;
 }
 
@@ -2732,7 +2925,11 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
 
   sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
   sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
-  int maxSortIdx = -1;
+  // First, initialise fields IndexError before loading them.
+  // If some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
+  for (int i = 0; i < sp->numFields; i++) {
+    sp->fields[i].indexError = IndexError_Init();
+  }
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     fs->index = i;
@@ -2857,6 +3054,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
+    fs->indexError = IndexError_Init(); // Must be initialized in all fields before attempting to free the spec
     FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
     sp->fields[i].index = i;
     if (FieldSpec_IsSortable(fs)) {
@@ -2957,6 +3155,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+      QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }
   }
@@ -3018,9 +3217,6 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   if (dictSize(specDict_g)) {
     Indexes_RdbSave(rdb, when);
   }
-}
-
-void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
 int CompareVersions(Version v1, Version v2) {

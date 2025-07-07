@@ -12,33 +12,10 @@
 #include "redisearch.h"
 #include "redismodule.h"
 #include "config.h"
-#include <time.h>
 #include "thpool/thpool.h"
 #include "util/references.h"
 
-#if defined(__FreeBSD__)
-#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
-#endif
-
 /** Concurrent Search Execution Context.
- *
- * We allow queries to run concurrently, each running on its own thread, locking the redis GIL
- * for a bit, releasing it, and letting others run as well.
- *
- * The queries do not really run in parallel, but one at a time, competing over the global lock.
- * This does not speed processing - in fact it can actually slow it down. But it prevents a
- * common situation, where very slow queries block the entire redis instance for a long time.
- *
- * We intend to switch this model to a single thread running multiple "coroutines", but for now
- * this naive implementation is good enough and will fix the search concurrency issue.
- *
- * The ConcurrentSearchCtx is part of a query, and the query calls the CONCURRENT_CTX_TICK macro
- * for every "cycle" - meaning a processed search result. The concurrency engine will switch
- * execution to another query when the current thread has spent enough time working.
- *
- * The current switch threshold is 200 microseconds. Since measuring time is slow in itself (~50ns)
- * we sample the elapsed time every 20 "cycles" of the query processor.
- *
  */
 
 typedef void (*ConcurrentReopenCallback)(void *ctx);
@@ -55,12 +32,9 @@ typedef struct {
 
 /* The concurrent execution context struct itself. See above for details */
 typedef struct {
-  long long ticker;
-  struct timespec lastTime;
   RedisModuleCtx *ctx;
   ConcurrentKeyCtx *openKeys;
   uint32_t numOpenKeys;
-  uint32_t isLocked;
 } ConcurrentSearchCtx;
 
 /** The maximal size of the concurrent query thread pool. Since only one thread is operational at a
@@ -122,11 +96,6 @@ int ConcurrentSearch_CreatePool(int numThreads);
 /* Run a function on the concurrent thread pool */
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg, int type);
 
-/** Check the elapsed timer, and release the lock if enough time has passed.
- * Return 1 if switching took place
- */
-int ConcurrentSearch_CheckTimer(ConcurrentSearchCtx *ctx);
-
 /** Initialize and reset a concurrent search ctx */
 void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
 
@@ -136,15 +105,8 @@ void ConcurrentSearchCtx_Init(RedisModuleCtx *rctx, ConcurrentSearchCtx *ctx);
  */
 void ConcurrentSearchCtx_InitSingle(ConcurrentSearchCtx *ctx, RedisModuleCtx *rctx, ConcurrentReopenCallback cb);
 
-/** Reset the clock variables in the concurrent search context */
-void ConcurrentSearchCtx_ResetClock(ConcurrentSearchCtx *ctx);
-
 /* Free the execution context's dynamically allocated resources */
 void ConcurrentSearchCtx_Free(ConcurrentSearchCtx *ctx);
-
-void ConcurrentSearchCtx_Lock(ConcurrentSearchCtx *ctx);
-
-void ConcurrentSearchCtx_Unlock(ConcurrentSearchCtx *ctx);
 
 void ConcurrentSearchCtx_ReopenKeys(ConcurrentSearchCtx *ctx);
 
@@ -178,19 +140,5 @@ int ConcurrentSearch_HandleRedisCommand(int poolType, ConcurrentCmdHandler handl
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, int options, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           WeakRef spec_ref);
-
-/** This macro is called by concurrent executors (currently the query only).
- * It checks if enough time has passed and releases the global lock if that is the case.
- */
-#define CONCURRENT_CTX_TICK(x)                               \
-  ({                                                         \
-    int conctx__didSwitch = 0;                               \
-    if ((x) && ++(x)->ticker % CONCURRENT_TICK_CHECK == 0) { \
-      if (ConcurrentSearch_CheckTimer((x))) {                \
-        conctx__didSwitch = 1;                               \
-      }                                                      \
-    }                                                        \
-    conctx__didSwitch;                                       \
-  })
 
 #endif

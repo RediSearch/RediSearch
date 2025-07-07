@@ -34,7 +34,7 @@ jobs:
             "include": [
               {
                 "architecture": "aarch64",
-                "instance-type": "i8g.xlarge",
+                "instance-type": "r8g.xlarge",
                 "ami-id": "ami-0d6c92b636b74f843"
               },
               {
@@ -67,6 +67,7 @@ jobs:
     secrets: inherit
     strategy:
       matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
+      fail-fast: false
     with:
       architecture: ${{ matrix.architecture }}
       instance-type: ${{ matrix.instance-type }}

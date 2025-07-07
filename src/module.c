@@ -64,6 +64,7 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "legacy_types.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1234,19 +1235,15 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  // register trie type
+  // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
 
+  // register the trie type (half-legacy, still used by `FT.SUG*` commands)
   RM_TRY_F(TrieType_Register, ctx);
 
   RM_TRY_F(IndexSpec_RegisterType, ctx);
 
-  RM_TRY_F(TagIndex_RegisterType, ctx);
-
-  RM_TRY_F(InvertedIndex_RegisterType, ctx);
-
-  RM_TRY_F(NumericIndexType_Register, ctx);
-
+  RM_TRY_F(RegisterLegacyTypes, ctx);
 
 // With coordinator we do not want to raise a move error for index commands so we do not specify
 // any key.
@@ -1885,8 +1882,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   req->requiredFields = NULL;
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
-  // fprintf(stderr, "Sortby: %d, asc: %d withsort: %d\n", req->withSortby, req->sortAscending,
-  //         req->withSortingKeys);
 
   // Detect "NOCONTENT"
   req->noContent = RMUtil_ArgExists("NOCONTENT", argv, argc, argvOffset) != 0;
@@ -2013,9 +2008,6 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
         // Sort by string sort keys
         cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-        // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
-        //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
-        //        cmp);
       } else {
         // If at least one of these has no sort key, it gets high value regardless of asc/desc
         return r2->sortKey ? 1 : -1;
@@ -2023,32 +2015,22 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
     }
     // in case of a tie or missing both sorting keys - compare ids
     if (!cmp) {
-      // printf("It's a tie! Comparing <N=%lu> %.*s vs <N=%lu> %.*s\n", r2->idLen, (int)r2->idLen,
-      //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
       cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
     return (req->sortAscending ? -cmp : cmp);
   }
 
   double s1 = r1->score, s2 = r2->score;
-  // printf("Scores: %lf vs %lf. WithSortBy: %d. SK1=%p. SK2=%p\n", s1, s2, req->withSortby,
-  //        r1->sortKey, r2->sortKey);
   if (s1 < s2) {
     return 1;
   } else if (s1 > s2) {
     return -1;
   } else {
-    // printf("Scores are tied. Will compare ID Strings instead\n");
-
     // This was reversed to be more compatible with OSS version where tie breaker was changed
     // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
     // or descending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-
-    // printf("ID Strings: Comparing <N=%lu> %.*s vs <N=%lu> %.*s => %d\n", r2->idLen,
-    // (int)r2->idLen,
-    //        r2->id, r1->idLen, (int)r1->idLen, r1->id, rv);
     return rv;
   }
 }
@@ -2104,7 +2086,6 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
       res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
       RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
     }
-    // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
   return res;
 }
@@ -2182,7 +2163,6 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
           res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
           RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
         }
-        // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
     }
   }
@@ -2429,11 +2409,8 @@ static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, 
 
   rCtx->cachedResult = NULL;
 
-  // fprintf(stderr, "Result %d Reply docId %s score: %f sortkey %f\n", i, res->id, res->score, res->sortKeyNum);
-
   // TODO: minmax_heap?
   if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-    // printf("Offering result score %f\n", res->score);
     heap_offerx(rCtx->pq, res);
   } else {
     searchResult *smallest = heap_peek(rCtx->pq);
@@ -2506,8 +2483,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
 
     int step = rCtx->offsets.step;
-    // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
-    //         scoreOffset, fieldsOffset, sortKeyOffset);
 
     for (int j = 1; j < len; j += step) {
       if (j + step > len) {
@@ -2700,13 +2675,15 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
  * It is used by both SEARCH and AGGREGATE.
  */
 static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
-  // The 1st location always stores the results. On FT.AGGREGATE, the next place stores the
-  // cursor ID. The last location (2nd for FT.SEARCH and 3rd for FT.AGGREGATE) stores the
-  // profile information of the shard.
-  const int profile_data_idx = isSearch ? 1 : 2;
+  // On FT.SEARCH, `replies` is an array of replies from the shards.
+  // On FT.AGGREGATE, `replies` is already the profile part only
   for (int i = 0; i < count; ++i) {
-    MRReply *shards_reply = MRReply_ArrayElement(replies[i], profile_data_idx);
-    MRReply *shards_array_profile = MRReply_ArrayElement(shards_reply, 1);
+    MRReply *current = replies[i];
+    if (isSearch) {
+      // On FT.SEARCH, extract the profile information from the reply. (should be the second element)
+      current = MRReply_ArrayElement(current, 1);
+    }
+    MRReply *shards_array_profile = MRReply_ArrayElement(current, 1);
     MRReply *shard_profile = MRReply_ArrayElement(shards_array_profile, 0);
     MR_ReplyWithMRReply(reply, shard_profile);
   }
@@ -2714,15 +2691,11 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
 
 static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
-    MRReply *profile;
-    if (!isSearch) {
-      // On aggregate commands, take the results from the response (second component is the cursor-id)
-      MRReply *results = MRReply_ArrayElement(replies[i], 0);
-      profile = MRReply_MapElement(results, PROFILE_STR);
-    } else {
-      profile = MRReply_MapElement(replies[i], PROFILE_STR);
+    MRReply *current = replies[i];
+    if (isSearch) { // On aggregate commands, we get the profile info directly.
+      current = MRReply_MapElement(current, PROFILE_STR);
     }
-    MRReply *shards = MRReply_MapElement(profile, PROFILE_SHARDS_STR);
+    MRReply *shards = MRReply_MapElement(current, PROFILE_SHARDS_STR);
     MRReply *shard = MRReply_ArrayElement(shards, 0);
 
     MR_ReplyWithMRReply(reply, shard);

@@ -37,6 +37,7 @@ fn main() {
         let redisearch_rs = src.join("redisearch_rs").join("headers");
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
+        let buffer = src.join("buffer");
 
         [
             redis_modules,
@@ -45,15 +46,15 @@ fn main() {
             redisearch_rs,
             inverted_index,
             vecsim,
+            buffer,
         ]
     };
 
-    let headers = {
-        let buffer_h = root.join("src").join("buffer.h");
-        let redisearch_h = root.join("src").join("redisearch.h");
-        let result_processor_h = root.join("src").join("result_processor.h");
-        [buffer_h, redisearch_h, result_processor_h]
-    };
+    let headers = [
+        root.join("src").join("redisearch.h"),
+        root.join("src").join("buffer/buffer.h"),
+        root.join("src").join("result_processor.h"),
+    ];
 
     let mut bindings = bindgen::Builder::default();
 
@@ -100,10 +101,10 @@ fn rerun_if_c_changes(dir: &Path) {
         let path = entry.path();
         if path.is_dir() {
             rerun_if_c_changes(&path);
-        } else if let Some(extension) = path.extension() {
-            if extension == "c" || extension == "h" {
-                println!("cargo:rerun-if-changed={}", path.display());
-            }
+        } else if let Some(extension) = path.extension()
+            && (extension == "c" || extension == "h")
+        {
+            println!("cargo:rerun-if-changed={}", path.display());
         }
     }
 }

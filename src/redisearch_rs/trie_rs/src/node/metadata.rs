@@ -371,20 +371,19 @@ impl<Data> PtrMetadata<Data> {
             unsafe { value_ptr.drop_in_place() };
         }
 
-        if let Some(n_children) = options.drop_children {
-            if n_children > 0 {
-                // SAFETY:
-                // - Guaranteed by the caller, thanks to safety requirement a.
-                let children = unsafe { self.children_ptr(ptr) };
-                // SAFETY:
-                // - All entries are initialized thanks to safety requirement d.
-                // - We have exclusive access, thanks to safety requirement c.
-                let children =
-                    unsafe { std::slice::from_raw_parts_mut(children.as_ptr(), n_children) };
-                // SAFETY:
-                // - Guaranteed by the caller, thanks to safety requirement c.
-                unsafe { std::ptr::drop_in_place(children) };
-            }
+        if let Some(n_children) = options.drop_children
+            && n_children > 0
+        {
+            // SAFETY:
+            // - Guaranteed by the caller, thanks to safety requirement a.
+            let children = unsafe { self.children_ptr(ptr) };
+            // SAFETY:
+            // - All entries are initialized thanks to safety requirement d.
+            // - We have exclusive access, thanks to safety requirement c.
+            let children = unsafe { std::slice::from_raw_parts_mut(children.as_ptr(), n_children) };
+            // SAFETY:
+            // - Guaranteed by the caller, thanks to safety requirement c.
+            unsafe { std::ptr::drop_in_place(children) };
         }
 
         // SAFETY:

@@ -1,33 +1,26 @@
 # Varint Benchmarks
 
-A benchmarking suite for comparing varint (variable-length integer) implementations
-between Rust and C, focusing on memory efficiency and space usage.
+A benchmarking suite for analyzing varint (variable-length integer) encoding
+performance and memory efficiency in Rust, focusing on space usage optimization
+and encoding characteristics.
 
 ## Overview
 
 This crate provides:
-- **Memory usage analysis**: Compare space efficiency between Rust and C varint
-  implementations
+- **Memory usage analysis**: Analyze space efficiency of Rust varint encoding
 - **Compression ratios**: Analyze how well varint encoding compresses different
   value ranges
-- **Implementation correctness**: Verify that Rust and C implementations produce
-  identical encoded byte sequences
 - **Performance benchmarks**: Use `cargo bench` for detailed timing analysis
 
 ## Quick Start
 
-1. **Build C libraries** (from repository root):
-   ```bash
-   make build
-   ```
-
-2. **Run memory analysis**:
+1. **Run memory analysis**:
    ```bash
    cd src/redisearch_rs/varint_bencher
    cargo run --release
    ```
 
-3. **Run performance benchmarks**:
+2. **Run performance benchmarks**:
    ```bash
    cargo bench
    ```
@@ -42,16 +35,21 @@ cargo run --release
 
 **Expected output:**
 ```text
-Varint Encoding Statistics:
+Varint Encoding Analysis:
 - Raw data size: 7.824 KB (2003 u32 values)
-- Rust varint encoding: 4.451 KB (1.76x compression)
-- C varint encoding: 4.451 KB (1.76x compression)
-- Rust field mask encoding: 5.817 KB
-- C field mask encoding: 5.817 KB
-- Varint implementations produce identical encoded output
-- Field mask implementations produce identical encoded output
+- Varint encoded size: 4.451 KB (1.76x compression)
+- Field mask encoded size: 5.817 KB (1.35x compression)
+- Space savings: 43.1% (varint), 25.6% (field mask)
 
-Run `cargo bench` for detailed performance comparisons.
+Encoding Efficiency Breakdown:
+- 1-byte encodings: 100 (5.0%) - values 0-127
+- 2-byte encodings: 200 (10.0%) - values 128-16,383
+- 3-byte encodings: 400 (20.0%) - values 16,384-2,097,151
+- 4-byte encodings: 200 (10.0%) - values 2,097,152-268,435,455
+- 5-byte encodings: 100 (5.0%) - values 268,435,456+
+- Average bytes per value: 2.22
+
+Run `cargo bench` for detailed performance benchmarks.
 ```
 
 ## What It Tests
@@ -66,8 +64,8 @@ Run `cargo bench` for detailed performance comparisons.
 - **Patterns**: Sequential and pseudo-random data
 
 ### Field Mask Encoding
-- u128 field mask values converted from test integers
-- Comparison between Rust and C field mask encoding implementations
+- FieldMask values converted from test integers
+- Analysis of field mask encoding efficiency
 
 ## Performance Benchmarks
 
@@ -77,31 +75,44 @@ For detailed timing analysis, use criterion benchmarks:
 # All benchmarks
 cargo bench
 
+# Specific benchmark groups
+cargo bench encode
+cargo bench decode
+cargo bench "vector writer"
+
 # View HTML reports
 open target/criterion/report/index.html
 ```
 
-## C Integration
+### Benchmark Groups
 
-The tool requires C libraries built with `make build`. If C integration fails:
+- **Encode**: Single varint encoding performance
+- **Encode FieldMask**: Field mask encoding performance
+- **Decode**: Single varint decoding performance
+- **Decode FieldMask**: Field mask decoding performance
+- **Vector Writer**: Batch encoding using VectorWriter
 
-- **Build fails**: Missing C libraries - run `make build` first
-- **Runtime panic**: C function calls fail - indicates FFI linking issues
+## Analysis Features
 
-The memory analysis focuses on encoding correctness (verifying byte-for-byte
-identical output) and space efficiency rather than trying to replicate
-criterion's statistical timing analysis.
+### Space Efficiency
+- **Compression ratios**: How much space is saved compared to raw u32 storage
+- **Encoding breakdown**: Distribution of values across different varint sizes
+- **Average bytes per value**: Overall encoding efficiency metric
+
+### Performance Characteristics
+- **Encoding speed**: How fast values can be encoded
+- **Decoding speed**: How fast values can be decoded
+- **Memory allocation**: Vector writer performance for batch operations
 
 ## Project Structure
 
 ```
 varint_bencher/
 ├── src/
-│   ├── lib.rs           # Public API and FFI integration
+│   ├── lib.rs           # Public API
 │   ├── main.rs          # Memory usage analysis binary
-│   └── c_varint/        # C implementation wrappers
+│   └── bencher.rs       # Performance benchmarking utilities
 ├── benches/             # Criterion performance benchmarks
-├── build.rs             # C library detection and FFI generation
 └── Cargo.toml
 ```
 
@@ -109,10 +120,16 @@ varint_bencher/
 
 The tool separates concerns:
 - **Memory analysis**: Handled by the main binary (space efficiency, compression
-  ratios)
+  ratios, encoding distribution)
 - **Performance analysis**: Handled by `cargo bench` (statistical timing with
   criterion)
-- **Correctness**: Verified by comparing Rust and C output for identical results
 
-This approach avoids duplicating criterion's sophisticated timing infrastructure
-while providing valuable space usage insights.
+## Understanding Varint Encoding
+
+Varint (variable-length integer) encoding uses a compact representation where:
+- Small values (0-127) use only 1 byte
+- Larger values use additional bytes as needed
+- Maximum encoding is 5 bytes for u32 values
+
+This makes varint particularly effective for data sets with many small integer
+values, which is common in search indexes and data compression scenarios.

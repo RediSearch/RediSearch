@@ -21,6 +21,7 @@
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
+#include "module.h"
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
@@ -364,14 +365,6 @@ CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
 }
-
-// We limit the number of worker threads to limit the amount of memory used by the thread pool
-// and to prevent the system from running out of resources.
-// The number of worker threads should be proportional to the number of cores in the system at most,
-// otherwise no performance improvement will be achieved.
-#ifndef MAX_WORKER_THREADS
-#define MAX_WORKER_THREADS (1 << 4)
-#endif
 
 static inline int errorTooManyThreads(QueryError *status) {
   QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);

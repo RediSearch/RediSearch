@@ -11,14 +11,14 @@ extern "C" {
 #include "hiredis/sds.h"
 }
 
-#include "src/buffer.h"
+#include "src/buffer/buffer.h"
 #include "src/index.h"
 #include "src/forward_index.h"
 #include "src/index_result.h"
 #include "src/query_parser/tokenizer.h"
 #include "src/spec.h"
 #include "src/tokenize.h"
-#include "src/varint.h"
+#include "varint.h"
 #include "src/hybrid_reader.h"
 #include "src/metric_iterator.h"
 #include "src/util/arr.h"
@@ -46,7 +46,7 @@ class IndexTest : public ::testing::Test {};
 
 static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
   RSOffsetVector ret = {0};
-  ret.data = VVW_GetByteData(vvw);
+  ret.data = (char *) VVW_GetByteData(vvw);
   ret.len = VVW_GetByteLength(vvw);
   return ret;
 }

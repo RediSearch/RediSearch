@@ -26,21 +26,15 @@ const ALIGNMENT: usize = std::mem::align_of::<usize>();
 /// If the reallocation fails and the size is non-zero, it panics.
 ///
 /// The pointer returned by this function points right after the header slot, which is
-/// invisible to the caller.
+/// invisible to the caller. Or it returns a null pointer if the size is zero.
 ///
 /// Safety:
-/// 1. The caller must ensure that neither is non-zero as the behavior with size == 0 is implementation defined
-/// 2. See [generic_shim] for more details.
-///
-/// If size is zero, the behavior is implementation defined (null pointer may be returned,
-/// or some non-null pointer may be returned that shall not be dereferenced).
+/// 1. The caller must ensure that the pointer returned by this function is freed using `free_shim` and
+///    not another free function.
 pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
-    #[cfg(debug_assertions)]
-    {
-        // Check if size is zero
-        if size == 0 {
-            panic!("alloc_shim called with size 0");
-        }
+    // Check if size is zero
+    if size == 0 {
+        return std::ptr::null_mut();
     }
 
     // Safety:
@@ -59,19 +53,14 @@ pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
 ///
 /// The function behaves like [alloc_shim] but besides the header slots initializes the allocated memory to zero.
 ///
+/// That also implicates that if either `size` or `count` is zero, the function returns a null pointer.
+///
 /// Safety:
-/// 1. The caller must ensure that neither size nor count is non-zero.
-/// 2. See [generic_shim] for more details.
+/// 1. The caller must ensure that pointers returned by this function are freed using `free_shim`.
 pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
-    #[cfg(debug_assertions)]
-    {
-        // Check if size is zero
-        if size == 0 || count == 0 {
-            panic!(
-                "calloc_shim called with size={} and count={}, both must be > 0",
-                size, count
-            );
-        }
+    // Check if size is zero
+    if size == 0 || count == 0 {
+        return std::ptr::null_mut();
     }
 
     // ensure no overflow
@@ -87,6 +76,7 @@ pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
 }
 
 /// Frees the memory allocated by the `alloc_shim`, `calloc_shim` or `realloc_shim` functions.
+///
 /// It retrieves the original pointer by subtracting the header size from the given pointer.
 /// The function then retrieves the size from the first 8 bytes of the original pointer.
 /// Finally, it deallocates the memory using Rust's `dealloc` function, which uses free from libc.
@@ -119,6 +109,9 @@ pub extern "C" fn free_shim(ptr: *mut c_void) {
 /// via `alloc_shim`, `calloc_shim` or `realloc_shim` functions. The caller must invoke `free_shim`
 /// to free the memory when it is no longer needed.
 ///
+/// If this is called with a null pointer, it behaves like `alloc_shim`. If the size is zero, the function
+/// frees the memory and returns a null pointer.
+///
 /// It retrieves the original pointer by subtracting the header size from the given pointer.
 /// The function then retrieves the size from the first 8 bytes of the original pointer.
 ///
@@ -130,12 +123,18 @@ pub extern "C" fn free_shim(ptr: *mut c_void) {
 ///
 /// Safety:
 /// 1. The caller must ensure that the pointer is valid and was allocated by `alloc_shim`.
-/// 2. The caller must ensure that the size is non-zero if the pointer is not null.
+///
+/// If the pointer is null the function behaves like `alloc_shim`, that means if size is zero
+/// the function returns a null pointer.
 pub extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     if ptr.is_null() {
-        // Safety:
-        // 1. --> We know size > 0
         return alloc_shim(size);
+    }
+
+    if size == 0 {
+        // If size is zero, we free the memory and return a null pointer.
+        free_shim(ptr);
+        return std::ptr::null_mut();
     }
 
     let ptr = ptr as *mut u8;
@@ -159,7 +158,7 @@ pub extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     unsafe { generic_shim(size, realloc_) }
 }
 
-/// Allocates the required memory.
+/// Allocates the required memory plus HEADER_SIZE bytes for a header slot containing the size.
 ///
 /// The allocator includes an additional header to keep track of the requested size.
 /// That size information will be required, later on, if reallocating or deallocating the
@@ -169,7 +168,8 @@ pub extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
 /// invisible to the caller.
 ///
 /// Safety:
-/// 1. The caller must ensure that the size is non-zero.
+/// The caller must ensure that the `allocation_func` is a valid function that allocates
+/// and the caller must ensure that the returned pointer is freed using `free_shim`.
 unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
     size: usize,
     allocation_func: F,
@@ -193,4 +193,54 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
     // Safety:
     // 1. --> We know there is at least one byte after the header
     unsafe { mem.add(HEADER_SIZE) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normal_allocs() {
+        let size = 100;
+        let ptr = alloc_shim(size);
+        assert!(!ptr.is_null());
+        free_shim(ptr);
+
+        let ptr = calloc_shim(10, size);
+        assert!(!ptr.is_null());
+        free_shim(ptr);
+    }
+
+    #[test]
+    fn test_realloc() {
+        let size = 128;
+        let ptr = alloc_shim(size);
+        assert!(!ptr.is_null());
+
+        let new_size = 64;
+        let new_ptr = realloc_shim(ptr, new_size);
+        assert!(!new_ptr.is_null());
+        free_shim(new_ptr);
+
+        let ptr = realloc_shim(std::ptr::null_mut(), 100);
+        assert!(!ptr.is_null());
+        free_shim(ptr);
+    }
+
+    #[test]
+    fn test_zero_sizes() {
+        let ptr = alloc_shim(0);
+        assert!(ptr.is_null());
+
+        let ptr = calloc_shim(0, 100);
+        assert!(ptr.is_null());
+
+        let ptr = calloc_shim(10, 0);
+        assert!(ptr.is_null());
+
+        let ptr = alloc_shim(32);
+        let ptr = realloc_shim(ptr, 0);
+        assert!(ptr.is_null());
+        free_shim(ptr);
+    }
 }
