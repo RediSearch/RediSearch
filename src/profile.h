@@ -25,7 +25,7 @@
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
 // Print the profile of a single shard, in full format
 
-void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime,
+void printReadIt(RedisModule_Reply *reply, const IndexIterator *root, size_t counter, double cpuTime,
                 PrintProfileConfig *config);
 
 #define PROFILE_STR "Profile"

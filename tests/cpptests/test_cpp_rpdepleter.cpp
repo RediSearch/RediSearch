@@ -68,11 +68,6 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   const size_t n_docs = 3;
   QueryIterator qitr = {0};
 
-  // Set up the query iterator with mock search context if needed
-  if (take_index_lock) {
-    qitr.sctx = &mockSctx;
-  }
-
   struct MockUpstream : public ResultProcessor {
     int count = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
@@ -88,7 +83,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock));
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -130,11 +125,6 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   const size_t n_docs = 3;
   QueryIterator qitr = {0};
 
-  // Set up the query iterator with mock search context if needed
-  if (take_index_lock) {
-    qitr.sctx = &mockSctx;
-  }
-
   struct MockUpstream : public ResultProcessor {
     int count = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
@@ -150,7 +140,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock));
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -195,12 +185,6 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   const size_t n_docs = 2;
   QueryIterator qitr1 = {0}, qitr2 = {0};
 
-  // Set up the query iterators with the same search context if needed
-  if (take_index_lock) {
-    qitr1.sctx = &mockSctx;
-    qitr2.sctx = &mockSctx2;
-  }
-
   // Mock upstream that finishes quickly.
   struct FastUpstream : public ResultProcessor {
     int count = 0;
@@ -239,8 +223,8 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
 
   // Create shared sync reference and two depleters sharing it
   StrongRef sync_ref = DepleterSync_New(2, take_index_lock);
-  ResultProcessor *fastDepleter = RPDepleter_New(StrongRef_Clone(sync_ref));
-  ResultProcessor *slowDepleter = RPDepleter_New(StrongRef_Clone(sync_ref));
+  ResultProcessor *fastDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &mockSctx);
+  ResultProcessor *slowDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &mockSctx2);
   StrongRef_Release(sync_ref);  // Release our reference
 
   // Set up pipelines
@@ -309,11 +293,6 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
 
   QueryIterator qitr = {0};
 
-  // Set up the query iterator with mock search context if needed
-  if (take_index_lock) {
-    qitr.sctx = &mockSctx;
-  }
-
   struct MockUpstream : public ResultProcessor {
     int count = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
@@ -326,7 +305,7 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock));
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);

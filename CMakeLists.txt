@@ -244,6 +244,7 @@ add_subdirectory(src/coord)
 # Source files for the core library
 file(GLOB SOURCES
     "src/*.c"
+    "src/pipeline/*.c"
     "src/aggregate/*.c"
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"

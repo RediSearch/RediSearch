@@ -87,30 +87,28 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
  * downstream.
  *******************************************************************************************************************/
 
-// Get the index spec from the result processor - this should be used only if the spec
-// can be accessed safely.
-#define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
-
-static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_status) {
-  RedisSearchCtx_UnlockSpec(RP_SCTX(base));
+static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status) {
+  RedisSearchCtx_UnlockSpec(sctx);
   return result_status;
 }
 typedef struct {
   ResultProcessor base;
-  IndexIterator *iiter;
+  const IndexIterator *iiter;
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
+  ConcurrentSearchCtx *conc;
+  RedisSearchCtx *sctx;
 } RPIndexIterator;
 
 /* Next implementation */
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
-  IndexIterator *it = self->iiter;
-  RedisSearchCtx *sctx = RP_SCTX(base);
+  const IndexIterator *it = self->iiter;
+  RedisSearchCtx *sctx = self->sctx;
   if (sctx->flags == RS_CTX_UNSET) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
-    RedisSearchCtx_LockSpecRead(RP_SCTX(base));
-    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
+    RedisSearchCtx_LockSpecRead(sctx);
+    ConcurrentSearchCtx_ReopenKeys(self->conc);
   }
 
   RSIndexResult *r;
@@ -120,16 +118,16 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   // Read from the root filter until we have a valid result
   while (1) {
     // check for timeout in case we are encountering a lot of deleted documents
-    if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
-      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+    if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
     rc = it->Read(it->ctx, &r);
     switch (rc) {
     case INDEXREAD_EOF:
       // This means we are done!
-      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
     case INDEXREAD_TIMEOUT:
-      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     case INDEXREAD_NOTFOUND:
       continue;
     default: // INDEXREAD_OK
@@ -137,7 +135,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         continue;
     }
 
-    DocTable* docs = &RP_SPEC(base)->docs;
+    DocTable* docs = &sctx->spec->docs;
     if (r->dmd) {
       dmd = r->dmd;
     } else {
@@ -178,16 +176,18 @@ static void rpidxFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
+ResultProcessor *RPIndexIterator_New(const IndexIterator *root, RedisSearchCtx *sctx, ConcurrentSearchCtx *conc) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
   ret->base.Next = rpidxNext;
   ret->base.Free = rpidxFree;
+  ret->conc = conc;
+  ret->sctx = sctx;
   ret->base.type = RP_INDEX;
   return &ret->base;
 }
 
-IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
+const IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
   /* On coordinator, the root result processor will be a network result processor and we should ignore it */
   if (it->rootProc->type == RP_INDEX) {
       return ((RPIndexIterator *)it->rootProc)->iiter;
@@ -753,6 +753,9 @@ typedef struct RPSafeLoader {
   // If true, the loader will become a plain loader after the buffer is empty.
   // Used when changing the MT mode through a cursor execution session (e.g. FT.CURSOR READ)
   bool becomePlainLoader;
+
+  // Search context
+  RedisSearchCtx *sctx;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -874,7 +877,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RPSafeLoader *self = (RPSafeLoader *)rp;
 
   // Keep fetching results from the upstream result processor until EOF is reached
-  RedisSearchCtx *sctx = RP_SCTX(rp);
+  RedisSearchCtx *sctx = self->sctx;
   int result_status;
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = {0};
@@ -957,6 +960,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
   sl->curr_result_index = 0;
 
   sl->last_buffered_rc = RS_RESULT_OK;
+  sl->sctx = sctx;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -998,7 +1002,7 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
 
 /*********************************************************************************/
 
-ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags) {
   if (RSGlobalConfig.enableUnstableFeatures) {
     if (nkeys == 1 && !strcmp(keys[0]->path, UNDERSCORE_KEY)) {
       // Return a thin RP that doesn't actually loads anything or access to the key space
@@ -1006,13 +1010,13 @@ ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, siz
       return RPKeyNameLoader_New(keys[0]);
     }
   }
-  r->stateflags |= QEXEC_S_HAS_LOAD;
-  if (AREQ_RequestFlags(r) & QEXEC_F_RUN_IN_BACKGROUND) {
+  *outStateflags |= QEXEC_S_HAS_LOAD;
+  if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
+    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
-    return RPPlainLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
+    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad);
   }
 }
 
@@ -1022,6 +1026,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
+  sl->sctx = loader->loadopts.sctx;
   rm_free(loader);
 
   // Reset the loader's buffer and state
@@ -1037,8 +1042,8 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   return &sl->base_loader.base;
 }
 
-void SetLoadersForBG(AREQ *r) {
-  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
+void SetLoadersForBG(QueryProcessingCtx *qctx) {
+  ResultProcessor *cur = qctx->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
   while (cur) {
@@ -1057,11 +1062,11 @@ void SetLoadersForBG(AREQ *r) {
     cur = cur->upstream;
   }
   // Update the endProc to the new head in case it was changed
-  r->qiter.endProc = dummyHead.upstream;
+  qctx->endProc = dummyHead.upstream;
 }
 
-void SetLoadersForMainThread(AREQ *r) {
-  ResultProcessor *rp = r->qiter.endProc;
+void SetLoadersForMainThread(QueryProcessingCtx *qctx) {
+  ResultProcessor *rp = qctx->endProc;
   while (rp) {
     if (rp->type == RP_SAFE_LOADER) {
       // If the `Next` function is `rpSafeLoaderNext_Accumulate`, it means that the loader didn't
@@ -1125,12 +1130,12 @@ static void rpProfileFree(ResultProcessor *base) {
   rm_free(rp);
 }
 
-ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx) {
   RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
 
   rpp->profileCount = 0;
   rpp->base.upstream = rp;
-  rpp->base.parent = qiter;
+  rpp->base.parent = qctx;
   rpp->base.Next = rpprofileNext;
   rpp->base.Free = rpProfileFree;
   rpp->base.type = RP_PROFILE;
@@ -1148,11 +1153,11 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   return self->profileCount;
 }
 
-void Profile_AddRPs(QueryIterator *qiter) {
-  ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
+void Profile_AddRPs(QueryProcessingCtx *qctx) {
+  ResultProcessor *cur = qctx->endProc = RPProfile_New(qctx->endProc, qctx);
   while (cur && cur->upstream && cur->upstream->upstream) {
     cur = cur->upstream;
-    cur->upstream = RPProfile_New(cur->upstream, qiter);
+    cur->upstream = RPProfile_New(cur->upstream, qctx);
     cur = cur->upstream;
   }
 }
@@ -1215,6 +1220,7 @@ typedef struct {
   ResultProcessor base;
   uint32_t count;
   uint32_t remaining;
+  RedisSearchCtx *sctx;
 } RPTimeoutAfterCount;
 
 // Insert the result processor between the last result processor and its downstream result processor
@@ -1245,15 +1251,15 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
  * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
  */
 void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count) {
-  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count);
+  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, r->sctx);
   addResultProcessor(r, RPTimeoutAfterCount);
 }
 
-static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout) {
+static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, RedisSearchCtx *sctx) {
     // set timeout to now for the RP up the chain to handle
     static struct timespec now;
     clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-    rp_timeout->parent->sctx->time.timeout = now;
+    sctx->time.timeout = now;
 
     // search upstream for rpidxNext to set timeout limiter
     ResultProcessor *cur = rp_timeout->upstream;
@@ -1273,7 +1279,7 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
   // If we've reached COUNT:
   if (!self->remaining) {
 
-    RPTimeoutAfterCount_SimulateTimeout(base);
+    RPTimeoutAfterCount_SimulateTimeout(base, self->sctx);
 
     int rc = base->upstream->Next(base->upstream, r);
     if (rc == RS_RESULT_TIMEDOUT) {
@@ -1292,10 +1298,11 @@ static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
   rm_free(base);
 }
 
-ResultProcessor *RPTimeoutAfterCount_New(size_t count) {
+ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx) {
   RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
   ret->count = count;
   ret->remaining = count;
+  ret->sctx = sctx;
   ret->base.type = RP_TIMEOUT;
   ret->base.Next = RPTimeoutAfterCount_Next;
   ret->base.Free = RPTimeoutAfterCount_Free;
@@ -1450,6 +1457,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  *******************************************************************************************************************/
 typedef struct {
   ResultProcessor base;             // Base result processor struct
+  RedisSearchCtx *sctx;             // Search context
   arrayof(SearchResult *) results;  // Array of pointers to SearchResult, filled by the depleting thread
   bool done_depleting;              // Set to `true` when depleting is finished (under lock)
   uint cur_idx;                     // Current index for yielding results
@@ -1519,7 +1527,7 @@ static void RPDepleter_Deplete(void *arg) {
 
   if (sync->take_index_lock) {
     // Lock the index for read
-    RedisSearchCtx_LockSpecRead(RP_SCTX(&self->base));
+    RedisSearchCtx_LockSpecRead(self->sctx);
     // Increment the counter
     atomic_fetch_add(&sync->num_locked, 1);
   }
@@ -1537,7 +1545,7 @@ static void RPDepleter_Deplete(void *arg) {
   // Verify the index is unlocked (in case the pipeline did not release the lock,
   // e.g., limit + no Loader)
   if (sync->take_index_lock) {
-    RedisSearchCtx_UnlockSpec(RP_SCTX(&self->base));
+    RedisSearchCtx_UnlockSpec(self->sctx);
   }
 
   // Signal completion under mutex protection
@@ -1593,7 +1601,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
     RS_ASSERT(num_locked <= sync->num_depleters);
     if (num_locked == sync->num_depleters) {
       // Release the index
-      RedisSearchCtx_UnlockSpec(RP_SCTX(base));
+      RedisSearchCtx_UnlockSpec(self->sctx);
       // Mark the index as released
       sync->index_released = true;
     } else {
@@ -1634,7 +1642,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
 /**
  * Constructs a new RPDepleter processor. Consumes the StrongRef given.
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *sctx) {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPDepleter_Next_Dispatch;
@@ -1642,6 +1650,7 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
   ret->base.type = RP_DEPLETER;
   ret->first_call = true;
   ret->sync_ref = sync_ref;
+  ret->sctx = sctx;
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;

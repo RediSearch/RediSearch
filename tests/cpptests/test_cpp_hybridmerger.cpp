@@ -652,7 +652,6 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
 void SetupTimeoutTest(QueryIterator* qitr, RSTimeoutPolicy policy, RedisSearchCtx* sctx) {
   memset(sctx, 0, sizeof(RedisSearchCtx));
   sctx->redisCtx = NULL;
-  qitr->sctx = sctx;
   qitr->timeoutPolicy = policy;
 }
 
