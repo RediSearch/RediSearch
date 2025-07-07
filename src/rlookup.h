@@ -237,8 +237,6 @@ RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *f
 RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
                                   const char *field_name, uint32_t flags);
 
-RLookupKey *RLookup_CloneKey(RLookup *lookup, const RLookupKey *key);
-
 /**
  * Get the amount of visible fields is the RLookup
  */
