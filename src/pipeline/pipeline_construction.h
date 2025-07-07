@@ -12,7 +12,8 @@ void QueryPipeline_BuildIndexingPart(QueryPipeline *pipeline, const IndexingPipe
 
 /** Build the result processing and output formatting part of the pipeline.
  *  This creates pipeline components that process search results through operations
- *  like filtering, sorting, grouping, field loading, and output formatting. */
+ *  like filtering, sorting, grouping, field loading, and output formatting. 
+ *  There is a hidden assumption that the pipeline already contains at least one result processor to be used as an upstream */
 int QueryPipeline_BuildAggregationPart(QueryPipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags);
 
 bool hasQuerySortby(const AGGPlan *pln);

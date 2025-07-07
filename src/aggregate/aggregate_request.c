@@ -34,10 +34,10 @@ extern RSConfig RSGlobalConfig;
  * @param status the error object
  */
 static bool ensureSimpleMode(AREQ *req) {
-  if (req->reqflags & QEXEC_F_IS_AGGREGATE) {
+  if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
-  req->reqflags |= QEXEC_F_IS_SEARCH;
+  AREQ_AddRequestFlags(req, QEXEC_F_IS_SEARCH);
   return true;
 }
 
@@ -1269,7 +1269,7 @@ void AREQ_Free(AREQ *req) {
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
-  QueryPipeline_Initialize(&req->pipeline, req-> reqConfig.timeoutPolicy, status); 
+  QueryPipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status); 
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     IndexingPipelineParams params = {
       .common = {
