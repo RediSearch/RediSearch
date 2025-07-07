@@ -36,9 +36,12 @@ typedef struct MetricRequest{
 
 // Flags indicating which syntax features are enabled for this query
 typedef enum {
-  QAST_SYNTAX_DEFAULT = 0,            // All syntax features are enabled
-  QAST_DISABLE_VECTOR_QUERIES = 0x01, // VECTOR queries are not allowed
-  QAST_NO_WEIGHT_ATTRIBUTE = 0x02,    // WEIGHT attribute is not allowed
+  // All syntax features are enabled
+  QAST_SYNTAX_DEFAULT = 0,
+  // weight attribute is not allowed, vector commands are not allowed
+  QAST_HYBRID_VSIM_FILTER_CLAUSE = 0x01,
+  // weight attribute is not allowed
+  QAST_HYBRID_SEARCH_CLAUSE = 0x02,
 } QAST_ValidationFlags;
 
 /**

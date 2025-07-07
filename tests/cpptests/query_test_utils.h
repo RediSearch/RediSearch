@@ -70,34 +70,16 @@ class QASTCXX : public QueryAST {
   }
 
   /**
-   * Check if a query string is valid as a vector filter
-   * This method is specific to vector filter validation
+   * Check if a query string is valid with the specified validation flags
+   * This is a generic validation method that can be used with any validation flags
    */
-  bool isValidAsVectorFilter(const char *s) {
+  bool isValidQuery(const char *s, QAST_ValidationFlags validationFlags) {
     // Parse the query using version 2 parser
     if (!parse(s, 2)) {
       return false;
     }
     QueryError_ClearError(&m_status);
-    this->validationFlags = QAST_SYNTAX_DEFAULT;
-    this->validationFlags = static_cast<QAST_ValidationFlags>(this->validationFlags | QAST_DISABLE_VECTOR_QUERIES);
-    this->validationFlags = static_cast<QAST_ValidationFlags>(this->validationFlags | QAST_NO_WEIGHT_ATTRIBUTE);
-    int rc = QAST_CheckIsValid(this, sctx->spec, &m_opts, &m_status);
-    return rc == REDISMODULE_OK && !QueryError_HasError(&m_status);
-  }
-
-  /**
-   * Check if a query string is valid as a hybrid SEARCH clause:
-   * VECTOR queries are not allowed, but weight attribute is allowed.
-   */
-  bool isValidAsHybridSearch(const char *s) {
-    // Parse the query using version 2 parser
-    if (!parse(s, 2)) {
-      return false;
-    }
-    QueryError_ClearError(&m_status);
-    this->validationFlags = QAST_SYNTAX_DEFAULT;
-    this->validationFlags = static_cast<QAST_ValidationFlags>(this->validationFlags | QAST_DISABLE_VECTOR_QUERIES);
+    this->validationFlags = validationFlags;
     int rc = QAST_CheckIsValid(this, sctx->spec, &m_opts, &m_status);
     return rc == REDISMODULE_OK && !QueryError_HasError(&m_status);
   }
@@ -114,6 +96,13 @@ class QASTCXX : public QueryAST {
    */
   const char *getError() const {
     return QueryError_GetUserError(&m_status);
+  }
+
+  /**
+   * Get the last error code if any
+   */
+  QueryErrorCode getErrorCode() const {
+    return QueryError_GetCode(&m_status);
   }
 
   /**

@@ -1745,6 +1745,12 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
 
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QAST_ValidationFlags validationFlags) {
+  // Check for weight attribute
+  if ((validationFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) && n->opts.explicitWeight) {
+    QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, NULL);
+    return REDISMODULE_ERR;
+  }
+
   bool withChildren = true;
   int res = REDISMODULE_OK;
   switch(n->type) {
@@ -1790,11 +1796,12 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_VECTOR:
-      if (validationFlags & QAST_DISABLE_VECTOR_QUERIES) {
-        if ((n->vn.vq->type == VECSIM_QT_KNN) || (n->vn.vq->type == VECSIM_QT_RANGE)) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR queries are not allowed");
-          res = REDISMODULE_ERR;
-        }
+      if (validationFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) {
+        QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, NULL);
+        res = REDISMODULE_ERR;
+      } else if (validationFlags & QAST_HYBRID_SEARCH_CLAUSE) {
+        QueryError_SetError(status, QUERY_EHYBRID_SEARCH_INVALID_QUERY, NULL);
+        res = REDISMODULE_ERR;
       }
       break;
     case QN_NOT:
@@ -1808,12 +1815,6 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_LEXRANGE:
     case QN_GEOMETRY:
       break;
-  }
-
-  // Check for weight attribute
-  if (res == REDISMODULE_OK && (validationFlags & QAST_NO_WEIGHT_ATTRIBUTE) && n->opts.explicitWeight) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed");
-    res = REDISMODULE_ERR;
   }
 
   // Handle children
