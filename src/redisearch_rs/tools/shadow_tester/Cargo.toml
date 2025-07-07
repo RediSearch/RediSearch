@@ -1,0 +1,10 @@
+[package]
+name = "shadow_tester"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap.workspace = true
+pretty_assertions.workspace = true
+redis.workspace = true
+ureq.workspace = true
