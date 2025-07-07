@@ -71,7 +71,7 @@ fn test_encode_freqs_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::freqs_only(10, 5);
-    let res = FreqsOnly::default().encode(&mut cursor, delta, &record);
+    let res = FreqsOnly::default().encode(&mut cursor, 0, &record);
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
