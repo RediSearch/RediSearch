@@ -145,7 +145,6 @@ static PLN_BaseStep *distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN
   return PLN_NEXT_STEP(rdctx.currentLocal);
 
 cleanup:
-    // printf("Couldn't find distribution implementation for %s\n", gr->reducers[ii].name);
     AGPLN_AddBefore(origPlan, &grLocal->base, step);
     AGPLN_PopStep(origPlan, &grLocal->base);
     grLocal->base.dtor(&grLocal->base);

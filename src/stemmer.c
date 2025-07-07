@@ -10,6 +10,7 @@
 #include <sys/param.h>
 #include "snowball/include/libstemmer.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 struct sbStemmerCtx {
   struct sb_stemmer *sb;
@@ -83,14 +84,9 @@ Stemmer *__newSnowballStemmer(RSLanguage language) {
 }
 
 Stemmer *NewStemmer(StemmerType type, RSLanguage language) {
-  Stemmer *ret = NULL;
-  if (type == SnowballStemmer) {
-    ret = __newSnowballStemmer(language);
-    if (!ret) {
-      return NULL;
-    }
-  } else {
-    fprintf(stderr, "Invalid stemmer type");
+  RS_ASSERT(type == SnowballStemmer);
+  Stemmer *ret = __newSnowballStemmer(language);
+  if (!ret) {
     return NULL;
   }
 

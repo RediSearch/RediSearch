@@ -115,8 +115,6 @@ void testCluster() {
     mu_check(sh->startSlot == i * (4096 / n));
     mu_check(sh->endSlot == sh->startSlot + (4096 / n) - 1);
     mu_check(!strcmp(sh->nodes[0].id, hosts[i]));
-
-    printf("%d..%d --> %s\n", sh->startSlot, sh->endSlot, sh->nodes[0].id);
   }
 
   MRClust_Free(cl);
@@ -130,20 +128,21 @@ void testClusterSharding() {
   MRCluster *cl = MR_NewCluster(topo, 2, CRC16ShardFunc, 1);
   MRCommand cmd = MR_NewCommand(4, "_FT.SEARCH", "foob", "bar", "baz");
   mr_slot_t slot = CRC16ShardFunc(&cmd, cl->topo->numSlots);
-  printf("%d\n", slot);
   mu_check(slot > 0);
   MRClusterShard *sh = _MRCluster_FindShard(cl, slot);
   mu_check(sh != NULL);
   mu_check(sh->numNodes == 1);
   mu_check(!strcmp(sh->nodes[0].id, hosts[3]));
-  printf("%d..%d --> %s\n", sh->startSlot, sh->endSlot, sh->nodes[0].id);
 
   MRCommand_Free(&cmd);
   MRClust_Free(cl);
 }
 
+static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}
+
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
+  RedisModule_Log = dummyLog;
   MU_RUN_TEST(testEndpoint);
   MU_RUN_TEST(testShardingFunc);
   MU_RUN_TEST(testCluster);

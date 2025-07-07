@@ -122,8 +122,5 @@ int MRCommand_IsUnsharded(MRCommand *cmd);
 
 void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 
-void MRCommand_Print(MRCommand *cmd);
-void MRCommand_FPrint(FILE *fd, MRCommand *cmd);
-
 /* Create a copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd);
