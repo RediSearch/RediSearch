@@ -537,6 +537,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
     StrongRef_Release(spec_ref);
     RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
+    return NULL;
   }
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
