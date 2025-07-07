@@ -533,11 +533,10 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // Add the spec to the global spec dictionary
-  int res = dictAdd(specDict_g, name, spec_ref.rm);
-  RS_ASSERT(res == DICT_OK);
-  if (res != DICT_OK) {
+  if (dictAdd(specDict_g, name, spec_ref.rm) != DICT_OK) {
     RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
     StrongRef_Release(spec_ref);
+    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
   }
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
