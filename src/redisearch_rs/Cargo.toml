@@ -15,6 +15,7 @@ members = [
     "result_processor",
     "sorting_vector",
     "inverted_index_bencher",
+    "value",
     "varint",
 ]
 default-members = [
@@ -26,6 +27,7 @@ default-members = [
     "buffer",
     "result_processor",
     "sorting_vector",
+    "value",
     "varint",
 ]
 resolver = "3"
@@ -68,6 +70,7 @@ wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 result_processor = { path = "./result_processor" }
 sorting_vector = { path = "./sorting_vector"}
+value = { path = "./value" }
 varint = { path = "./varint" }
 
 cbindgen = "0.28.0"
