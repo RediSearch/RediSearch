@@ -82,7 +82,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    QueryPipeline_BuildAggregationPart(&req->tail, &params->aggregation, &stateFlags);
+    Pipeline_BuildAggregationPart(&req->tail, &params->aggregation, &stateFlags);
 
     // Restore the LOAD step to the tail pipeline for proper cleanup
     if (loadStep) {
@@ -110,16 +110,13 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
 
     // Initialize the tail pipeline that will merge results from all requests
     AGPLN_Init(&req->tail.ap);
-    req->tail.qctx.timeoutPolicy = requests[0]->pipeline.qctx.timeoutPolicy;
-    req->tail.qctx.rootProc = req->tail.qctx.endProc = NULL;
-    req->tail.qctx.err = &req->tailError;
     QueryError_Init(&req->tailError);
-    QueryPipeline_Initialize(&req->tail, requests[0]->pipeline.qctx.timeoutPolicy, &req->tailError);
+    Pipeline_Initialize(&req->tail, requests[0]->pipeline.qctx.timeoutPolicy, &req->tailError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         QueryError_Init(&req->errors[i]);
-        QueryPipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
     }
     return req;
 }
@@ -140,7 +137,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // Free the arrays and tail pipeline
     array_free(req->requests);
     array_free(req->errors);
-    QueryPipeline_Clean(&req->tail);  // Cleans up the merger and aggregation pipeline
+    Pipeline_Clean(&req->tail);  // Cleans up the merger and aggregation pipeline
     rm_free(req);
 }
 

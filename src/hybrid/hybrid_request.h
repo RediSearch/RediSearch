@@ -12,7 +12,7 @@ typedef struct {
     size_t nrequests;
     QueryError tailError;
     QueryError *errors;
-    QueryPipeline tail;
+    Pipeline tail;
 } HybridRequest;
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
