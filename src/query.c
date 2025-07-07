@@ -1480,7 +1480,9 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
       array_free(total_its);
     }
   }
-  int quickExit = q->notSubtree ? 1 : 0;
+  // We want to get results with all the matching children (`quickExit == false`), unless:
+  // 1. We are a `Not` sub-tree, so we only care about the set of IDs
+  bool quickExit = q->notSubtree;
   ret = NewUnionIterator(iters, n, quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
 
 done:

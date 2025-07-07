@@ -259,7 +259,6 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
   // Remove all wildcard iterators from the array
   size_t current_size = *num;
   size_t write_idx = 0;
-  size_t empty_iterator_idx = 0;
   bool all_wildcards = true;
   for (size_t read_idx = 0; read_idx < current_size; read_idx++) {
     if (IsWildcardIterator(its[read_idx])) {
@@ -275,17 +274,19 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
   }
   *num = write_idx;
 
+  // Check for empty iterators
   for (size_t ii = 0; ii < write_idx; ++ii) {
     if (!its[ii] || its[ii]->type == EMPTY_ITERATOR) {
-      empty_iterator_idx = ii;
       ret = its[ii] ? its[ii] : IT_V2(NewEmptyIterator)();
+      its[ii] = NULL; // Mark as taken
       break;
     }
   }
 
   if (ret) {
+    // Free all non-NULL iterators
     for (size_t ii = 0; ii < write_idx; ++ii) {
-      if (its[ii] && ii != empty_iterator_idx) {
+      if (its[ii]) {
         its[ii]->Free(its[ii]);
       }
     }
