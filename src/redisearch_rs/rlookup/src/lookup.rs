@@ -291,6 +291,9 @@ impl<'a> KeyList<'a> {
     }
 
     fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::push before");
+
         key.dstidx = u16::try_from(self.rowlen).unwrap();
 
         // Safety: RLookup never hands out mutable references to the key (except `Pin<&mut T>` which is fine)
@@ -318,6 +321,9 @@ impl<'a> KeyList<'a> {
         // Increase the RLookup table row length. (all rows have the same length).
         self.rowlen += 1;
 
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::push after");
+
         // Safety: we have allocated the memory above, this pointer is safe to dereference.
         let key = unsafe { ptr.as_mut() };
         // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
@@ -326,6 +332,9 @@ impl<'a> KeyList<'a> {
     }
 
     pub fn iter(&self) -> Iter<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::iter");
+
         Iter {
             _rlookup: self,
             curr: self.head,
@@ -333,6 +342,9 @@ impl<'a> KeyList<'a> {
     }
 
     pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::iter_mut");
+
         IterMut {
             curr: self.head,
             _rlookup: self,
@@ -340,16 +352,25 @@ impl<'a> KeyList<'a> {
     }
 
     fn find(&self, name: &'a CStr) -> Option<&RLookupKey<'a>> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::find");
+
         // FIXME [MOD-10315] replace with more efficient search
         self.iter().find(|key| key._name.as_ref() == name)
     }
 
     fn find_mut(&mut self, name: &'a CStr) -> Option<Pin<&mut RLookupKey<'a>>> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::find_mut");
+
         // FIXME [MOD-10315] replace with more efficient search
         self.iter_mut().find(|key| key._name.as_ref() == name)
     }
 
     /// Asserts as many of the linked list's invariants as possible.
+    ///
+    /// We use this method to absolutely make sure the linked list is internally consistent
+    /// before reading from it and after writing to it.
     #[track_caller]
     fn assert_valid(&self, ctx: &str) {
         let Some(head) = self.head else {
