@@ -68,7 +68,7 @@ typedef struct AggregationPipelineParams {
  * matching documents and calculate their relevance scores. This is the "search" part
  * that happens before aggregation, filtering, and result formatting.
  */
-typedef struct IndexingPipelineParams {
+typedef struct QueryPipelineParams {
     /** Common pipeline parameters shared with other pipeline types */
     CommonPipelineParams common;
 
@@ -98,7 +98,7 @@ typedef struct IndexingPipelineParams {
      *  Determines how the search query behaves under timeout conditions and other
      *  execution constraints like memory limits. */
     RequestConfig *reqConfig;
-} IndexingPipelineParams;
+} QueryPipelineParams;
 
 
 /**
@@ -134,7 +134,7 @@ typedef struct HybridPipelineParams {
  * logical plan (what operations to perform) and the execution context (how to
  * perform them). It serves as the central coordination point for all query processing.
  */
-typedef struct QueryPipeline {
+typedef struct Pipeline {
   /** Aggregation plan containing the logical sequence of processing steps.
    *  This plan defines the operations to be performed (filtering, sorting,
    *  grouping, etc.) and their order. It's built from the parsed query and
@@ -147,7 +147,7 @@ typedef struct QueryPipeline {
    *  with data flowing through the processor chain defined by the aggregation plan. */
   QueryProcessingCtx qctx;
 
-} QueryPipeline;
+} Pipeline;
 
 /**
  * Initialize a query pipeline with the specified timeout policy and error handling.
@@ -158,7 +158,7 @@ typedef struct QueryPipeline {
  * @param timeoutPolicy Policy for handling query timeouts (fail vs. return partial results)
  * @param status Error status object for reporting initialization failures
  */
-void QueryPipeline_Initialize(QueryPipeline *pipeline, RSTimeoutPolicy timeoutPolicy, QueryError *status);
+void Pipeline_Initialize(Pipeline *pipeline, RSTimeoutPolicy timeoutPolicy, QueryError *status);
 
 /**
  * Clean up and free all resources associated with a query pipeline.
@@ -167,7 +167,7 @@ void QueryPipeline_Initialize(QueryPipeline *pipeline, RSTimeoutPolicy timeoutPo
  *
  * @param pipeline The pipeline to clean up
  */
-void QueryPipeline_Clean(QueryPipeline *pipeline);
+void Pipeline_Clean(Pipeline *pipeline);
 
 #ifdef __cplusplus
 }
