@@ -26,5 +26,17 @@ fn benchmark_freqs_only(c: &mut Criterion) {
     bencher.decoding(c);
 }
 
-criterion_group!(benches, benchmark_numeric, benchmark_freqs_only);
+fn benchmark_full(c: &mut Criterion) {
+    let bencher = benchers::full::Bencher::new();
+
+    bencher.encoding(c);
+    bencher.decoding(c);
+}
+
+criterion_group!(
+    benches,
+    benchmark_numeric,
+    benchmark_freqs_only,
+    benchmark_full
+);
 criterion_main!(benches);
