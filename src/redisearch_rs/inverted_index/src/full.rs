@@ -32,6 +32,7 @@ pub struct Full;
 impl Encoder for Full {
     /// # Panics
     /// Panics if `delta` or `field_mask` cannot fit in a `u32`.
+    #[inline(never)]
     fn encode<W: Write + Seek>(
         &self,
         mut writer: W,
@@ -67,6 +68,7 @@ impl Encoder for Full {
 }
 
 impl Decoder for Full {
+    #[inline(never)]
     fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult> {
         let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(reader)?;
         let [delta, freq, field_mask, offsets_sz] = decoded_values;
