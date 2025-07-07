@@ -39,15 +39,6 @@ impl From<Delta> for usize {
     }
 }
 
-// Non-numeric encoders only accept deltas that fit in a `u32`.
-impl TryFrom<Delta> for u32 {
-    type Error = std::num::TryFromIntError;
-
-    fn try_from(delta: Delta) -> Result<Self, Self::Error> {
-        u32::try_from(delta.0)
-    }
-}
-
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
