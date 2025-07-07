@@ -20,6 +20,8 @@ use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
 pub struct FreqsOnly;
 
 impl Encoder for FreqsOnly {
+    /// # Panics
+    /// Panics if `delta` cannot fit in a `u32`.
     fn encode<W: Write + Seek>(
         &self,
         mut writer: W,
