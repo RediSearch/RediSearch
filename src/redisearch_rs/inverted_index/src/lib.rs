@@ -278,6 +278,26 @@ impl RSIndexResult {
     }
 }
 
+impl Drop for RSIndexResult {
+    fn drop(&mut self) {
+        match self.result_type {
+            RSResultType::Numeric | RSResultType::Metric => {
+                // SAFETY: we just checked the type to ensure the data union has numeric data
+                unsafe { ManuallyDrop::drop(&mut self.data.num) };
+            }
+            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
+                // SAFETY: we just checked the type to ensure the data union has aggregate data
+                unsafe { ManuallyDrop::drop(&mut self.data.agg) };
+            }
+            RSResultType::Term => {
+                // SAFETY: we just checked the type to ensure the data union has term data
+                unsafe { ManuallyDrop::drop(&mut self.data.term) };
+            }
+            RSResultType::Virtual => {}
+        }
+    }
+}
+
 impl Debug for RSIndexResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut d = f.debug_struct("RSIndexResult");
