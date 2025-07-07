@@ -18,7 +18,9 @@ use std::{
 
 use enumflags2::{BitFlags, bitflags};
 use ffi::RS_FIELDMASK_ALL;
-pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
+pub use ffi::{
+    FieldMask, RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask,
+};
 
 pub mod numeric;
 
@@ -203,17 +205,17 @@ pub struct RSIndexResult {
 
 impl Default for RSIndexResult {
     fn default() -> Self {
-        Self::virt(0)
+        Self::virt(0, 0, 0.0)
     }
 }
 
 impl RSIndexResult {
     /// Create a new virtual index result
-    pub fn virt(doc_id: t_docId) -> Self {
+    pub fn virt(doc_id: t_docId, field_mask: FieldMask, weight: f64) -> Self {
         Self {
             doc_id,
             dmd: ptr::null(),
-            field_mask: 0,
+            field_mask,
             freq: 0,
             offsets_sz: 0,
             data: RSIndexResultData {
@@ -222,7 +224,7 @@ impl RSIndexResult {
             result_type: RSResultType::Virtual,
             is_copy: false,
             metrics: ptr::null_mut(),
-            weight: 0.0,
+            weight,
         }
     }
 

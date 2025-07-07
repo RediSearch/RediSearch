@@ -263,3 +263,46 @@ typedef struct RSIndexResult {
    */
   double weight;
 } RSIndexResult;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+/**
+ * Allocate a new intersection result with a given capacity
+ */
+struct RSIndexResult *NewIntersectResult(uintptr_t cap, double weight);
+
+/**
+ * Allocate a new union result with a given capacity
+ */
+struct RSIndexResult *NewUnionResult(uintptr_t cap, double weight);
+
+/**
+ * Allocate a new virtual result with a given weight and field mask
+ */
+struct RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
+
+/**
+ * Allocate a new numeric result
+ */
+struct RSIndexResult *NewNumericResult(void);
+
+/**
+ * Allocate a new metric result
+ */
+struct RSIndexResult *NewMetricResult(void);
+
+/**
+ * Allocate a new hybrid result
+ */
+struct RSIndexResult *NewHybridResult(void);
+
+/**
+ * Allocate a new token record with a given term and weight
+ */
+struct RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus

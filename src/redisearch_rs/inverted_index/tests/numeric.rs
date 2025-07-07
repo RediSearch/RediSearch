@@ -450,7 +450,7 @@ fn test_empty_buffer() {
 #[should_panic(expected = "numeric encoder will only be called for numeric records")]
 fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
-    let record = RSIndexResult::virt(10);
+    let record = RSIndexResult::virt(10, 0, 0.0);
 
     let _result = Numeric::new().encode(&mut buffer, Delta::new(0), &record);
 }

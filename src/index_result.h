@@ -64,22 +64,6 @@ static inline void AggregateResult_Reset(RSIndexResult *r) {
   r->data.agg.typeMask = (RSResultType)0;
   IndexResult_Clear(r);
 }
-/* Allocate a new intersection result with a given capacity*/
-RSIndexResult *NewIntersectResult(size_t cap, double weight);
-
-/* Allocate a new union result with a given capacity*/
-RSIndexResult *NewUnionResult(size_t cap, double weight);
-
-RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask);
-
-RSIndexResult *NewNumericResult();
-
-RSIndexResult *NewMetricResult();
-
-RSIndexResult *NewHybridResult();
-
-/* Allocate a new token record result for a given term */
-RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
 /* Append a child to an aggregate result */
 static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
