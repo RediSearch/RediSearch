@@ -8,13 +8,13 @@ extern "C" {
 /** Build the document search and scoring part of the pipeline.
  *  This creates the initial pipeline components that execute the query against
  *  the index to find matching documents and calculate their relevance scores. */
-void QueryPipeline_BuildIndexingPart(QueryPipeline *pipeline, const IndexingPipelineParams *params);
+void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *params);
 
 /** Build the result processing and output formatting part of the pipeline.
  *  This creates pipeline components that process search results through operations
  *  like filtering, sorting, grouping, field loading, and output formatting. 
  *  There is a hidden assumption that the pipeline already contains at least one result processor to be used as an upstream */
-int QueryPipeline_BuildAggregationPart(QueryPipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags);
+int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags);
 
 bool hasQuerySortby(const AGGPlan *pln);
 

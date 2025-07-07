@@ -81,7 +81,7 @@ static ResultProcessor *pushRP(QueryProcessingCtx *ctx, ResultProcessor *rp, Res
   return rp;
 }
 
-static ResultProcessor *getGroupRP(QueryPipeline *pipeline, const AggregationPipelineParams *params, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
+static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipelineParams *params, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
                                    QueryError *status, bool forceLoad, uint32_t *outStateFlags) {
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
@@ -129,7 +129,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
   return RPMetricsLoader_New();
 }
 
-static ResultProcessor *getArrangeRP(QueryPipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
+static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipelineParams *params, const PLN_BaseStep *stp,
                                      QueryError *status, ResultProcessor *up, bool forceLoad, uint32_t *outStateFlags) {
   ResultProcessor *rp = NULL;
   PLN_ArrangeStep astp_s = {.base = {.type = PLN_T_ARRANGE}};
@@ -213,7 +213,7 @@ end:
 }
 
 // Assumes that the spec is locked
-static ResultProcessor *getScorerRP(QueryPipeline *pipeline, RLookup *rl, const IndexingPipelineParams *params) {
+static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const QueryPipelineParams *params) {
   const char *scorer = params->scorerName;
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
@@ -254,7 +254,7 @@ bool hasQuerySortby(const AGGPlan *pln) {
  * This creates the initial pipeline components that find matching documents and calculate
  * their relevance scores, providing the foundation for subsequent aggregation and filtering stages.
  */
-void QueryPipeline_BuildIndexingPart(QueryPipeline *pipeline, const IndexingPipelineParams *params) {
+void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *params) {
   IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(params->common.pln, NULL, AGPLN_GETLOOKUP_FIRST);
@@ -301,7 +301,7 @@ void QueryPipeline_BuildIndexingPart(QueryPipeline *pipeline, const IndexingPipe
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
  * which is about to be returned. It is only used in FT.SEARCH mode
  */
-int buildOutputPipeline(QueryPipeline *pipeline, const AggregationPipelineParams* params, uint32_t loadFlags, QueryError *status, bool forceLoad, uint32_t *outStateFlags) {
+int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* params, uint32_t loadFlags, QueryError *status, bool forceLoad, uint32_t *outStateFlags) {
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
 
@@ -360,7 +360,7 @@ error:
   return REDISMODULE_ERR;
 }
 
-int QueryPipeline_BuildAggregationPart(QueryPipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags) {
+int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags) {
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
   RedisSearchCtx *sctx = params->common.sctx;

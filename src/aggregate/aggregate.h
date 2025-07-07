@@ -150,7 +150,7 @@ typedef struct AREQ {
   ConcurrentSearchCtx conc;
 
   /** The pipeline for this request */
-  QueryPipeline pipeline;
+  Pipeline pipeline;
 
   /** Flags controlling query output */
   uint32_t reqflags;
