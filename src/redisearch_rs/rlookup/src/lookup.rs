@@ -160,6 +160,9 @@ pub struct RLookupKey<'a> {
     _path: Option<Cow<'a, CStr>>,
 }
 
+/// An append-only list of [`RlookupKey`]s.
+///
+/// This type allows the creation and retrieval of [`RlookupKey`]s.
 #[derive(Debug)]
 #[repr(C)]
 struct KeyList<'a> {
@@ -170,6 +173,7 @@ struct KeyList<'a> {
     rowlen: u32,
 }
 
+/// Link to other keys in a [`KeyList`].
 #[derive(Debug)]
 #[repr(C)]
 struct Link<'a> {
@@ -186,11 +190,13 @@ struct LinkInner<'a> {
     _unpin: PhantomPinned,
 }
 
+/// Iterates over the keys in a [`KeyList`] by reference.
 pub struct Iter<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     curr: Option<NonNull<RLookupKey<'a>>>,
 }
 
+/// Iterates over the keys in a [`KeyList`] by mutable reference.
 pub struct IterMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     curr: Option<NonNull<RLookupKey<'a>>>,
@@ -281,6 +287,7 @@ impl<'a> RLookupKey<'a> {
 
 #[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
 impl<'a> KeyList<'a> {
+    /// Construct a new, empty `KeyList`.
     pub const fn new() -> Self {
         Self {
             head: None,
@@ -289,6 +296,9 @@ impl<'a> KeyList<'a> {
         }
     }
 
+    /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
+    ///
+    /// The key will be owned by the list and freed when dropping the list.
     fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push before");
@@ -330,6 +340,9 @@ impl<'a> KeyList<'a> {
         unsafe { Pin::new_unchecked(key) }
     }
 
+    /// Returns an Iterator over the `RLookupKey`s in this `KeyList`.
+    ///
+    /// The iteration order is **not specified** and must not be relied on for correctness.
     pub fn iter(&self) -> Iter<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::iter");
@@ -340,6 +353,9 @@ impl<'a> KeyList<'a> {
         }
     }
 
+    /// Returns an Iterator over the `RLookupKey`s in this `KeyList`.
+    ///
+    /// The iteration order is **not specified** and must not be relied on for correctness.
     pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::iter_mut");
@@ -350,7 +366,9 @@ impl<'a> KeyList<'a> {
         }
     }
 
-    fn find(&self, name: &'a CStr) -> Option<&RLookupKey<'a>> {
+    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
+    /// and return an immutable reference to it if found.
+    fn find_by_name(&self, name: &'a CStr) -> Option<&RLookupKey<'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find");
 
@@ -358,7 +376,9 @@ impl<'a> KeyList<'a> {
         self.iter().find(|key| key._name.as_ref() == name)
     }
 
-    fn find_mut(&mut self, name: &'a CStr) -> Option<Pin<&mut RLookupKey<'a>>> {
+    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
+    /// and return a mutable reference to it if found.
+    fn find_by_name_mut(&mut self, name: &'a CStr) -> Option<Pin<&mut RLookupKey<'a>>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find_mut");
 
@@ -631,10 +651,10 @@ mod tests {
 
         keylist.assert_valid("tests::keylist_find after insertions");
 
-        let found = keylist.find(c"foo").unwrap();
+        let found = keylist.find_by_name(c"foo").unwrap();
         assert_eq!(NonNull::from(found), foo);
 
-        let found = keylist.find(c"bar").unwrap();
+        let found = keylist.find_by_name(c"bar").unwrap();
         assert_eq!(NonNull::from(found), bar);
     }
 
@@ -650,13 +670,13 @@ mod tests {
 
         keylist.assert_valid("tests::keylist_find_mut after insertions");
 
-        let found = keylist.find_mut(c"foo").unwrap();
+        let found = keylist.find_by_name_mut(c"foo").unwrap();
         assert_eq!(
             NonNull::from(unsafe { Pin::into_inner_unchecked(found) }),
             foo
         );
 
-        let found = keylist.find_mut(c"bar").unwrap();
+        let found = keylist.find_by_name_mut(c"bar").unwrap();
         assert_eq!(
             NonNull::from(unsafe { Pin::into_inner_unchecked(found) }),
             bar
