@@ -169,7 +169,7 @@ struct KeyList<'a> {
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
-    // of lookup keys
+    // of lookup keys.
     rowlen: u32,
 }
 
@@ -188,6 +188,18 @@ struct LinkInner<'a> {
     /// never receive LLVM `noalias` annotations; see also
     /// <https://github.com/rust-lang/rust/issues/63818>.
     _unpin: PhantomPinned,
+}
+
+/// A cursor over a [`KeyList`].
+pub struct Cursor<'list, 'a> {
+    _rlookup: &'list KeyList<'a>,
+    curr: Option<NonNull<RLookupKey<'a>>>,
+}
+
+/// A cursor over a [`KeyList`] with editing operations.
+pub struct CursorMut<'list, 'a> {
+    _rlookup: &'list mut KeyList<'a>,
+    curr: Option<NonNull<RLookupKey<'a>>>,
 }
 
 // ===== impl RLookupKey =====
@@ -326,6 +338,66 @@ impl<'a> KeyList<'a> {
         // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
         // publicly.
         unsafe { Pin::new_unchecked(key) }
+    }
+
+    /// Returns a [`Cursor`] starting at the first element.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over this list.
+    pub fn cursor_front(&self) -> Cursor<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::cursor_front");
+
+        Cursor {
+            _rlookup: self,
+            curr: self.head,
+        }
+    }
+
+    /// Returns a [`CursorMut`] starting at the first element.
+    ///
+    /// The [`CursorMut`] type can be used as Iterator over this list. In addition, it may be used to manipulate the list.
+    pub fn cursor_front_mut(&mut self) -> CursorMut<'_, 'a> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::cursor_front_mut");
+
+        CursorMut {
+            curr: self.head,
+            _rlookup: self,
+        }
+    }
+
+    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
+    /// and return an immutable reference to it if found.
+    // FIXME [MOD-10315] replace with more efficient search
+    fn find_by_name(&self, name: &'a CStr) -> Option<Cursor<'_, 'a>> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::find_by_name");
+
+        let mut c = self.cursor_front();
+        while let Some(key) = c.current() {
+            if key._name.as_ref() == name {
+                return Some(c);
+            }
+            c.move_next();
+        }
+        None
+    }
+
+    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
+    /// and return a mutable reference to it if found.
+    // FIXME [MOD-10315] replace with more efficient search
+    fn find_by_name_mut(&mut self, name: &'a CStr) -> Option<CursorMut<'_, 'a>> {
+        #[cfg(debug_assertions)]
+        self.assert_valid("KeyList::find_by_name_mut");
+
+        let mut c = self.cursor_front_mut();
+        while let Some(key) = c.current() {
+            if key._name.as_ref() == name {
+                return Some(c);
+            }
+            c.move_next();
+        }
+        None
     }
 
     /// Asserts as many of the linked list's invariants as possible.
@@ -477,6 +549,112 @@ impl<'a> Link<'a> {
     }
 }
 
+// ===== impl Cursor =====
+
+impl<'a> Cursor<'_, 'a> {
+    /// Move the cursor to the next [`RLookupKey`] in the [`KeyList`].
+    ///
+    /// Note that contrary to [`Self::next`] this **does not** skip over hidden keys.
+    pub fn move_next(&mut self) {
+        if let Some(curr) = self.curr.take() {
+            // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
+            // ensuring it will not be dropped while the iterator exists AND we have exclusive access
+            // to the keys it owns (and can therefore hand out mutable references).
+            // The returned item will not outlive the iterator.
+            let curr = unsafe { curr.as_ref() };
+
+            self.curr = curr.next.next();
+        }
+    }
+
+    /// If the cursor currently points to a key, return an immutable reference to it.
+    pub fn current(&self) -> Option<&RLookupKey<'a>> {
+        // Safety: See Self::move_next.
+        Some(unsafe { self.curr?.as_ref() })
+    }
+
+    /// Skip a consecutive run of keys marked as "hidden". Used in the [`Iterator`] implementation.
+    fn skip_hidden(&mut self) {
+        while let Some(curr) = self.current()
+            && curr.flags.contains(RLookupKeyFlag::Hidden)
+        {
+            self.move_next();
+        }
+    }
+}
+
+impl<'list, 'a> Iterator for Cursor<'list, 'a> {
+    type Item = &'list RLookupKey<'a>;
+
+    /// Advances the [`Cursor`] to the next [`RLookupKey`] in the [`KeyList`] and returns it.
+    ///
+    /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
+    fn next(&mut self) -> Option<Self::Item> {
+        self.skip_hidden();
+
+        // Safety: See Self::move_next.
+        let curr = unsafe { self.curr?.as_ref() };
+
+        self.move_next();
+
+        Some(curr)
+    }
+}
+
+// ===== impl CursorMut =====
+
+impl<'a> CursorMut<'_, 'a> {
+    pub fn move_next(&mut self) {
+        if let Some(curr) = self.curr.take() {
+            // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
+            // ensuring it will not be dropped while the iterator exists AND we have exclusive access
+            // to the keys it owns (and can therefore hand out mutable references).
+            // The returned item will not outlive the iterator.
+            let curr = unsafe { curr.as_ref() };
+            self.curr = curr.next.next();
+        }
+    }
+
+    /// If the cursor currently points to a key, return a mutable reference to it.
+    pub fn current(&mut self) -> Option<Pin<&mut RLookupKey<'a>>> {
+        // Safety: See Self::move_next.
+        let curr = unsafe { self.curr?.as_mut() };
+
+        // Safety: RLookup treats the keys are pinned always, we just need consumers of this
+        // iterator to uphold the pinning invariant too
+        Some(unsafe { Pin::new_unchecked(curr) })
+    }
+
+    /// Skip a consecutive run of keys marked as "hidden". Used in the [`Iterator`] implementation.
+    fn skip_hidden(&mut self) {
+        while let Some(curr) = self.current()
+            && curr.flags.contains(RLookupKeyFlag::Hidden)
+        {
+            self.move_next();
+        }
+    }
+}
+
+impl<'list, 'a> Iterator for CursorMut<'list, 'a> {
+    type Item = Pin<&'list mut RLookupKey<'a>>;
+
+    /// Advances the [`CursorMut`] to the next [`RLookupKey`] in the [`KeyList`] and returns it.
+    ///
+    /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
+    fn next(&mut self) -> Option<Self::Item> {
+        self.skip_hidden();
+
+        // Safety: See Self::move_next.
+        let curr = unsafe { self.curr?.as_mut() };
+
+        self.move_next();
+
+        // Safety: RLookup treats the keys are pinned always, we just need consumers of this
+        // iterator to uphold the pinning invariant too
+        Some(unsafe { Pin::new_unchecked(curr) })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,10 +697,10 @@ mod tests {
     fn keylist_push_consistency() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RlookupKeyFlags::empty()));
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RlookupKeyFlags::empty()));
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_push_consistency after insertions");
@@ -535,5 +713,226 @@ mod tests {
         unsafe {
             assert!(!bar.as_ref().next.has_next());
         }
+    }
+
+    #[test]
+    fn keylist_cursor() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
+        keylist.assert_valid("tests::keylist_iter after insertions");
+
+        let mut c = keylist.cursor_front();
+        assert_eq!(c.next().unwrap()._name.as_ref(), c"foo");
+        assert_eq!(c.next().unwrap()._name.as_ref(), c"bar");
+        assert_eq!(c.next().unwrap()._name.as_ref(), c"baz");
+        assert!(c.next().is_none());
+    }
+
+    #[test]
+    fn keylist_cursor_mut() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(c"baz", RLookupKeyFlags::empty()));
+        keylist.assert_valid("tests::keylist_iter_mut after insertions");
+
+        let mut c = keylist.cursor_front_mut();
+
+        assert_eq!(c.next().unwrap()._name.as_ref(), c"foo");
+        assert_eq!(c.next().unwrap()._name.as_ref(), c"bar");
+        assert_eq!(c.next().unwrap()._name.as_ref(), c"baz");
+        assert!(c.next().is_none());
+    }
+
+    // Assert the iterator immediately returns None if all keys are marked hidden
+    #[test]
+    fn keylist_cursor_all_hidden() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(
+            c"bar",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(
+            c"baz",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.assert_valid("tests::keylist_cursor_all_hidden after insertions");
+
+        let mut c = keylist.cursor_front();
+        assert!(c.next().is_none());
+    }
+
+    // Assert the iterator skips all keys marked hidden
+    #[test]
+    fn keylist_cursor_skip_hidden() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(
+            c"baz",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.assert_valid("tests::keylist_cursor_skip_hidden after insertions");
+
+        let mut c = keylist.cursor_front();
+        assert_eq!(c.next().unwrap()._name.as_ref(), c"bar");
+        assert!(c.next().is_none());
+    }
+
+    // Assert the iterator immediately returns None if all keys are marked hidden
+    #[test]
+    fn keylist_cursor_mut_all_hidden() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(
+            c"bar",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(
+            c"baz",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.assert_valid("tests::keylist_cursor_mut_all_hidden after insertions");
+
+        let mut c = keylist.cursor_front_mut();
+        assert!(c.next().is_none());
+    }
+
+    // Assert the iterator skips all keys marked hidden
+    #[test]
+    fn keylist_cursor_mut_skip_hidden() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(
+            c"baz",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.assert_valid("tests::keylist_cursor_mut_skip_hidden after insertions");
+
+        let mut c = keylist.cursor_front_mut();
+        assert_eq!(c.next().unwrap()._name.as_ref(), c"bar");
+        assert!(c.next().is_none());
+    }
+
+    // Assert the Cursor::move_next method DOES NOT skip keys marked hidden
+    #[test]
+    fn keylist_cursor_move_next() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(
+            c"baz",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.assert_valid("tests::keylist_cursor_move_next after insertions");
+
+        let mut c = keylist.cursor_front();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"bar");
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"baz");
+        c.move_next();
+        assert!(c.current().is_none());
+    }
+
+    // Assert the CursorMut::move_next method DOES NOT skip keys marked hidden
+    #[test]
+    fn keylist_cursor_mut_move_next() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        keylist.push(RLookupKey::new(
+            c"baz",
+            make_bitflags!(RLookupKeyFlag::Hidden),
+        ));
+        keylist.assert_valid("tests::keylist_cursor_mut_move_next after insertions");
+
+        let mut c = keylist.cursor_front_mut();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"bar");
+        c.move_next();
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"baz");
+        c.move_next();
+        assert!(c.current().is_none());
+    }
+
+    #[test]
+    fn keylist_find() {
+        let mut keylist = KeyList::new();
+
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
+
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
+
+        keylist.assert_valid("tests::keylist_find after insertions");
+
+        let found = keylist.find_by_name(c"foo").unwrap();
+        assert_eq!(NonNull::from(found.current().unwrap()), foo);
+
+        let found = keylist.find_by_name(c"bar").unwrap();
+        assert_eq!(NonNull::from(found.current().unwrap()), bar);
+
+        assert!(keylist.find_by_name(c"baz").is_none());
+    }
+
+    #[test]
+    fn keylist_find_mut() {
+        let mut keylist = KeyList::new();
+
+        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
+
+        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
+
+        keylist.assert_valid("tests::keylist_find_mut after insertions");
+
+        let mut found = keylist.find_by_name_mut(c"foo").unwrap();
+        assert_eq!(
+            NonNull::from(unsafe { Pin::into_inner_unchecked(found.current().unwrap()) }),
+            foo
+        );
+
+        let mut found = keylist.find_by_name_mut(c"bar").unwrap();
+        assert_eq!(
+            NonNull::from(unsafe { Pin::into_inner_unchecked(found.current().unwrap()) }),
+            bar
+        );
+
+        assert!(keylist.find_by_name(c"baz").is_none());
     }
 }
