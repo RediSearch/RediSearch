@@ -14,6 +14,7 @@ use std::{
     ffi::{CStr, c_char},
     marker::PhantomPinned,
     mem,
+    ops::DerefMut,
     pin::Pin,
     ptr::{self, NonNull},
 };
@@ -117,7 +118,7 @@ const TRANSIENT_FLAGS: RLookupKeyFlags = make_bitflags!(RLookupKeyFlag::{Overrid
 /// This is used for data generated on the fly, or for data not stored within
 /// the sorting vector.
 /// ```
-#[pin_project]
+#[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookupKey<'a> {
@@ -146,7 +147,6 @@ pub struct RLookupKey<'a> {
     name_len: usize,
 
     /// Pointer to next field in the list
-    #[pin]
     next: Link<'a>,
 
     // Private Rust fields
@@ -169,7 +169,8 @@ struct KeyList<'a> {
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
-    // of lookup keys.
+    // of lookup keys. Hidden keys created through [`CursorMut::override_current`] increase
+    // the number of actually allocated keys without increasing the conceptual rowlen.
     rowlen: u32,
 }
 
@@ -233,6 +234,38 @@ impl<'a> RLookupKey<'a> {
             name_len: name.count_bytes(),
             _name: name,
             _path: None,
+            next: Link::new(),
+        }
+    }
+
+    pub fn from_parts(
+        name: Cow<'a, CStr>,
+        path: Option<Cow<'a, CStr>>,
+        dstidx: u16,
+        flags: RlookupKeyFlags,
+    ) -> Self {
+        debug_assert_eq!(
+            matches!(name, Cow::Owned(_)),
+            flags.contains(RlookupKeyFlag::NameAlloc),
+            "RlookupKeyFlag::NameAlloc but name is Cow::Borrowed"
+        );
+        if let Some(path) = &path {
+            debug_assert_eq!(
+                matches!(path, Cow::Owned(_)),
+                flags.contains(RlookupKeyFlag::NameAlloc),
+                "RlookupKeyFlag::NameAlloc but path is Cow::Borrowed"
+            );
+        }
+
+        Self {
+            dstidx,
+            svidx: 0,
+            flags: flags & !TRANSIENT_FLAGS,
+            name: name.as_ptr(),
+            path: name.as_ptr(),
+            name_len: name.count_bytes(),
+            _name: name,
+            _path: path,
             next: Link::new(),
         }
     }
@@ -605,7 +638,7 @@ impl<'list, 'a> Iterator for Cursor<'list, 'a> {
 
 // ===== impl CursorMut =====
 
-impl<'a> CursorMut<'_, 'a> {
+impl<'list, 'a> CursorMut<'list, 'a> {
     pub fn move_next(&mut self) {
         if let Some(curr) = self.current.take() {
             // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
@@ -625,6 +658,56 @@ impl<'a> CursorMut<'_, 'a> {
         // Safety: RLookup treats the keys are pinned always, we just need consumers of this
         // iterator to uphold the pinning invariant too
         Some(unsafe { Pin::new_unchecked(curr) })
+    }
+
+    /// Override the [`RLookupKey`] currently being pointed to by this cursor (if any) with the given flags.
+    ///
+    /// The new key will inherit the `name`, `path`, and `dstidx` of the current key but receive a
+    /// **new pointer identity**. The new key is returned.
+    pub fn override_current(
+        mut self,
+        flags: RlookupKeyFlags,
+    ) -> Option<Pin<&'list mut RLookupKey<'a>>> {
+        let old = self.current()?;
+        let mut old = old.project();
+
+        *old.name = ptr::null();
+        *old.name_len = usize::MAX;
+        let name = mem::take(old._name.deref_mut());
+
+        *old.path = ptr::null();
+        let path = mem::take(old._path.deref_mut());
+
+        let mut new = RLookupKey::from_parts(name, path, *old.dstidx, flags);
+
+        // link the new key into the linked-list. Since KeyList is singly-linked and we don't know yet
+        // if C code is still holding on to pointers to nodes, we replicate the C behvaiour here:
+        //
+        // 1. We copy the next pointer from old to new
+        // 2. We mark the old as "Hidden" so it doesn't show up in iteration anymore
+        // 3. We point old.next to the new key, so the chain isn't broken
+        //
+        // This in effect, replaces the old key but turning it into a "tombstone value" and forcing iteration
+        // to follow this indirection.
+        new.next.set_next(old.next.next());
+
+        // Safety: we treat the pointer as pinned below and only hand out a pinned mutable reference.
+        let mut new = unsafe { RLookupKey::into_ptr(Box::pin(new)) };
+
+        *old.flags |= RlookupKeyFlag::Hidden;
+        old.next.set_next(Some(new));
+
+        // If the old key was the tail, set the new key as the tail
+        if self._rlookup.tail == self.curr {
+            self._rlookup.tail = Some(new);
+        }
+
+        // Safety: we have allocated the memory above, this pointer is safe to dereference.
+        let new = unsafe { new.as_mut() };
+
+        // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
+        // publicly.
+        Some(unsafe { Pin::new_unchecked(new) })
     }
 
     /// Skip a consecutive run of keys marked as "hidden". Used in the [`Iterator`] implementation.
