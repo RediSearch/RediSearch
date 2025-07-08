@@ -42,8 +42,8 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Function for parsing hybrid request parameters - exposed for testing
 HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                  RedisSearchCtx *sctx, HybridPipelineParams *hybridParams,
-                                  QueryError *status);
+                                  RedisSearchCtx *sctx, const char* indexname,
+                                  HybridPipelineParams *hybridParams, QueryError *status);
 
 #ifdef __cplusplus
 }
