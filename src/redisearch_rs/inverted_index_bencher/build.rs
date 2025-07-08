@@ -46,6 +46,7 @@ fn link_static_libraries() {
     ));
 
     link_static_lib(&bin_root, "src/inverted_index", "inverted_index").unwrap();
+    link_static_lib(&bin_root, "src/buffer", "buffer").unwrap();
 }
 
 fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,6 +58,7 @@ fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
         root.join("deps"),
         root.join("src").join("redisearch_rs").join("headers"),
         root.join("deps").join("VectorSimilarity").join("src"),
+        root.join("src").join("buffer"),
     ];
 
     let mut bindings = bindgen::Builder::default().header(

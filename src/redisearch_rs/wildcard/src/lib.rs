@@ -191,10 +191,10 @@ impl<'pattern> WildcardPattern<'pattern> {
             };
         }
 
-        if let Some(expected_length) = self.expected_length {
-            if key.len() > expected_length {
-                return MatchOutcome::NoMatch;
-            }
+        if let Some(expected_length) = self.expected_length
+            && key.len() > expected_length
+        {
+            return MatchOutcome::NoMatch;
         }
 
         // Backtrack if possible, otherwise return early claiming we can't match.

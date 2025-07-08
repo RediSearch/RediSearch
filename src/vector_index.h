@@ -63,6 +63,7 @@
 #define VECSIM_LEANVEC_4X8 "LeanVec4x8"
 #define VECSIM_LEANVEC_8X8 "LeanVec8x8"
 #define VECSIM_TRAINING_THRESHOLD "TRAINING_THRESHOLD"
+#define VECSIM_LEANVEC_DIM "LEANVEC_DIM"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
@@ -153,6 +154,7 @@ const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
 const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
+bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits);
 
 void VecSimParams_Cleanup(VecSimParams *params);
 
@@ -161,6 +163,8 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
                       const char *field_name); // includes tiered index
+int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
+                      const char *field_name); // includes SVS algorithm support
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);

@@ -499,8 +499,6 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-  // printf("Opening reader.. `%s` FieldMask: %llx\n", term->str, EFFECTIVE_FIELDMASK(q, qn));
-
   IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable,
                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
   if (ir == NULL) {
@@ -575,7 +573,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
   }
 
   TrieIterator_Free(it);
-  // printf("Expanded %d terms!\n", itsSz);
   if (itsSz == 0) {
     rm_free(its);
     return NULL;
@@ -915,10 +912,13 @@ static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
 
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
+  IndexIterator *child = NULL;
+  bool currently_notSubtree = q->notSubtree;
+  q->notSubtree = true;
+  child = Query_EvalNode(q, qn->children[0]);
+  q->notSubtree = currently_notSubtree;
 
-  return NewNotIterator(qn ? Query_EvalNode(q, qn->children[0]) : NULL,
-                        q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout,
-                        q);
+  return NewNotIterator(child, q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1092,8 +1092,8 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     rm_free(iters);
     return ret;
   }
-
-  IndexIterator *ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_UNION, NULL, q->config);
+  bool quickExit = q->notSubtree;
+  IndexIterator *ret = NewUnionIterator(iters, n, quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
   return ret;
 }
 
@@ -1480,8 +1480,10 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
       array_free(total_its);
     }
   }
-
-  ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_TAG, NULL, q->config);
+  // We want to get results with all the matching children (`quickExit == false`), unless:
+  // 1. We are a `Not` sub-tree, so we only care about the set of IDs
+  bool quickExit = q->notSubtree;
+  ret = NewUnionIterator(iters, n, quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
 
 done:
   return ret;
@@ -1574,8 +1576,6 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     fclose(qpCtx.trace_log);
   }
 #endif
-  // printf("Parsed %.*s. Error (Y/N): %d. Root: %p\n", (int)n, q, QueryError_HasError(status),
-  //  dst->root);
   if (!dst->root) {
     if (QueryError_HasError(status)) {
       return REDISMODULE_ERR;
@@ -1607,6 +1607,7 @@ IndexIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSe
       .metricRequestsP = &qast->metricRequests,
       .reqFlags = reqflags,
       .config = &qast->config,
+      .notSubtree = false,
   };
   IndexIterator *root = Query_EvalNode(&qectx, qast->root);
   if (!root) {
@@ -2000,7 +2001,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       for (int i = 0; i < qs->fn.len; i++) {
         t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
         if (id != 0) {
-          s = sdscatprintf(s, "%llu,", id);
+          s = sdscatprintf(s, "%zu,", id);
         }
       }
       s = sdscat(s, "}");

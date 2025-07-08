@@ -208,8 +208,14 @@ IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId);
 // Create a new IndexDecoderCtx with a default numeric filter. Used only benchmarks
 IndexDecoderCtx NewIndexDecoderCtx_NumericFilter();
 
+/* Wrapper around the static encodeFreqsOnly to be able to access it in the Rust benchmarks. */
+size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
 /* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static readFreqs to be able to access it in the Rust benchmarks */
+bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
