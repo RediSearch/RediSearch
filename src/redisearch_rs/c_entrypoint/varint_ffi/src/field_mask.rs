@@ -57,6 +57,7 @@ pub extern "C" fn WriteVarintFieldMask(
     value: FieldMask,
     writer: Option<NonNull<BufferWriter>>,
 ) -> usize {
+    dbg!("CALLED");
     let mut writer = writer.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
     let writer = unsafe { writer.as_mut() };

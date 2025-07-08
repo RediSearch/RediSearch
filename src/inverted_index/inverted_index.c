@@ -157,6 +157,7 @@ ENCODER(encodeFull) {
 
 ENCODER(encodeFullWide) {
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
+  printf("calling WriteVarintFieldMask\n");
   sz += WriteVarintFieldMask(res->fieldMask, bw);
   sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
   return sz;

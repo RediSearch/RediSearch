@@ -437,6 +437,14 @@ mod tests {
     fn test_encode_full_wide() {
         // Test cases for the full wide encoder and decoder. These cases can be moved to the Rust
         // implementation tests verbatim.
+        // HACK: call WriteVarintFieldMask so the symbol is not discarded by the linker.
+        let layout = Layout::array::<u8>(4).unwrap();
+        let data = unsafe { alloc(layout) };
+        let mut buffer = unsafe { Buffer::new(NonNull::new(data).unwrap(), 0, 4) };
+        let mut writer = BufferWriter::new_at(&mut buffer, 0);
+        let writer_ptr = NonNull::from(&mut writer);
+        varint_ffi::WriteVarintFieldMask(0, Some(writer_ptr));
+
         let tests = [
             // (delta, frequency, field mask, term offsets vector, expected encoding)
             (0, 1, 1, vec![1i8, 2, 3], vec![0, 0, 1, 3, 1, 1, 2, 3]),
