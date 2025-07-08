@@ -348,6 +348,12 @@ protected:
         }
         // Set up the mock current time
         q_mock.sctx.time.current = {100, 100};
+        // Set field to index array - i -> i
+        q_mock.spec.fieldIdToIndex = array_new(t_fieldIndex, 128);
+        for (t_fieldIndex i = 0; i < 128; ++i) {
+            array_append(q_mock.spec.fieldIdToIndex, i);
+        }
+
         // Create the iterator based on the flags
         if (flags & Index_StoreNumeric) {
             FieldFilterContext fieldCtx = {.field = {false, fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
@@ -362,6 +368,7 @@ protected:
     void TearDown() override {
         it_base->Free(it_base);
         InvertedIndex_Free(idx);
+        array_free(q_mock.spec.fieldIdToIndex);
     }
 };
 INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTestExpiration, ::testing::Values(
