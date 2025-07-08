@@ -219,12 +219,12 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
 
-  // RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
-  // RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
-  // RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
-  // RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
-  // searchRequest->sctx = NewSearchCtxC(ctx1, indexname, true);
-  // vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
+  RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
+  RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
+  searchRequest->sctx = NewSearchCtxC(ctx1, indexname, true);
+  vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
 
   AREQ *mergeAreq = NULL;
   AREQ **requests = NULL;
@@ -361,7 +361,7 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   QueryError status = {0};
 
-  HybridPipelineParams params = {0};  
+  HybridPipelineParams params = {0};
 
   HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, indexname, &params, &status);
   if (!hybridRequest) {
