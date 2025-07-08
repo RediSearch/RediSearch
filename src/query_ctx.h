@@ -24,4 +24,5 @@ typedef struct QueryEvalCtx {
   DocTable *docTable;
   uint32_t reqFlags;
   IteratorsConfig *config;
+  bool notSubtree;
 } QueryEvalCtx;
