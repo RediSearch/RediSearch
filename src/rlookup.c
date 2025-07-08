@@ -906,7 +906,7 @@ done:
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rv = REDISMODULE_ERR;
   if (options->dmd) {
-    dst->sv = options->dmd->sortVector;
+    RLookupRow_SetSortingVector(dst, options->dmd->sortVector);
   }
 
   if (options->mode & RLOOKUP_LOAD_ALLKEYS) {
