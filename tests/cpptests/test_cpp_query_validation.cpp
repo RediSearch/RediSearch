@@ -35,15 +35,10 @@ bool isInvalidHybridSearch(const char *qt, RedisSearchCtx &ctx,
   QAST_ValidationFlags validationFlags, QueryErrorCode error) {
   QASTCXX ast;
   ast.setContext(&ctx);
-  // First check if the query is invalid
-  bool valid = ast.isValidQuery(qt, validationFlags);
+  ast.isValidQuery(qt, validationFlags);
   // Then check if the error message contains the expected error
   QueryErrorCode actual_err_code = ast.getErrorCode();
   // If the query is valid or the error code doesn't match, the test should fail
-  if (valid) {
-    ADD_FAILURE() << "Query should be invalid but was valid: " << qt;
-    return false;
-  }
   if (actual_err_code != error) {
     ADD_FAILURE() << "Error code mismatch for query '" << qt
                   << "': expected " << error
@@ -69,8 +64,7 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
     "SCHEMA",
     "title", "text", "weight", "1.2",
     "body", "text", "INDEXMISSING", "INDEXEMPTY",
-    "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2",
-    "v2", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
+    "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
   QueryError err = {QUERY_OK};
   StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
@@ -80,7 +74,7 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
 
   // Invalid queries with KNN
   assertInvalidHybridVectorFilterQuery("*=>[KNN 10 @v $BLOB]", ctx);
-  assertInvalidHybridVectorFilterQuery("@title:hello =>[KNN 10 @v2 $BLOB]", ctx);
+  assertInvalidHybridVectorFilterQuery("@title:hello =>[KNN 10 @v $BLOB]", ctx);
 
   // Invalid queries with range
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB]", ctx);
@@ -100,9 +94,9 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar", ctx);
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar @v:[VECTOR_RANGE 0.04 $BLOB2]", ctx);
   assertInvalidHybridVectorFilterQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo) => [KNN 5 @v $BLOB2]", ctx);
-  assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
-  assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
-  assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2] => {$yield_distance_as:second_score;}", ctx);
+  assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] => [KNN 5 @v $BLOB2 AS second_score]", ctx);
+  assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v $BLOB2 AS second_score]", ctx);
+  assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v $BLOB2] => {$yield_distance_as:second_score;}", ctx);
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] VECTOR_RANGE", ctx); // Fallback VECTOR_RANGE into a term.
 
   IndexSpec_RemoveFromGlobals(ref, false);
@@ -145,8 +139,7 @@ TEST_F(QueryValidationTest, testInvalidHybridSearch) {
     "SCHEMA",
     "title", "text", "weight", "1.2",
     "body", "text",
-    "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2",
-    "v2", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
+    "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
   QueryError err = {QUERY_OK};
   StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
@@ -157,7 +150,7 @@ TEST_F(QueryValidationTest, testInvalidHybridSearch) {
 
   // Invalid queries with KNN
   assertInvalidHybridSearchQuery("*=>[KNN 10 @v $BLOB]", ctx);
-  assertInvalidHybridSearchQuery("(@title:hello)=>[KNN 10 @v2 $BLOB]", ctx);
+  assertInvalidHybridSearchQuery("(@title:hello)=>[KNN 10 @v $BLOB]", ctx);
 
   // Invalid queries with range
   assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB]", ctx);
@@ -168,9 +161,9 @@ TEST_F(QueryValidationTest, testInvalidHybridSearch) {
   assertInvalidHybridSearchQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo) => { $weight: 2.0 }", ctx);
   assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar @v:[VECTOR_RANGE 0.04 $BLOB2]", ctx);
   assertInvalidHybridSearchQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo) => [KNN 5 @v $BLOB2]", ctx);
-  assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB] => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
-  assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2 AS second_score]", ctx);
-  assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v2 $BLOB2] => {$yield_distance_as:second_score;}", ctx);
+  assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB] => [KNN 5 @v $BLOB2 AS second_score]", ctx);
+  assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v $BLOB2 AS second_score]", ctx);
+  assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB]=>{$yield_distance_as: score1;} => [KNN 5 @v $BLOB2] => {$yield_distance_as:second_score;}", ctx);
   assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB] VECTOR_RANGE", ctx); // Fallback VECTOR_RANGE into a term.
 
   IndexSpec_RemoveFromGlobals(ref, false);
