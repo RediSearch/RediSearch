@@ -353,6 +353,13 @@ impl<'a> RLookupKey<'a> {
         unsafe { Pin::new_unchecked(b) }
     }
 
+    fn is_tombstone(&self) -> bool {
+        self.name.is_null()
+            && self.name_len == usize::MAX
+            && self.path.is_null()
+            && self.flags.contains(RLookupKeyFlag::Hidden)
+    }
+
     /// Returns `true` if this node is currently linked to a [`List`].
     #[cfg(test)]
     fn has_next(&self) -> bool {
@@ -384,26 +391,29 @@ impl<'a> RLookupKey<'a> {
             "{ctx}key flags must not contain transient ({TRANSIENT_FLAGS:?}) flags. Found {:?}.",
             self.flags
         );
-        assert!(
-            ptr::eq(self.name, self._name.as_ptr()),
-            "{ctx}`key.name` did not match `key._name`. ({self:?})",
-        );
-        if let Some(path) = self._path.as_ref() {
+
+        if !self.is_tombstone() {
             assert!(
-                ptr::eq(self.path, path.as_ptr()),
-                "{ctx}`key._path` is present, but `key.path` did not match `key._path`. ({self:?})"
+                ptr::eq(self.name, self._name.as_ptr()),
+                "{ctx}`key.name` did not match `key._name`. ({self:?})",
             );
-        } else {
-            assert!(
-                ptr::eq(self.path, self._name.as_ptr()),
-                "{ctx}`key._path` is not present, but `key.path` did not match `key._name`. ({self:?})"
+            if let Some(path) = self._path.as_ref() {
+                assert!(
+                    ptr::eq(self.path, path.as_ptr()),
+                    "{ctx}`key._path` is present, but `key.path` did not match `key._path`. ({self:?})"
+                );
+            } else {
+                assert!(
+                    ptr::eq(self.path, self._name.as_ptr()),
+                    "{ctx}`key._path` is not present, but `key.path` did not match `key._name`. ({self:?})"
+                );
+            }
+            assert_eq!(
+                self.name_len,
+                self._name.count_bytes(),
+                "{ctx}`key.name_len` did not match `key._name` length"
             );
         }
-        assert_eq!(
-            self.name_len,
-            self._name.count_bytes(),
-            "{ctx}`key.name_len` did not match `key._name` length"
-        );
 
         if ptr::eq(self, tail) {
             assert_eq!(
@@ -604,9 +614,9 @@ impl<'a> KeyList<'a> {
             actual_len += 1;
         }
 
-        assert_eq!(
-            self.rowlen, actual_len,
-            "{ctx}linked list's actual length did not match its `len` variable"
+        assert!(
+            self.rowlen <= actual_len,
+            "{ctx}linked list's rowlen was greater than its actual length"
         );
     }
 }
@@ -721,6 +731,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     ///
     /// The new key will inherit the `name`, `path`, and `dstidx` of the current key but receive a
     /// **new pointer identity**. The new key is returned.
+    #[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
     pub fn override_current(
         mut self,
         flags: RLookupKeyFlags,
@@ -752,7 +763,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         let mut new = unsafe { Pin::new_unchecked(new) };
 
         // link the new key into the linked-list. Since KeyList is singly-linked and we don't know yet
-        // if C code is still holding on to pointers to nodes, we replicate the C behvaiour here:
+        // if C code is still holding on to pointers to nodes, we replicate the C behaviour here:
         //
         // 1. We copy the next pointer from old to new
         // 2. We mark the old as "Hidden" so it doesn't show up in iteration anymore
@@ -761,7 +772,6 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         // This in effect, replaces the old key but turning it into a "tombstone value" and forcing iteration
         // to follow this indirection.
         new.as_mut().set_next(old.next());
-
         old.set_next(Some(new_ptr));
 
         // If the old key was the tail, set the new key as the tail
