@@ -10,6 +10,7 @@
 
 #include "aggregate/aggregate.h"
 #include "query_error.h"
+#include "query_node.h"
 #include "spec.h"
 #include "param.h"
 #include "resp3.h"
@@ -98,6 +99,10 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   vqData->params.params = array_new(VecSimRawParam, 0);
   vqData->params.needResolve = array_new(bool, 0);
 
+  // Initialize QueryAttribute array for attributes like YIELD_DISTANCE_AS
+  vqData->attributes = array_new(QueryAttribute, 0);
+  vqData->numAttributes = 0;
+
   const char *current;
   if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Unknown parameter after VSIM");
@@ -165,14 +170,16 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
             QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
             return REDISMODULE_ERR;
           }
-          VecSimRawParam yieldDistanceAsParam = {
-            .name = rm_strdup("YIELD_DISTANCE_AS"),
-            .nameLen = strlen("YIELD_DISTANCE_AS"),
+
+          // As QueryAttribute (for query node processing)
+          QueryAttribute attr = {
+            .name = YIELD_DISTANCE_ATTR,
+            .namelen = strlen(YIELD_DISTANCE_ATTR),
             .value = rm_strdup(value),
-            .valLen = strlen(value)
+            .vallen = strlen(value)
           };
-          array_append(vqData->params.params, yieldDistanceAsParam);
-          array_append(vqData->params.needResolve, false);
+          vqData->attributes = array_ensure_append_1(vqData->attributes, attr);
+          vqData->numAttributes = array_len(vqData->attributes);
           hasYieldDistanceAs = true;
         }
       } else {
@@ -241,7 +248,9 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
             QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
             return REDISMODULE_ERR;
           }
-          // Add to params following parser pattern
+
+          // Add as both parameter and attribute for maximum compatibility
+          // As VecSimRawParam (for vector query processing)
           VecSimRawParam yieldDistanceAsParam = {
             .name = rm_strdup("YIELD_DISTANCE_AS"),
             .nameLen = strlen("YIELD_DISTANCE_AS"),
@@ -250,6 +259,16 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
           };
           array_append(vqData->params.params, yieldDistanceAsParam);
           array_append(vqData->params.needResolve, false);
+
+          // As QueryAttribute (for query node processing)
+          QueryAttribute attr = {
+            .name = YIELD_DISTANCE_ATTR,
+            .namelen = strlen(YIELD_DISTANCE_ATTR),
+            .value = rm_strdup(value),
+            .vallen = strlen(value)
+          };
+          vqData->attributes = array_ensure_append_1(vqData->attributes, attr);
+          vqData->numAttributes = array_len(vqData->attributes);
           hasYieldDistanceAs = true;
         }
       } else {

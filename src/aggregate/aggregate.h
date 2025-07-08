@@ -133,7 +133,9 @@ typedef struct VectorQueryData {
     size_t k;                // For KNN queries
     double radius;           // For RANGE queries
   };
-  VectorQueryParams params;  // Parsed runtime parameters (EF_RUNTIME, EPSILON, YIELD_DISTANCE_AS, etc.)
+  VectorQueryParams params;  // Parsed runtime parameters (EF_RUNTIME, EPSILON, etc.)
+  QueryAttribute *attributes; // For YIELD_DISTANCE_AS and other query attributes
+  size_t numAttributes;      // Number of attributes
 } VectorQueryData;
 
 void VectorQueryData_Free(VectorQueryData *vqData);

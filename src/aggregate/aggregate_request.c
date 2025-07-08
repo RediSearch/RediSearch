@@ -1203,22 +1203,15 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
     QueryParseCtx q = {0};
     QueryNode *vecNode = NewVectorNode_WithParams(&q, vqData->type, valueToken, vecToken);
-    // QueryNode *ret = NewQueryNode(QN_VECTOR);
-    // ret->opts.flags |= QueryNode_YieldsDistance;
-    //save the vector in the params
-    // QueryNode_InitParams(ret, 1);
-    // QueryParseCtx q = {0};
-    // QueryNode_SetParam(&q, &ret->params[0], &vqData->vector, &vqData->vectorLen, NULL);
-    // ret->params[0].type = PARAM_VEC;
-    // ret->params[0].target = &vqData->vector;
-    // ret->params[0].target_len = &vqData->vectorLen;
-    // ret->params[0].name = rm_strdup(vqData->vectorField);
-    // ret->params[0].len = strlen(vqData->vectorField);
 
-    // 2. Allocate and initialize VectorQuery
-    // VectorQuery *vq = rm_calloc(1, sizeof(*vq));
-    // ret->vn.vq = vq;
+    // Set default scoreField (same as parser does in vector_command rule)
     VectorQuery *vq = vecNode->vn.vq;
+    if (!vq->scoreField) {
+      int n_written = rm_asprintf(&vq->scoreField, "__%s_score", vqData->vectorField);
+      RS_ASSERT(n_written != -1);
+    }
+
+    // 2. VectorQuery was already created by NewVectorNode_WithParams
     // 3. Set basic fields
     vq->field = vectorField;  // FieldSpec for the vector field
     vq->type = vqData->type;  // VECSIM_QT_KNN or VECSIM_QT_RANGE
@@ -1234,9 +1227,16 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
         vq->range.order = BY_ID;
         break;
     }
-    vq->params = vqData->params;
-    //QueryNode_ApplyAttribute
-    QueryNode_ApplyAttributes(vecNode, vqData->params.params, array_len(vqData->params.params), status);
+
+    if (vqData->params.params) {
+      vq->params.params = vqData->params.params;
+      vq->params.needResolve = vqData->params.needResolve;
+    }
+
+    // Apply query attributes (like YIELD_DISTANCE_AS)
+    if (vqData->attributes && vqData->numAttributes > 0) {
+      QueryNode_ApplyAttributes(vecNode, vqData->attributes, vqData->numAttributes, status);
+    }
 
     QueryNode_AddChild(vecNode, ast->root);
     ast->root = vecNode;
@@ -1911,6 +1911,15 @@ void VectorQueryData_Free(VectorQueryData *vqData) {
   }
   if (vqData->params.needResolve) {
     array_free(vqData->params.needResolve);
+  }
+
+  // Free QueryAttribute arrays
+  if (vqData->attributes) {
+    for (size_t i = 0; i < vqData->numAttributes; i++) {
+      rm_free((char*)vqData->attributes[i].value);
+      // Note: .name is not freed because it points to string literals like "yield_distance_as"
+    }
+    array_free(vqData->attributes);
   }
 
   rm_free(vqData);

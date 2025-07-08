@@ -106,22 +106,6 @@ TEST_F(ParseHybridTest, testVsimSubqueryBasic) {
   QueryNode *hybridVecRoot = vecReq->ast.root;
   QueryNode *equivVecRoot = equivalentREQ->ast.root;
 
-
-/*
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFRUNTIME), rc);
-        return 0;
-      }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
-      if ((rc = AC_GetDouble(ac, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
-        return 0;
-      }
-
-*/
-
-
   ASSERT_STREQ(vecReqExplain, equivalentREQExplain);
 
   // Verify the request was parsed successfully
