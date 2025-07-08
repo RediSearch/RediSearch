@@ -129,20 +129,25 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     /// Set a string at the given index, the string is normalized before being set.
     pub fn try_insert_string<S: AsRef<str>>(
         &mut self,
-        _idx: usize,
-        _str: S,
+        idx: usize,
+        str: S,
     ) -> Result<(), IndexOutOfBounds> {
         let rs_value_from_c = T::is_ptr_type();
         if rs_value_from_c {
             // If the RSValue type is owned and allocated by C, we cannot allocate parts of it in Rust yet.
             // See MOD-10347 for details.
+            // See the details about case folding below too.
             unimplemented!("We cannot yet allocate RSValues in Rust. See MOD-10347 for details.");
         }
 
-        self.in_bounds(_idx)?;
+        self.in_bounds(idx)?;
         let casemapper = CaseMapper::new();
-        let normalized = casemapper.fold_string(_str.as_ref()).into_owned();
-        self.values[_idx] = T::create_string(normalized);
+
+        // In Rust we will use ICU4X for case folding. This has been done in C by a different library, called
+        // lib_nu. Before we switch to use this code in production we need to make sure that the behavior is the same.
+        // See MOD-10320 for details.
+        let normalized = casemapper.fold_string(str.as_ref()).into_owned();
+        self.values[idx] = T::create_string(normalized);
         Ok(())
     }
 
@@ -209,7 +214,8 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     }
 }
 
-impl<I, T: RSValueTrait + Clone> Index<I> for RSSortingVector<T>
+// implementing Index opens the usage of the bracket operators `[]` to access elements in the sorting vector.
+impl<I, T: RSValueTrait> Index<I> for RSSortingVector<T>
 where
     I: std::slice::SliceIndex<[T]>,
 {
@@ -220,7 +226,8 @@ where
     }
 }
 
-impl<I, T: RSValueTrait + Clone> IndexMut<I> for RSSortingVector<T>
+// implementing IndexMut opens the usage of the bracket operators `[]` to mutate elements in the sorting vector.
+impl<I, T: RSValueTrait> IndexMut<I> for RSSortingVector<T>
 where
     I: std::slice::SliceIndex<[T]>,
 {

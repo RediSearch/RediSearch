@@ -7,13 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Ports part of the RediSearch RSValue type to Rust.
+//! Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
+//! Rust port of the RSValue type.
 
 /// A trait that defines the behavior of a RediSearch RSValue.
 ///
-/// This trait is used to create, manipulate, and free RSValue instances. It is
-/// implemented by a mock type for testing purposes, and by a new-type in the ffi layer to
-/// interact with the C API.
+/// The trait is temporary until we have a proper Rust port of the RSValue type.
+///
+/// This trait is used to create, manipulate, and free RSValue instances. It can be implemented
+/// as a mock type for testing purposes, and by a new-type in the ffi layer to interact with the
+/// C API.
 pub trait RSValueTrait: Clone
 where
     Self: Sized,
