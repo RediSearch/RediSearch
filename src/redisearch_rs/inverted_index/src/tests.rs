@@ -1,6 +1,6 @@
 use crate::{Encoder, InvertedIndex, RSIndexResult};
 
-/// Dummy encoder which allows defaults for testing
+/// Dummy encoder which allows defaults for testing, encoding only the delta
 struct Dummy;
 
 impl Encoder for Dummy {
