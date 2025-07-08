@@ -191,18 +191,6 @@ struct LinkInner<'a> {
     _unpin: PhantomPinned,
 }
 
-/// Iterates over the keys in a [`KeyList`] by reference.
-pub struct Iter<'list, 'a> {
-    _rlookup: &'list KeyList<'a>,
-    curr: Option<NonNull<RLookupKey<'a>>>,
-}
-
-/// Iterates over the keys in a [`KeyList`] by mutable reference.
-pub struct IterMut<'list, 'a> {
-    _rlookup: &'list mut KeyList<'a>,
-    curr: Option<NonNull<RLookupKey<'a>>>,
-}
-
 // ===== impl RLookupKey =====
 
 // SAFETY NOTICE
@@ -339,52 +327,6 @@ impl<'a> KeyList<'a> {
         // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
         // publicly.
         unsafe { Pin::new_unchecked(key) }
-    }
-
-    /// Returns an Iterator over the `RLookupKey`s in this `KeyList`.
-    ///
-    /// The iteration order is **not specified** and must not be relied on for correctness.
-    pub fn iter(&self) -> Iter<'_, 'a> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::iter");
-
-        Iter {
-            _rlookup: self,
-            curr: self.head,
-        }
-    }
-
-    /// Returns an Iterator over the `RLookupKey`s in this `KeyList`.
-    ///
-    /// The iteration order is **not specified** and must not be relied on for correctness.
-    pub fn iter_mut(&mut self) -> IterMut<'_, 'a> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::iter_mut");
-
-        IterMut {
-            curr: self.head,
-            _rlookup: self,
-        }
-    }
-
-    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
-    /// and return an immutable reference to it if found.
-    fn find_by_name(&self, name: &'a CStr) -> Option<&RLookupKey<'a>> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::find");
-
-        // FIXME [MOD-10315] replace with more efficient search
-        self.iter().find(|key| key._name.as_ref() == name)
-    }
-
-    /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
-    /// and return a mutable reference to it if found.
-    fn find_by_name_mut(&mut self, name: &'a CStr) -> Option<Pin<&mut RLookupKey<'a>>> {
-        #[cfg(debug_assertions)]
-        self.assert_valid("KeyList::find_mut");
-
-        // FIXME [MOD-10315] replace with more efficient search
-        self.iter_mut().find(|key| key._name.as_ref() == name)
     }
 
     /// Asserts as many of the linked list's invariants as possible.
@@ -536,50 +478,6 @@ impl<'a> Link<'a> {
     }
 }
 
-// ===== impl Iter =====
-
-impl<'list, 'a> Iterator for Iter<'list, 'a> {
-    type Item = &'list RLookupKey<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let curr = self.curr.take()?;
-
-        // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
-        // ensuring it will not be dropped while the iterator exists AND we have exclusive access
-        // to the keys it owns (and can therefore hand out mutable references).
-        // The returned item will not outlive the iterator.
-        self.curr = unsafe { curr.as_ref().next.next() };
-
-        // Safety: See above.
-        let curr = unsafe { curr.as_ref() };
-
-        Some(curr)
-    }
-}
-
-// ===== impl IterMut =====
-
-impl<'list, 'a> Iterator for IterMut<'list, 'a> {
-    type Item = Pin<&'list mut RLookupKey<'a>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut curr = self.curr.take()?;
-
-        // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
-        // ensuring it will not be dropped while the iterator exists AND we have exclusive access
-        // to the keys it owns (and can therefore hand out mutable references).
-        // The returned item will not outlive the iterator.
-        self.curr = unsafe { curr.as_ref().next.next() };
-
-        // Safety: See above.
-        let curr = unsafe { curr.as_mut() };
-
-        // Safety: RLookup treats the keys are pinned always, we just need consumers of this
-        // iterator to uphold the pinning invariant too
-        Some(unsafe { Pin::new_unchecked(curr) })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -660,82 +558,5 @@ mod tests {
         unsafe {
             assert!(!bar.as_ref().next.has_next());
         }
-    }
-
-    #[test]
-    fn keylist_find() {
-        let mut keylist = KeyList::new();
-
-        let foo = keylist.push(RLookupKey::new(c"foo", RlookupKeyFlags::empty()));
-        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
-
-        let bar = keylist.push(RLookupKey::new(c"bar", RlookupKeyFlags::empty()));
-        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
-
-        keylist.assert_valid("tests::keylist_find after insertions");
-
-        let found = keylist.find_by_name(c"foo").unwrap();
-        assert_eq!(NonNull::from(found), foo);
-
-        let found = keylist.find_by_name(c"bar").unwrap();
-        assert_eq!(NonNull::from(found), bar);
-    }
-
-    #[test]
-    fn keylist_find_mut() {
-        let mut keylist = KeyList::new();
-
-        let foo = keylist.push(RLookupKey::new(c"foo", RlookupKeyFlags::empty()));
-        let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
-
-        let bar = keylist.push(RLookupKey::new(c"bar", RlookupKeyFlags::empty()));
-        let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
-
-        keylist.assert_valid("tests::keylist_find_mut after insertions");
-
-        let found = keylist.find_by_name_mut(c"foo").unwrap();
-        assert_eq!(
-            NonNull::from(unsafe { Pin::into_inner_unchecked(found) }),
-            foo
-        );
-
-        let found = keylist.find_by_name_mut(c"bar").unwrap();
-        assert_eq!(
-            NonNull::from(unsafe { Pin::into_inner_unchecked(found) }),
-            bar
-        );
-    }
-
-    #[test]
-    fn keylist_iter() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(c"foo", RlookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RlookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"baz", RlookupKeyFlags::empty()));
-        keylist.assert_valid("tests::keylist_iter after insertions");
-
-        let mut iter = keylist.iter();
-        assert_eq!(iter.next().unwrap()._name.as_ref(), c"foo");
-        assert_eq!(iter.next().unwrap()._name.as_ref(), c"bar");
-        assert_eq!(iter.next().unwrap()._name.as_ref(), c"baz");
-        assert!(iter.next().is_none());
-    }
-
-    #[test]
-    fn keylist_iter_mut() {
-        let mut keylist = KeyList::new();
-
-        keylist.push(RLookupKey::new(c"foo", RlookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"bar", RlookupKeyFlags::empty()));
-        keylist.push(RLookupKey::new(c"baz", RlookupKeyFlags::empty()));
-        keylist.assert_valid("tests::keylist_iter_mut after insertions");
-
-        let mut iter = keylist.iter_mut();
-
-        assert_eq!(iter.next().unwrap()._name.as_ref(), c"foo");
-        assert_eq!(iter.next().unwrap()._name.as_ref(), c"bar");
-        assert_eq!(iter.next().unwrap()._name.as_ref(), c"baz");
-        assert!(iter.next().is_none());
     }
 }
