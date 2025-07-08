@@ -1020,4 +1020,44 @@ mod tests {
 
         assert!(keylist.find_by_name(c"baz").is_none());
     }
+
+    #[test]
+    fn keylist_override_key() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RlookupKeyFlag::Unresolved),
+        ));
+
+        keylist
+            .cursor_front_mut()
+            .override_current(make_bitflags!(RlookupKeyFlag::Numeric));
+
+        let found = keylist
+            .find_by_name(c"foo")
+            .expect("expected to find key by name");
+
+        let found = found
+            .current()
+            .expect("cursor should have current, this is a bug");
+
+        assert_eq!(found._name.as_ref(), c"foo");
+        assert!(found._path.is_none());
+        assert_eq!(found.dstidx, 0);
+        // new key should have provided keys
+        assert!(found.flags.contains(RlookupKeyFlag::Numeric));
+        // new key should not inherit any old flags
+        assert!(!found.flags.contains(RlookupKeyFlag::Unresolved));
+
+        let mut c = keylist.cursor_front();
+
+        // we expect the first item to be the tombstone of the old key
+        assert!(c.current().unwrap()._name.is_empty());
+        assert!(c.current().unwrap().flags.contains(RlookupKeyFlag::Hidden));
+
+        // and the next item to be the new key
+        c.move_next();
+        assert_eq!(found._name.as_ref(), c"foo");
+    }
 }
