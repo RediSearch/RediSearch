@@ -171,9 +171,9 @@ fn test_memory_size() -> Result<(), IndexOutOfBounds> {
     let vector = build_vector()?;
     let size = vector.get_memory_size();
 
-    let expected_size = 5* std::mem::size_of::<RSValueMock>() // 4 RSValues
-            + "abcdefg".len() // size of the string "Hello"
-            + "Hello World".len(); // size of the string "World"
+    let expected_size = 5 * std::mem::size_of::<RSValueMock>() // 5 RSValues
+            + "abcdefg".len() // size of the string "abcdefg"
+            + "Hello World".len(); // size of the string "Hello World"
 
     assert_eq!(size, expected_size);
     Ok(())
@@ -181,7 +181,7 @@ fn test_memory_size() -> Result<(), IndexOutOfBounds> {
 
 #[test]
 #[cfg(not(miri))]
-fn test_case_folding_aka_normlization() -> Result<(), IndexOutOfBounds> {
+fn test_case_folding_aka_normalization() -> Result<(), IndexOutOfBounds> {
     // Not in Miri because icu_casemap raised errors over Miri, see https://github.com/unicode-org/icu4x/issues/6723
 
     let str = "Straße";
