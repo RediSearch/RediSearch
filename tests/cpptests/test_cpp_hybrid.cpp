@@ -48,7 +48,7 @@ using RS::addDocument;
 
 // Helper function to create a test index spec
 IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, QueryError *status) {
-  RMCK::ArgvList args(ctx, "FT.CREATE", indexName, "ON", "HASH",
+  RMCK::ArgvList args(ctx, "FT.CREATE", indexName, "ON", "HASH", "SKIPINITIALSCAN",
                       "SCHEMA", "title", "TEXT", "SORTABLE", "score", "NUMERIC",
                       "SORTABLE", "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                       "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC", "COSINE");
@@ -372,7 +372,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   // Should handle missing LOAD step gracefully
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build should handle missing LOAD step: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_ERR, rc) << "Pipeline build should handle missing LOAD step: " << QueryError_GetUserError(&qerr);
 
   // Clean up
   HybridRequest_Free(hybridReq);

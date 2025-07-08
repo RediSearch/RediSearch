@@ -177,8 +177,13 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
   MockUpstream upstream1(0, {2.0, 2.0, 2.0}, {1, 2, 3});
   MockUpstream upstream2(0, {4.0, 4.0, 4.0}, {1, 2, 3}); // Same docIds
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.3, 0.7};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -227,8 +232,13 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
   MockUpstream upstream2(0, {3.0, 3.0, 3.0}, {11, 12, 13}); // Different docIds
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.4, 0.6};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -281,8 +291,13 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
   MockUpstream upstream1(0, {}, {}); // Empty scores and docIds
   MockUpstream upstream2(0, {5.0, 5.0, 5.0}, {1, 2, 3});
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -331,8 +346,13 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
   MockUpstream upstream1(0, {7.0, 7.0, 7.0}, {1, 2, 3});
   MockUpstream upstream2(0, {}, {}); // Empty scores and docIds
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -380,9 +400,13 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
   // Create both upstreams empty
   MockUpstream upstream1(0, {}, {}); // Empty scores and docIds
   MockUpstream upstream2(0, {}, {}); // Empty scores and docIds
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
 
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -428,8 +452,13 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
   std::vector<int> docIds2 = {11, 12, 13, 14, 15};
   MockUpstream upstream2(0, scores2, docIds2);
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with RRF scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 2); // k=60, window=2
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -495,8 +524,13 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
   std::vector<int> docIds2 = {3, 1, 2};  // Same docs but in different order
   MockUpstream upstream2(0, scores2, docIds2);
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with RRF scoring - large window (10) larger than document count (3)
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 10); // k=60, window=10
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -557,8 +591,14 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 3); // depletionCount = 3
   MockUpstream upstream2(0, {2.0, 2.0, 2.0}, {21, 22, 23}, 1); // depletionCount = 1
 
+  
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -611,8 +651,13 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 1); // depletionCount = 1
   MockUpstream upstream2(0, {2.0, 2.0, 2.0}, {21, 22, 23}, 3); // depletionCount = 3
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -675,8 +720,13 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   MockUpstream upstream1(2, {1.0, 1.0, 1.0}, {1, 2, 3}); // timeoutAfterCount=2
   MockUpstream upstream2(0, {2.0, 2.0, 2.0, 2.0, 2.0}, {11, 12, 13, 14, 15});
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -735,8 +785,13 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
   MockUpstream upstream1(2, {1.0, 1.0}, {1, 2}); // timeoutAfterCount=2
   MockUpstream upstream2(0, {2.0, 2.0, 2.0, 2.0, 2.0}, {11, 12, 13, 14, 15});
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -786,8 +841,13 @@ TEST_F(HybridMergerTest, testRRFScoring) {
   std::vector<int> docIds2 = {2, 1, 3};  // Same docs but in different order
   MockUpstream upstream2(0, scores2, docIds2);
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with RRF scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // k=60, window=4
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -850,8 +910,15 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
   MockUpstream upstream2(0, {2.0, 2.0, 2.0}, {11, 12, 13});
   MockUpstream upstream3(0, {3.0, 3.0, 3.0}, {21, 22, 23});
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+  ResultProcessor *rp3 = &upstream3;
+
   // Create hybrid merger with 3 upstreams
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2, &upstream3};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  array_ensure_append_1(upstreams, rp3);
   double weights[] = {0.2, 0.3, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights);
 
@@ -905,8 +972,13 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
   MockUpstream upstream2(0, {1.0, 1.0, 1.0, 1.0}, {2, 3, 4, 5});
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
@@ -949,8 +1021,13 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
   MockUpstream upstream1(0, {0.9, 0.7, 0.5}, {1, 2, 3}); // doc1=rank1, doc2=rank2, doc3=rank3
   MockUpstream upstream2(0, {0.8, 0.6, 0.4, 0.2}, {2, 3, 4, 5}); // doc2=rank1, doc3=rank2, doc4=rank3, doc5=rank4
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
   // Create hybrid merger with RRF scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
   ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 5); // k=60, window=5
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -1014,8 +1091,15 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   std::vector<int> docIds3 = {3, 1, 2};  // Same docs but in different order
   MockUpstream upstream3(0, scores3, docIds3);
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+  ResultProcessor *rp3 = &upstream3;
+
   // Create hybrid merger with RRF scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2, &upstream3};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  array_ensure_append_1(upstreams, rp3);
   ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 3, 60, 5); // k=60, window=5
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -1078,8 +1162,15 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   MockUpstream upstream2(1, {1.0, 2.0}, {1, 2}); // timeoutAfterCount=1 (timeout after 1 call)
   MockUpstream upstream3(0, {3.0, 4.0}, {3, 4}, 0, 1); // errorAfterCount=1 (error after 1 call)
 
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+  ResultProcessor *rp3 = &upstream3;
+
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2, &upstream3};
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  array_ensure_append_1(upstreams, rp3);
   double weights[] = {0.33, 0.33, 0.34};
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights);
 
