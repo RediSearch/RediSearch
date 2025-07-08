@@ -382,7 +382,7 @@ pub struct InvertedIndex<E> {
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
-    num_docs: usize,
+    n_unique_docs: usize,
 
     /// The encoder to use when adding new entries to the index
     encoder: E,
@@ -442,7 +442,7 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn new(encoder: E) -> Self {
         Self {
             blocks: Vec::new(),
-            num_docs: 0,
+            n_unique_docs: 0,
             encoder,
         }
     }
@@ -502,7 +502,7 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.push(block);
 
         if !same_doc {
-            self.num_docs += 1;
+            self.n_unique_docs += 1;
         }
 
         Ok(buf_growth + mem_growth)

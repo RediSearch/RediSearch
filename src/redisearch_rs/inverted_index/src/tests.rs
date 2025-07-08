@@ -34,7 +34,7 @@ fn adding_records() {
     assert_eq!(ii.blocks[0].num_entries, 1);
     assert_eq!(ii.blocks[0].first_doc_id, 10);
     assert_eq!(ii.blocks[0].last_doc_id, 10);
-    assert_eq!(ii.num_docs, 1);
+    assert_eq!(ii.n_unique_docs, 1);
 
     let record = RSIndexResult::numeric(11, 5.0);
 
@@ -46,7 +46,7 @@ fn adding_records() {
     assert_eq!(ii.blocks[0].num_entries, 2);
     assert_eq!(ii.blocks[0].first_doc_id, 10);
     assert_eq!(ii.blocks[0].last_doc_id, 11);
-    assert_eq!(ii.num_docs, 2);
+    assert_eq!(ii.n_unique_docs, 2);
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn adding_same_record_twice() {
     assert_eq!(ii.blocks[0].num_entries, 1);
     assert_eq!(ii.blocks[0].first_doc_id, 10);
     assert_eq!(ii.blocks[0].last_doc_id, 10);
-    assert_eq!(ii.num_docs, 1, "this second doc was not added");
+    assert_eq!(ii.n_unique_docs, 1, "this second doc was not added");
 
     /// Dummy encoder which allows duplicates for testing
     struct AllowDupsDummy;
@@ -114,7 +114,7 @@ fn adding_same_record_twice() {
     assert_eq!(ii.blocks[0].first_doc_id, 10);
     assert_eq!(ii.blocks[0].last_doc_id, 10);
     assert_eq!(
-        ii.num_docs, 1,
+        ii.n_unique_docs, 1,
         "this doc was added but should not affect the count"
     );
 }
@@ -200,7 +200,7 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.blocks[0].num_entries, 1);
     assert_eq!(ii.blocks[0].first_doc_id, 10);
     assert_eq!(ii.blocks[0].last_doc_id, 10);
-    assert_eq!(ii.num_docs, 1);
+    assert_eq!(ii.n_unique_docs, 1);
 
     // This will create a delta that is larger than the default u32 acceptable delta size
     let doc_id = (u32::MAX as u64) + 11;
@@ -218,5 +218,5 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.blocks[1].num_entries, 1);
     assert_eq!(ii.blocks[1].first_doc_id, doc_id);
     assert_eq!(ii.blocks[1].last_doc_id, doc_id);
-    assert_eq!(ii.num_docs, 2);
+    assert_eq!(ii.n_unique_docs, 2);
 }
