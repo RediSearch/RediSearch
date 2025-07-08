@@ -425,7 +425,7 @@ protected:
     // Create optional iterator with child and wildcard
     q = new MockQueryEvalCtx(wildcardDocIds);
     if (lastFromChild) {
-      q->docTable.maxDocId = childDocIds.back(); // Ensure maxDocId is set to include last child doc
+      q->spec.docs.maxDocId = childDocIds.back(); // Ensure maxDocId is set to include last child doc
     }
     iterator = IT_V2(NewOptionalIterator)(child, &q->qctx, 4.6);
   }

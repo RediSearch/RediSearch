@@ -6,24 +6,26 @@
 
 #include "gtest/gtest.h"
 #include "iterator_util.h"
+#include "index_utils.h"
 
 #include "src/forward_index.h"
 #include "src/iterators/inverted_index_iterator.h"
 
-typedef enum IndexType {
-    INDEX_TYPE_TERM_FULL,
-    INDEX_TYPE_NUMERIC_FULL,
-    INDEX_TYPE_TERM,
-    INDEX_TYPE_NUMERIC,
-    INDEX_TYPE_GENERIC,
-} IndexType;
+typedef enum IndexIteratorType {
+    TYPE_TERM_FULL,
+    TYPE_NUMERIC_FULL,
+    TYPE_TERM,
+    TYPE_NUMERIC,
+    TYPE_GENERIC,
+} IndexIteratorType;
 
-class IndexIteratorTest : public ::testing::TestWithParam<IndexType> {
+class IndexIteratorTest : public ::testing::TestWithParam<std::tuple<IndexIteratorType, bool>> {
 protected:
     static constexpr size_t n_docs = 2.45 * std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
     std::array<t_docId, n_docs> resultSet;
     InvertedIndex *idx;
     QueryIterator *it_base;
+    MockQueryEvalCtx q_mock;
 
     void SetUp() override {
         // Generate a set of document IDs for testing
@@ -31,29 +33,38 @@ protected:
             resultSet[i] = 2 * i + 1; // Document IDs start from 1
         }
 
-        switch (GetParam()) {
-            case INDEX_TYPE_TERM_FULL:
+        auto [IndexIteratorType, withExpiration] = GetParam();
+
+        if (withExpiration) {
+            // Initialize the TTL table with some expiration data. Results should not be expired so the test passes as expected.
+            for (size_t i = 0; i < n_docs; ++i) {
+                q_mock.TTLAdd(resultSet[i]);
+            }
+        }
+
+        switch (IndexIteratorType) {
+            case TYPE_TERM_FULL:
                 SetTermsInvIndex();
                 it_base = NewInvIndIterator_TermFull(idx);
                 break;
-            case INDEX_TYPE_NUMERIC_FULL:
+            case TYPE_NUMERIC_FULL:
                 SetNumericInvIndex();
                 it_base = NewInvIndIterator_NumericFull(idx);
                 break;
-            case INDEX_TYPE_TERM:
+            case TYPE_TERM:
                 SetTermsInvIndex();
-                it_base = NewInvIndIterator_TermQuery(idx, nullptr, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
+                it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
                 break;
-            case INDEX_TYPE_NUMERIC: {
+            case TYPE_NUMERIC: {
                 SetNumericInvIndex();
                 FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
                 FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-                it_base = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, -INFINITY, INFINITY);
+                it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, nullptr, -INFINITY, INFINITY);
             }
                 break;
-            case INDEX_TYPE_GENERIC:
+            case TYPE_GENERIC:
                 SetGenericInvIndex();
-                it_base = NewInvIndIterator_GenericQuery(idx, nullptr, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
+                it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
                 break;
         }
     }
@@ -105,12 +116,15 @@ private:
 };
 
 
-INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Values(
-    INDEX_TYPE_TERM_FULL,
-    INDEX_TYPE_NUMERIC_FULL,
-    INDEX_TYPE_TERM,
-    INDEX_TYPE_NUMERIC,
-    INDEX_TYPE_GENERIC
+INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Combine(
+    ::testing::Values(
+        TYPE_TERM_FULL,
+        TYPE_NUMERIC_FULL,
+        TYPE_TERM,
+        TYPE_NUMERIC,
+        TYPE_GENERIC
+    ),
+    ::testing::Bool()
 ));
 
 

@@ -14,6 +14,10 @@
 #include "stdbool.h"
 #include "util/arr.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   t_fieldIndex index;
   t_expirationTimePoint point;
@@ -34,5 +38,9 @@ bool TimeToLiveTable_VerifyDocAndFields(TimeToLiveTable *table, t_docId docId, c
 bool TimeToLiveTable_VerifyDocAndField(TimeToLiveTable *table, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 bool TimeToLiveTable_VerifyDocAndFieldMask(TimeToLiveTable *table, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex);
 bool TimeToLiveTable_VerifyDocAndWideFieldMask(TimeToLiveTable *table, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif //TTL_TABLE_H

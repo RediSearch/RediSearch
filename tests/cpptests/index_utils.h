@@ -9,6 +9,7 @@
 #include "index.h"
 #include "inverted_index.h"
 #include "numeric_index.h"
+#include "ttl_table.h"
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -57,15 +58,9 @@ public:
   QueryEvalCtx qctx;
   RedisSearchCtx sctx;
   IndexSpec spec;
-  DocTable docTable;
   SchemaRule rule;
 
   MockQueryEvalCtx(t_docId maxDocId = 0, size_t numDocs = 0) {
-    // Initialize DocTable
-    docTable = {0};
-    docTable.maxDocId = maxDocId;
-    docTable.size = numDocs ?: maxDocId;
-
     // Initialize SchemaRule
     std::memset(&rule, 0, sizeof(rule));
     rule.index_all = false;
@@ -74,6 +69,8 @@ public:
     spec = {0};
     spec.rule = &rule;
     spec.existingDocs = nullptr;
+    spec.docs.maxDocId = maxDocId;
+    spec.docs.size = numDocs ?: maxDocId;
 
     // Initialize RedisSearchCtx
     sctx = {0};
@@ -82,14 +79,14 @@ public:
     // Initialize QueryEvalCtx
     qctx = {0};
     qctx.sctx = &sctx;
-    qctx.docTable = &docTable;
+    qctx.docTable = &spec.docs;
   }
 
   MockQueryEvalCtx(std::vector<t_docId> &docs) : MockQueryEvalCtx() {
     std::sort(docs.begin(), docs.end());
     docs.erase(std::unique(docs.begin(), docs.end()), docs.end());
-    docTable.maxDocId = docs.empty() ? 0 : docs.back();
-    docTable.size = docs.size();
+    spec.docs.maxDocId = docs.empty() ? 0 : docs.back();
+    spec.docs.size = docs.size();
     rule.index_all = true; // Enable index_all for wildcard iterator tests
     spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &spec.stats.invertedSize);
     IndexEncoder enc = InvertedIndex_GetEncoder(spec.existingDocs->flags);
@@ -102,5 +99,11 @@ public:
     if (spec.existingDocs) {
       InvertedIndex_Free(spec.existingDocs);
     }
+    TimeToLiveTable_Destroy(&spec.docs.ttl);
+  }
+
+  void TTLAdd(t_docId docId, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
+    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
+    TimeToLiveTable_Add(spec.docs.ttl, docId, expiration, NULL);
   }
 };
