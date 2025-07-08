@@ -489,6 +489,10 @@ impl<E: Encoder> InvertedIndex<E> {
         let writer = block.writer();
         let _bytes_written = self.encoder.encode(writer, delta, record)?;
 
+        // We don't use `_bytes_written` returned by the encoder to determine by how much memory
+        // grew because the buffer might have had enough capacity for the bytes in the encoding.
+        // Instead we took the capacity of the buffer before the write and now check by how much it
+        // has increased (if any).
         let buf_growth = block.buffer.capacity() - buf_cap;
 
         block.num_entries += 1;
