@@ -142,6 +142,7 @@ void processResultFormat(uint32_t *flags, MRReply *map);
 
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 #ifdef __cplusplus
 }
