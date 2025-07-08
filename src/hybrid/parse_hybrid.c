@@ -67,6 +67,12 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
 }
 
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
+  // Check if VSIM parameter is present
+  if (!AC_AdvanceIfMatch(ac, "VSIM")) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
+    return REDISMODULE_ERR;
+  }
+
   // Advance the cursor until we encounter one of the specified keywords or reach the end
   while (!AC_IsAtEnd(ac)) {
     const char *cur;
@@ -89,9 +95,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
       break;
     }
 
-    // just for the unsafe free
-    vectorRequest->query = RedisModule_CreateString(NULL, "", 0);
-
     // Not a stopping keyword, advance to next argument
     AC_Advance(ac);
   }
@@ -106,47 +109,23 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
     combineCtx->scoringType = HYBRID_SCORING_LINEAR;
   } else if (AC_AdvanceIfMatch(ac, "RRF")) {
     combineCtx->scoringType = HYBRID_SCORING_RRF;
+  } else {
+    combineCtx->scoringType = HYBRID_SCORING_RRF;
   }
 
   // Parse parameters based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    // For LINEAR, we need weights
-    ArgsCursor params = {0};
-    int rv = AC_GetVarArgs(ac, &params);
-    if (rv != AC_OK) {
-      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count after LINEAR");
-      return REDISMODULE_ERR;
-    }
+    // For LINEAR, we expect exactly 2 weight values
+    combineCtx->linearCtx.linearWeights = rm_calloc(2, sizeof(double));
+    combineCtx->linearCtx.numWeights = 2;
 
-    // Each weight is a pair (name, value)
-    size_t numWeights = params.argc / 2;
-    if (params.argc % 2 != 0) {
-      QueryError_SetError(status, QUERY_ESYNTAX, "LINEAR parameters must be in name-value pairs");
-      return REDISMODULE_ERR;
-    }
-
-    // Allocate weights array
-    combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
-    combineCtx->linearCtx.numWeights = numWeights;
-
-    // Parse weights
-    for (size_t i = 0; i < numWeights; i++) {
-      // Skip the parameter name (we only care about values for now)
-      const char *paramName = AC_GetStringNC(&params, NULL);
-      if (!paramName) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter name in LINEAR weights");
-        rm_free(combineCtx->linearCtx.linearWeights);
-        return REDISMODULE_ERR;
-      }
-
-      // Get the weight value
+    // Parse the two weight values directly
+    for (size_t i = 0; i < 2; i++) {
       double weight;
-      if (AC_GetDouble(&params, &weight, 0) != AC_OK) {
+      if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
-        rm_free(combineCtx->linearCtx.linearWeights);
         return REDISMODULE_ERR;
       }
-
       combineCtx->linearCtx.linearWeights[i] = weight;
     }
   } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
@@ -235,10 +214,18 @@ void HybridRequest_Free(HybridRequest *req) {
 
 
 HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 RedisSearchCtx *sctx, HybridPipelineParams *hybridParams,
-                                 QueryError *status) {
+                                 RedisSearchCtx *sctx, const char* indexname,
+                                 HybridPipelineParams *hybridParams, QueryError *status) {
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
+
+  // RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  // RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
+  // RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  // RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
+  // searchRequest->sctx = NewSearchCtxC(ctx1, indexname, true);
+  // vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
+
   AREQ *mergeAreq = NULL;
   AREQ **requests = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
@@ -307,8 +294,7 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   array_ensure_append_1(requests, searchRequest);
   array_ensure_append_1(requests, vectorRequest);
 
-  HybridRequest *hybridRequest = rm_malloc(sizeof(HybridRequest));
-  HybridRequest_New(requests, 2);
+  HybridRequest *hybridRequest = HybridRequest_New(requests, 2);
 
   // thread safe context
   const AggregationPipelineParams params = {
@@ -377,7 +363,7 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   HybridPipelineParams params = {0};  
 
-  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, &params, &status);
+  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, indexname, &params, &status);
   if (!hybridRequest) {
     goto error;
   }
