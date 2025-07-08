@@ -10,6 +10,7 @@
 use std::{
     ffi::c_char,
     ops::{Deref, DerefMut},
+    panic,
     ptr::NonNull,
 };
 
@@ -53,7 +54,11 @@ unsafe extern "C" fn RSSortingVector_Get(
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { &*vec };
     if idx >= vec.len() {
-        return std::ptr::null_mut();
+        panic!(
+            "RSSortingVector_Get: Index out of bounds: {} >= {}",
+            idx,
+            vec.len()
+        );
     }
 
     vec[idx].0.as_ptr()
@@ -66,7 +71,7 @@ unsafe extern "C" fn RSSortingVector_Get(
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc::size_t {
     if vec.is_null() {
-        return 0;
+        panic!("Received null pointer for RSSortingVector_Length");
     }
 
     // Safety: Caller must ensure 1. --> Deref is safe, we checked for null above
@@ -97,7 +102,10 @@ unsafe extern "C" fn RSSortingVector_PutNum(
 ) {
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { vec.as_mut() };
-    let _ = vec.try_insert_num(idx, num);
+    vec.try_insert_val(idx, RSValueFFI::create_num(num))
+        .unwrap_or_else(|_| {
+            panic!("Index out of bounds: {} >= {}", idx, vec.len());
+        });
 }
 
 /// Puts a string at the given index in the sorting vector. If a out of bounds occurs it returns silently.
@@ -128,8 +136,9 @@ unsafe extern "C" fn RSSortingVector_PutStr(
     // Safety: We assume RS_StringVal never returns a null pointer
     let value = unsafe { NonNull::new_unchecked(value) };
     let value = RSValueFFI(value);
-
-    let _ = vec.try_insert_val(idx, value);
+    vec.try_insert_val(idx, value).unwrap_or_else(|_| {
+        panic!("Index out of bounds: {} >= {}", idx, vec.len());
+    });
 }
 
 /// Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.
@@ -145,7 +154,11 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
 ) {
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { vec.as_mut() };
-    let _ = vec.try_insert_val(idx, RSValueFFI(val));
+    //let _ = vec.try_insert_val(idx, RSValueFFI(val));
+    vec.try_insert_val(idx, RSValueFFI(val))
+        .unwrap_or_else(|_| {
+            panic!("Index out of bounds: {} >= {}", idx, vec.len());
+        });
 }
 
 /// Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.
@@ -156,14 +169,18 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
 unsafe extern "C" fn RSSortingVector_PutNull(mut vec: NonNull<RSSortingVector>, idx: libc::size_t) {
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { vec.as_mut() };
-    let _ = vec.try_insert_null(idx);
+    vec.try_insert_null(idx).unwrap_or_else(|_| {
+        panic!("Index out of bounds: {} >= {}", idx, vec.len());
+    });
 }
 
 /// Creates a new `RSSortingVector` with the given length. If the length is greater than `RS_SORTABLES_MAX`=`1024`, it returns a null pointer.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_New(len: libc::size_t) -> *mut RSSortingVector {
     if len > RS_SORTABLES_MAX {
-        return std::ptr::null_mut();
+        panic!(
+            "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"
+        );
     }
 
     let vector = RSSortingVector {
@@ -180,6 +197,7 @@ unsafe extern "C" fn RSSortingVector_New(len: libc::size_t) -> *mut RSSortingVec
 /// 2. The pointer must not have been freed before this call to avoid double free.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_Free(vector: *mut RSSortingVector) {
+    // We allow null in free as this is C standard behavior and used in RediSearch codebase.
     if vector.is_null() {
         return;
     }
