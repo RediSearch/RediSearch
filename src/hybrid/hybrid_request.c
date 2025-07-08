@@ -24,16 +24,16 @@ extern "C" {
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
 int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params) {
-    // Create synchronization context for coordinating depleter processors
-    // This ensures thread-safe access when multiple depleters read from their pipelines
-    StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
-
     // Find any LOAD step in the tail pipeline that specifies which fields to load
     // This step will be temporarily removed and re-added after merger setup
     PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->tail.ap, NULL, NULL, PLN_T_LOAD);
     if (!loadStep) {
         return REDISMODULE_ERR;
     }
+
+    // Create synchronization context for coordinating depleter processors
+    // This ensures thread-safe access when multiple depleters read from their pipelines
+    StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
 
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
