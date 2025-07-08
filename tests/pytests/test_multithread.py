@@ -595,3 +595,58 @@ def testNameLoader(env: Env):
     env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
     env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+
+def _test_with_io_threads(io_threads):
+    """Helper function to test queries with specific IO thread count"""
+    # Create environment with specific IO thread count
+    env = initEnv(moduleArgs=f'SEARCH_IO_THREADS {io_threads}')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE').ok()
+
+    # Add test documents
+    conn = getConnectionByEnv(env)
+    doc_count = 100
+    for i in range(doc_count):
+        conn.execute_command('HSET', f'doc:{i}',
+                            'txt', f'hello world document {i}',
+                            'num', i)
+
+    # Run different query types and verify results
+
+    # 1. Simple search
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'NOCONTENT')
+    env.assertEqual(res[0], doc_count, message=f"Simple search with {io_threads} IO threads")
+
+    # 2. Numeric range query
+    res = env.cmd('FT.SEARCH', 'idx', '@num:[10 50]', 'NOCONTENT')
+    env.assertEqual(res[0], 41, message=f"Numeric range query with {io_threads} IO threads")
+
+    # 3. Combined query with sorting
+    res = env.cmd('FT.SEARCH', 'idx', 'world @num:[20 40]', 'SORTBY', 'num', 'DESC', 'NOCONTENT')
+    env.assertEqual(res[0], 21, message=f"Combined query with {io_threads} IO threads")
+    # Check sort order (first result should be doc:40)
+    env.assertEqual(res[1], 'doc:40', message=f"Sort order with {io_threads} IO threads")
+
+    # 4. Aggregate query
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', '1', '@num',
+                 'REDUCE', 'count', '0', 'AS', 'count',
+                 'FILTER', '@count > 0')
+    env.assertEqual(len(res), doc_count + 1, message=f"Aggregate query with {io_threads} IO threads")
+
+    # Clean up for next iteration
+    env.cmd('FLUSHALL')
+
+
+@skip(cluster=False)
+def test_query_with_coord_1_io_thread():
+    _test_with_io_threads(1)
+
+@skip(cluster=False)
+def test_query_with_coord_5_io_threads():
+    _test_with_io_threads(5)
+
+@skip(cluster=False)
+def test_query_with_coord_10_io_threads():
+    _test_with_io_threads(10)
