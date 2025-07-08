@@ -531,7 +531,12 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // Add the spec to the global spec dictionary
-  dictAdd(specDict_g, name, spec_ref.rm);
+  if (dictAdd(specDict_g, name, spec_ref.rm) != DICT_OK) {
+    RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
+    StrongRef_Release(spec_ref);
+    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
+    return NULL;
+  }
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
@@ -3217,9 +3222,6 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
   if (dictSize(specDict_g)) {
     Indexes_RdbSave(rdb, when);
   }
-}
-
-void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
 int CompareVersions(Version v1, Version v2) {

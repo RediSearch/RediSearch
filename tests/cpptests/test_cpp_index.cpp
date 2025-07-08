@@ -11,7 +11,7 @@ extern "C" {
 #include "hiredis/sds.h"
 }
 
-#include "src/buffer.h"
+#include "src/buffer/buffer.h"
 #include "src/index.h"
 #include "src/forward_index.h"
 #include "src/index_result.h"
@@ -1638,4 +1638,81 @@ TEST_F(IndexTest, testRawDocId) {
   IR_Free(ir);
   InvertedIndex_Free(idx);
   RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
+}
+
+// Test HybridIteratorReducer optimization with NULL child iterator
+TEST_F(IndexTest, testHybridIteratorReducerWithEmptyChild) {
+  // Create hybrid params with NULL child iterator
+  size_t n = 100;
+  size_t d = 4;
+  size_t step = 4;
+  size_t max_id = n*step;
+  size_t k = 10;
+
+  VecSimQueryParams queryParams = {0};
+  KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
+
+  HybridIteratorParams hParams = {
+    .sctx = NULL,
+    .index = NULL,
+    .dim = d,
+    .elementType = VecSimType_FLOAT32,
+    .spaceMetric = VecSimMetric_L2,
+    .query = top_k_query,
+    .qParams = queryParams,
+    .vectorScoreField = (char *)"__v_score",
+    .canTrimDeepResults = true,
+    .childIt = NewEmptyIterator(),  // Empty child iterator
+    .filterCtx = NULL
+  };
+
+  QueryError err = {QUERY_OK};
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+
+  // Verify the iterator was not created due to NULL child
+  ASSERT_FALSE(QueryError_HasError(&err));
+  ASSERT_TRUE(hybridIt == hParams.childIt);
+  ASSERT_EQ(hybridIt->type, EMPTY_ITERATOR);
+  hybridIt->Free(hybridIt);
+}
+
+// Test HybridIteratorReducer optimization with invalid child iterator
+TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
+  size_t n = 100;
+  size_t d = 4;
+  size_t step = 4;
+  size_t max_id = n*step;
+  size_t k = 10;
+
+  VecSimQueryParams queryParams = {0};
+  KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+
+  // Mock the WILDCARD_ITERATOR consideration
+  IndexIterator* wildcardIt = NewEmptyIterator();
+  wildcardIt->type = WILDCARD_ITERATOR;
+
+  HybridIteratorParams hParams = {
+    .sctx = NULL,
+    .index = NULL,
+    .dim = d,
+    .elementType = VecSimType_FLOAT32,
+    .spaceMetric = VecSimMetric_L2,
+    .query = top_k_query,
+    .qParams = queryParams,
+    .vectorScoreField = (char *)"__v_score",
+    .canTrimDeepResults = true,
+    .childIt = wildcardIt,
+    .filterCtx = &filterCtx
+  };
+
+  QueryError err = {QUERY_OK};
+  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+
+  // Verify the iterator was not created due to NULL child
+  ASSERT_FALSE(QueryError_HasError(&err));
+  ASSERT_EQ(hybridIt->type, HYBRID_ITERATOR);
+  HybridIterator* hi = (HybridIterator *)hybridIt->ctx;
+  ASSERT_EQ(hi->searchMode, VECSIM_STANDARD_KNN);
+  hybridIt->Free(hybridIt);
 }

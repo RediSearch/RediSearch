@@ -38,9 +38,6 @@ const char *Redis_SelectRandomTerm(const RedisSearchCtx *ctx, size_t *tlen);
 #define SKIPINDEX_KEY_FORMAT "si:%s/%.*s"
 #define SCOREINDEX_KEY_FORMAT "ss:%s/%.*s"
 
-#define INVERTED_INDEX_ENCVER 1
-#define INVERTED_INDEX_NOFREQFLAG_VER 0
-
 #define DONT_CREATE_INDEX false
 #define CREATE_INDEX true
 
@@ -65,13 +62,7 @@ RedisModuleString *fmtRedisTermKey(const RedisSearchCtx *ctx, const char *term, 
 RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *term, size_t len);
 RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field);
 
-extern RedisModuleType *InvertedIndexType;
-
 void InvertedIndex_Free(void *idx);
-void *InvertedIndex_RdbLoad(RedisModuleIO *rdb, int encver);
-void InvertedIndex_RdbSave(RedisModuleIO *rdb, void *value);
-void InvertedIndex_Digest(RedisModuleDigest *digest, void *value);
-int InvertedIndex_RegisterType(RedisModuleCtx *ctx);
 unsigned long InvertedIndex_MemUsage(const void *value);
 
 #endif
