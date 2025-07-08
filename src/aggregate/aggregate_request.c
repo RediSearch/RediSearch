@@ -1186,11 +1186,11 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
     QueryToken *vecToken = rm_calloc(1, sizeof(*vecToken));
     vecToken->type = QT_PARAM_VEC;
-    vecToken->s = vqData->vectorField;
-    vecToken->len = strlen(vqData->vectorField);
+    vecToken->s = vqData->vector;
+    vecToken->len = strlen(vqData->vector);
     vecToken->pos = 0;
     vecToken->numval = 0;
-    vecToken->sign = 1;
+    vecToken->sign = 0;
 
     QueryToken *valueToken = rm_calloc(1, sizeof(*valueToken));
     valueToken->type = QT_PARAM_SIZE;
@@ -1198,6 +1198,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     valueToken->len = 0;
     valueToken->pos = 0;
     valueToken->numval = vqData->k;
+    // The lexer update sign but drop the '$' string, here it icludes the '$'
     valueToken->sign = 1;
 
     QueryParseCtx q = {0};
@@ -1234,7 +1235,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
         break;
     }
     vq->params = vqData->params;
-
+    //QueryNode_ApplyAttribute
+    QueryNode_ApplyAttributes(vecNode, vqData->params.params, array_len(vqData->params.params), status);
 
     QueryNode_AddChild(vecNode, ast->root);
     ast->root = vecNode;

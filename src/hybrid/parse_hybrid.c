@@ -80,10 +80,15 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   }
 
   const char *vectorParam;
-  if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK) {
+  if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK ) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector blob");
     return REDISMODULE_ERR;
   }
+  if (vectorParam[0] != '$') {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Vector blob must be a parameter");
+    return REDISMODULE_ERR;
+  }
+  vectorParam++;
 
   // Store vector data directly (copy the blob string)
   vqData->vectorLen = strlen(vectorParam);

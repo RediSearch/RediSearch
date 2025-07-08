@@ -80,7 +80,7 @@ TEST_F(ParseHybridTest, testVsimSubqueryBasic) {
   // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
   std::vector<const char*> args = {
     // "FT.HYBRID" ,"testidx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"$vec" ,"KNN" ,"6" ,"K" ,"10" ,"EF_RUNTIME", "80", "YIELD_DISTANCE_AS", "testdist", "FILTER" ,"@title:hello"//, "PARAMS", "2", "vec", "ABCDEFG=="
-    "FT.HYBRID" ,"testidx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"$vec" ,"KNN" ,"4" ,"K" ,"10" , "YIELD_DISTANCE_AS", "testdist", "FILTER" ,"@title:hello"//, "PARAMS", "2", "vec", "ABCDEFG=="
+    "FT.HYBRID" ,"testidx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"$BLOB" ,"KNN" ,"4" ,"K" ,"10" , "YIELD_DISTANCE_AS", "testdist", "FILTER" ,"@title:hello"//, "PARAMS", "2", "vec", "ABCDEFG=="
 
   };
 
