@@ -4133,7 +4133,8 @@ def cluster_set_test(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'MYID', '0', 'RANGES', str(env.shardsCount), *shards).ok()
 
 @skip(cluster=False)
-def test_rq_job_without_topology(env:Env):
+def test_rq_job_without_topology():
+    env = Env(moduleArgs="SEARCH_IO_THREADS 20")
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
     env.expect(debug_cmd(), 'CLEAR_PENDING_TOPOLOGY').ok()
     workers = 5

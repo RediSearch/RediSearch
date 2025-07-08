@@ -417,9 +417,9 @@ def test_switch_loader_modes():
     env.expect('FT.CURSOR', 'DEL', 'idx', cursor3).noError().ok()
 
 @skip(cluster=False)
-def test_change_num_connections(env: Env):
+def test_change_num_connections():
     # TODO(Joan): This test is changed because it seems hard to accumulate all the Status from all the I/O threads. To be revisited
-
+    env = initEnv('SEARCH_IO_THREADS 20')
     # Validate the default values
     env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
     env.expect(config_cmd(), 'GET', 'CONN_PER_SHARD').equal([['CONN_PER_SHARD', '0']])
