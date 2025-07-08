@@ -14,6 +14,7 @@ use std::{
 
 use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
+use varint::VarintEncode;
 
 use crate::{
     Decoder, DecoderResult, Delta, Encoder, RSIndexResult, RSOffsetVector, RSResultType,
@@ -27,7 +28,16 @@ use crate::{
 ///
 /// This encoder only supports delta values that fit in a `u32`, and field masks that fit in a `u32`.
 #[derive(Default)]
-pub struct Full;
+pub struct Full {
+    wide: bool,
+}
+
+impl Full {
+    /// Create a new `Full` encoder supporting `u128` field masks.
+    pub const fn wide() -> Self {
+        Self { wide: true }
+    }
+}
 
 impl Encoder for Full {
     /// # Panics
@@ -45,14 +55,22 @@ impl Encoder for Full {
             .0
             .try_into()
             .expect("Full encoder only supports deltas that fit in u32");
-        let field_mask = record
-            .field_mask
-            .try_into()
-            .expect("Full encoder only supports field masks that fit in u32");
-        let mut bytes_written = qint_encode(
-            &mut writer,
-            [delta, record.freq, field_mask, record.offsets_sz],
-        )?;
+
+        let mut bytes_written = if self.wide {
+            let mut bytes_written =
+                qint_encode(&mut writer, [delta, record.freq, record.offsets_sz])?;
+            bytes_written += record.field_mask.write_as_varint(&mut writer)?;
+            bytes_written
+        } else {
+            let field_mask = record
+                .field_mask
+                .try_into()
+                .expect("Full encoder only supports field masks that fit in u32");
+            qint_encode(
+                &mut writer,
+                [delta, record.freq, field_mask, record.offsets_sz],
+            )?
+        };
 
         // SAFETY: We asserted the result_type above.
         let term = unsafe { &record.data.term };
