@@ -128,7 +128,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         type DeltaType = u32;
 
         const ALLOW_DUPLICATES: bool = true;
-        const BLOCK_ENTRIES: usize = 2;
+        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             &mut self,

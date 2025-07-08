@@ -304,8 +304,8 @@ pub trait Encoder {
     /// to `false`.
     const ALLOW_DUPLICATES: bool = false;
 
-    /// The number of entries that can be written in a single block. Defaults to 100.
-    const BLOCK_ENTRIES: usize = 100;
+    /// The suggested number of entries that can be written in a single block. Defaults to 100.
+    const RECOMMENDED_BLOCK_ENTRIES: usize = 100;
 
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
@@ -522,7 +522,7 @@ impl<E: Encoder> InvertedIndex<E> {
                 .last()
                 .expect("we just confirmed there are blocks")
                 .num_entries
-                >= E::BLOCK_ENTRIES)
+                >= E::RECOMMENDED_BLOCK_ENTRIES)
         {
             IndexBlock::new(doc_id)
         } else {
