@@ -38,7 +38,7 @@ protected:
         if (withExpiration) {
             // Initialize the TTL table with some expiration data. Results should not be expired so the test passes as expected.
             for (size_t i = 0; i < n_docs; ++i) {
-                q_mock.TTLAdd(resultSet[i]);
+                q_mock.TTL_Add(resultSet[i]);
             }
         }
 
@@ -306,4 +306,121 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     // Cleanup
     iterator->Free(iterator);
     InvertedIndex_Free(idx);
+}
+
+class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> {
+protected:
+    static constexpr size_t n_docs = std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
+    InvertedIndex *idx;
+    QueryIterator *it_base;
+    MockQueryEvalCtx q_mock;
+
+    void SetUp() override {
+        IndexFlags flags = GetParam();
+
+        size_t dummy;
+        idx = NewInvertedIndex(flags, 1, &dummy);
+
+        t_fieldIndex fieldIndex = 0b101010; // 42
+        t_fieldMask fieldMask = fieldIndex;
+        if (flags & Index_WideSchema) {
+            fieldMask |= fieldMask << 64; // Wide field mask for wide schema
+        }
+
+        // Add docs to the index
+        IndexEncoder encoder = InvertedIndex_GetEncoder(flags);
+        RSIndexResult res = {
+            .fieldMask = fieldMask,
+        };
+        for (size_t i = 1; i <= n_docs; ++i) {
+            res.docId = i;
+            InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+            InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res); // Second write will fail if multi-value is not supported
+        }
+
+        // Make every even document ID field expired
+        for (size_t i = 2; i <= n_docs; i += 2) {
+            if (flags & Index_StoreNumeric || flags == Index_DocIdsOnly) {
+                q_mock.TTL_Add(i, fieldIndex, {1, 1}); // Already expired
+            } else {
+                q_mock.TTL_Add(i, fieldMask, {1, 1}); // Already expired
+            }
+        }
+        // Set up the mock current time
+        q_mock.sctx.time.current = {100, 100};
+        // Create the iterator based on the flags
+        if (flags & Index_StoreNumeric) {
+            FieldFilterContext fieldCtx = {.field = {false, fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
+            it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, nullptr, -INFINITY, INFINITY);
+        } else if (flags == Index_DocIdsOnly) {
+            it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, fieldIndex, FIELD_EXPIRATION_DEFAULT, 1.0);
+        } else {
+            it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {true, fieldMask}, nullptr, 1.0);
+        }
+    }
+
+    void TearDown() override {
+        it_base->Free(it_base);
+        InvertedIndex_Free(idx);
+    }
+};
+INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTestExpiration, ::testing::Values(
+    Index_DocIdsOnly,                                                                       // Single field
+    Index_StoreNumeric,                                                                     // Single field, multi-value
+    Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets,                      // field-mask, with seeker
+    Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema    // wide field-mask
+));
+
+TEST_P(IndexIteratorTestExpiration, Read) {
+    InvIndIterator *it = (InvIndIterator *)it_base;
+    IteratorStatus rc;
+
+    // Test reading until EOF - expect only odd document IDs
+    size_t i = 0;
+    while ((rc = it_base->Read(it_base)) == ITERATOR_OK) {
+        ASSERT_EQ(it->base.current->docId, 2*i + 1);
+        ASSERT_EQ(it->base.lastDocId, 2*i + 1);
+        ASSERT_FALSE(it->base.atEOF);
+        i++;
+    }
+    ASSERT_EQ(rc, ITERATOR_EOF);
+    ASSERT_TRUE(it->base.atEOF);
+    ASSERT_EQ(it_base->Read(it_base), ITERATOR_EOF); // Reading after EOF should return EOF
+    ASSERT_EQ(i, n_docs / 2 + (n_docs % 2)) << "Expected to read half of the documents (odd IDs only)";
+}
+
+TEST_P(IndexIteratorTestExpiration, SkipTo) {
+    InvIndIterator *it = (InvIndIterator *)it_base;
+    IteratorStatus rc;
+
+    // Test skipping to various document IDs
+    it_base->Rewind(it_base);
+
+    // Skip to odd IDs should work
+    for (t_docId id = 1; id <= n_docs; id += 2) {
+        rc = it_base->SkipTo(it_base, id);
+        ASSERT_EQ(rc, ITERATOR_OK);
+        ASSERT_EQ(it->base.current->docId, id);
+        ASSERT_EQ(it->base.lastDocId, id);
+    }
+
+    // Test skipping to even IDs - should skip to next odd ID
+    it_base->Rewind(it_base);
+    for (t_docId id = 2; id <= n_docs; id += 2) {
+        rc = it_base->SkipTo(it_base, id);
+        if (id + 1 <= n_docs) {
+            ASSERT_EQ(rc, ITERATOR_NOTFOUND);
+            ASSERT_EQ(it->base.current->docId, id + 1);
+            ASSERT_EQ(it->base.lastDocId, id + 1);
+        } else {
+            ASSERT_EQ(rc, ITERATOR_EOF);
+            ASSERT_TRUE(it->base.atEOF);
+        }
+    }
+
+    // Test skipping to ID beyond range
+    it_base->Rewind(it_base);
+    rc = it_base->SkipTo(it_base, n_docs + 1);
+    ASSERT_EQ(rc, ITERATOR_EOF);
+    ASSERT_TRUE(it->base.atEOF);
 }
