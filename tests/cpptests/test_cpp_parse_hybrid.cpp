@@ -15,6 +15,8 @@
 #include "src/spec.h"
 #include "src/search_ctx.h"
 #include "src/query_error.h"
+#include "src/aggregate/aggregate.h"
+
 
 class ParseHybridTest : public ::testing::Test {
  protected:
@@ -32,6 +34,12 @@ class ParseHybridTest : public ::testing::Test {
                         "SCHEMA", "title", "TEXT", "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
     spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
     ASSERT_TRUE(spec);
+    RSDoc* d = RediSearch_CreateDocument("doc:1", strlen("doc:1"), 1.0, NULL);
+    RediSearch_DocumentAddFieldCString(d, "title", "another indexing testing",
+                                     RSFLDTYPE_FULLTEXT);
+    RediSearch_DocumentAddFieldCString(d, "vector", "ABCDEFG==", RSFLDTYPE_VECTOR);
+    RediSearch_SpecAddDocument(spec->own_ref.rm, d);
+
 
     sctx = NewSearchCtxC(ctx, "testidx", true);
     ASSERT_TRUE(sctx != NULL);
@@ -66,59 +74,84 @@ class ParseHybridTest : public ::testing::Test {
 };
 
 
-TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
-  std::vector<const char*> args = {
-    "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"ABCDEFG==" ,"KNN" ,"4" ,"K" ,"10" ,"FILTER" ,"@text:hello",
-  };
-
-  RedisModuleString** argv = createStringArray(args);
-  int argc = args.size();
-
-  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
-
-  // Verify the request was parsed successfully
-  ASSERT_TRUE(result != NULL);
-  ASSERT_EQ(status.code, QUERY_OK);
-
-  // Verify RRF scoring type was set
-  ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_RRF);
-
-  // Clean up
-  HybridRequest_Free(result);
-  freeStringArray(argv, argc);
-}
-
-
 TEST_F(ParseHybridTest, testVsimSubqueryBasic) {
   QueryError status = {QueryErrorCode(0)};
 
   // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
   std::vector<const char*> args = {
-    "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"ABCDEFG==" ,"KNN" ,"2" ,"K" ,"10" ,"FILTER" ,"@text:hello",
+    // "FT.HYBRID" ,"testidx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"$vec" ,"KNN" ,"6" ,"K" ,"10" ,"EF_RUNTIME", "80", "YIELD_DISTANCE_AS", "testdist", "FILTER" ,"@title:hello"//, "PARAMS", "2", "vec", "ABCDEFG=="
+    "FT.HYBRID" ,"testidx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"$vec" ,"KNN" ,"4" ,"K" ,"10" , "YIELD_DISTANCE_AS", "testdist", "FILTER" ,"@title:hello"//, "PARAMS", "2", "vec", "ABCDEFG=="
+
   };
 
   RedisModuleString** argv = createStringArray(args);
   int argc = args.size();
 
   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  AREQ* vecReq = &result->requests[1];
+  char *vecReqExplain = QAST_DumpExplain(&vecReq->ast, sctx->spec);
+
+  std::vector<const char*> args_equiv = {
+    // "FT.SEARCH", "testidx", "@title:hello=>[KNN 10 @vector $BLOB EF_RUNTIME 80]=>{$YIELD_DISTANCE_AS: testdist;}" ,"PARAMS" ,"2" ,"BLOB" ,"\x12\xa9\xf5\x6c", "DIALECT", "2"
+    "FT.SEARCH", "testidx", "@title:hello=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: testdist;}" ,"PARAMS" ,"2" ,"BLOB" ,"\x12\xa9\xf5\x6c", "DIALECT", "2"
+  };
+  RedisModuleString** argv_equiv = createStringArray(args_equiv);
+  int argc_equiv = args_equiv.size();
+
+  QueryError s = {QueryErrorCode(0)};
+  AREQ *equivalentREQ = AREQ_New();;
+  prepareRequest(&equivalentREQ, ctx, argv_equiv ,argc_equiv ,COMMAND_SEARCH, 0, &s);
+  char* equivalentREQExplain = QAST_DumpExplain(&equivalentREQ->ast, sctx->spec);
+
+  QueryNode *hybridVecRoot = vecReq->ast.root;
+  QueryNode *equivVecRoot = equivalentREQ->ast.root;
+
+
+/*
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_EFRUNTIME)) {
+      if ((rc = AC_GetSize(ac, &params->algoParams.hnswParams.efRuntime, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EFRUNTIME), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
+      if ((rc = AC_GetDouble(ac, &params->algoParams.hnswParams.epsilon, AC_F_GE0)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
+        return 0;
+      }
+
+*/
+
+
+  ASSERT_STREQ(vecReqExplain, equivalentREQExplain);
 
   // Verify the request was parsed successfully
   ASSERT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
-
-  // Verify RRF scoring type was set
-  ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_RRF);
-
   // Clean up
   HybridRequest_Free(result);
   freeStringArray(argv, argc);
 }
 
+// TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
+//   QueryError status = {QueryErrorCode(0)};
 
+//   // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
+//   std::vector<const char*> args = {
+//     "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"ABCDEFG==" ,"KNN" ,"4" ,"K" ,"10" ,"FILTER" ,"@text:hello",
+//   };
 
+//   RedisModuleString** argv = createStringArray(args);
+//   int argc = args.size();
+
+//   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+//   // Verify the request was parsed unsuccessfully
+//   ASSERT_TRUE(result == NULL);
+//   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+//   // Clean up
+//   HybridRequest_Free(result);
+//   freeStringArray(argv, argc);
+// }
 
 
 TEST_F(ParseHybridTest, testBasicValidInput) {

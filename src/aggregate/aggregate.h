@@ -123,6 +123,22 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
+
+typedef struct VectorQueryData {
+  const char *vectorField;
+  const void *vector;        // Actual vector data (parsed from vectorBlob)
+  size_t vectorLen;          // Length of vector data
+  VectorQueryType type;      // VECSIM_QT_KNN or VECSIM_QT_RANGE
+  union {
+    size_t k;                // For KNN queries
+    double radius;           // For RANGE queries
+  };
+  VectorQueryParams params;  // Parsed runtime parameters (EF_RUNTIME, EPSILON, YIELD_DISTANCE_AS, etc.)
+} VectorQueryData;
+
+void VectorQueryData_Free(VectorQueryData *vqData);
+
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct AREQ {
   /* plan containing the logical sequence of steps */
   AGGPlan ap;
@@ -134,8 +150,7 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
-  /** Filter clause extracted from vector query for validation */
-  const char *filterClause;
+ VectorQueryData *vsimQueryParams;
 
   /** Fields to be output and otherwise processed */
   FieldList outFields;
@@ -378,6 +393,8 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
+int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
+
 
 #define AREQ_RP(req) (req)->qiter.endProc
 

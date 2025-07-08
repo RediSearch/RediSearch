@@ -78,10 +78,20 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector field name");
     return REDISMODULE_ERR;
   }
-  if (AC_GetString(ac, &vqData->vectorBlob, NULL, 0) != AC_OK) {
+
+  const char *vectorParam;
+  if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector blob");
     return REDISMODULE_ERR;
   }
+
+  // Store vector data directly (copy the blob string)
+  vqData->vectorLen = strlen(vectorParam);
+  vqData->vector = rm_strndup(vectorParam, vqData->vectorLen);
+
+  // Initialize VectorQueryParams following parser pattern
+  vqData->params.params = array_new(VecSimRawParam, 0);
+  vqData->params.needResolve = array_new(bool, 0);
 
   const char *current;
   if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
@@ -92,77 +102,158 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   if (!strcasecmp(current, "KNN")) {
     vqData->type = VECSIM_QT_KNN;
     AC_Advance(ac);
+    // Try to get number of parameters
     long long params;
     if (AC_GetLongLong(ac, &params, 0) != AC_OK) {
       QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for KNN");
       return REDISMODULE_ERR;
     }
-
+    bool hasK = false;
+    bool hasEF = false;
+    bool hasYieldDistanceAs = false;
     for (int i=0; i<params; i+=2) {
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      if (!vqData->hasK && !strcasecmp(current, "K")) {
-        AC_Advance(ac);
-        if (AC_GetInt(ac, &vqData->k, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
+      if (!strcasecmp(current, "K")){
+        if (hasK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate K parameter");
           return REDISMODULE_ERR;
+        } else {
+          AC_Advance(ac);
+          long long kValue;
+          if (AC_GetLongLong(ac, &kValue, 0) != AC_OK) {
+            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
+            return REDISMODULE_ERR;
+          }
+          vqData->k = (size_t)kValue;
+          hasK = true;
         }
-        vqData->hasK = true;
-      } else if (!vqData->hasEfRuntime && !strcasecmp(current, "EF_RUNTIME")) {
-        AC_Advance(ac);
-        if (AC_GetInt(ac, &vqData->efRuntime, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
+      } else if (!strcasecmp(current, "EF_RUNTIME")) {
+        if (hasEF) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate EF_RUNTIME parameter");
           return REDISMODULE_ERR;
+        } else {
+          AC_Advance(ac);
+          const char *value;
+          if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
+            return REDISMODULE_ERR;
+          }
+          // Add to params following parser pattern
+          VecSimRawParam efParam = {
+            .name = rm_strdup("EF_RUNTIME"),
+            .nameLen = strlen("EF_RUNTIME"),
+            .value = rm_strdup(value),
+            .valLen = strlen(value)
+          };
+          array_append(vqData->params.params, efParam);
+          array_append(vqData->params.needResolve, false);
+          hasEF = true;
         }
-        vqData->hasEfRuntime = true;
-      } else if (!vqData->hasDistField && !strcasecmp(current, "YIELD_DISTANCE_AS")) {
-        AC_Advance(ac);
-        if (AC_GetString(ac, &vqData->distField, NULL, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+      } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
+        if (hasYieldDistanceAs) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate YIELD_DISTANCE_AS parameter");
           return REDISMODULE_ERR;
+        } else {
+          AC_Advance(ac);
+          const char *value;
+          if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+            QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+            return REDISMODULE_ERR;
+          }
+          VecSimRawParam yieldDistanceAsParam = {
+            .name = rm_strdup("YIELD_DISTANCE_AS"),
+            .nameLen = strlen("YIELD_DISTANCE_AS"),
+            .value = rm_strdup(value),
+            .valLen = strlen(value)
+          };
+          array_append(vqData->params.params, yieldDistanceAsParam);
+          array_append(vqData->params.needResolve, false);
+          hasYieldDistanceAs = true;
         }
-        vqData->hasDistField = true;
       } else {
         QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in KNN", current);
         return REDISMODULE_ERR;
       }
-      // AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
     }
+    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
   } else if (!strcasecmp(current, "RANGE")) {
     vqData->type = VECSIM_QT_RANGE;
     AC_Advance(ac);
     long long params;
     if (AC_GetLongLong(ac, &params, 0) != AC_OK) {
-      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for RANGE");
+      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for KNN");
       return REDISMODULE_ERR;
     }
+    bool hasRadius = false;
+    bool hasEpsilon = false;
+    bool hasYieldDistanceAs = false;
     for (int i=0; i<params; i+=2) {
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      if (!vqData->hasRadius && !strcasecmp(current, "RADIUS")) {
-        AC_Advance(ac);
-        if (AC_GetInt(ac, &vqData->radius, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
+      if (!strcasecmp(current, "RADIUS")) {
+        if (hasRadius) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate RADIUS parameter");
           return REDISMODULE_ERR;
+        } else {
+          AC_Advance(ac);
+          double radiusValue;
+          if (AC_GetDouble(ac, &radiusValue, 0) != AC_OK) {
+            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid RADIUS value");
+            return REDISMODULE_ERR;
+          }
+          vqData->radius = radiusValue;
+          hasRadius = true;
         }
-        vqData->hasRadius = true;
-      } else if (!vqData->hasEpsilon && !strcasecmp(current, "EPSILON")) {
-        AC_Advance(ac);
-        if (AC_GetInt(ac, &vqData->epsilon, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
+      } else if (!strcasecmp(current, "EPSILON")) {
+        if (hasEpsilon) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate EPSILON parameter");
           return REDISMODULE_ERR;
+        } else {
+          AC_Advance(ac);
+          const char *value;
+          if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
+            return REDISMODULE_ERR;
+          }
+          // Add to params following parser pattern
+          VecSimRawParam epsilonParam = {
+            .name = rm_strdup("EPSILON"),
+            .nameLen = strlen("EPSILON"),
+            .value = rm_strdup(value),
+            .valLen = strlen(value)
+          };
+          array_append(vqData->params.params, epsilonParam);
+          array_append(vqData->params.needResolve, false);
+          hasEpsilon = true;
         }
-        vqData->hasEpsilon = true;
-      } else if (!vqData->hasDistField && !strcasecmp(current, "YIELD_DISTANCE_AS")) {
-        AC_Advance(ac);
-        if (AC_GetString(ac, &vqData->distField, NULL, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+      } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
+        if (hasYieldDistanceAs) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate YIELD_DISTANCE_AS parameter");
           return REDISMODULE_ERR;
+        } else {
+          AC_Advance(ac);
+          const char *value;
+          if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+            QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+            return REDISMODULE_ERR;
+          }
+          // Add to params following parser pattern
+          VecSimRawParam yieldDistanceAsParam = {
+            .name = rm_strdup("YIELD_DISTANCE_AS"),
+            .nameLen = strlen("YIELD_DISTANCE_AS"),
+            .value = rm_strdup(value),
+            .valLen = strlen(value)
+          };
+          array_append(vqData->params.params, yieldDistanceAsParam);
+          array_append(vqData->params.needResolve, false);
+          hasYieldDistanceAs = true;
         }
-        vqData->hasDistField = true;
+      } else {
+        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RANGE", current);
+        return REDISMODULE_ERR;
       }
-      // AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+      AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
     }
   }
-  AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
 
   // Check for optional FILTER clause - parameter may not be in our scope
   if (!strcasecmp(current, "FILTER")) {

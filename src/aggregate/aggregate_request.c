@@ -25,6 +25,9 @@
 
 extern RSConfig RSGlobalConfig;
 
+// Forward declarations for vector query functions
+const FieldSpec* GetVectorFieldSpec(const IndexSpec *spec, const char *fieldName, size_t fieldNameLen);
+
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
@@ -1168,6 +1171,75 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  if (req->vsimQueryParams){
+    VectorQueryData *vqData = req->vsimQueryParams;
+    const FieldSpec *vectorField = GetVectorFieldSpec(sctx->spec, vqData->vectorField, strlen(vqData->vectorField));
+    // 1. Create the base QueryNode
+    typedef struct {
+      const char *s;
+      int len;
+      int pos;
+      double numval;
+      QueryTokenType type;
+      int sign; // for numeric range, it stores the sign of the parameter
+    } QueryToken;
+
+    QueryToken *vecToken = rm_calloc(1, sizeof(*vecToken));
+    vecToken->type = QT_PARAM_VEC;
+    vecToken->s = vqData->vectorField;
+    vecToken->len = strlen(vqData->vectorField);
+    vecToken->pos = 0;
+    vecToken->numval = 0;
+    vecToken->sign = 1;
+
+    QueryToken *valueToken = rm_calloc(1, sizeof(*valueToken));
+    valueToken->type = QT_PARAM_SIZE;
+    valueToken->s = sdsfromlonglong(vqData->k);
+    valueToken->len = 0;
+    valueToken->pos = 0;
+    valueToken->numval = vqData->k;
+    valueToken->sign = 1;
+
+    QueryParseCtx q = {0};
+    QueryNode *vecNode = NewVectorNode_WithParams(&q, vqData->type, valueToken, vecToken);
+    // QueryNode *ret = NewQueryNode(QN_VECTOR);
+    // ret->opts.flags |= QueryNode_YieldsDistance;
+    //save the vector in the params
+    // QueryNode_InitParams(ret, 1);
+    // QueryParseCtx q = {0};
+    // QueryNode_SetParam(&q, &ret->params[0], &vqData->vector, &vqData->vectorLen, NULL);
+    // ret->params[0].type = PARAM_VEC;
+    // ret->params[0].target = &vqData->vector;
+    // ret->params[0].target_len = &vqData->vectorLen;
+    // ret->params[0].name = rm_strdup(vqData->vectorField);
+    // ret->params[0].len = strlen(vqData->vectorField);
+
+    // 2. Allocate and initialize VectorQuery
+    // VectorQuery *vq = rm_calloc(1, sizeof(*vq));
+    // ret->vn.vq = vq;
+    VectorQuery *vq = vecNode->vn.vq;
+    // 3. Set basic fields
+    vq->field = vectorField;  // FieldSpec for the vector field
+    vq->type = vqData->type;  // VECSIM_QT_KNN or VECSIM_QT_RANGE
+
+    switch (vqData->type) {
+      case VECSIM_QT_KNN:
+        vq->knn.k = vqData->k;
+        vq->knn.order = BY_SCORE;
+        break;
+
+      case VECSIM_QT_RANGE:
+        vq->range.radius = vqData->radius;
+        vq->range.order = BY_ID;
+        break;
+    }
+    vq->params = vqData->params;
+
+
+    QueryNode_AddChild(vecNode, ast->root);
+    ast->root = vecNode;
+  }
+
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
@@ -1797,6 +1869,48 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
+  if (req->vsimQueryParams) {
+    VectorQueryData_Free(req->vsimQueryParams);
+  }
   rm_free(req->args);
   rm_free(req);
 }
+
+const FieldSpec* GetVectorFieldSpec(const IndexSpec *spec, const char *fieldName, size_t fieldNameLen) {
+  const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(spec, fieldName, fieldNameLen);
+  if (!vectorField) {
+    // Field not found - same error as parser
+    return NULL;
+  }
+
+  if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+    // Field exists but is not a vector field - same validation as parser
+    return NULL;
+  }
+  return vectorField;
+}
+
+
+void VectorQueryData_Free(VectorQueryData *vqData) {
+  if (!vqData) return;
+
+  // Free vector data
+  if (vqData->vector) {
+    rm_free((void*)vqData->vector);
+  }
+
+  // Free VectorQueryParams arrays
+  if (vqData->params.params) {
+    for (size_t i = 0; i < array_len(vqData->params.params); i++) {
+      rm_free((char*)vqData->params.params[i].name);
+      rm_free((char*)vqData->params.params[i].value);
+    }
+    array_free(vqData->params.params);
+  }
+  if (vqData->params.needResolve) {
+    array_free(vqData->params.needResolve);
+  }
+
+  rm_free(vqData);
+}
+
