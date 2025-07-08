@@ -319,7 +319,11 @@ pub trait Encoder {
     /// Calculate the delta using the block it will be added to. Returns `None` if the delta is too
     /// big for this encoder and a new block should be created.
     fn calculate_delta(block: &IndexBlock, doc_id: t_docId) -> Option<Self::DeltaType> {
-        let delta = doc_id - block.last_doc_id;
+        debug_assert!(
+            doc_id >= block.last_doc_id,
+            "documents should be encoded in the order of their IDs"
+        );
+        let delta = doc_id.wrapping_sub(block.last_doc_id);
 
         if delta > u32::MAX as _ {
             // If the delta is larger than `u32::MAX`, we cannot encode it with this encoder.

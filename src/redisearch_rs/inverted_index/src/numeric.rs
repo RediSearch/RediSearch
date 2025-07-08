@@ -373,7 +373,11 @@ impl Encoder for Numeric {
     }
 
     fn calculate_delta(block: &IndexBlock, doc_id: t_docId) -> Option<Self::DeltaType> {
-        let delta = doc_id - block.last_doc_id;
+        debug_assert!(
+            doc_id >= block.last_doc_id,
+            "documents should be encoded in the order of their IDs"
+        );
+        let delta = doc_id.wrapping_sub(block.last_doc_id);
 
         if (delta >> (7 * 8)) > 0 {
             // If the delta is larger than 7 bytes (7 * 8), then we cannot encode it with this encoder.
