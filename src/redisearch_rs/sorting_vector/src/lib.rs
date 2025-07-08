@@ -68,24 +68,6 @@ impl<T: RSValueTrait> IntoIterator for RSSortingVector<T> {
     }
 }
 
-// Immutable borrowing iterator: yields &T without consuming the vector.
-impl<'a, T: RSValueTrait> IntoIterator for &'a RSSortingVector<T> {
-    type Item = &'a T;
-    type IntoIter = Iter<'a, T>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.values.iter()
-    }
-}
-
-// Mutable borrowing iterator: yields &mut T for element modification.
-impl<'a, T: RSValueTrait> IntoIterator for &'a mut RSSortingVector<T> {
-    type Item = &'a mut T;
-    type IntoIter = IterMut<'a, T>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.values.iter_mut()
-    }
-}
-
 impl<T: RSValueTrait> RSSortingVector<T> {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
