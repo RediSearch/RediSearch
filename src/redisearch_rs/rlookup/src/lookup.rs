@@ -18,7 +18,7 @@ use std::{
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum RlookupKeyFlag {
+pub enum RLookupKeyFlag {
     /// This field is (or assumed to be) part of the document itself.
     /// This is a basic flag for a loaded key.
     DocSrc = 0x01,
@@ -65,15 +65,15 @@ pub enum RlookupKeyFlag {
     Numeric = 0x1000,
 }
 
-pub type RlookupKeyFlags = BitFlags<RlookupKeyFlag>;
+pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
 #[expect(unused, reason = "used by later stacked PRs")]
-const GET_KEY_FLAGS: RlookupKeyFlags =
-    make_bitflags!(RlookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
+const GET_KEY_FLAGS: RLookupKeyFlags =
+    make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
 
 /// Flags do not persist to the key, they are just options to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
-const TRANSIENT_FLAGS: RlookupKeyFlags = make_bitflags!(RlookupKeyFlag::{Override | ForceLoad});
+const TRANSIENT_FLAGS: RLookupKeyFlags = make_bitflags!(RLookupKeyFlag::{Override | ForceLoad});
 
 /// RLookup key
 ///
@@ -122,13 +122,13 @@ pub struct RLookupKey<'a> {
     dstidx: u16,
 
     /// If the source for this key is a sorting vector, this is the index
-    /// index into the `RSSortingVector` within the associated `RLookupRow`.
+    /// into the `RSSortingVector` within the associated `RLookupRow`.
     svidx: u16,
 
     /// Various flags dictating the behavior of looking up the value of this key.
     /// Most notably, `Flags::SVSRC` means the source is an `RSSortingVector` and
     /// `Self::svidx` should be used to look up the value.
-    flags: RlookupKeyFlags,
+    flags: RLookupKeyFlags,
 
     /// The path of this key.
     ///
@@ -169,11 +169,11 @@ pub struct RLookupKey<'a> {
 impl<'a> RLookupKey<'a> {
     /// Constructs a new `RLookupKey` using te provided `CStr` and flags.
     ///
-    /// If the [`RlookupKeyFlag::NameAlloc`] is given, then the provided `CStr` will be cloned into
+    /// If the [`RLookupKeyFlag::NameAlloc`] is given, then the provided `CStr` will be cloned into
     /// a new allocation that is owned by this key. If the flag is *not* provided the key
     /// will simply borrow the provided string.
-    pub fn new(name: &'a CStr, flags: RlookupKeyFlags) -> Self {
-        let name = if flags.contains(RlookupKeyFlag::NameAlloc) {
+    pub fn new(name: &'a CStr, flags: RLookupKeyFlags) -> Self {
+        let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
             Cow::Owned(name.to_owned())
         } else {
             Cow::Borrowed(name)
@@ -247,13 +247,13 @@ mod tests {
     // Make sure that the `into_ptr` and `from_ptr` functions are inverses of each other.
     #[test]
     fn into_ptr_from_ptr_roundtrip() {
-        let key = RLookupKey::new(c"test", RlookupKeyFlags::empty());
+        let key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
         let key = Box::pin(key);
 
         let ptr = unsafe { RLookupKey::into_ptr(key) };
         let key = unsafe { RLookupKey::from_ptr(ptr) };
 
-        assert_eq!(*key, RLookupKey::new(c"test", RlookupKeyFlags::empty()));
+        assert_eq!(*key, RLookupKey::new(c"test", RLookupKeyFlags::empty()));
     }
 
     // Assert that creating a RLookupKey with the NameAlloc flag indeed allocates a new string
@@ -261,7 +261,7 @@ mod tests {
     fn rlookupkey_new_with_namealloc() {
         let name = c"test";
 
-        let key = RLookupKey::new(name, make_bitflags!(RlookupKeyFlag::NameAlloc));
+        let key = RLookupKey::new(name, make_bitflags!(RLookupKeyFlag::NameAlloc));
         assert_ne!(key.name, name.as_ptr());
         assert!(matches!(key._name, Cow::Owned(_)));
     }
@@ -271,7 +271,7 @@ mod tests {
     fn rlookupkey_new_without_namealloc() {
         let name = c"test";
 
-        let key = RLookupKey::new(name, RlookupKeyFlags::empty());
+        let key = RLookupKey::new(name, RLookupKeyFlags::empty());
         assert_eq!(key.name, name.as_ptr());
         assert!(matches!(key._name, Cow::Borrowed(_)));
     }

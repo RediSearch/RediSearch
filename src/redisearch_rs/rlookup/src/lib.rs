@@ -8,4 +8,4 @@
 */
 mod lookup;
 
-pub use lookup::{RLookupKey, RlookupKeyFlag, RlookupKeyFlags};
+pub use lookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
