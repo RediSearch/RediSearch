@@ -1,6 +1,6 @@
 from common import *
 
-@skip(no_json=True, cluster=True)
+@skip(cluster=True)
 def test_geometry_field_array_type_validation_error(env):
     """Test GEOMETRY field array rejection at type validation level
 
@@ -42,7 +42,7 @@ def test_geometry_field_array_type_validation_error(env):
     env.assertEqual(error_dict['last indexing error key'], 'geo_error_doc')
 
 
-@skip(no_json=True, cluster=True)
+@skip(cluster=True)
 def test_numeric_field_invalid_array_elements(env):
     """Test that NUMERIC fields reject arrays with non-numeric elements"""
 
@@ -77,7 +77,7 @@ def test_numeric_field_invalid_array_elements(env):
     env.assertEqual(error_dict['last indexing error key'], 'num_error_doc')
 
 
-@skip(no_json=True, cluster=True)
+@skip(cluster=True)
 def test_json_type_validation_errors(env):
     """Test JSON type validation errors from FieldSpec_CheckJsonType"""
 
