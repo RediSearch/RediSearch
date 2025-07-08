@@ -177,7 +177,6 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
   if (!jsonRoot) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
   Document_MakeStringsOwner(doc); // TODO: necessary??
