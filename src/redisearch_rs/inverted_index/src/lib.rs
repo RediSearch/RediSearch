@@ -20,25 +20,6 @@ pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fie
 pub mod freqs_only;
 pub mod numeric;
 
-/// A delta is the difference between document IDs. It is mostly used to save space in the index
-/// because document IDs are usually sequential and the difference between them are small. With the
-/// help of encoding, we can optionally store the difference (delta) efficiently instead of the full document
-/// ID.
-pub struct Delta(usize);
-
-impl Delta {
-    /// Make a new delta value
-    pub fn new(delta: usize) -> Self {
-        Delta(delta)
-    }
-}
-
-impl From<Delta> for usize {
-    fn from(delta: Delta) -> Self {
-        delta.0
-    }
-}
-
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
