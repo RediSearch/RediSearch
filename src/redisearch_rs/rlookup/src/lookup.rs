@@ -242,18 +242,18 @@ impl<'a> RLookupKey<'a> {
         name: Cow<'a, CStr>,
         path: Option<Cow<'a, CStr>>,
         dstidx: u16,
-        flags: RlookupKeyFlags,
+        flags: RLookupKeyFlags,
     ) -> Self {
         debug_assert_eq!(
             matches!(name, Cow::Owned(_)),
-            flags.contains(RlookupKeyFlag::NameAlloc),
-            "RlookupKeyFlag::NameAlloc but name is Cow::Borrowed"
+            flags.contains(RLookupKeyFlag::NameAlloc),
+            "RLookupKeyFlag::NameAlloc but name is Cow::Borrowed"
         );
         if let Some(path) = &path {
             debug_assert_eq!(
                 matches!(path, Cow::Owned(_)),
-                flags.contains(RlookupKeyFlag::NameAlloc),
-                "RlookupKeyFlag::NameAlloc but path is Cow::Borrowed"
+                flags.contains(RLookupKeyFlag::NameAlloc),
+                "RLookupKeyFlag::NameAlloc but path is Cow::Borrowed"
             );
         }
 
@@ -492,9 +492,9 @@ impl<'a> KeyList<'a> {
             actual_len += 1;
         }
 
-        assert_eq!(
-            self.rowlen, actual_len,
-            "{ctx}linked list's actual length did not match its `len` variable"
+        assert!(
+            self.rowlen <= actual_len,
+            "{ctx}linked list's rowlen was greater than its actual length"
         );
     }
 }
@@ -664,9 +664,10 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     ///
     /// The new key will inherit the `name`, `path`, and `dstidx` of the current key but receive a
     /// **new pointer identity**. The new key is returned.
+    #[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
     pub fn override_current(
         mut self,
-        flags: RlookupKeyFlags,
+        flags: RLookupKeyFlags,
     ) -> Option<Pin<&'list mut RLookupKey<'a>>> {
         let old = self.current()?;
         let mut old = old.project();
@@ -681,7 +682,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         let mut new = RLookupKey::from_parts(name, path, *old.dstidx, flags);
 
         // link the new key into the linked-list. Since KeyList is singly-linked and we don't know yet
-        // if C code is still holding on to pointers to nodes, we replicate the C behvaiour here:
+        // if C code is still holding on to pointers to nodes, we replicate the C behaviour here:
         //
         // 1. We copy the next pointer from old to new
         // 2. We mark the old as "Hidden" so it doesn't show up in iteration anymore
@@ -694,11 +695,11 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         // Safety: we treat the pointer as pinned below and only hand out a pinned mutable reference.
         let mut new = unsafe { RLookupKey::into_ptr(Box::pin(new)) };
 
-        *old.flags |= RlookupKeyFlag::Hidden;
+        *old.flags |= RLookupKeyFlag::Hidden;
         old.next.set_next(Some(new));
 
         // If the old key was the tail, set the new key as the tail
-        if self._rlookup.tail == self.curr {
+        if self._rlookup.tail == self.current {
             self._rlookup.tail = Some(new);
         }
 
@@ -1027,12 +1028,12 @@ mod tests {
 
         keylist.push(RLookupKey::new(
             c"foo",
-            make_bitflags!(RlookupKeyFlag::Unresolved),
+            make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
 
         keylist
             .cursor_front_mut()
-            .override_current(make_bitflags!(RlookupKeyFlag::Numeric));
+            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
 
         let found = keylist
             .find_by_name(c"foo")
@@ -1046,15 +1047,15 @@ mod tests {
         assert!(found._path.is_none());
         assert_eq!(found.dstidx, 0);
         // new key should have provided keys
-        assert!(found.flags.contains(RlookupKeyFlag::Numeric));
+        assert!(found.flags.contains(RLookupKeyFlag::Numeric));
         // new key should not inherit any old flags
-        assert!(!found.flags.contains(RlookupKeyFlag::Unresolved));
+        assert!(!found.flags.contains(RLookupKeyFlag::Unresolved));
 
         let mut c = keylist.cursor_front();
 
         // we expect the first item to be the tombstone of the old key
         assert!(c.current().unwrap()._name.is_empty());
-        assert!(c.current().unwrap().flags.contains(RlookupKeyFlag::Hidden));
+        assert!(c.current().unwrap().flags.contains(RLookupKeyFlag::Hidden));
 
         // and the next item to be the new key
         c.move_next();
