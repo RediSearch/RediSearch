@@ -48,6 +48,10 @@ size_t InvIndIterator_NumEstimated(QueryIterator *base) {
 
 #define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
 
+static inline InvIndIterator_OnReValidate(QueryIterator *base) {
+ // CheckRevisionId
+}
+
 // Used to determine if the field mask for the given doc id are valid based on their ttl:
 // it->filterCtx.predicate
 // returns true if the we don't have expiration information for the document
@@ -370,4 +374,74 @@ QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSea
   RSIndexResult *record = NewVirtualResult(1, RS_FIELDMASK_ALL);
   record->freq = (predicate == FIELD_EXPIRATION_MISSING) ? 0 : 1; // TODO: is this required?
   return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx);
+}
+
+/* A function to handle reopening of numeric range iterators */
+IteratorStatus NumericTree_OnReValidate(QueryIterator *base) {
+  InvIndIterator *invIt = (InvIndIterator *)base;
+  // Extract IndexSpec from the search context
+  IndexSpec *sp = invIt->sctx->spec;
+
+  RedisModuleString *numField = IndexSpec_GetFormattedKey(sp, nu->field, INDEXFLD_T_NUMERIC);
+  NumericRangeTree *rt = openNumericKeysDict(sp, numField, DONT_CREATE_INDEX);
+  // CheckRevisionId
+  return ITERATOR_OK;
+}
+
+void InvIndIterator_OnReopen(void *privdata) {
+  InvIndIterator *it = privdata;
+
+  // Extract IndexSpec from the search context
+  IndexSpec *sp = it->sctx->spec;
+
+  // Get the field index from the filter context
+  t_fieldIndex fieldIndex = RS_INVALID_FIELD_INDEX;
+  if (it->filterCtx.field.isFieldMask) {
+    // For field mask, we'd need to extract a single field index
+    // This is a simplification - you might need more complex logic
+    // to handle field masks properly
+    t_fieldMask mask = it->filterCtx.field.value.mask;
+    // Convert mask to a single field index if possible
+    // This is just a placeholder - implement proper conversion
+    fieldIndex = __builtin_ctz(mask); // Get index of first set bit
+  } else {
+    fieldIndex = it->filterCtx.field.value.index;
+  }
+
+  if (fieldIndex == RS_INVALID_FIELD_INDEX) {
+    // Cannot determine field, abort
+    it->base.Abort(&it->base);
+    return;
+  }
+
+  // Get the field spec from the index spec
+  const FieldSpec *fs = IndexSpec_GetField(sp, fieldIndex);
+  if (!fs) {
+    // Field not found, abort
+    it->base.Abort(&it->base);
+    return;
+  }
+
+  // Get the formatted key for the numeric field
+  RedisModuleString *numField = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_NUMERIC);
+  if (!numField) {
+    it->base.Abort(&it->base);
+    return;
+  }
+
+  // Open the numeric range tree
+  NumericRangeTree *rt = openNumericKeysDict(sp, numField, DONT_CREATE_INDEX);
+
+  // Check if the tree exists and has the expected revision ID
+  // Note: We need to store the last revision ID somewhere in the iterator
+  // This could be added as a new field to InvIndIterator
+  if (!rt || rt->revisionId != it->gcMarker) { // Using gcMarker to store revisionId
+    // The numeric tree was either completely deleted or a node was split or removed.
+    // The cursor is invalidated.
+    it->base.Abort(&it->base);
+    return;
+  }
+
+  // Continue with any other necessary reopening logic
+  // ...
 }

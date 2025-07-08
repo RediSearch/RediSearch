@@ -39,6 +39,11 @@ enum IteratorType {
   MAX_ITERATOR,
 };
 
+IteratorStatus DefaultOnReValidate(struct QueryIterator *self) {
+  // Default implementation does nothing.
+  return ITERATOR_OK;
+}
+
 /* An abstract interface used by readers / intersectors / uniones etc.
 Basically query execution creates a tree of iterators that activate each other
 recursively */
@@ -77,6 +82,12 @@ typedef struct QueryIterator {
    *  In any other case, `current` and `lastDocId` should be untouched, and the relevant IteratorStatus is returned.
    */
   IteratorStatus (*SkipTo)(struct QueryIterator *self, t_docId docId);
+
+  /**
+   * Called when the iterator is being revalidated after a concurrent index change.
+   * The iterator should check if it is still valid`.
+   */
+  IteratorStatus (*OnReValidate)(struct QueryIterator *self);
 
   /* release the iterator's context and free everything needed */
   void (*Free)(struct QueryIterator *self);
