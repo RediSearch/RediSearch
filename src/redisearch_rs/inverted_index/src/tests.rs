@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Delta, Encoder, InvertedIndex, RSIndexResult};
+use crate::{Encoder, IdDelta, InvertedIndex, RSIndexResult};
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
 struct Dummy;
@@ -232,7 +232,7 @@ fn adding_big_delta_makes_new_block() {
 
 #[test]
 fn u32_delta_overflow() {
-    let delta = <u32 as Delta>::from_u64(u32::MAX as u64 + 1);
+    let delta = <u32 as IdDelta>::from_u64(u32::MAX as u64 + 1);
 
     assert_eq!(
         delta, None,

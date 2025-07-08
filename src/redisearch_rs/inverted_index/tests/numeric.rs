@@ -8,7 +8,7 @@
 */
 
 use inverted_index::{
-    Decoder, DecoderResult, Delta, Encoder, RSIndexResult,
+    Decoder, DecoderResult, Encoder, IdDelta, RSIndexResult,
     numeric::{Numeric, NumericDelta},
 };
 use pretty_assertions::assert_eq;

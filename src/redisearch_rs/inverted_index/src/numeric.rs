@@ -144,7 +144,7 @@ use std::io::{IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
+use crate::{Decoder, DecoderResult, Encoder, IdDelta, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -206,7 +206,7 @@ impl ToBytes<8> for NumericDelta {
     }
 }
 
-impl Delta for NumericDelta {
+impl IdDelta for NumericDelta {
     fn from_u64(delta: u64) -> Option<Self> {
         if (delta >> (7 * 8)) > 0 {
             // If the delta is larger than 7 bytes (7 * 8), then we cannot encode it with this encoder.

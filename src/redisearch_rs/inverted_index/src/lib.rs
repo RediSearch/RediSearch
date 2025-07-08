@@ -21,7 +21,7 @@ pub mod freqs_only;
 pub mod numeric;
 
 /// Trait used to correctly derive the delta needed for different encoders
-pub trait Delta
+pub trait IdDelta
 where
     Self: Sized,
 {
@@ -34,7 +34,7 @@ where
     fn reset() -> Self;
 }
 
-impl Delta for u32 {
+impl IdDelta for u32 {
     fn from_u64(delta: u64) -> Option<Self> {
         delta.try_into().ok()
     }
@@ -322,7 +322,7 @@ impl PartialEq for RSIndexResult {
 
 /// Encoder to write a record into an index
 pub trait Encoder {
-    type Delta: Delta;
+    type Delta: IdDelta;
 
     /// Does this encoder allow the same document to appear in the index multiple times. Defaults
     /// to `false`.
