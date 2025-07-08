@@ -144,18 +144,12 @@ use std::io::{IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{Decoder, DecoderResult, Encoder, IndexBlock, RSIndexResult};
+use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
     /// Packs self into a byte vector.
     fn pack(self) -> [u8; N];
-}
-
-impl ToBytes<8> for u64 {
-    fn pack(self) -> [u8; 8] {
-        self.to_le_bytes()
-    }
 }
 
 pub struct Numeric {
@@ -202,13 +196,39 @@ impl Default for Numeric {
     }
 }
 
+/// The [`Numeric`] encoder only supports encoding deltas that fit within 7 bytes
+#[derive(Debug, PartialEq)]
+pub struct NumericDelta(pub u64);
+
+impl ToBytes<8> for NumericDelta {
+    fn pack(self) -> [u8; 8] {
+        self.0.to_le_bytes()
+    }
+}
+
+impl Delta for NumericDelta {
+    fn from_u64(delta: u64) -> Option<Self> {
+        if (delta >> (7 * 8)) > 0 {
+            // If the delta is larger than 7 bytes (7 * 8), then we cannot encode it with this encoder.
+            // The inverted index should create a new block in this case.
+            None
+        } else {
+            Some(Self(delta))
+        }
+    }
+
+    fn reset() -> Self {
+        Self(0)
+    }
+}
+
 impl Encoder for Numeric {
-    type DeltaType = u64;
+    type Delta = NumericDelta;
 
     fn encode<W: Write + std::io::Seek>(
         &mut self,
         mut writer: W,
-        delta: Self::DeltaType,
+        delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         let num_record = record
@@ -370,22 +390,6 @@ impl Encoder for Numeric {
 
         self.num_entries += 1;
         Ok(bytes_written)
-    }
-
-    fn calculate_delta(block: &IndexBlock, doc_id: t_docId) -> Option<Self::DeltaType> {
-        debug_assert!(
-            doc_id >= block.last_doc_id,
-            "documents should be encoded in the order of their IDs"
-        );
-        let delta = doc_id.wrapping_sub(block.last_doc_id);
-
-        if (delta >> (7 * 8)) > 0 {
-            // If the delta is larger than 7 bytes (7 * 8), then we cannot encode it with this encoder.
-            // The inverted index should create a new block in this case.
-            None
-        } else {
-            Some(delta)
-        }
     }
 }
 

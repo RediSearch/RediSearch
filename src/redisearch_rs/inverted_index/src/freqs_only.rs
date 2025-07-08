@@ -20,12 +20,12 @@ use crate::{Decoder, DecoderResult, Encoder, RSIndexResult};
 pub struct FreqsOnly;
 
 impl Encoder for FreqsOnly {
-    type DeltaType = u32;
+    type Delta = u32;
 
     fn encode<W: Write + Seek>(
         &mut self,
         mut writer: W,
-        delta: Self::DeltaType,
+        delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         let bytes_written = qint_encode(&mut writer, [delta, record.freq])?;

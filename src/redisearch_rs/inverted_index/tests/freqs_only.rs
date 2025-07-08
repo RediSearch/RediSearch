@@ -9,9 +9,7 @@
 
 use std::io::Cursor;
 
-use inverted_index::{
-    Decoder, DecoderResult, Encoder, IndexBlock, RSIndexResult, freqs_only::FreqsOnly,
-};
+use inverted_index::{Decoder, DecoderResult, Encoder, RSIndexResult, freqs_only::FreqsOnly};
 
 #[test]
 fn test_encode_freqs_only() {
@@ -100,15 +98,4 @@ fn test_decode_freqs_only_empty_input() {
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
-}
-
-#[test]
-fn test_encode_freqs_only_delta_overflow() {
-    let (index_block, _) = IndexBlock::new(0);
-    let delta = FreqsOnly::calculate_delta(&index_block, u32::MAX as u64 + 1);
-
-    assert_eq!(
-        delta, None,
-        "Delta will overflow, so should request a new block for encoding"
-    );
 }

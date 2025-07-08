@@ -1,15 +1,15 @@
-use crate::{Encoder, InvertedIndex, RSIndexResult};
+use crate::{Delta, Encoder, InvertedIndex, RSIndexResult};
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
 struct Dummy;
 
 impl Encoder for Dummy {
-    type DeltaType = u32;
+    type Delta = u32;
 
     fn encode<W: std::io::Write + std::io::Seek>(
         &mut self,
         mut writer: W,
-        delta: Self::DeltaType,
+        delta: Self::Delta,
         _record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         writer.write_all(&delta.to_be_bytes())?;
@@ -80,14 +80,14 @@ fn adding_same_record_twice() {
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
-        type DeltaType = u32;
+        type Delta = u32;
 
         const ALLOW_DUPLICATES: bool = true;
 
         fn encode<W: std::io::Write + std::io::Seek>(
             &mut self,
             mut writer: W,
-            _delta: Self::DeltaType,
+            _delta: Self::Delta,
             _record: &RSIndexResult,
         ) -> std::io::Result<usize> {
             writer.write_all(&[255])?;
@@ -125,7 +125,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
-        type DeltaType = u32;
+        type Delta = u32;
 
         const ALLOW_DUPLICATES: bool = true;
         const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
@@ -133,7 +133,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         fn encode<W: std::io::Write + std::io::Seek>(
             &mut self,
             mut writer: W,
-            _delta: Self::DeltaType,
+            _delta: Self::Delta,
             _record: &RSIndexResult,
         ) -> std::io::Result<usize> {
             writer.write_all(&[1])?;
@@ -219,4 +219,14 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.blocks[1].first_doc_id, doc_id);
     assert_eq!(ii.blocks[1].last_doc_id, doc_id);
     assert_eq!(ii.n_unique_docs, 2);
+}
+
+#[test]
+fn u32_delta_overflow() {
+    let delta = <u32 as Delta>::from_u64(u32::MAX as u64 + 1);
+
+    assert_eq!(
+        delta, None,
+        "Delta will overflow, so should request a new block for encoding"
+    );
 }

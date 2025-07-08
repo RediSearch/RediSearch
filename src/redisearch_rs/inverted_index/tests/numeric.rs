@@ -8,7 +8,8 @@
 */
 
 use inverted_index::{
-    Decoder, DecoderResult, Encoder, IndexBlock, RSIndexResult, numeric::Numeric,
+    Decoder, DecoderResult, Delta, Encoder, RSIndexResult,
+    numeric::{Numeric, NumericDelta},
 };
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
@@ -371,7 +372,7 @@ fn test_numeric_encode_decode(
 
     let mut numeric = Numeric::new();
     let bytes_written = numeric
-        .encode(&mut buf, delta, &record)
+        .encode(&mut buf, NumericDelta(delta), &record)
         .expect("to encode numeric record");
 
     assert_eq!(
@@ -408,12 +409,12 @@ fn encoding_increase_num_entries() {
     assert_eq!(numeric.num_entries(), 0);
 
     let _bytes_written = numeric
-        .encode(&mut buf, 0, &record)
+        .encode(&mut buf, NumericDelta(0), &record)
         .expect("to encode numeric record");
     assert_eq!(numeric.num_entries(), 1);
 
     let _bytes_written = numeric
-        .encode(&mut buf, 0, &record)
+        .encode(&mut buf, NumericDelta(0), &record)
         .expect("to encode numeric record");
     assert_eq!(numeric.num_entries(), 2);
 }
@@ -425,7 +426,7 @@ fn encode_f64_with_compression() {
 
     let mut numeric = Numeric::new().with_float_compression();
     let _bytes_written = numeric
-        .encode(&mut buf, 0, &record)
+        .encode(&mut buf, NumericDelta(0), &record)
         .expect("to encode numeric record");
 
     assert_eq!(
@@ -471,7 +472,7 @@ fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
     let record = RSIndexResult::virt(10);
 
-    let _result = Numeric::new().encode(&mut buffer, 0, &record);
+    let _result = Numeric::new().encode(&mut buffer, NumericDelta(0), &record);
 }
 
 #[test]
@@ -479,7 +480,7 @@ fn encoding_to_fixed_buffer() {
     let mut buffer = Cursor::new([0; 2]);
     let record = RSIndexResult::numeric(1, 100.0);
 
-    let result = Numeric::new().encode(&mut buffer, 1, &record);
+    let result = Numeric::new().encode(&mut buffer, NumericDelta(1), &record);
 
     assert!(result.is_err());
     assert_eq!(
@@ -548,7 +549,7 @@ fn encoding_to_slow_writer() {
     let record = RSIndexResult::numeric(10, 3.124);
 
     let result = Numeric::new()
-        .encode(&mut buffer, 0, &record)
+        .encode(&mut buffer, NumericDelta(0), &record)
         .expect("to encode the complete record");
 
     assert_eq!(result, 9);
@@ -573,25 +574,24 @@ fn encoding_to_slow_writer() {
 }
 
 #[test]
-fn test_encode_delta_overflow() {
-    let (index_block, _) = IndexBlock::new(0);
-    let delta = Numeric::calculate_delta(&index_block, u32::MAX as u64 + 1);
+fn numeric_delta_overflow() {
+    let delta = NumericDelta::from_u64(u32::MAX as u64 + 1);
 
     assert_eq!(
         delta,
-        Some(u32::MAX as u64 + 1),
+        Some(NumericDelta(u32::MAX as u64 + 1)),
         "Delta still fits in numeric encoder"
     );
 
-    let delta = Numeric::calculate_delta(&index_block, (1 << 56) - 1);
+    let delta = NumericDelta::from_u64((1 << 56) - 1);
 
     assert_eq!(
         delta,
-        Some((1 << 56) - 1),
+        Some(NumericDelta((1 << 56) - 1)),
         "Delta still fits in numeric encoder"
     );
 
-    let delta = Numeric::calculate_delta(&index_block, 1 << 56);
+    let delta = NumericDelta::from_u64(1 << 56);
 
     assert_eq!(
         delta, None,
@@ -610,7 +610,7 @@ proptest! {
 
         let mut numeric = Numeric::new();
         let _bytes_written =
-            numeric.encode(&mut buf, delta, &record).expect("to encode numeric record");
+            numeric.encode(&mut buf, NumericDelta(delta), &record).expect("to encode numeric record");
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
@@ -635,7 +635,7 @@ proptest! {
 
         let mut numeric = Numeric::new();
         let _bytes_written =
-            numeric.encode(&mut buf, delta, &record).expect("to encode numeric record");
+            numeric.encode(&mut buf, NumericDelta(delta), &record).expect("to encode numeric record");
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;

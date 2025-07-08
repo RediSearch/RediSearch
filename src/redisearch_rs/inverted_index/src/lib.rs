@@ -20,6 +20,30 @@ pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fie
 pub mod freqs_only;
 pub mod numeric;
 
+/// Trait used to correctly derive the delta needed for different encoders
+pub trait Delta
+where
+    Self: Sized,
+{
+    /// Try to convert a `u64` into this delta type. If the `u64` will be too big for this delta
+    /// type, then `None` should be returned. Returning `None` will cause the [`InvertedIndex`]
+    /// to make a new block to reset the delta.
+    fn from_u64(delta: u64) -> Option<Self>;
+
+    /// The delta value when the [`InvertedIndex`] has to reset it for a new block.
+    fn reset() -> Self;
+}
+
+impl Delta for u32 {
+    fn from_u64(delta: u64) -> Option<Self> {
+        delta.try_into().ok()
+    }
+
+    fn reset() -> Self {
+        0
+    }
+}
+
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
@@ -298,7 +322,7 @@ impl PartialEq for RSIndexResult {
 
 /// Encoder to write a record into an index
 pub trait Encoder {
-    type DeltaType: TryFrom<u64> + Default;
+    type Delta: Delta;
 
     /// Does this encoder allow the same document to appear in the index multiple times. Defaults
     /// to `false`.
@@ -312,26 +336,13 @@ pub trait Encoder {
     fn encode<W: Write + Seek>(
         &mut self,
         writer: W,
-        delta: Self::DeltaType,
+        delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize>;
 
-    /// Calculate the delta using the block it will be added to. Returns `None` if the delta is too
-    /// big for this encoder and a new block should be created.
-    fn calculate_delta(block: &IndexBlock, doc_id: t_docId) -> Option<Self::DeltaType> {
-        debug_assert!(
-            doc_id >= block.last_doc_id,
-            "documents should be encoded in the order of their IDs"
-        );
-        let delta = doc_id.wrapping_sub(block.last_doc_id);
-
-        if delta > u32::MAX as _ {
-            // If the delta is larger than `u32::MAX`, we cannot encode it with this encoder.
-            // The inverted index should create a new block in this case.
-            None
-        } else {
-            delta.try_into().ok()
-        }
+    /// Returns the base value that should be used for any delta calculations
+    fn delta_base(block: &IndexBlock) -> t_docId {
+        block.last_doc_id
     }
 }
 
@@ -469,7 +480,14 @@ impl<E: Encoder> InvertedIndex<E> {
         // mutable reference to the block we are working with at the same time.
         let (mut block, mut mem_growth) = self.take_block(doc_id, same_doc);
 
-        let delta = match E::calculate_delta(&block, doc_id) {
+        let delta_base = E::delta_base(&block);
+        debug_assert!(
+            doc_id >= delta_base,
+            "documents should be encoded in the order of their IDs"
+        );
+        let delta = doc_id.wrapping_sub(delta_base);
+
+        let delta = match E::Delta::from_u64(delta) {
             Some(delta) => delta,
             None => {
                 // The delta is too large for this encoder, we need to create a new block and reset
@@ -481,7 +499,7 @@ impl<E: Encoder> InvertedIndex<E> {
                 block = new_block;
                 mem_growth += block_size;
 
-                Default::default()
+                E::Delta::reset()
             }
         };
 
