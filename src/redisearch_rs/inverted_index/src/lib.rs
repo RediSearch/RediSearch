@@ -470,7 +470,7 @@ impl<E: Encoder> InvertedIndex<E> {
         ) {
             (true, true) => true,
             (false, true) => {
-                // The encoder does not allow writting the same document to the same index twice. This
+                // The encoder does not allow writing the same document to the same index twice. This
                 // can happen when the index is created with duplicate tags for example.
                 return Ok(0);
             }
