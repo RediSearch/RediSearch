@@ -193,13 +193,13 @@ struct LinkInner<'a> {
 /// A cursor over a [`KeyList`].
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
-    curr: Option<NonNull<RLookupKey<'a>>>,
+    current: Option<NonNull<RLookupKey<'a>>>,
 }
 
 /// A cursor over a [`KeyList`] with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
-    curr: Option<NonNull<RLookupKey<'a>>>,
+    current: Option<NonNull<RLookupKey<'a>>>,
 }
 
 // ===== impl RLookupKey =====
@@ -349,7 +349,7 @@ impl<'a> KeyList<'a> {
 
         Cursor {
             _rlookup: self,
-            curr: self.head,
+            current: self.head,
         }
     }
 
@@ -361,13 +361,13 @@ impl<'a> KeyList<'a> {
         self.assert_valid("KeyList::cursor_front_mut");
 
         CursorMut {
-            curr: self.head,
+            current: self.head,
             _rlookup: self,
         }
     }
 
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
-    /// and return an immutable reference to it if found.
+    /// and return a [`Cursor`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
     fn find_by_name(&self, name: &'a CStr) -> Option<Cursor<'_, 'a>> {
         #[cfg(debug_assertions)]
@@ -384,7 +384,7 @@ impl<'a> KeyList<'a> {
     }
 
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
-    /// and return a mutable reference to it if found.
+    /// and return a [`CursorMut`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
     fn find_by_name_mut(&mut self, name: &'a CStr) -> Option<CursorMut<'_, 'a>> {
         #[cfg(debug_assertions)]
@@ -468,6 +468,9 @@ impl<'a> KeyList<'a> {
 
 impl Drop for KeyList<'_> {
     fn drop(&mut self) {
+        // drop all keys in this list
+        // note that we are very defensive here and continually keep the head ptr correct, so
+        // that if we happen to panic during drop, we don't leave the list in a bad state.
         while let Some(mut head_ptr) = self.head.take() {
             // Safety: This ptr has been created through `push_key` and is owned by this list,
             // which means it is valid & safe to deref at this point.
@@ -479,7 +482,8 @@ impl Drop for KeyList<'_> {
                 self.tail = None;
             }
 
-            head.next.unlink();
+            // clear the pointer before dropping the key, just to be sure
+            head.next.set_next(None);
 
             // Safety:
             // 1 -> all keys here are created through `push_key`, which correctly calls into_ptr.
@@ -510,10 +514,7 @@ impl<'a> Link<'a> {
         self.next().is_some()
     }
 
-    fn unlink(&mut self) {
-        self.inner.get_mut().next = None;
-    }
-
+    /// Return the next pointer in the linked list
     #[inline]
     fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
         // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
@@ -521,6 +522,7 @@ impl<'a> Link<'a> {
         unsafe { (*self.inner.get()).next }
     }
 
+    /// Update the pointer to the next node
     #[inline]
     fn set_next(
         &mut self,
@@ -556,21 +558,21 @@ impl<'a> Cursor<'_, 'a> {
     ///
     /// Note that contrary to [`Self::next`] this **does not** skip over hidden keys.
     pub fn move_next(&mut self) {
-        if let Some(curr) = self.curr.take() {
+        if let Some(curr) = self.current.take() {
             // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
             // ensuring it will not be dropped while the iterator exists AND we have exclusive access
             // to the keys it owns (and can therefore hand out mutable references).
             // The returned item will not outlive the iterator.
             let curr = unsafe { curr.as_ref() };
 
-            self.curr = curr.next.next();
+            self.current = curr.next.next();
         }
     }
 
     /// If the cursor currently points to a key, return an immutable reference to it.
     pub fn current(&self) -> Option<&RLookupKey<'a>> {
         // Safety: See Self::move_next.
-        Some(unsafe { self.curr?.as_ref() })
+        Some(unsafe { self.current?.as_ref() })
     }
 
     /// Skip a consecutive run of keys marked as "hidden". Used in the [`Iterator`] implementation.
@@ -593,7 +595,7 @@ impl<'list, 'a> Iterator for Cursor<'list, 'a> {
         self.skip_hidden();
 
         // Safety: See Self::move_next.
-        let curr = unsafe { self.curr?.as_ref() };
+        let curr = unsafe { self.current?.as_ref() };
 
         self.move_next();
 
@@ -605,20 +607,20 @@ impl<'list, 'a> Iterator for Cursor<'list, 'a> {
 
 impl<'a> CursorMut<'_, 'a> {
     pub fn move_next(&mut self) {
-        if let Some(curr) = self.curr.take() {
+        if let Some(curr) = self.current.take() {
             // Safety: It is safe for us to borrow `curr`, because the iteraror mutably borrows the `KeyList`,
             // ensuring it will not be dropped while the iterator exists AND we have exclusive access
             // to the keys it owns (and can therefore hand out mutable references).
             // The returned item will not outlive the iterator.
             let curr = unsafe { curr.as_ref() };
-            self.curr = curr.next.next();
+            self.current = curr.next.next();
         }
     }
 
     /// If the cursor currently points to a key, return a mutable reference to it.
     pub fn current(&mut self) -> Option<Pin<&mut RLookupKey<'a>>> {
         // Safety: See Self::move_next.
-        let curr = unsafe { self.curr?.as_mut() };
+        let curr = unsafe { self.current?.as_mut() };
 
         // Safety: RLookup treats the keys are pinned always, we just need consumers of this
         // iterator to uphold the pinning invariant too
@@ -645,7 +647,7 @@ impl<'list, 'a> Iterator for CursorMut<'list, 'a> {
         self.skip_hidden();
 
         // Safety: See Self::move_next.
-        let curr = unsafe { self.curr?.as_mut() };
+        let curr = unsafe { self.current?.as_mut() };
 
         self.move_next();
 
