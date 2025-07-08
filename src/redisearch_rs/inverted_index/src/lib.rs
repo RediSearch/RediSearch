@@ -47,7 +47,7 @@ impl From<Delta> for usize {
 pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
-/// over it with RSOffsetVector_Iterator
+/// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
 #[derive(PartialEq)]
 pub struct RSOffsetVector {
