@@ -13,9 +13,6 @@ extern "C" {
  * whether they're for indexing, aggregation, or search queries.
  */
 typedef struct CommonPipelineParams {
-  /** Aggregation plan containing the logical sequence of processing steps */
-  AGGPlan *pln;
-
   /** Redis search context containing index spec and Redis module context.
    *  This context is owned by the request and provides access to the index
    *  configuration, field definitions, and Redis module APIs. */

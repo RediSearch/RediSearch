@@ -244,7 +244,6 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   HybridPipelineParams params = {
       .aggregation = {
         .common = {
-          .pln = &hybridReq->tail.ap,
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
           .optimizer = hybridReq->requests[0]->optimizer,
@@ -307,7 +306,6 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   HybridPipelineParams params = {
       .aggregation = {
         .common = {
-          .pln = &hybridReq->tail.ap,
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
           .optimizer = hybridReq->requests[0]->optimizer,
@@ -358,7 +356,6 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   HybridPipelineParams params = {
       .aggregation = {
         .common = {
-          .pln = &hybridReq->tail.ap,
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
           .optimizer = hybridReq->requests[0]->optimizer,
@@ -413,7 +410,6 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
   HybridPipelineParams params = {
       .aggregation = {
         .common = {
-          .pln = &hybridReq->tail.ap,
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
           .optimizer = hybridReq->requests[0]->optimizer,
@@ -477,7 +473,6 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
   HybridPipelineParams params = {
       .aggregation = {
         .common = {
-          .pln = &hybridReq->tail.ap,
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
           .optimizer = hybridReq->requests[0]->optimizer,
@@ -532,7 +527,6 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   HybridPipelineParams params = {
       .aggregation = {
         .common = {
-          .pln = &hybridReq->tail.ap,
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
           .optimizer = hybridReq->requests[0]->optimizer,
@@ -610,7 +604,6 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
   HybridPipelineParams params = {
       .aggregation = {
         .common = {
-          .pln = &hybridReq->tail.ap,
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
           .optimizer = hybridReq->requests[0]->optimizer,
