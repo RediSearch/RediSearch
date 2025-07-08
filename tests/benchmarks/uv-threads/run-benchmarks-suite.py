@@ -38,7 +38,7 @@ CONFIGS = [
 ]
 
 # Path to the original YAML file
-YAML_FILE = "search-numeric-with-results.yml"
+YAML_FILE = "search-numeric-with-results-higher-topk.yml"
 MODULE_PATH = "redisearch-master.so"
 
 def check_required_env_vars():

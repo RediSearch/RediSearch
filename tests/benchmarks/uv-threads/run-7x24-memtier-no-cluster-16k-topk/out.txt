@@ -1,0 +1,1574 @@
+
+==================================================
+Running benchmark with configuration:
+COORD=1 ENV=oss-cluster SETUP=oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20
+BRANCH=joan-uv-threads
+WORKERS=12 SEARCH_THREADS=20 SEARCH_IO_THREADS=20 CONN_PER_SHARD=13
+==================================================
+Updated YAML file: /var/folders/fl/ylbngnyx7tz8hpkm52y5npx00000gp/T/tmp_2mqb9dm.yml
+Running command: redisbench-admin run-remote --module_path redisearch-multiple-uv-threads.so --test /var/folders/fl/ylbngnyx7tz8hpkm52y5npx00000gp/T/tmp_2mqb9dm.yml --redistimeseries_host redis-11068.c34685.us-central1-mz.gcp.cloud.rlrcp.com --redistimeseries_port 11068 --redistimeseries_pass wsqucrOUaIoabfpg7Iz8nFdhP5GZsv2N --push_results_redistimeseries --inventory server_private_ip=10.3.1.169,server_public_ip=18.222.16.96,client_public_ip=3.145.113.244
+2025-07-08 10:54:34,977 INFO Using: redisbench-admin 0.11.39
+2025-07-08 10:54:34,993 INFO Extracting tf_github_org given args.github_org was none. Extracte value RediSearch
+2025-07-08 10:54:35,007 INFO Extracting tf_github_actor given args.github_actor was none. Extracte value Joan Fontanals Martinez
+2025-07-08 10:54:35,021 INFO Extracting tf_github_repo given args.github_repo was none. Extracte value RediSearch
+2025-07-08 10:54:35,035 INFO Extracting tf_github_sha given args.github_sha was none. Extracte value 581804b7dd7e34fb552f9f7fdac2428dbb9e54e6
+2025-07-08 10:54:35,048 INFO Extracting tf_github_branch given args.github_branch was none. Extracte value joan-uv-threads-benchmark
+2025-07-08 10:54:35,048 WARNING Disabling webhook notificaitons given CIRCLE_BUILD_URL is None
+2025-07-08 10:54:35,048 INFO AWS credentials check skipped (using --inventory and S3 upload disabled)
+2025-07-08 10:54:35,048 INFO Using the following module artifacts: ['redisearch-multiple-uv-threads.so']
+2025-07-08 10:54:35,048 INFO Checking if module artifact redisearch-multiple-uv-threads.so exists...
+2025-07-08 10:54:35,048 INFO Confirmed that module artifact: 'redisearch-multiple-uv-threads.so' exists!
+2025-07-08 10:54:35,048 INFO Using the following vars on deployment:
+2025-07-08 10:54:35,048 INFO 	Private key path: /tmp/benchmarks.redislabs.pem
+2025-07-08 10:54:35,048 INFO 	terraform bin path: terraform
+2025-07-08 10:54:35,048 INFO 	github_actor: Joan Fontanals Martinez
+2025-07-08 10:54:35,048 INFO 	github_org: RediSearch
+2025-07-08 10:54:35,048 INFO 	github_repo: RediSearch
+2025-07-08 10:54:35,048 INFO 	github_branch: joan-uv-threads-benchmark
+2025-07-08 10:54:35,048 INFO 	github_sha: 581804b7dd7e34fb552f9f7fdac2428dbb9e54e6
+2025-07-08 10:54:35,048 INFO 	triggering env: C7Y9VWRL2Y-Joan-Fontanals-Martinez
+2025-07-08 10:54:35,048 INFO 	setup_name sufix: -581804b7dd7e34fb552f9f7fdac2428dbb9e54e6
+2025-07-08 10:54:35,048 INFO Confirmed that private key path artifact: '/tmp/benchmarks.redislabs.pem' exists!
+2025-07-08 10:54:35,048 INFO Running specific benchmark in file: ['/var/folders/fl/ylbngnyx7tz8hpkm52y5npx00000gp/T/tmp_2mqb9dm.yml']
+2025-07-08 10:54:35,048 INFO Loading default specifications from file: defaults.yml
+2025-07-08 10:54:35,057 INFO Found RedisTimeSeries default metrics specification. Will include the following metrics on all benchmarks $.Tests.Overall.rps $.Tests.Overall.avg_latency_ms $.Tests.Overall.p50_latency_ms $.Tests.Overall.p95_latency_ms $.Tests.Overall.p99_latency_ms $.Tests.Overall.max_latency_ms $.Tests.Overall.min_latency_ms $.build.build_time $.build.vector_index_sz_mb $."ALL STATS".*."Ops/sec" $."ALL STATS".*."Latency" $.OverallRates.overallOpsRate $.OverallQuantiles.allCommands.q50 $.OverallQuantiles.allCommands.q95 $.OverallQuantiles.allCommands.q99 $.OverallQuantiles.allCommands.q999
+2025-07-08 10:54:35,057 INFO Found RedisTimeSeries default time metric specification. Will use the following JSON path to retrieve the test time $.StartTime
+2025-07-08 10:54:35,058 INFO Loading default REMOTE specifications from file: defaults.yml
+2025-07-08 10:54:35,058 INFO Loading default setup SPECs from file: defaults.yml
+2025-07-08 10:54:35,058 INFO Loading cluster-config default steps from file: defaults.yml
+2025-07-08 10:54:35,058 INFO Using exclusively default 'remote' properties (total=2) given the file /var/folders/fl/ylbngnyx7tz8hpkm52y5npx00000gp/T/tmp_2mqb9dm.yml had no 'remote' property group
+2025-07-08 10:54:35,058 INFO Checking connection to RedisTimeSeries to host: redis-11068.c34685.us-central1-mz.gcp.cloud.rlrcp.com:11068
+2025-07-08 10:54:35,676 INFO Using a timeout of 600 seconds for remote setup: redisearch-m5
+2025-07-08 10:54:35,676 INFO Using benchmark type: read-only for test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,676 INFO Benchmark contains specific dbconfig on test search-numeric-with-results-16k-no-cluster-client: True
+2025-07-08 10:54:35,676 INFO Given no dataset name was found on the db config, using test name as key for unique dataset reference: search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,677 INFO There a total of 9 setups. Setups: {'oss-standalone': {'name': 'oss-standalone', 'redis_topology': {'primaries': 1, 'replicas': 0}, 'resources': {'requests': {'cpus': '1', 'memory': '10g'}}, 'type': 'oss-standalone'}, 'oss-cluster-02-primaries': {'name': 'oss-cluster-02-primaries', 'redis_topology': {'placement': 'sparse', 'primaries': 2, 'replicas': 0}, 'resources': {'requests': {'cpus': '2', 'memory': '10g'}}, 'type': 'oss-cluster'}, 'oss-cluster-04-primaries': {'name': 'oss-cluster-04-primaries', 'redis_topology': {'placement': 'sparse', 'primaries': 4, 'replicas': 0}, 'resources': {'requests': {'cpus': '4', 'memory': '40g'}}, 'type': 'oss-cluster'}, 'oss-cluster-08-primaries': {'name': 'oss-cluster-08-primaries', 'redis_topology': {'placement': 'sparse', 'primaries': 8, 'replicas': 0}, 'resources': {'requests': {'cpus': '10', 'memory': '90g'}}, 'type': 'oss-cluster'}, 'oss-cluster-16-primaries': {'name': 'oss-cluster-16-primaries', 'redis_topology': {'placement': 'sparse', 'primaries': 16, 'replicas': 0}, 'resources': {'requests': {'cpus': '18', 'memory': '180g'}}, 'type': 'oss-cluster'}, 'oss-cluster-20-primaries': {'name': 'oss-cluster-20-primaries', 'redis_topology': {'placement': 'sparse', 'primaries': 20, 'replicas': 0}, 'resources': {'requests': {'cpus': '20', 'memory': '500g'}}, 'type': 'oss-cluster'}, 'oss-cluster-24-primaries': {'name': 'oss-cluster-24-primaries', 'redis_topology': {'placement': 'sparse', 'primaries': 24, 'replicas': 0}, 'resources': {'requests': {'cpus': '24', 'memory': '500g'}}, 'type': 'oss-cluster'}, 'oss-cluster-32-primaries': {'name': 'oss-cluster-32-primaries', 'redis_topology': {'placement': 'sparse', 'primaries': 32, 'replicas': 0}, 'resources': {'requests': {'cpus': '32', 'memory': '300g'}}, 'type': 'oss-cluster'}, 'oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20': {'name': 'oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20', 'redis_topology': {'placement': 'sparse', 'primaries': 8, 'replicas': 0}, 'resources': {'requests': {'cpus': '10', 'memory': '90g'}}, 'type': 'oss-cluster'}}
+2025-07-08 10:54:35,679 INFO Running benchmark for architecture x86_64
+2025-07-08 10:54:35,679 INFO Running benchmarks of type read-only.
+2025-07-08 10:54:35,679 INFO Running benchmarks for dataset search-numeric-with-results-16k-no-cluster-client.
+2025-07-08 10:54:35,679 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,679 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,679 INFO Checking if setup named oss-standalone of topology type oss-standalone. Total primaries: 1 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,679 WARNING SKIPPING setup named oss-standalone of topology type oss-standalone.
+2025-07-08 10:54:35,679 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,679 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,680 INFO Checking if setup named oss-cluster-02-primaries of topology type oss-cluster. Total primaries: 2 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,680 WARNING SKIPPING setup named oss-cluster-02-primaries of topology type oss-cluster.
+2025-07-08 10:54:35,680 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,680 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,680 INFO Checking if setup named oss-cluster-04-primaries of topology type oss-cluster. Total primaries: 4 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,680 WARNING SKIPPING setup named oss-cluster-04-primaries of topology type oss-cluster.
+2025-07-08 10:54:35,680 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,680 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,680 INFO Checking if setup named oss-cluster-08-primaries of topology type oss-cluster. Total primaries: 8 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,680 WARNING SKIPPING setup named oss-cluster-08-primaries of topology type oss-cluster.
+2025-07-08 10:54:35,680 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,680 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,680 INFO Checking if setup named oss-cluster-16-primaries of topology type oss-cluster. Total primaries: 16 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,680 WARNING SKIPPING setup named oss-cluster-16-primaries of topology type oss-cluster.
+2025-07-08 10:54:35,680 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,680 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,680 INFO Checking if setup named oss-cluster-20-primaries of topology type oss-cluster. Total primaries: 20 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,680 WARNING SKIPPING setup named oss-cluster-20-primaries of topology type oss-cluster.
+2025-07-08 10:54:35,680 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,680 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,680 INFO Checking if setup named oss-cluster-24-primaries of topology type oss-cluster. Total primaries: 24 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,680 WARNING SKIPPING setup named oss-cluster-24-primaries of topology type oss-cluster.
+2025-07-08 10:54:35,680 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,680 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,680 INFO Checking if setup named oss-cluster-32-primaries of topology type oss-cluster. Total primaries: 32 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,680 WARNING SKIPPING setup named oss-cluster-32-primaries of topology type oss-cluster.
+2025-07-08 10:54:35,680 INFO Including the extra metadata tags into this test generated time-series: {'component': 'search', 'arch': 'x86_64'}
+2025-07-08 10:54:35,680 INFO Repetition 1 of 1. Running test search-numeric-with-results-16k-no-cluster-client
+2025-07-08 10:54:35,681 INFO Checking if setup named oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20 of topology type oss-cluster. Total primaries: 8 is in the allowed list of setups ['oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20']
+2025-07-08 10:54:35,681 INFO Starting setup named oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20 of topology type oss-cluster. Total primaries: 8
+2025-07-08 10:54:35,681 INFO specified arch for deployment x86_64
+2025-07-08 10:54:35,681 INFO inventory info passed. avoiding to deploy using terraform server_private_ip=10.3.1.169,server_public_ip=18.222.16.96,client_public_ip=3.145.113.244
+2025-07-08 10:54:35,681 INFO Using the following connection addresses.
+2025-07-08 10:54:35,681 INFO client_public_ip=3.145.113.244
+2025-07-08 10:54:35,681 INFO server_public_ip=18.222.16.96
+2025-07-08 10:54:35,681 INFO server_private_ip=10.3.1.169
+2025-07-08 10:54:35,681 INFO Updating overall arch tests counter ts:C7Y9VWRL2Y-Joan-Fontanals-Martinez:tests:arch:x86_64
+2025-07-08 10:54:35,801 INFO Updating overall spot price tests counter ts:C7Y9VWRL2Y-Joan-Fontanals-Martinez:tests:spot_price
+2025-07-08 10:54:35,916 INFO Updating overall spot price full counter ts:C7Y9VWRL2Y-Joan-Fontanals-Martinez:tests:spot_price
+2025-07-08 10:54:36,035 INFO Starting common steps to cluster and standalone...
+2025-07-08 10:54:36,104 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:54:36,318 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:36,956 INFO Authentication (publickey) successful!
+2025-07-08 10:54:36,956 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:54:36,956 INFO Executing remote command "mkdir -p /tmp/tbpvecwqunpkkqtyfbdy"
+2025-07-08 10:54:37,276 INFO Executing remote command "rm -rf /tmp/tbpvecwqunpkkqtyfbdy/*.log"
+2025-07-08 10:54:37,637 INFO Executing remote command "rm -rf /tmp/tbpvecwqunpkkqtyfbdy/*.config"
+2025-07-08 10:54:38,002 INFO Executing remote command "rm -rf /tmp/tbpvecwqunpkkqtyfbdy/*.rdb"
+2025-07-08 10:54:38,360 INFO Executing remote command "rm -rf /tmp/tbpvecwqunpkkqtyfbdy/*.out"
+2025-07-08 10:54:38,716 INFO Executing remote command "rm -rf /tmp/tbpvecwqunpkkqtyfbdy/*.data"
+2025-07-08 10:54:39,073 INFO Executing remote command "pkill -9 redis-server"
+2025-07-08 10:54:39,474 WARNING Exit status: 1 for command pkill -9 redis-server.
+	STDERR: []
+	STDOUT: []
+2025-07-08 10:54:39,474 INFO Starting setup named oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20 of topology type oss-cluster. Total primaries: 8
+2025-07-08 10:54:39,475 INFO Checking if there are modules we need to cp to remote host...
+2025-07-08 10:54:39,475 INFO there is a total of  1 modules
+2025-07-08 10:54:39,475 INFO remote_module_file: /tmp/redisearch-multiple-uv-threads.so. basename: redisearch-multiple-uv-threads.so
+2025-07-08 10:54:39,476 INFO Copying local file /Users/joan.fontanals/workspace/redis/tmp/RediSearch/tests/benchmarks/uv-threads/redisearch-multiple-uv-threads.so to remote server /tmp/redisearch-multiple-uv-threads.so
+2025-07-08 10:54:39,476 INFO Checking if local file /Users/joan.fontanals/workspace/redis/tmp/RediSearch/tests/benchmarks/uv-threads/redisearch-multiple-uv-threads.so exists: True.
+2025-07-08 10:54:39,723 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:40,437 INFO Authentication (publickey) successful!
+2025-07-08 10:54:40,900 INFO [chan 0] Opened sftp connection (server version 3)
+2025-07-08 10:54:41,019 INFO Finished Copying file /Users/joan.fontanals/workspace/redis/tmp/RediSearch/tests/benchmarks/uv-threads/redisearch-multiple-uv-threads.so to remote server /tmp/redisearch-multiple-uv-threads.so 
+2025-07-08 10:54:41,136 INFO [chan 0] sftp session closed.
+2025-07-08 10:54:41,206 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:54:41,433 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:42,089 INFO Authentication (publickey) successful!
+2025-07-08 10:54:42,089 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:54:42,089 INFO Executing remote command "chmod 755 /tmp/redisearch-multiple-uv-threads.so"
+2025-07-08 10:54:42,423 INFO There are a total of 1 remote files ['/tmp/redisearch-multiple-uv-threads.so']
+2025-07-08 10:54:42,423 INFO final remote module files ['/tmp/redisearch-multiple-uv-threads.so']...
+2025-07-08 10:54:42,423 INFO Checking if redis-server is available on remote server...
+2025-07-08 10:54:42,493 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:54:42,720 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:43,375 INFO Authentication (publickey) successful!
+2025-07-08 10:54:43,375 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:54:43,376 INFO Executing remote command "which redis-server"
+2025-07-08 10:54:43,711 INFO redis-server is already available
+2025-07-08 10:54:43,711 INFO Generating the remote redis-server command arguments
+2025-07-08 10:54:43,712 ERROR Remote primary shard 1 command: redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20000.log --daemonize yes --dbfilename cluster-node-port-20000.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20000 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20000.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12
+2025-07-08 10:54:43,712 ERROR Remote primary shard 2 command: redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20001.log --daemonize yes --dbfilename cluster-node-port-20001.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20001 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20001.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12
+2025-07-08 10:54:43,713 ERROR Remote primary shard 3 command: redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20002.log --daemonize yes --dbfilename cluster-node-port-20002.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20002 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20002.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12
+2025-07-08 10:54:43,713 ERROR Remote primary shard 4 command: redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20003.log --daemonize yes --dbfilename cluster-node-port-20003.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20003 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20003.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12
+2025-07-08 10:54:43,713 ERROR Remote primary shard 5 command: redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20004.log --daemonize yes --dbfilename cluster-node-port-20004.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20004 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20004.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12
+2025-07-08 10:54:43,713 ERROR Remote primary shard 6 command: redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20005.log --daemonize yes --dbfilename cluster-node-port-20005.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20005 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20005.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12
+2025-07-08 10:54:43,714 ERROR Remote primary shard 7 command: redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20006.log --daemonize yes --dbfilename cluster-node-port-20006.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20006 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20006.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12
+2025-07-08 10:54:43,714 ERROR Remote primary shard 8 command: redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20007.log --daemonize yes --dbfilename cluster-node-port-20007.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20007 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20007.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12
+2025-07-08 10:54:43,782 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:54:44,018 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:44,698 INFO Authentication (publickey) successful!
+2025-07-08 10:54:44,699 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:54:44,699 INFO Executing remote command "redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20000.log --daemonize yes --dbfilename cluster-node-port-20000.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20000 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20000.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12"
+2025-07-08 10:54:45,050 INFO Executing remote command "redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20001.log --daemonize yes --dbfilename cluster-node-port-20001.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20001 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20001.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12"
+2025-07-08 10:54:45,446 INFO Executing remote command "redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20002.log --daemonize yes --dbfilename cluster-node-port-20002.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20002 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20002.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12"
+2025-07-08 10:54:45,840 INFO Executing remote command "redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20003.log --daemonize yes --dbfilename cluster-node-port-20003.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20003 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20003.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12"
+2025-07-08 10:54:46,235 INFO Executing remote command "redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20004.log --daemonize yes --dbfilename cluster-node-port-20004.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20004 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20004.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12"
+2025-07-08 10:54:46,628 INFO Executing remote command "redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20005.log --daemonize yes --dbfilename cluster-node-port-20005.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20005 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20005.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12"
+2025-07-08 10:54:47,033 INFO Executing remote command "redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20006.log --daemonize yes --dbfilename cluster-node-port-20006.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20006 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20006.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12"
+2025-07-08 10:54:47,427 INFO Executing remote command "redis-server --appendonly no --logfile search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35-cluster-node-port-20007.log --daemonize yes --dbfilename cluster-node-port-20007.rdb --protected-mode no --bind 10.3.1.169 --save '' --port 20007 --dir /tmp/tbpvecwqunpkkqtyfbdy --cluster-enabled yes --cluster-config-file cluster-node-port-20007.config --cluster-announce-ip 10.3.1.169 --loadmodule /tmp/redisearch-multiple-uv-threads.so CONN_PER_SHARD 13 SEARCH_IO_THREADS 20 SEARCH_THREADS 20 WORKERS 12"
+2025-07-08 10:54:47,911 INFO Checking we're able to connect to remote host
+2025-07-08 10:54:47,953 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:54:48,189 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:48,878 INFO Authentication (publickey) successful!
+2025-07-08 10:54:48,879 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:54:49,225 INFO All good!
+2025-07-08 10:54:49,228 INFO 1 keys loaded from agent
+2025-07-08 10:54:49,230 ERROR Password is required for key /Users/joan.fontanals/.ssh/id_ed25519
+2025-07-08 10:54:49,231 INFO 1 key(s) loaded
+2025-07-08 10:54:49,231 INFO Connecting to gateway: 18.222.16.96:22 as user 'ubuntu'
+2025-07-08 10:54:49,461 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:49,461 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:50,119 INFO Authentication (publickey) successful!
+2025-07-08 10:54:50,119 INFO Authentication (publickey) successful!
+2025-07-08 10:54:50,121 INFO Opening tunnel: 0.0.0.0:50622 <> 10.3.1.169:20000
+2025-07-08 10:54:50,874 INFO Checking we're able to connect to remote host
+2025-07-08 10:54:50,916 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:54:51,147 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:51,147 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:51,824 INFO Authentication (publickey) successful!
+2025-07-08 10:54:51,824 INFO Authentication (publickey) successful!
+2025-07-08 10:54:51,824 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:54:52,162 INFO All good!
+2025-07-08 10:54:52,165 INFO 1 keys loaded from agent
+2025-07-08 10:54:52,166 ERROR Password is required for key /Users/joan.fontanals/.ssh/id_ed25519
+2025-07-08 10:54:52,166 INFO 1 key(s) loaded
+2025-07-08 10:54:52,166 INFO Connecting to gateway: 18.222.16.96:22 as user 'ubuntu'
+2025-07-08 10:54:52,390 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:52,390 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:53,046 INFO Authentication (publickey) successful!
+2025-07-08 10:54:53,046 INFO Authentication (publickey) successful!
+2025-07-08 10:54:53,047 INFO Opening tunnel: 0.0.0.0:50631 <> 10.3.1.169:20001
+2025-07-08 10:54:53,766 INFO Checking we're able to connect to remote host
+2025-07-08 10:54:53,810 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:54:54,045 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:54,045 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:54,724 INFO Authentication (publickey) successful!
+2025-07-08 10:54:54,724 INFO Authentication (publickey) successful!
+2025-07-08 10:54:54,724 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:54:55,216 INFO All good!
+2025-07-08 10:54:55,216 INFO 1 keys loaded from agent
+2025-07-08 10:54:55,217 ERROR Password is required for key /Users/joan.fontanals/.ssh/id_ed25519
+2025-07-08 10:54:55,217 INFO 1 key(s) loaded
+2025-07-08 10:54:55,217 INFO Connecting to gateway: 18.222.16.96:22 as user 'ubuntu'
+2025-07-08 10:54:55,445 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:55,445 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:56,118 INFO Authentication (publickey) successful!
+2025-07-08 10:54:56,118 INFO Authentication (publickey) successful!
+2025-07-08 10:54:56,119 INFO Opening tunnel: 0.0.0.0:50639 <> 10.3.1.169:20002
+2025-07-08 10:54:56,874 INFO Checking we're able to connect to remote host
+2025-07-08 10:54:56,917 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:54:57,151 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:57,151 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:57,850 INFO Authentication (publickey) successful!
+2025-07-08 10:54:57,850 INFO Authentication (publickey) successful!
+2025-07-08 10:54:57,850 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:54:58,347 INFO All good!
+2025-07-08 10:54:58,349 INFO 1 keys loaded from agent
+2025-07-08 10:54:58,349 ERROR Password is required for key /Users/joan.fontanals/.ssh/id_ed25519
+2025-07-08 10:54:58,349 INFO 1 key(s) loaded
+2025-07-08 10:54:58,349 INFO Connecting to gateway: 18.222.16.96:22 as user 'ubuntu'
+2025-07-08 10:54:58,813 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:58,813 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:54:59,516 INFO Authentication (publickey) successful!
+2025-07-08 10:54:59,516 INFO Authentication (publickey) successful!
+2025-07-08 10:54:59,516 INFO Opening tunnel: 0.0.0.0:50645 <> 10.3.1.169:20003
+2025-07-08 10:55:00,285 INFO Checking we're able to connect to remote host
+2025-07-08 10:55:00,327 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:55:00,545 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:00,545 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:01,181 INFO Authentication (publickey) successful!
+2025-07-08 10:55:01,181 INFO Authentication (publickey) successful!
+2025-07-08 10:55:01,181 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:55:01,506 INFO All good!
+2025-07-08 10:55:01,508 INFO 1 keys loaded from agent
+2025-07-08 10:55:01,509 ERROR Password is required for key /Users/joan.fontanals/.ssh/id_ed25519
+2025-07-08 10:55:01,509 INFO 1 key(s) loaded
+2025-07-08 10:55:01,509 INFO Connecting to gateway: 18.222.16.96:22 as user 'ubuntu'
+2025-07-08 10:55:01,739 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:01,739 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:02,396 INFO Authentication (publickey) successful!
+2025-07-08 10:55:02,396 INFO Authentication (publickey) successful!
+2025-07-08 10:55:02,397 INFO Opening tunnel: 0.0.0.0:50653 <> 10.3.1.169:20004
+2025-07-08 10:55:03,137 INFO Checking we're able to connect to remote host
+2025-07-08 10:55:03,180 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:55:03,420 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:03,420 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:04,108 INFO Authentication (publickey) successful!
+2025-07-08 10:55:04,108 INFO Authentication (publickey) successful!
+2025-07-08 10:55:04,108 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:55:04,461 INFO All good!
+2025-07-08 10:55:04,465 INFO 1 keys loaded from agent
+2025-07-08 10:55:04,466 ERROR Password is required for key /Users/joan.fontanals/.ssh/id_ed25519
+2025-07-08 10:55:04,466 INFO 1 key(s) loaded
+2025-07-08 10:55:04,466 INFO Connecting to gateway: 18.222.16.96:22 as user 'ubuntu'
+2025-07-08 10:55:04,682 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:04,682 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:05,310 INFO Authentication (publickey) successful!
+2025-07-08 10:55:05,310 INFO Authentication (publickey) successful!
+2025-07-08 10:55:05,311 INFO Opening tunnel: 0.0.0.0:50657 <> 10.3.1.169:20005
+2025-07-08 10:55:06,038 INFO Checking we're able to connect to remote host
+2025-07-08 10:55:06,081 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:55:06,332 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:06,332 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:07,045 INFO Authentication (publickey) successful!
+2025-07-08 10:55:07,045 INFO Authentication (publickey) successful!
+2025-07-08 10:55:07,045 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:55:07,413 INFO All good!
+2025-07-08 10:55:07,414 INFO 1 keys loaded from agent
+2025-07-08 10:55:07,415 ERROR Password is required for key /Users/joan.fontanals/.ssh/id_ed25519
+2025-07-08 10:55:07,415 INFO 1 key(s) loaded
+2025-07-08 10:55:07,415 INFO Connecting to gateway: 18.222.16.96:22 as user 'ubuntu'
+2025-07-08 10:55:07,644 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:07,644 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:08,320 INFO Authentication (publickey) successful!
+2025-07-08 10:55:08,320 INFO Authentication (publickey) successful!
+2025-07-08 10:55:08,321 INFO Opening tunnel: 0.0.0.0:50667 <> 10.3.1.169:20006
+2025-07-08 10:55:09,072 INFO Checking we're able to connect to remote host
+2025-07-08 10:55:09,114 INFO Connecting to remote server 18.222.16.96
+2025-07-08 10:55:09,341 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:09,341 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:10,001 INFO Authentication (publickey) successful!
+2025-07-08 10:55:10,001 INFO Authentication (publickey) successful!
+2025-07-08 10:55:10,001 INFO Connected to remote server 18.222.16.96
+2025-07-08 10:55:10,335 INFO All good!
+2025-07-08 10:55:10,337 INFO 1 keys loaded from agent
+2025-07-08 10:55:10,337 ERROR Password is required for key /Users/joan.fontanals/.ssh/id_ed25519
+2025-07-08 10:55:10,337 INFO 1 key(s) loaded
+2025-07-08 10:55:10,338 INFO Connecting to gateway: 18.222.16.96:22 as user 'ubuntu'
+2025-07-08 10:55:10,574 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:10,574 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:11,256 INFO Authentication (publickey) successful!
+2025-07-08 10:55:11,256 INFO Authentication (publickey) successful!
+2025-07-08 10:55:11,256 INFO Opening tunnel: 0.0.0.0:50672 <> 10.3.1.169:20007
+2025-07-08 10:55:12,104 INFO Setting up cluster. Total 8 primaries.
+2025-07-08 10:55:12,104 INFO Sending to primary #0 a total of 8 MEET commands
+2025-07-08 10:55:13,001 INFO Sending to primary #1 a total of 8 MEET commands
+2025-07-08 10:55:13,886 INFO Sending to primary #2 a total of 8 MEET commands
+2025-07-08 10:55:15,093 INFO Sending to primary #3 a total of 8 MEET commands
+2025-07-08 10:55:15,983 INFO Sending to primary #4 a total of 8 MEET commands
+2025-07-08 10:55:16,877 INFO Sending to primary #5 a total of 8 MEET commands
+2025-07-08 10:55:17,734 INFO Sending to primary #6 a total of 8 MEET commands
+2025-07-08 10:55:18,715 INFO Sending to primary #7 a total of 8 MEET commands
+2025-07-08 10:55:19,658 INFO Slots per node 2048
+2025-07-08 10:55:19,658 INFO Node 0. slots 0-2047
+2025-07-08 10:55:19,886 INFO Node 1. slots 2048-4095
+2025-07-08 10:55:20,115 INFO Node 2. slots 4096-6143
+2025-07-08 10:55:20,346 INFO Node 3. slots 6144-8191
+2025-07-08 10:55:20,570 INFO Node 4. slots 8192-10239
+2025-07-08 10:55:20,797 INFO Node 5. slots 10240-12287
+2025-07-08 10:55:21,015 INFO Node 6. slots 12288-14335
+2025-07-08 10:55:21,242 INFO Node 7. slots 14336-16383
+2025-07-08 10:55:21,596 INFO Node 0: Total cluster_slots_ok 10240
+2025-07-08 10:55:22,713 INFO Node 0: Total cluster_slots_ok 12288
+2025-07-08 10:55:23,832 INFO Node 0: Total cluster_slots_ok 12288
+2025-07-08 10:55:24,950 INFO Node 0: Total cluster_slots_ok 12288
+2025-07-08 10:55:26,068 INFO Node 0: Total cluster_slots_ok 12288
+2025-07-08 10:55:27,184 INFO Node 0: Total cluster_slots_ok 12288
+2025-07-08 10:55:28,303 INFO Node 0: Total cluster_slots_ok 14336
+2025-07-08 10:55:29,419 INFO Node 0: Total cluster_slots_ok 14336
+2025-07-08 10:55:30,537 INFO Node 0: Total cluster_slots_ok 14336
+2025-07-08 10:55:31,652 INFO Node 0: Total cluster_slots_ok 14336
+2025-07-08 10:55:32,778 INFO Node 0: Total cluster_slots_ok 14336
+2025-07-08 10:55:33,897 INFO Node 0: Total cluster_slots_ok 14336
+2025-07-08 10:55:35,012 INFO Node 0: Total cluster_slots_ok 16384
+2025-07-08 10:55:36,128 INFO Node 1: Total cluster_slots_ok 16384
+2025-07-08 10:55:37,244 INFO Node 2: Total cluster_slots_ok 16384
+2025-07-08 10:55:38,360 INFO Node 3: Total cluster_slots_ok 16384
+2025-07-08 10:55:39,479 INFO Node 4: Total cluster_slots_ok 16384
+2025-07-08 10:55:40,590 INFO Node 5: Total cluster_slots_ok 16384
+2025-07-08 10:55:41,704 INFO Node 6: Total cluster_slots_ok 16384
+2025-07-08 10:55:42,826 INFO Node 7: Total cluster_slots_ok 16384
+2025-07-08 10:55:43,945 INFO Node 0: cluster_state True
+2025-07-08 10:55:45,065 INFO Node 1: cluster_state True
+2025-07-08 10:55:46,180 INFO Node 2: cluster_state True
+2025-07-08 10:55:47,298 INFO Node 3: cluster_state True
+2025-07-08 10:55:48,413 INFO Node 4: cluster_state True
+2025-07-08 10:55:49,522 INFO Node 5: cluster_state True
+2025-07-08 10:55:50,639 INFO Node 6: cluster_state True
+2025-07-08 10:55:51,761 INFO Node 7: cluster_state True
+2025-07-08 10:55:53,718 INFO Topology setup duration 71 secs.
+2025-07-08 10:55:53,718 INFO Starting dataset loading...
+2025-07-08 10:55:53,719 INFO <redis.client.Redis(<redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50622,db=0)>)>)>
+2025-07-08 10:55:53,719 INFO <redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50622,db=0)>)>
+2025-07-08 10:55:53,719 INFO {'db': 0, 'username': None, 'password': None, 'socket_timeout': None, 'encoding': 'utf-8', 'encoding_errors': 'strict', 'decode_responses': False, 'retry_on_error': [], 'retry': <redis.retry.Retry object at 0x107138050>, 'health_check_interval': 0, 'client_name': None, 'lib_name': 'redis-py', 'lib_version': '6.2.0', 'redis_connect_func': None, 'credential_provider': None, 'protocol': 2, 'host': 'localhost', 'port': 50622, 'socket_connect_timeout': None, 'socket_keepalive': None, 'socket_keepalive_options': None}
+2025-07-08 10:55:53,719 INFO <redis.client.Redis(<redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50631,db=0)>)>)>
+2025-07-08 10:55:53,720 INFO <redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50631,db=0)>)>
+2025-07-08 10:55:53,720 INFO {'db': 0, 'username': None, 'password': None, 'socket_timeout': None, 'encoding': 'utf-8', 'encoding_errors': 'strict', 'decode_responses': False, 'retry_on_error': [], 'retry': <redis.retry.Retry object at 0x107147950>, 'health_check_interval': 0, 'client_name': None, 'lib_name': 'redis-py', 'lib_version': '6.2.0', 'redis_connect_func': None, 'credential_provider': None, 'protocol': 2, 'host': 'localhost', 'port': 50631, 'socket_connect_timeout': None, 'socket_keepalive': None, 'socket_keepalive_options': None}
+2025-07-08 10:55:53,720 INFO <redis.client.Redis(<redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50639,db=0)>)>)>
+2025-07-08 10:55:53,720 INFO <redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50639,db=0)>)>
+2025-07-08 10:55:53,720 INFO {'db': 0, 'username': None, 'password': None, 'socket_timeout': None, 'encoding': 'utf-8', 'encoding_errors': 'strict', 'decode_responses': False, 'retry_on_error': [], 'retry': <redis.retry.Retry object at 0x10715cc50>, 'health_check_interval': 0, 'client_name': None, 'lib_name': 'redis-py', 'lib_version': '6.2.0', 'redis_connect_func': None, 'credential_provider': None, 'protocol': 2, 'host': 'localhost', 'port': 50639, 'socket_connect_timeout': None, 'socket_keepalive': None, 'socket_keepalive_options': None}
+2025-07-08 10:55:53,720 INFO <redis.client.Redis(<redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50645,db=0)>)>)>
+2025-07-08 10:55:53,721 INFO <redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50645,db=0)>)>
+2025-07-08 10:55:53,721 INFO {'db': 0, 'username': None, 'password': None, 'socket_timeout': None, 'encoding': 'utf-8', 'encoding_errors': 'strict', 'decode_responses': False, 'retry_on_error': [], 'retry': <redis.retry.Retry object at 0x1071665d0>, 'health_check_interval': 0, 'client_name': None, 'lib_name': 'redis-py', 'lib_version': '6.2.0', 'redis_connect_func': None, 'credential_provider': None, 'protocol': 2, 'host': 'localhost', 'port': 50645, 'socket_connect_timeout': None, 'socket_keepalive': None, 'socket_keepalive_options': None}
+2025-07-08 10:55:53,721 INFO <redis.client.Redis(<redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50653,db=0)>)>)>
+2025-07-08 10:55:53,721 INFO <redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50653,db=0)>)>
+2025-07-08 10:55:53,721 INFO {'db': 0, 'username': None, 'password': None, 'socket_timeout': None, 'encoding': 'utf-8', 'encoding_errors': 'strict', 'decode_responses': False, 'retry_on_error': [], 'retry': <redis.retry.Retry object at 0x107175190>, 'health_check_interval': 0, 'client_name': None, 'lib_name': 'redis-py', 'lib_version': '6.2.0', 'redis_connect_func': None, 'credential_provider': None, 'protocol': 2, 'host': 'localhost', 'port': 50653, 'socket_connect_timeout': None, 'socket_keepalive': None, 'socket_keepalive_options': None}
+2025-07-08 10:55:53,721 INFO <redis.client.Redis(<redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50657,db=0)>)>)>
+2025-07-08 10:55:53,721 INFO <redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50657,db=0)>)>
+2025-07-08 10:55:53,721 INFO {'db': 0, 'username': None, 'password': None, 'socket_timeout': None, 'encoding': 'utf-8', 'encoding_errors': 'strict', 'decode_responses': False, 'retry_on_error': [], 'retry': <redis.retry.Retry object at 0x10717e6d0>, 'health_check_interval': 0, 'client_name': None, 'lib_name': 'redis-py', 'lib_version': '6.2.0', 'redis_connect_func': None, 'credential_provider': None, 'protocol': 2, 'host': 'localhost', 'port': 50657, 'socket_connect_timeout': None, 'socket_keepalive': None, 'socket_keepalive_options': None}
+2025-07-08 10:55:53,721 INFO <redis.client.Redis(<redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50667,db=0)>)>)>
+2025-07-08 10:55:53,721 INFO <redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50667,db=0)>)>
+2025-07-08 10:55:53,721 INFO {'db': 0, 'username': None, 'password': None, 'socket_timeout': None, 'encoding': 'utf-8', 'encoding_errors': 'strict', 'decode_responses': False, 'retry_on_error': [], 'retry': <redis.retry.Retry object at 0x1071c7590>, 'health_check_interval': 0, 'client_name': None, 'lib_name': 'redis-py', 'lib_version': '6.2.0', 'redis_connect_func': None, 'credential_provider': None, 'protocol': 2, 'host': 'localhost', 'port': 50667, 'socket_connect_timeout': None, 'socket_keepalive': None, 'socket_keepalive_options': None}
+2025-07-08 10:55:53,722 INFO <redis.client.Redis(<redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50672,db=0)>)>)>
+2025-07-08 10:55:53,722 INFO <redis.connection.ConnectionPool(<redis.connection.Connection(host=localhost,port=50672,db=0)>)>
+2025-07-08 10:55:53,722 INFO {'db': 0, 'username': None, 'password': None, 'socket_timeout': None, 'encoding': 'utf-8', 'encoding_errors': 'strict', 'decode_responses': False, 'retry_on_error': [], 'retry': <redis.retry.Retry object at 0x1071d3190>, 'health_check_interval': 0, 'client_name': None, 'lib_name': 'redis-py', 'lib_version': '6.2.0', 'redis_connect_func': None, 'credential_provider': None, 'protocol': 2, 'host': 'localhost', 'port': 50672, 'socket_connect_timeout': None, 'socket_keepalive': None, 'socket_keepalive_options': None}
+2025-07-08 10:55:53,836 INFO Cluster node 1: sent command search.CLUSTERREFRESH
+2025-07-08 10:55:53,946 INFO Cluster node 2: sent command search.CLUSTERREFRESH
+2025-07-08 10:55:54,058 INFO Cluster node 3: sent command search.CLUSTERREFRESH
+2025-07-08 10:55:54,170 INFO Cluster node 4: sent command search.CLUSTERREFRESH
+2025-07-08 10:55:54,282 INFO Cluster node 5: sent command search.CLUSTERREFRESH
+2025-07-08 10:55:54,387 INFO Cluster node 6: sent command search.CLUSTERREFRESH
+2025-07-08 10:55:54,498 INFO Cluster node 7: sent command search.CLUSTERREFRESH
+2025-07-08 10:55:54,615 INFO Cluster node 8: sent command search.CLUSTERREFRESH
+2025-07-08 10:55:54,615 INFO Detected the requirements to load data via client tool
+2025-07-08 10:55:54,615 INFO Detected benchmark config tool ftsb_redisearch
+2025-07-08 10:55:54,616 INFO Settting up remote tool ftsb_redisearch requirements. architecture =x86_64
+2025-07-08 10:55:54,616 INFO FTSB Extracted:
+remote tool input: https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/1M-nyc_taxis-hashes.redisearch.commands.ALL.csv
+remote tool link: /tmp/ftsb_redisearch
+tool path: https://s3.amazonaws.com/benchmarks.redislabs/redisearch/tools/ftsb/ftsb_redisearch_linux_amd64
+2025-07-08 10:55:54,700 INFO Connecting to remote server 3.145.113.244
+2025-07-08 10:55:54,915 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:54,915 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:55:55,540 INFO Authentication (publickey) successful!
+2025-07-08 10:55:55,540 INFO Authentication (publickey) successful!
+2025-07-08 10:55:55,541 INFO Connected to remote server 3.145.113.244
+2025-07-08 10:55:55,541 INFO Executing remote command "wget https://s3.amazonaws.com/benchmarks.redislabs/redisearch/tools/ftsb/ftsb_redisearch_linux_amd64 -q -O /tmp/ftsb_redisearch"
+2025-07-08 10:55:56,362 INFO Executing remote command "wget https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/1M-nyc_taxis-hashes.redisearch.commands.ALL.csv -q -O /tmp/input.data"
+2025-07-08 10:56:05,629 INFO Executing remote command "chmod 755 /tmp/ftsb_redisearch"
+2025-07-08 10:56:05,987 INFO Finished up remote tool ftsb_redisearch requirements
+2025-07-08 10:56:05,988 INFO Reusing cached remote file (located at /tmp/input.data ).
+2025-07-08 10:56:05,988 INFO Running the benchmark with the following parameters:
+	Args array: ['/tmp/ftsb_redisearch', '--host', '10.3.1.169:20000', '--cluster-mode', '--workers', '64', '--reporting-period', '1s', '--requests', '100000', '--input', '/tmp/input.data', '--json-out-file', '/tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out']
+	Args str: /tmp/ftsb_redisearch --host 10.3.1.169:20000 --cluster-mode --workers 64 --reporting-period 1s --requests 100000 --input /tmp/input.data --json-out-file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out
+2025-07-08 10:56:06,075 INFO Connecting to remote server 3.145.113.244
+2025-07-08 10:56:06,300 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:56:06,300 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:56:06,958 INFO Authentication (publickey) successful!
+2025-07-08 10:56:06,958 INFO Authentication (publickey) successful!
+2025-07-08 10:56:06,958 INFO Connected to remote server 3.145.113.244
+2025-07-08 10:56:06,959 INFO Executing remote command "/tmp/ftsb_redisearch --host 10.3.1.169:20000 --cluster-mode --workers 64 --reporting-period 1s --requests 100000 --input /tmp/input.data --json-out-file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out"
+2025-07-08 10:56:07,932 INFO Remote process exited normally. Exit code 0. Printing stdout.
+2025-07-08 10:56:07,932 INFO Exit status for command /tmp/ftsb_redisearch --host 10.3.1.169:20000 --cluster-mode --workers 64 --reporting-period 1s --requests 100000 --input /tmp/input.data --json-out-file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out: 0
+2025-07-08 10:56:07,932 INFO 	remote process stdout:
+2025-07-08 10:56:07,932 INFO Extracting the benchmark results
+2025-07-08 10:56:07,933 INFO Given the bellow commands list:
+	['/tmp/ftsb_redisearch --host 10.3.1.169:20000 --cluster-mode --workers 64 --reporting-period 1s --requests 100000 --input /tmp/input.data --json-out-file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out']
+we've skipped result fetching
+2025-07-08 10:56:07,933 INFO Loading data via client tool duration 1 secs.
+2025-07-08 10:56:07,933 INFO Finished loading the data via client tool. Took 1 seconds. Result=True
+2025-07-08 10:56:07,933 INFO Redis available
+2025-07-08 10:56:07,933 INFO Dataset loading duration 14 secs.
+2025-07-08 10:56:07,933 INFO Ensuring keyspace length requirement = 100000 is met. attempt #1
+2025-07-08 10:56:08,826 INFO The total number of keys in setup matches the expected spec: 100000 == 100000
+2025-07-08 10:56:08,826 INFO Running initialization commands before benchmark starts.
+2025-07-08 10:56:08,826 INFO Sending init command: ['FT.CREATE', 'nyc', 'SCHEMA', 'total_amount', 'NUMERIC', 'SORTABLE', 'improvement_surcharge', 'NUMERIC', 'SORTABLE', 'fare_amount', 'NUMERIC', 'SORTABLE', 'trip_distance', 'NUMERIC', 'SORTABLE']
+2025-07-08 10:56:08,826 INFO Detected FT.CREATE to all nodes on OSS Cluster
+2025-07-08 10:56:08,943 INFO Command reply: b'OK'
+2025-07-08 10:56:08,943 INFO Running initialization commands took 0 secs.
+2025-07-08 10:56:09,059 INFO Detected artifact=vectorset, semver=1.
+2025-07-08 10:56:09,059 INFO Detected artifact=search, semver=999999.
+2025-07-08 10:56:09,059 INFO Detected artifact=4, semver=4.
+2025-07-08 10:56:09,059 INFO Detected redisearch module. Ensuring all indices are indexed prior benchmark
+2025-07-08 10:56:09,059 INFO Given redisearch was detected, checking for any index that is still indexing.
+2025-07-08 10:56:09,184 INFO Detected 1 indices.
+2025-07-08 10:56:09,184 INFO There are still 1 indices loading. [b'nyc']
+2025-07-08 10:56:09,303 INFO indexing=2 ; percent_indexed=b'0.9381935740643363'.
+2025-07-08 10:56:14,308 INFO There are still 1 indices loading. [b'nyc']
+2025-07-08 10:56:14,523 INFO indexing=0 ; percent_indexed=b'1'.
+2025-07-08 10:56:19,523 INFO Loaded all secondary indices.
+2025-07-08 10:56:19,637 INFO Given the benchmark for this setup is ready-only we will prepare to reuse it on the next read-only benchmarks (if any ).
+2025-07-08 10:56:19,637 INFO Resetting commmandstats for shard 0
+2025-07-08 10:56:19,750 INFO Resetting commmandstats for shard 1
+2025-07-08 10:56:19,861 INFO Resetting commmandstats for shard 2
+2025-07-08 10:56:19,975 INFO Resetting commmandstats for shard 3
+2025-07-08 10:56:20,088 INFO Resetting commmandstats for shard 4
+2025-07-08 10:56:20,199 INFO Resetting commmandstats for shard 5
+2025-07-08 10:56:20,306 INFO Resetting commmandstats for shard 6
+2025-07-08 10:56:20,422 INFO Resetting commmandstats for shard 7
+2025-07-08 10:56:20,540 INFO Will store benchmark json output to local file 2025-07-08-08-56-20-RediSearch-RediSearch-joan-uv-threads-benchmark-search-numeric-with-results-16k-no-cluster-client-oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20-581804b7dd7e34fb552f9f7fdac2428dbb9e54e6.json
+2025-07-08 10:56:20,540 INFO Detected benchmark config tool memtier_benchmark
+2025-07-08 10:56:20,540 INFO Settting up remote tool memtier_benchmark requirements. architecture =x86_64
+2025-07-08 10:56:20,540 INFO Checking if memtier_benchmark is available on remote client...
+2025-07-08 10:56:20,634 INFO Connecting to remote server 3.145.113.244
+2025-07-08 10:56:20,859 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:56:20,859 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:56:21,511 INFO Authentication (publickey) successful!
+2025-07-08 10:56:21,511 INFO Authentication (publickey) successful!
+2025-07-08 10:56:21,511 INFO Connected to remote server 3.145.113.244
+2025-07-08 10:56:21,511 INFO Executing remote command "which memtier_benchmark"
+2025-07-08 10:56:21,871 INFO memtier_benchmark is already available
+2025-07-08 10:56:21,871 INFO Finished up remote tool memtier_benchmark requirements
+2025-07-08 10:56:21,872 INFO Running the benchmark with the following parameters:
+	Args array: ['memtier_benchmark', '-s', '10.3.1.169', '-p', '20000', '--hide-histogram', '--json-out-file', '/tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out', '--test-time', '480', '-c', '8', '-t', '16', '--hide-histogram', '--command', 'FT.SEARCH nyc @trip_distance:[0,2000000] LIMIT 0 16000']
+	Args str: memtier_benchmark -s 10.3.1.169 -p 20000 --hide-histogram --json-out-file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out --test-time 480 -c 8 -t 16 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[0,2000000] LIMIT 0 16000'
+2025-07-08 10:56:21,872 INFO Starting CPU collecing thread
+2025-07-08 10:56:21,957 INFO Connecting to remote server 3.145.113.244
+2025-07-08 10:56:22,183 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:56:22,183 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 10:56:22,886 INFO Authentication (publickey) successful!
+2025-07-08 10:56:22,886 INFO Authentication (publickey) successful!
+2025-07-08 10:56:22,886 INFO Connected to remote server 3.145.113.244
+2025-07-08 10:56:22,886 INFO Executing remote command "memtier_benchmark -s 10.3.1.169 -p 20000 --hide-histogram --json-out-file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out --test-time 480 -c 8 -t 16 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[0,2000000] LIMIT 0 16000'"
+2025-07-08 11:04:26,300 INFO Remote process exited normally. Exit code 0. Printing stdout.
+2025-07-08 11:04:26,300 INFO Exit status for command memtier_benchmark -s 10.3.1.169 -p 20000 --hide-histogram --json-out-file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out --test-time 480 -c 8 -t 16 --hide-histogram --command 'FT.SEARCH nyc @trip_distance:[0,2000000] LIMIT 0 16000': 0
+2025-07-08 11:04:26,300 INFO 	remote process stdout:
+2025-07-08 11:04:26,301 INFO Extracting the benchmark results
+2025-07-08 11:04:26,301 INFO Retrieving remote file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out from remote server 3.145.113.244 
+2025-07-08 11:04:26,532 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 11:04:26,532 INFO Connected (version 2.0, client OpenSSH_9.6p1)
+2025-07-08 11:04:27,205 INFO Authentication (publickey) successful!
+2025-07-08 11:04:27,205 INFO Authentication (publickey) successful!
+2025-07-08 11:04:27,812 INFO [chan 0] Opened sftp connection (server version 3)
+2025-07-08 11:04:27,812 INFO [chan 0] Opened sftp connection (server version 3)
+Effective log level set to INFO
+Remote file /tmp/redisearch-multiple-uv-threads.so already exists. Skipping the copy.
+Remote file size: 57700592 bytes
+Remote file permissions: 755
+
+Summary:
+Issued 99965 Commands in 0.634sec with 64 workers
+Overall stats:
+- Total 157731 ops/sec			q50 lat 0.304 ms
+- Setup Writes 0 ops/sec		q50 lat 0.000 ms
+- Writes 157731 ops/sec			q50 lat 0.305 ms
+- Reads 0 ops/sec			q50 lat 0.000 ms
+- Cursor Reads 0 ops/sec		q50 lat 0.000 ms
+- Updates 0 ops/sec			q50 lat 0.000 ms
+- Deletes 0 ops/sec			q50 lat 0.000 ms
+Overall TX Byte Rate: 0BB/sec
+Overall RX Byte Rate: 69.4MB/sec
+16        Threads
+8         Connections per thread
+480       Seconds
+
+
+ALL STATS
+=====================================================================================================
+Type            Ops/sec    Avg. Latency     p50 Latency     p99 Latency   p99.9 Latency       KB/sec
+-----------------------------------------------------------------------------------------------------
+Ft.searchs        13.67      9381.80156      9437.18300     13565.95100     15335.42300    138371.79
+Totals            13.67      9381.80156      9437.18300     13565.95100     15335.42300    276743.58
+
+    Complete percent: 12.22 %
+    Complete percent: 24.45 %
+    Complete percent: 36.67 %
+    Complete percent: 48.90 %
+    Complete percent: 61.12 %
+    Complete percent: 73.34 %
+    Complete percent: 85.57 %
+    Complete percent: 97.79 %
+    Complete percent: 100.00 %2025-07-08 11:04:29,072 INFO [chan 0] sftp session closed.
+2025-07-08 11:04:29,072 INFO [chan 0] sftp session closed.
+2025-07-08 11:04:29,073 INFO Finished retrieving remote file /tmp/benchmark-result-search-numeric-with-results-16k-no-cluster-client_2025-07-08-08-54-35.out from remote server 3.145.113.244 
+2025-07-08 11:04:29,073 INFO Stopping CPU collecting thread
+2025-07-08 11:04:29,822 INFO CPU collecting thread stopped
+2025-07-08 11:04:29,822 INFO Benchmark duration 487 secs.
+2025-07-08 11:04:29,828 INFO Total CPU usage (2245.084 %)
+2025-07-08 11:04:30,726 INFO Adding a total of 40 server side metrics collected at the end of benchmark
+
+  0%|          | 0/80 [00:00<?, ?benchmark time-series/s]
+  1%|▏         | 1/80 [00:00<00:36,  2.15benchmark time-series/s]
+  2%|▎         | 2/80 [00:00<00:36,  2.15benchmark time-series/s]
+  4%|▍         | 3/80 [00:01<00:36,  2.13benchmark time-series/s]
+  5%|▌         | 4/80 [00:01<00:35,  2.15benchmark time-series/s]
+  6%|▋         | 5/80 [00:02<00:34,  2.16benchmark time-series/s]
+  8%|▊         | 6/80 [00:02<00:34,  2.16benchmark time-series/s]
+  9%|▉         | 7/80 [00:03<00:33,  2.16benchmark time-series/s]
+ 10%|█         | 8/80 [00:03<00:33,  2.16benchmark time-series/s]
+ 11%|█▏        | 9/80 [00:04<00:32,  2.16benchmark time-series/s]
+ 12%|█▎        | 10/80 [00:04<00:32,  2.16benchmark time-series/s]
+ 14%|█▍        | 11/80 [00:05<00:31,  2.17benchmark time-series/s]
+ 15%|█▌        | 12/80 [00:05<00:31,  2.17benchmark time-series/s]
+ 16%|█▋        | 13/80 [00:06<00:30,  2.16benchmark time-series/s]
+ 18%|█▊        | 14/80 [00:06<00:30,  2.16benchmark time-series/s]
+ 19%|█▉        | 15/80 [00:06<00:30,  2.15benchmark time-series/s]
+ 20%|██        | 16/80 [00:07<00:29,  2.16benchmark time-series/s]
+ 21%|██▏       | 17/80 [00:07<00:29,  2.14benchmark time-series/s]
+ 22%|██▎       | 18/80 [00:08<00:28,  2.14benchmark time-series/s]
+ 24%|██▍       | 19/80 [00:08<00:28,  2.14benchmark time-series/s]
+ 25%|██▌       | 20/80 [00:09<00:27,  2.15benchmark time-series/s]
+ 26%|██▋       | 21/80 [00:09<00:27,  2.15benchmark time-series/s]
+ 28%|██▊       | 22/80 [00:10<00:26,  2.16benchmark time-series/s]
+ 29%|██▉       | 23/80 [00:10<00:26,  2.16benchmark time-series/s]
+ 30%|███       | 24/80 [00:11<00:25,  2.16benchmark time-series/s]
+ 31%|███▏      | 25/80 [00:11<00:25,  2.16benchmark time-series/s]
+ 32%|███▎      | 26/80 [00:12<00:24,  2.16benchmark time-series/s]
+ 34%|███▍      | 27/80 [00:12<00:24,  2.15benchmark time-series/s]
+ 35%|███▌      | 28/80 [00:13<00:24,  2.11benchmark time-series/s]
+ 36%|███▋      | 29/80 [00:13<00:23,  2.13benchmark time-series/s]
+ 38%|███▊      | 30/80 [00:13<00:23,  2.14benchmark time-series/s]
+ 39%|███▉      | 31/80 [00:14<00:22,  2.15benchmark time-series/s]
+ 40%|████      | 32/80 [00:14<00:22,  2.16benchmark time-series/s]
+ 41%|████▏     | 33/80 [00:15<00:21,  2.16benchmark time-series/s]
+ 42%|████▎     | 34/80 [00:15<00:21,  2.16benchmark time-series/s]
+ 44%|████▍     | 35/80 [00:16<00:20,  2.16benchmark time-series/s]
+ 45%|████▌     | 36/80 [00:16<00:20,  2.17benchmark time-series/s]
+ 46%|████▋     | 37/80 [00:17<00:19,  2.17benchmark time-series/s]
+ 48%|████▊     | 38/80 [00:17<00:19,  2.16benchmark time-series/s]
+ 49%|████▉     | 39/80 [00:18<00:18,  2.16benchmark time-series/s]2025-07-08 11:04:49,194 WARNING Error while inserting datapoint (1751965469828 : 2245.083651292965) in timeseries named ci.benchmarks.redislabs/C7Y9VWRL2Y-Joan-Fontanals-Martinez/RediSearch/RediSearch/search-numeric-with-results-16k-no-cluster-client/by.branch/joan-uv-threads-benchmark/benchmark_end/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/total_shards_used_cpu_pct. 
+
+ 50%|█████     | 40/80 [00:18<00:18,  2.14benchmark time-series/s]
+ 51%|█████▏    | 41/80 [00:19<00:18,  2.12benchmark time-series/s]
+ 52%|█████▎    | 42/80 [00:19<00:17,  2.13benchmark time-series/s]
+ 54%|█████▍    | 43/80 [00:20<00:17,  2.11benchmark time-series/s]
+ 55%|█████▌    | 44/80 [00:20<00:16,  2.12benchmark time-series/s]
+ 56%|█████▋    | 45/80 [00:20<00:16,  2.14benchmark time-series/s]
+ 57%|█████▊    | 46/80 [00:21<00:15,  2.14benchmark time-series/s]
+ 59%|█████▉    | 47/80 [00:21<00:15,  2.12benchmark time-series/s]
+ 60%|██████    | 48/80 [00:22<00:14,  2.14benchmark time-series/s]
+ 61%|██████▏   | 49/80 [00:22<00:14,  2.15benchmark time-series/s]
+ 62%|██████▎   | 50/80 [00:23<00:14,  2.12benchmark time-series/s]
+ 64%|██████▍   | 51/80 [00:23<00:13,  2.13benchmark time-series/s]
+ 65%|██████▌   | 52/80 [00:24<00:13,  2.14benchmark time-series/s]
+ 66%|██████▋   | 53/80 [00:24<00:12,  2.15benchmark time-series/s]
+ 68%|██████▊   | 54/80 [00:25<00:12,  2.16benchmark time-series/s]
+ 69%|██████▉   | 55/80 [00:25<00:11,  2.16benchmark time-series/s]
+ 70%|███████   | 56/80 [00:26<00:11,  2.16benchmark time-series/s]
+ 71%|███████▏  | 57/80 [00:26<00:10,  2.16benchmark time-series/s]
+ 72%|███████▎  | 58/80 [00:27<00:10,  2.12benchmark time-series/s]
+ 74%|███████▍  | 59/80 [00:27<00:09,  2.14benchmark time-series/s]
+ 75%|███████▌  | 60/80 [00:27<00:09,  2.15benchmark time-series/s]
+ 76%|███████▋  | 61/80 [00:28<00:08,  2.15benchmark time-series/s]
+ 78%|███████▊  | 62/80 [00:28<00:08,  2.16benchmark time-series/s]
+ 79%|███████▉  | 63/80 [00:29<00:07,  2.16benchmark time-series/s]
+ 80%|████████  | 64/80 [00:29<00:07,  2.16benchmark time-series/s]
+ 81%|████████▏ | 65/80 [00:30<00:06,  2.16benchmark time-series/s]
+ 82%|████████▎ | 66/80 [00:30<00:06,  2.11benchmark time-series/s]
+ 84%|████████▍ | 67/80 [00:31<00:06,  2.06benchmark time-series/s]
+ 85%|████████▌ | 68/80 [00:31<00:05,  2.07benchmark time-series/s]
+ 86%|████████▋ | 69/80 [00:32<00:05,  2.09benchmark time-series/s]
+ 88%|████████▊ | 70/80 [00:32<00:04,  2.08benchmark time-series/s]
+ 89%|████████▉ | 71/80 [00:33<00:04,  2.10benchmark time-series/s]
+ 90%|█████████ | 72/80 [00:33<00:03,  2.12benchmark time-series/s]
+ 91%|█████████▏| 73/80 [00:34<00:03,  2.13benchmark time-series/s]
+ 92%|█████████▎| 74/80 [00:34<00:02,  2.14benchmark time-series/s]
+ 94%|█████████▍| 75/80 [00:34<00:02,  2.15benchmark time-series/s]
+ 95%|█████████▌| 76/80 [00:35<00:01,  2.15benchmark time-series/s]
+ 96%|█████████▋| 77/80 [00:35<00:01,  2.16benchmark time-series/s]
+ 98%|█████████▊| 78/80 [00:36<00:00,  2.17benchmark time-series/s]
+ 99%|█████████▉| 79/80 [00:36<00:00,  2.17benchmark time-series/s]2025-07-08 11:05:07,935 WARNING Error while inserting datapoint (1751965469828 : 2245.083651292965) in timeseries named ci.benchmarks.redislabs/C7Y9VWRL2Y-Joan-Fontanals-Martinez/RediSearch/RediSearch/search-numeric-with-results-16k-no-cluster-client/by.version/255.255.255/benchmark_end/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/total_shards_used_cpu_pct. 
+
+100%|██████████| 80/80 [00:37<00:00,  2.17benchmark time-series/s]
+100%|██████████| 80/80 [00:37<00:00,  2.14benchmark time-series/s]
+2025-07-08 11:05:08,954 INFO Adding a total of 290 server side metrics collected at the end of benchmark
+
+  0%|          | 0/580 [00:00<?, ?benchmark time-series/s]
+  0%|          | 1/580 [00:00<04:25,  2.18benchmark time-series/s]
+  0%|          | 2/580 [00:00<04:25,  2.18benchmark time-series/s]
+  1%|          | 3/580 [00:01<04:25,  2.18benchmark time-series/s]
+  1%|          | 4/580 [00:01<04:24,  2.17benchmark time-series/s]
+  1%|          | 5/580 [00:02<04:24,  2.18benchmark time-series/s]
+  1%|          | 6/580 [00:02<04:23,  2.17benchmark time-series/s]
+  1%|          | 7/580 [00:03<04:23,  2.17benchmark time-series/s]
+  1%|▏         | 8/580 [00:03<04:23,  2.17benchmark time-series/s]
+  2%|▏         | 9/580 [00:04<04:23,  2.17benchmark time-series/s]
+  2%|▏         | 10/580 [00:04<04:22,  2.17benchmark time-series/s]
+  2%|▏         | 11/580 [00:05<04:22,  2.17benchmark time-series/s]
+  2%|▏         | 12/580 [00:05<04:24,  2.15benchmark time-series/s]
+  2%|▏         | 13/580 [00:05<04:22,  2.16benchmark time-series/s]
+  2%|▏         | 14/580 [00:06<04:21,  2.16benchmark time-series/s]
+  3%|▎         | 15/580 [00:06<04:20,  2.17benchmark time-series/s]
+  3%|▎         | 16/580 [00:07<04:20,  2.17benchmark time-series/s]
+  3%|▎         | 17/580 [00:07<04:19,  2.17benchmark time-series/s]
+  3%|▎         | 18/580 [00:08<04:19,  2.17benchmark time-series/s]
+  3%|▎         | 19/580 [00:08<04:18,  2.17benchmark time-series/s]
+  3%|▎         | 20/580 [00:09<04:18,  2.17benchmark time-series/s]
+  4%|▎         | 21/580 [00:09<04:18,  2.16benchmark time-series/s]
+  4%|▍         | 22/580 [00:10<04:17,  2.17benchmark time-series/s]
+  4%|▍         | 23/580 [00:10<04:16,  2.17benchmark time-series/s]
+  4%|▍         | 24/580 [00:11<04:15,  2.17benchmark time-series/s]
+  4%|▍         | 25/580 [00:11<04:15,  2.17benchmark time-series/s]
+  4%|▍         | 26/580 [00:11<04:15,  2.17benchmark time-series/s]
+  5%|▍         | 27/580 [00:12<04:14,  2.17benchmark time-series/s]
+  5%|▍         | 28/580 [00:12<04:14,  2.17benchmark time-series/s]
+  5%|▌         | 29/580 [00:13<04:13,  2.17benchmark time-series/s]
+  5%|▌         | 30/580 [00:13<04:14,  2.16benchmark time-series/s]
+  5%|▌         | 31/580 [00:14<04:13,  2.16benchmark time-series/s]
+  6%|▌         | 32/580 [00:14<04:13,  2.16benchmark time-series/s]
+  6%|▌         | 33/580 [00:15<04:12,  2.17benchmark time-series/s]
+  6%|▌         | 34/580 [00:15<04:12,  2.17benchmark time-series/s]
+  6%|▌         | 35/580 [00:16<04:15,  2.13benchmark time-series/s]
+  6%|▌         | 36/580 [00:16<04:16,  2.12benchmark time-series/s]
+  6%|▋         | 37/580 [00:17<04:14,  2.13benchmark time-series/s]
+  7%|▋         | 38/580 [00:17<04:12,  2.15benchmark time-series/s]
+  7%|▋         | 39/580 [00:18<04:11,  2.15benchmark time-series/s]
+  7%|▋         | 40/580 [00:18<04:10,  2.15benchmark time-series/s]
+  7%|▋         | 41/580 [00:18<04:09,  2.16benchmark time-series/s]
+  7%|▋         | 42/580 [00:19<04:08,  2.17benchmark time-series/s]
+  7%|▋         | 43/580 [00:19<04:07,  2.17benchmark time-series/s]
+  8%|▊         | 44/580 [00:20<04:07,  2.16benchmark time-series/s]
+  8%|▊         | 45/580 [00:20<04:07,  2.16benchmark time-series/s]
+  8%|▊         | 46/580 [00:21<04:06,  2.17benchmark time-series/s]
+  8%|▊         | 47/580 [00:21<04:05,  2.17benchmark time-series/s]
+  8%|▊         | 48/580 [00:22<04:05,  2.17benchmark time-series/s]
+  8%|▊         | 49/580 [00:22<04:04,  2.17benchmark time-series/s]
+  9%|▊         | 50/580 [00:23<04:03,  2.18benchmark time-series/s]
+  9%|▉         | 51/580 [00:23<04:03,  2.17benchmark time-series/s]
+  9%|▉         | 52/580 [00:24<04:03,  2.17benchmark time-series/s]
+  9%|▉         | 53/580 [00:24<04:03,  2.17benchmark time-series/s]
+  9%|▉         | 54/580 [00:24<04:02,  2.17benchmark time-series/s]
+  9%|▉         | 55/580 [00:25<04:01,  2.17benchmark time-series/s]
+ 10%|▉         | 56/580 [00:25<04:01,  2.17benchmark time-series/s]
+ 10%|▉         | 57/580 [00:26<04:01,  2.17benchmark time-series/s]
+ 10%|█         | 58/580 [00:26<04:00,  2.17benchmark time-series/s]
+ 10%|█         | 59/580 [00:27<03:59,  2.17benchmark time-series/s]
+ 10%|█         | 60/580 [00:27<03:59,  2.17benchmark time-series/s]
+ 11%|█         | 61/580 [00:28<03:58,  2.17benchmark time-series/s]
+ 11%|█         | 62/580 [00:28<03:58,  2.17benchmark time-series/s]
+ 11%|█         | 63/580 [00:29<03:58,  2.17benchmark time-series/s]
+ 11%|█         | 64/580 [00:29<03:57,  2.17benchmark time-series/s]
+ 11%|█         | 65/580 [00:30<03:57,  2.17benchmark time-series/s]
+ 11%|█▏        | 66/580 [00:30<03:56,  2.17benchmark time-series/s]
+ 12%|█▏        | 67/580 [00:30<03:56,  2.17benchmark time-series/s]
+ 12%|█▏        | 68/580 [00:31<03:55,  2.17benchmark time-series/s]
+ 12%|█▏        | 69/580 [00:31<03:55,  2.17benchmark time-series/s]
+ 12%|█▏        | 70/580 [00:32<03:55,  2.17benchmark time-series/s]
+ 12%|█▏        | 71/580 [00:32<03:54,  2.17benchmark time-series/s]
+ 12%|█▏        | 72/580 [00:33<03:53,  2.17benchmark time-series/s]
+ 13%|█▎        | 73/580 [00:33<03:52,  2.18benchmark time-series/s]
+ 13%|█▎        | 74/580 [00:34<03:52,  2.17benchmark time-series/s]
+ 13%|█▎        | 75/580 [00:34<03:52,  2.17benchmark time-series/s]
+ 13%|█▎        | 76/580 [00:35<03:53,  2.16benchmark time-series/s]
+ 13%|█▎        | 77/580 [00:35<03:52,  2.16benchmark time-series/s]
+ 13%|█▎        | 78/580 [00:36<03:51,  2.17benchmark time-series/s]
+ 14%|█▎        | 79/580 [00:36<03:51,  2.17benchmark time-series/s]
+ 14%|█▍        | 80/580 [00:36<03:50,  2.17benchmark time-series/s]
+ 14%|█▍        | 81/580 [00:37<03:49,  2.17benchmark time-series/s]
+ 14%|█▍        | 82/580 [00:37<03:49,  2.17benchmark time-series/s]
+ 14%|█▍        | 83/580 [00:38<03:48,  2.17benchmark time-series/s]
+ 14%|█▍        | 84/580 [00:38<03:48,  2.17benchmark time-series/s]
+ 15%|█▍        | 85/580 [00:39<03:47,  2.17benchmark time-series/s]
+ 15%|█▍        | 86/580 [00:39<03:47,  2.17benchmark time-series/s]
+ 15%|█▌        | 87/580 [00:40<03:47,  2.17benchmark time-series/s]
+ 15%|█▌        | 88/580 [00:40<03:47,  2.17benchmark time-series/s]
+ 15%|█▌        | 89/580 [00:41<03:46,  2.17benchmark time-series/s]
+ 16%|█▌        | 90/580 [00:41<03:45,  2.17benchmark time-series/s]
+ 16%|█▌        | 91/580 [00:42<03:46,  2.16benchmark time-series/s]
+ 16%|█▌        | 92/580 [00:42<03:45,  2.16benchmark time-series/s]
+ 16%|█▌        | 93/580 [00:42<03:45,  2.16benchmark time-series/s]
+ 16%|█▌        | 94/580 [00:43<03:44,  2.16benchmark time-series/s]
+ 16%|█▋        | 95/580 [00:43<03:44,  2.16benchmark time-series/s]
+ 17%|█▋        | 96/580 [00:44<03:43,  2.16benchmark time-series/s]
+ 17%|█▋        | 97/580 [00:44<03:42,  2.17benchmark time-series/s]
+ 17%|█▋        | 98/580 [00:45<03:42,  2.17benchmark time-series/s]
+ 17%|█▋        | 99/580 [00:45<03:41,  2.17benchmark time-series/s]
+ 17%|█▋        | 100/580 [00:46<03:42,  2.16benchmark time-series/s]
+ 17%|█▋        | 101/580 [00:46<03:41,  2.17benchmark time-series/s]
+ 18%|█▊        | 102/580 [00:47<03:40,  2.17benchmark time-series/s]
+ 18%|█▊        | 103/580 [00:47<03:39,  2.17benchmark time-series/s]
+ 18%|█▊        | 104/580 [00:47<03:39,  2.17benchmark time-series/s]
+ 18%|█▊        | 105/580 [00:48<03:38,  2.17benchmark time-series/s]
+ 18%|█▊        | 106/580 [00:48<03:38,  2.17benchmark time-series/s]
+ 18%|█▊        | 107/580 [00:49<03:38,  2.17benchmark time-series/s]
+ 19%|█▊        | 108/580 [00:49<03:37,  2.17benchmark time-series/s]
+ 19%|█▉        | 109/580 [00:50<03:36,  2.17benchmark time-series/s]
+ 19%|█▉        | 110/580 [00:50<03:36,  2.17benchmark time-series/s]
+ 19%|█▉        | 111/580 [00:51<03:36,  2.17benchmark time-series/s]
+ 19%|█▉        | 112/580 [00:51<03:35,  2.17benchmark time-series/s]
+ 19%|█▉        | 113/580 [00:52<03:35,  2.17benchmark time-series/s]
+ 20%|█▉        | 114/580 [00:52<03:34,  2.17benchmark time-series/s]
+ 20%|█▉        | 115/580 [00:53<03:34,  2.17benchmark time-series/s]
+ 20%|██        | 116/580 [00:53<03:34,  2.17benchmark time-series/s]
+ 20%|██        | 117/580 [00:53<03:33,  2.17benchmark time-series/s]
+ 20%|██        | 118/580 [00:54<03:32,  2.17benchmark time-series/s]
+ 21%|██        | 119/580 [00:54<03:32,  2.17benchmark time-series/s]
+ 21%|██        | 120/580 [00:55<03:31,  2.17benchmark time-series/s]
+ 21%|██        | 121/580 [00:55<03:31,  2.17benchmark time-series/s]
+ 21%|██        | 122/580 [00:56<03:31,  2.17benchmark time-series/s]
+ 21%|██        | 123/580 [00:56<03:30,  2.17benchmark time-series/s]
+ 21%|██▏       | 124/580 [00:57<03:30,  2.16benchmark time-series/s]
+ 22%|██▏       | 125/580 [00:57<03:30,  2.16benchmark time-series/s]
+ 22%|██▏       | 126/580 [00:58<03:29,  2.16benchmark time-series/s]
+ 22%|██▏       | 127/580 [00:58<03:31,  2.14benchmark time-series/s]
+ 22%|██▏       | 128/580 [00:59<03:31,  2.13benchmark time-series/s]
+ 22%|██▏       | 129/580 [00:59<03:30,  2.14benchmark time-series/s]
+ 22%|██▏       | 130/580 [01:00<03:29,  2.15benchmark time-series/s]
+ 23%|██▎       | 131/580 [01:00<03:28,  2.16benchmark time-series/s]
+ 23%|██▎       | 132/580 [01:00<03:27,  2.16benchmark time-series/s]
+ 23%|██▎       | 133/580 [01:01<03:27,  2.16benchmark time-series/s]
+ 23%|██▎       | 134/580 [01:01<03:27,  2.15benchmark time-series/s]
+ 23%|██▎       | 135/580 [01:02<03:26,  2.15benchmark time-series/s]
+ 23%|██▎       | 136/580 [01:02<03:25,  2.16benchmark time-series/s]
+ 24%|██▎       | 137/580 [01:03<03:28,  2.13benchmark time-series/s]
+ 24%|██▍       | 138/580 [01:03<03:26,  2.14benchmark time-series/s]
+ 24%|██▍       | 139/580 [01:04<03:29,  2.10benchmark time-series/s]
+ 24%|██▍       | 140/580 [01:04<03:27,  2.12benchmark time-series/s]
+ 24%|██▍       | 141/580 [01:05<03:25,  2.14benchmark time-series/s]
+ 24%|██▍       | 142/580 [01:05<03:24,  2.14benchmark time-series/s]
+ 25%|██▍       | 143/580 [01:06<03:23,  2.15benchmark time-series/s]
+ 25%|██▍       | 144/580 [01:06<03:22,  2.16benchmark time-series/s]
+ 25%|██▌       | 145/580 [01:07<03:21,  2.16benchmark time-series/s]
+ 25%|██▌       | 146/580 [01:07<03:23,  2.13benchmark time-series/s]
+ 25%|██▌       | 147/580 [01:07<03:21,  2.14benchmark time-series/s]
+ 26%|██▌       | 148/580 [01:08<03:20,  2.15benchmark time-series/s]
+ 26%|██▌       | 149/580 [01:08<03:19,  2.16benchmark time-series/s]
+ 26%|██▌       | 150/580 [01:09<03:20,  2.15benchmark time-series/s]
+ 26%|██▌       | 151/580 [01:09<03:19,  2.15benchmark time-series/s]
+ 26%|██▌       | 152/580 [01:10<03:19,  2.14benchmark time-series/s]
+ 26%|██▋       | 153/580 [01:10<03:18,  2.15benchmark time-series/s]
+ 27%|██▋       | 154/580 [01:11<03:18,  2.15benchmark time-series/s]
+ 27%|██▋       | 155/580 [01:11<03:18,  2.14benchmark time-series/s]
+ 27%|██▋       | 156/580 [01:12<03:17,  2.15benchmark time-series/s]
+ 27%|██▋       | 157/580 [01:12<03:16,  2.15benchmark time-series/s]
+ 27%|██▋       | 158/580 [01:13<03:15,  2.15benchmark time-series/s]
+ 27%|██▋       | 159/580 [01:13<03:14,  2.16benchmark time-series/s]
+ 28%|██▊       | 160/580 [01:13<03:14,  2.16benchmark time-series/s]
+ 28%|██▊       | 161/580 [01:14<03:13,  2.16benchmark time-series/s]
+ 28%|██▊       | 162/580 [01:14<03:12,  2.17benchmark time-series/s]
+ 28%|██▊       | 163/580 [01:15<03:12,  2.17benchmark time-series/s]
+ 28%|██▊       | 164/580 [01:15<03:11,  2.17benchmark time-series/s]
+ 28%|██▊       | 165/580 [01:16<03:11,  2.17benchmark time-series/s]
+ 29%|██▊       | 166/580 [01:16<03:10,  2.17benchmark time-series/s]
+ 29%|██▉       | 167/580 [01:17<03:11,  2.16benchmark time-series/s]
+ 29%|██▉       | 168/580 [01:17<03:10,  2.16benchmark time-series/s]
+ 29%|██▉       | 169/580 [01:18<03:10,  2.16benchmark time-series/s]
+ 29%|██▉       | 170/580 [01:18<03:09,  2.16benchmark time-series/s]
+ 29%|██▉       | 171/580 [01:19<03:09,  2.16benchmark time-series/s]
+ 30%|██▉       | 172/580 [01:19<03:08,  2.16benchmark time-series/s]
+ 30%|██▉       | 173/580 [01:19<03:08,  2.15benchmark time-series/s]
+ 30%|███       | 174/580 [01:20<03:08,  2.15benchmark time-series/s]
+ 30%|███       | 175/580 [01:20<03:08,  2.15benchmark time-series/s]
+ 30%|███       | 176/580 [01:21<03:07,  2.15benchmark time-series/s]
+ 31%|███       | 177/580 [01:21<03:09,  2.13benchmark time-series/s]
+ 31%|███       | 178/580 [01:22<03:08,  2.14benchmark time-series/s]
+ 31%|███       | 179/580 [01:22<03:06,  2.14benchmark time-series/s]
+ 31%|███       | 180/580 [01:23<03:06,  2.15benchmark time-series/s]
+ 31%|███       | 181/580 [01:23<03:05,  2.15benchmark time-series/s]
+ 31%|███▏      | 182/580 [01:24<03:05,  2.15benchmark time-series/s]
+ 32%|███▏      | 183/580 [01:24<03:04,  2.15benchmark time-series/s]
+ 32%|███▏      | 184/580 [01:25<03:03,  2.16benchmark time-series/s]
+ 32%|███▏      | 185/580 [01:25<03:02,  2.16benchmark time-series/s]
+ 32%|███▏      | 186/580 [01:26<03:03,  2.15benchmark time-series/s]
+ 32%|███▏      | 187/580 [01:26<03:02,  2.15benchmark time-series/s]
+ 32%|███▏      | 188/580 [01:26<03:02,  2.15benchmark time-series/s]
+ 33%|███▎      | 189/580 [01:27<03:01,  2.15benchmark time-series/s]
+ 33%|███▎      | 190/580 [01:27<03:01,  2.15benchmark time-series/s]
+ 33%|███▎      | 191/580 [01:28<03:00,  2.15benchmark time-series/s]
+ 33%|███▎      | 192/580 [01:28<03:00,  2.15benchmark time-series/s]
+ 33%|███▎      | 193/580 [01:29<02:59,  2.15benchmark time-series/s]
+ 33%|███▎      | 194/580 [01:29<02:59,  2.16benchmark time-series/s]
+ 34%|███▎      | 195/580 [01:30<02:58,  2.16benchmark time-series/s]
+ 34%|███▍      | 196/580 [01:30<03:01,  2.11benchmark time-series/s]
+ 34%|███▍      | 197/580 [01:31<03:01,  2.11benchmark time-series/s]
+ 34%|███▍      | 198/580 [01:31<02:59,  2.12benchmark time-series/s]
+ 34%|███▍      | 199/580 [01:32<02:59,  2.13benchmark time-series/s]
+ 34%|███▍      | 200/580 [01:32<02:57,  2.14benchmark time-series/s]
+ 35%|███▍      | 201/580 [01:33<02:56,  2.15benchmark time-series/s]
+ 35%|███▍      | 202/580 [01:33<02:55,  2.15benchmark time-series/s]
+ 35%|███▌      | 203/580 [01:33<02:55,  2.15benchmark time-series/s]
+ 35%|███▌      | 204/580 [01:34<02:55,  2.15benchmark time-series/s]
+ 35%|███▌      | 205/580 [01:34<02:54,  2.15benchmark time-series/s]
+ 36%|███▌      | 206/580 [01:35<02:53,  2.15benchmark time-series/s]
+ 36%|███▌      | 207/580 [01:35<02:53,  2.15benchmark time-series/s]
+ 36%|███▌      | 208/580 [01:36<02:53,  2.15benchmark time-series/s]
+ 36%|███▌      | 209/580 [01:36<02:53,  2.14benchmark time-series/s]
+ 36%|███▌      | 210/580 [01:37<02:52,  2.15benchmark time-series/s]
+ 36%|███▋      | 211/580 [01:37<02:51,  2.15benchmark time-series/s]
+ 37%|███▋      | 212/580 [01:38<02:50,  2.16benchmark time-series/s]
+ 37%|███▋      | 213/580 [01:38<02:49,  2.16benchmark time-series/s]
+ 37%|███▋      | 214/580 [01:39<02:49,  2.16benchmark time-series/s]
+ 37%|███▋      | 215/580 [01:39<02:48,  2.16benchmark time-series/s]
+ 37%|███▋      | 216/580 [01:40<02:48,  2.16benchmark time-series/s]
+ 37%|███▋      | 217/580 [01:40<02:48,  2.16benchmark time-series/s]
+ 38%|███▊      | 218/580 [01:40<02:47,  2.16benchmark time-series/s]
+ 38%|███▊      | 219/580 [01:41<02:47,  2.15benchmark time-series/s]
+ 38%|███▊      | 220/580 [01:41<02:46,  2.16benchmark time-series/s]
+ 38%|███▊      | 221/580 [01:42<02:46,  2.16benchmark time-series/s]
+ 38%|███▊      | 222/580 [01:42<02:45,  2.16benchmark time-series/s]
+ 38%|███▊      | 223/580 [01:43<02:44,  2.17benchmark time-series/s]
+ 39%|███▊      | 224/580 [01:43<02:44,  2.17benchmark time-series/s]
+ 39%|███▉      | 225/580 [01:44<02:44,  2.16benchmark time-series/s]
+ 39%|███▉      | 226/580 [01:44<02:43,  2.16benchmark time-series/s]
+ 39%|███▉      | 227/580 [01:45<02:43,  2.16benchmark time-series/s]
+ 39%|███▉      | 228/580 [01:45<02:42,  2.17benchmark time-series/s]
+ 39%|███▉      | 229/580 [01:46<02:41,  2.17benchmark time-series/s]
+ 40%|███▉      | 230/580 [01:46<02:41,  2.17benchmark time-series/s]
+ 40%|███▉      | 231/580 [01:46<02:40,  2.17benchmark time-series/s]
+ 40%|████      | 232/580 [01:47<02:40,  2.17benchmark time-series/s]
+ 40%|████      | 233/580 [01:47<02:40,  2.17benchmark time-series/s]
+ 40%|████      | 234/580 [01:48<02:39,  2.17benchmark time-series/s]
+ 41%|████      | 235/580 [01:48<02:39,  2.17benchmark time-series/s]
+ 41%|████      | 236/580 [01:49<02:38,  2.17benchmark time-series/s]
+ 41%|████      | 237/580 [01:49<02:38,  2.17benchmark time-series/s]
+ 41%|████      | 238/580 [01:50<02:38,  2.16benchmark time-series/s]
+ 41%|████      | 239/580 [01:50<02:38,  2.15benchmark time-series/s]
+ 41%|████▏     | 240/580 [01:51<02:38,  2.15benchmark time-series/s]
+ 42%|████▏     | 241/580 [01:51<02:37,  2.15benchmark time-series/s]
+ 42%|████▏     | 242/580 [01:52<02:36,  2.16benchmark time-series/s]
+ 42%|████▏     | 243/580 [01:52<02:35,  2.16benchmark time-series/s]
+ 42%|████▏     | 244/580 [01:52<02:35,  2.16benchmark time-series/s]
+ 42%|████▏     | 245/580 [01:53<02:35,  2.16benchmark time-series/s]
+ 42%|████▏     | 246/580 [01:53<02:34,  2.16benchmark time-series/s]
+ 43%|████▎     | 247/580 [01:54<02:34,  2.16benchmark time-series/s]
+ 43%|████▎     | 248/580 [01:54<02:33,  2.16benchmark time-series/s]
+ 43%|████▎     | 249/580 [01:55<02:33,  2.16benchmark time-series/s]
+ 43%|████▎     | 250/580 [01:55<02:33,  2.15benchmark time-series/s]
+ 43%|████▎     | 251/580 [01:56<02:32,  2.16benchmark time-series/s]
+ 43%|████▎     | 252/580 [01:56<02:31,  2.16benchmark time-series/s]
+ 44%|████▎     | 253/580 [01:57<02:31,  2.15benchmark time-series/s]
+ 44%|████▍     | 254/580 [01:57<02:31,  2.15benchmark time-series/s]
+ 44%|████▍     | 255/580 [01:58<02:30,  2.16benchmark time-series/s]
+ 44%|████▍     | 256/580 [01:58<02:29,  2.16benchmark time-series/s]
+ 44%|████▍     | 257/580 [01:58<02:29,  2.16benchmark time-series/s]
+ 44%|████▍     | 258/580 [01:59<02:29,  2.16benchmark time-series/s]
+ 45%|████▍     | 259/580 [01:59<02:28,  2.16benchmark time-series/s]
+ 45%|████▍     | 260/580 [02:00<02:28,  2.16benchmark time-series/s]
+ 45%|████▌     | 261/580 [02:00<02:27,  2.16benchmark time-series/s]
+ 45%|████▌     | 262/580 [02:01<02:27,  2.16benchmark time-series/s]
+ 45%|████▌     | 263/580 [02:01<02:26,  2.17benchmark time-series/s]
+ 46%|████▌     | 264/580 [02:02<02:25,  2.17benchmark time-series/s]
+ 46%|████▌     | 265/580 [02:02<02:25,  2.16benchmark time-series/s]
+ 46%|████▌     | 266/580 [02:03<02:25,  2.16benchmark time-series/s]
+ 46%|████▌     | 267/580 [02:03<02:24,  2.16benchmark time-series/s]
+ 46%|████▌     | 268/580 [02:04<02:24,  2.16benchmark time-series/s]
+ 46%|████▋     | 269/580 [02:04<02:24,  2.16benchmark time-series/s]
+ 47%|████▋     | 270/580 [02:05<02:23,  2.16benchmark time-series/s]
+ 47%|████▋     | 271/580 [02:05<02:23,  2.15benchmark time-series/s]
+ 47%|████▋     | 272/580 [02:05<02:23,  2.15benchmark time-series/s]
+ 47%|████▋     | 273/580 [02:06<02:22,  2.15benchmark time-series/s]
+ 47%|████▋     | 274/580 [02:06<02:22,  2.15benchmark time-series/s]
+ 47%|████▋     | 275/580 [02:07<02:21,  2.16benchmark time-series/s]
+ 48%|████▊     | 276/580 [02:07<02:20,  2.16benchmark time-series/s]
+ 48%|████▊     | 277/580 [02:08<02:20,  2.16benchmark time-series/s]
+ 48%|████▊     | 278/580 [02:08<02:20,  2.16benchmark time-series/s]
+ 48%|████▊     | 279/580 [02:09<02:20,  2.15benchmark time-series/s]
+ 48%|████▊     | 280/580 [02:09<02:19,  2.16benchmark time-series/s]
+ 48%|████▊     | 281/580 [02:10<02:18,  2.16benchmark time-series/s]
+ 49%|████▊     | 282/580 [02:10<02:17,  2.16benchmark time-series/s]
+ 49%|████▉     | 283/580 [02:11<02:18,  2.14benchmark time-series/s]
+ 49%|████▉     | 284/580 [02:11<02:17,  2.15benchmark time-series/s]
+ 49%|████▉     | 285/580 [02:11<02:17,  2.15benchmark time-series/s]
+ 49%|████▉     | 286/580 [02:12<02:18,  2.13benchmark time-series/s]
+ 49%|████▉     | 287/580 [02:12<02:17,  2.13benchmark time-series/s]
+ 50%|████▉     | 288/580 [02:13<02:16,  2.14benchmark time-series/s]
+ 50%|████▉     | 289/580 [02:13<02:15,  2.15benchmark time-series/s]
+ 50%|█████     | 290/580 [02:14<02:14,  2.15benchmark time-series/s]
+ 50%|█████     | 291/580 [02:14<02:13,  2.16benchmark time-series/s]
+ 50%|█████     | 292/580 [02:15<02:13,  2.16benchmark time-series/s]
+ 51%|█████     | 293/580 [02:15<02:13,  2.15benchmark time-series/s]
+ 51%|█████     | 294/580 [02:16<02:12,  2.16benchmark time-series/s]
+ 51%|█████     | 295/580 [02:16<02:11,  2.16benchmark time-series/s]
+ 51%|█████     | 296/580 [02:17<02:11,  2.16benchmark time-series/s]
+ 51%|█████     | 297/580 [02:17<02:10,  2.17benchmark time-series/s]
+ 51%|█████▏    | 298/580 [02:18<02:10,  2.17benchmark time-series/s]
+ 52%|█████▏    | 299/580 [02:18<02:09,  2.17benchmark time-series/s]
+ 52%|█████▏    | 300/580 [02:18<02:09,  2.17benchmark time-series/s]
+ 52%|█████▏    | 301/580 [02:19<02:08,  2.17benchmark time-series/s]
+ 52%|█████▏    | 302/580 [02:19<02:08,  2.17benchmark time-series/s]
+ 52%|█████▏    | 303/580 [02:20<02:07,  2.17benchmark time-series/s]
+ 52%|█████▏    | 304/580 [02:20<02:07,  2.17benchmark time-series/s]
+ 53%|█████▎    | 305/580 [02:21<02:07,  2.16benchmark time-series/s]
+ 53%|█████▎    | 306/580 [02:21<02:06,  2.16benchmark time-series/s]
+ 53%|█████▎    | 307/580 [02:22<02:06,  2.16benchmark time-series/s]
+ 53%|█████▎    | 308/580 [02:22<02:07,  2.13benchmark time-series/s]
+ 53%|█████▎    | 309/580 [02:23<02:06,  2.14benchmark time-series/s]
+ 53%|█████▎    | 310/580 [02:23<02:05,  2.15benchmark time-series/s]
+ 54%|█████▎    | 311/580 [02:24<02:04,  2.15benchmark time-series/s]
+ 54%|█████▍    | 312/580 [02:24<02:04,  2.14benchmark time-series/s]
+ 54%|█████▍    | 313/580 [02:24<02:04,  2.15benchmark time-series/s]
+ 54%|█████▍    | 314/580 [02:25<02:03,  2.16benchmark time-series/s]
+ 54%|█████▍    | 315/580 [02:25<02:02,  2.16benchmark time-series/s]
+ 54%|█████▍    | 316/580 [02:26<02:02,  2.16benchmark time-series/s]
+ 55%|█████▍    | 317/580 [02:26<02:01,  2.16benchmark time-series/s]
+ 55%|█████▍    | 318/580 [02:27<02:01,  2.16benchmark time-series/s]
+ 55%|█████▌    | 319/580 [02:27<02:00,  2.16benchmark time-series/s]
+ 55%|█████▌    | 320/580 [02:28<02:00,  2.15benchmark time-series/s]
+ 55%|█████▌    | 321/580 [02:28<02:00,  2.16benchmark time-series/s]
+ 56%|█████▌    | 322/580 [02:29<01:59,  2.16benchmark time-series/s]
+ 56%|█████▌    | 323/580 [02:29<01:58,  2.16benchmark time-series/s]
+ 56%|█████▌    | 324/580 [02:30<02:00,  2.13benchmark time-series/s]
+ 56%|█████▌    | 325/580 [02:30<01:58,  2.14benchmark time-series/s]
+ 56%|█████▌    | 326/580 [02:30<01:58,  2.15benchmark time-series/s]
+ 56%|█████▋    | 327/580 [02:31<01:57,  2.16benchmark time-series/s]
+ 57%|█████▋    | 328/580 [02:31<01:56,  2.16benchmark time-series/s]
+ 57%|█████▋    | 329/580 [02:32<01:56,  2.16benchmark time-series/s]
+ 57%|█████▋    | 330/580 [02:32<01:55,  2.16benchmark time-series/s]
+ 57%|█████▋    | 331/580 [02:33<01:54,  2.17benchmark time-series/s]
+ 57%|█████▋    | 332/580 [02:33<01:54,  2.17benchmark time-series/s]
+ 57%|█████▋    | 333/580 [02:34<01:55,  2.13benchmark time-series/s]
+ 58%|█████▊    | 334/580 [02:34<01:54,  2.15benchmark time-series/s]
+ 58%|█████▊    | 335/580 [02:35<01:53,  2.15benchmark time-series/s]
+ 58%|█████▊    | 336/580 [02:35<01:53,  2.16benchmark time-series/s]
+ 58%|█████▊    | 337/580 [02:36<01:52,  2.16benchmark time-series/s]
+ 58%|█████▊    | 338/580 [02:36<01:51,  2.17benchmark time-series/s]
+ 58%|█████▊    | 339/580 [02:37<01:51,  2.17benchmark time-series/s]
+ 59%|█████▊    | 340/580 [02:37<01:50,  2.17benchmark time-series/s]
+ 59%|█████▉    | 341/580 [02:37<01:50,  2.17benchmark time-series/s]
+ 59%|█████▉    | 342/580 [02:38<01:49,  2.17benchmark time-series/s]
+ 59%|█████▉    | 343/580 [02:38<01:49,  2.17benchmark time-series/s]
+ 59%|█████▉    | 344/580 [02:39<01:48,  2.17benchmark time-series/s]
+ 59%|█████▉    | 345/580 [02:39<01:48,  2.17benchmark time-series/s]
+ 60%|█████▉    | 346/580 [02:40<01:47,  2.17benchmark time-series/s]
+ 60%|█████▉    | 347/580 [02:40<01:47,  2.17benchmark time-series/s]
+ 60%|██████    | 348/580 [02:41<01:46,  2.17benchmark time-series/s]
+ 60%|██████    | 349/580 [02:41<01:46,  2.17benchmark time-series/s]
+ 60%|██████    | 350/580 [02:42<01:46,  2.17benchmark time-series/s]
+ 61%|██████    | 351/580 [02:42<01:45,  2.17benchmark time-series/s]
+ 61%|██████    | 352/580 [02:43<01:45,  2.17benchmark time-series/s]
+ 61%|██████    | 353/580 [02:43<01:44,  2.17benchmark time-series/s]
+ 61%|██████    | 354/580 [02:43<01:45,  2.14benchmark time-series/s]
+ 61%|██████    | 355/580 [02:44<01:44,  2.15benchmark time-series/s]
+ 61%|██████▏   | 356/580 [02:44<01:44,  2.15benchmark time-series/s]
+ 62%|██████▏   | 357/580 [02:45<01:43,  2.16benchmark time-series/s]
+ 62%|██████▏   | 358/580 [02:45<01:42,  2.16benchmark time-series/s]
+ 62%|██████▏   | 359/580 [02:46<01:42,  2.16benchmark time-series/s]
+ 62%|██████▏   | 360/580 [02:46<01:42,  2.15benchmark time-series/s]
+ 62%|██████▏   | 361/580 [02:47<01:41,  2.16benchmark time-series/s]
+ 62%|██████▏   | 362/580 [02:47<01:40,  2.16benchmark time-series/s]
+ 63%|██████▎   | 363/580 [02:48<01:40,  2.16benchmark time-series/s]
+ 63%|██████▎   | 364/580 [02:48<01:39,  2.16benchmark time-series/s]
+ 63%|██████▎   | 365/580 [02:49<01:39,  2.17benchmark time-series/s]
+ 63%|██████▎   | 366/580 [02:49<01:38,  2.17benchmark time-series/s]
+ 63%|██████▎   | 367/580 [02:49<01:38,  2.16benchmark time-series/s]
+ 63%|██████▎   | 368/580 [02:50<01:37,  2.17benchmark time-series/s]
+ 64%|██████▎   | 369/580 [02:50<01:37,  2.17benchmark time-series/s]
+ 64%|██████▍   | 370/580 [02:51<01:36,  2.17benchmark time-series/s]
+ 64%|██████▍   | 371/580 [02:51<01:36,  2.17benchmark time-series/s]
+ 64%|██████▍   | 372/580 [02:52<01:35,  2.17benchmark time-series/s]
+ 64%|██████▍   | 373/580 [02:52<01:36,  2.15benchmark time-series/s]
+ 64%|██████▍   | 374/580 [02:53<01:35,  2.16benchmark time-series/s]
+ 65%|██████▍   | 375/580 [02:53<01:34,  2.16benchmark time-series/s]
+ 65%|██████▍   | 376/580 [02:54<01:34,  2.17benchmark time-series/s]
+ 65%|██████▌   | 377/580 [02:54<01:33,  2.17benchmark time-series/s]
+ 65%|██████▌   | 378/580 [02:55<01:33,  2.17benchmark time-series/s]
+ 65%|██████▌   | 379/580 [02:55<01:32,  2.17benchmark time-series/s]
+ 66%|██████▌   | 380/580 [02:55<01:32,  2.17benchmark time-series/s]
+ 66%|██████▌   | 381/580 [02:56<01:31,  2.17benchmark time-series/s]
+ 66%|██████▌   | 382/580 [02:56<01:31,  2.17benchmark time-series/s]
+ 66%|██████▌   | 383/580 [02:57<01:30,  2.17benchmark time-series/s]
+ 66%|██████▌   | 384/580 [02:57<01:31,  2.15benchmark time-series/s]
+ 66%|██████▋   | 385/580 [02:58<01:30,  2.14benchmark time-series/s]
+ 67%|██████▋   | 386/580 [02:58<01:30,  2.14benchmark time-series/s]
+ 67%|██████▋   | 387/580 [02:59<01:30,  2.14benchmark time-series/s]
+ 67%|██████▋   | 388/580 [02:59<01:29,  2.15benchmark time-series/s]
+ 67%|██████▋   | 389/580 [03:00<01:29,  2.13benchmark time-series/s]
+ 67%|██████▋   | 390/580 [03:00<01:28,  2.14benchmark time-series/s]
+ 67%|██████▋   | 391/580 [03:01<01:28,  2.13benchmark time-series/s]
+ 68%|██████▊   | 392/580 [03:01<01:27,  2.14benchmark time-series/s]
+ 68%|██████▊   | 393/580 [03:02<01:27,  2.15benchmark time-series/s]
+ 68%|██████▊   | 394/580 [03:02<01:26,  2.15benchmark time-series/s]
+ 68%|██████▊   | 395/580 [03:02<01:25,  2.15benchmark time-series/s]
+ 68%|██████▊   | 396/580 [03:03<01:25,  2.16benchmark time-series/s]
+ 68%|██████▊   | 397/580 [03:03<01:24,  2.16benchmark time-series/s]
+ 69%|██████▊   | 398/580 [03:04<01:24,  2.17benchmark time-series/s]
+ 69%|██████▉   | 399/580 [03:04<01:24,  2.15benchmark time-series/s]
+ 69%|██████▉   | 400/580 [03:05<01:24,  2.12benchmark time-series/s]
+ 69%|██████▉   | 401/580 [03:05<01:23,  2.14benchmark time-series/s]
+ 69%|██████▉   | 402/580 [03:06<01:23,  2.14benchmark time-series/s]
+ 69%|██████▉   | 403/580 [03:06<01:22,  2.14benchmark time-series/s]
+ 70%|██████▉   | 404/580 [03:07<01:21,  2.15benchmark time-series/s]
+ 70%|██████▉   | 405/580 [03:07<01:21,  2.15benchmark time-series/s]
+ 70%|███████   | 406/580 [03:08<01:21,  2.15benchmark time-series/s]
+ 70%|███████   | 407/580 [03:08<01:20,  2.15benchmark time-series/s]
+ 70%|███████   | 408/580 [03:09<01:20,  2.14benchmark time-series/s]
+ 71%|███████   | 409/580 [03:09<01:21,  2.10benchmark time-series/s]
+ 71%|███████   | 410/580 [03:09<01:20,  2.12benchmark time-series/s]
+ 71%|███████   | 411/580 [03:10<01:19,  2.13benchmark time-series/s]
+ 71%|███████   | 412/580 [03:10<01:18,  2.13benchmark time-series/s]
+ 71%|███████   | 413/580 [03:11<01:18,  2.12benchmark time-series/s]
+ 71%|███████▏  | 414/580 [03:11<01:18,  2.13benchmark time-series/s]
+ 72%|███████▏  | 415/580 [03:12<01:17,  2.13benchmark time-series/s]
+ 72%|███████▏  | 416/580 [03:12<01:16,  2.13benchmark time-series/s]
+ 72%|███████▏  | 417/580 [03:13<01:16,  2.14benchmark time-series/s]
+ 72%|███████▏  | 418/580 [03:13<01:15,  2.14benchmark time-series/s]
+ 72%|███████▏  | 419/580 [03:14<01:15,  2.14benchmark time-series/s]
+ 72%|███████▏  | 420/580 [03:14<01:14,  2.14benchmark time-series/s]
+ 73%|███████▎  | 421/580 [03:15<01:14,  2.14benchmark time-series/s]
+ 73%|███████▎  | 422/580 [03:15<01:13,  2.14benchmark time-series/s]
+ 73%|███████▎  | 423/580 [03:16<01:13,  2.15benchmark time-series/s]
+ 73%|███████▎  | 424/580 [03:16<01:12,  2.15benchmark time-series/s]
+ 73%|███████▎  | 425/580 [03:16<01:12,  2.15benchmark time-series/s]
+ 73%|███████▎  | 426/580 [03:17<01:12,  2.13benchmark time-series/s]
+ 74%|███████▎  | 427/580 [03:17<01:11,  2.13benchmark time-series/s]
+ 74%|███████▍  | 428/580 [03:18<01:11,  2.14benchmark time-series/s]
+ 74%|███████▍  | 429/580 [03:18<01:10,  2.14benchmark time-series/s]
+ 74%|███████▍  | 430/580 [03:19<01:09,  2.15benchmark time-series/s]
+ 74%|███████▍  | 431/580 [03:19<01:09,  2.15benchmark time-series/s]
+ 74%|███████▍  | 432/580 [03:20<01:08,  2.15benchmark time-series/s]
+ 75%|███████▍  | 433/580 [03:20<01:08,  2.15benchmark time-series/s]
+ 75%|███████▍  | 434/580 [03:21<01:07,  2.15benchmark time-series/s]
+ 75%|███████▌  | 435/580 [03:21<01:07,  2.15benchmark time-series/s]
+ 75%|███████▌  | 436/580 [03:22<01:07,  2.15benchmark time-series/s]
+ 75%|███████▌  | 437/580 [03:22<01:06,  2.15benchmark time-series/s]
+ 76%|███████▌  | 438/580 [03:23<01:06,  2.14benchmark time-series/s]
+ 76%|███████▌  | 439/580 [03:23<01:05,  2.14benchmark time-series/s]
+ 76%|███████▌  | 440/580 [03:23<01:06,  2.11benchmark time-series/s]
+ 76%|███████▌  | 441/580 [03:24<01:05,  2.12benchmark time-series/s]
+ 76%|███████▌  | 442/580 [03:24<01:04,  2.13benchmark time-series/s]
+ 76%|███████▋  | 443/580 [03:25<01:04,  2.14benchmark time-series/s]
+ 77%|███████▋  | 444/580 [03:25<01:03,  2.14benchmark time-series/s]
+ 77%|███████▋  | 445/580 [03:26<01:03,  2.14benchmark time-series/s]
+ 77%|███████▋  | 446/580 [03:26<01:02,  2.14benchmark time-series/s]
+ 77%|███████▋  | 447/580 [03:27<01:02,  2.14benchmark time-series/s]
+ 77%|███████▋  | 448/580 [03:27<01:01,  2.14benchmark time-series/s]
+ 77%|███████▋  | 449/580 [03:28<01:01,  2.13benchmark time-series/s]
+ 78%|███████▊  | 450/580 [03:28<01:00,  2.14benchmark time-series/s]
+ 78%|███████▊  | 451/580 [03:29<01:00,  2.14benchmark time-series/s]
+ 78%|███████▊  | 452/580 [03:29<00:59,  2.14benchmark time-series/s]
+ 78%|███████▊  | 453/580 [03:30<00:59,  2.14benchmark time-series/s]
+ 78%|███████▊  | 454/580 [03:30<00:59,  2.13benchmark time-series/s]
+ 78%|███████▊  | 455/580 [03:31<00:59,  2.10benchmark time-series/s]
+ 79%|███████▊  | 456/580 [03:31<00:58,  2.12benchmark time-series/s]
+ 79%|███████▉  | 457/580 [03:31<00:57,  2.13benchmark time-series/s]
+ 79%|███████▉  | 458/580 [03:32<00:57,  2.13benchmark time-series/s]
+ 79%|███████▉  | 459/580 [03:32<00:56,  2.14benchmark time-series/s]
+ 79%|███████▉  | 460/580 [03:33<00:55,  2.14benchmark time-series/s]
+ 79%|███████▉  | 461/580 [03:33<00:55,  2.14benchmark time-series/s]
+ 80%|███████▉  | 462/580 [03:34<00:55,  2.14benchmark time-series/s]
+ 80%|███████▉  | 463/580 [03:34<00:54,  2.14benchmark time-series/s]
+ 80%|████████  | 464/580 [03:35<00:54,  2.14benchmark time-series/s]
+ 80%|████████  | 465/580 [03:35<00:53,  2.14benchmark time-series/s]
+ 80%|████████  | 466/580 [03:36<00:53,  2.15benchmark time-series/s]
+ 81%|████████  | 467/580 [03:36<00:52,  2.16benchmark time-series/s]
+ 81%|████████  | 468/580 [03:37<00:51,  2.16benchmark time-series/s]
+ 81%|████████  | 469/580 [03:37<00:51,  2.15benchmark time-series/s]
+ 81%|████████  | 470/580 [03:38<00:51,  2.13benchmark time-series/s]
+ 81%|████████  | 471/580 [03:38<00:56,  1.92benchmark time-series/s]
+ 81%|████████▏ | 472/580 [03:39<00:54,  1.99benchmark time-series/s]
+ 82%|████████▏ | 473/580 [03:39<00:52,  2.04benchmark time-series/s]
+ 82%|████████▏ | 474/580 [03:40<00:50,  2.08benchmark time-series/s]
+ 82%|████████▏ | 475/580 [03:40<00:50,  2.09benchmark time-series/s]
+ 82%|████████▏ | 476/580 [03:40<00:49,  2.12benchmark time-series/s]
+ 82%|████████▏ | 477/580 [03:41<00:48,  2.13benchmark time-series/s]
+ 82%|████████▏ | 478/580 [03:41<00:47,  2.14benchmark time-series/s]
+ 83%|████████▎ | 479/580 [03:42<00:46,  2.15benchmark time-series/s]
+ 83%|████████▎ | 480/580 [03:42<00:46,  2.15benchmark time-series/s]
+ 83%|████████▎ | 481/580 [03:43<00:45,  2.15benchmark time-series/s]
+ 83%|████████▎ | 482/580 [03:43<00:45,  2.15benchmark time-series/s]
+ 83%|████████▎ | 483/580 [03:44<00:44,  2.16benchmark time-series/s]
+ 83%|████████▎ | 484/580 [03:44<00:44,  2.16benchmark time-series/s]
+ 84%|████████▎ | 485/580 [03:45<00:43,  2.16benchmark time-series/s]
+ 84%|████████▍ | 486/580 [03:45<00:43,  2.16benchmark time-series/s]
+ 84%|████████▍ | 487/580 [03:46<00:43,  2.16benchmark time-series/s]
+ 84%|████████▍ | 488/580 [03:46<00:42,  2.15benchmark time-series/s]
+ 84%|████████▍ | 489/580 [03:46<00:42,  2.16benchmark time-series/s]
+ 84%|████████▍ | 490/580 [03:47<00:41,  2.16benchmark time-series/s]
+ 85%|████████▍ | 491/580 [03:47<00:41,  2.16benchmark time-series/s]
+ 85%|████████▍ | 492/580 [03:48<00:41,  2.15benchmark time-series/s]
+ 85%|████████▌ | 493/580 [03:48<00:40,  2.15benchmark time-series/s]
+ 85%|████████▌ | 494/580 [03:49<00:39,  2.16benchmark time-series/s]
+ 85%|████████▌ | 495/580 [03:49<00:39,  2.16benchmark time-series/s]
+ 86%|████████▌ | 496/580 [03:50<00:38,  2.16benchmark time-series/s]
+ 86%|████████▌ | 497/580 [03:50<00:38,  2.17benchmark time-series/s]
+ 86%|████████▌ | 498/580 [03:51<00:37,  2.17benchmark time-series/s]
+ 86%|████████▌ | 499/580 [03:51<00:37,  2.17benchmark time-series/s]
+ 86%|████████▌ | 500/580 [03:52<00:36,  2.17benchmark time-series/s]
+ 86%|████████▋ | 501/580 [03:52<00:36,  2.17benchmark time-series/s]
+ 87%|████████▋ | 502/580 [03:52<00:35,  2.17benchmark time-series/s]
+ 87%|████████▋ | 503/580 [03:53<00:35,  2.17benchmark time-series/s]
+ 87%|████████▋ | 504/580 [03:53<00:35,  2.15benchmark time-series/s]
+ 87%|████████▋ | 505/580 [03:54<00:34,  2.16benchmark time-series/s]
+ 87%|████████▋ | 506/580 [03:54<00:34,  2.16benchmark time-series/s]
+ 87%|████████▋ | 507/580 [03:55<00:33,  2.17benchmark time-series/s]
+ 88%|████████▊ | 508/580 [03:55<00:33,  2.17benchmark time-series/s]
+ 88%|████████▊ | 509/580 [03:56<00:32,  2.16benchmark time-series/s]
+ 88%|████████▊ | 510/580 [03:56<00:32,  2.16benchmark time-series/s]
+ 88%|████████▊ | 511/580 [03:57<00:31,  2.17benchmark time-series/s]
+ 88%|████████▊ | 512/580 [03:57<00:31,  2.16benchmark time-series/s]
+ 88%|████████▊ | 513/580 [03:58<00:31,  2.15benchmark time-series/s]
+ 89%|████████▊ | 514/580 [03:58<00:30,  2.16benchmark time-series/s]
+ 89%|████████▉ | 515/580 [03:59<00:30,  2.16benchmark time-series/s]
+ 89%|████████▉ | 516/580 [03:59<00:29,  2.17benchmark time-series/s]
+ 89%|████████▉ | 517/580 [03:59<00:29,  2.17benchmark time-series/s]
+ 89%|████████▉ | 518/580 [04:00<00:28,  2.16benchmark time-series/s]
+ 89%|████████▉ | 519/580 [04:00<00:28,  2.15benchmark time-series/s]
+ 90%|████████▉ | 520/580 [04:01<00:27,  2.16benchmark time-series/s]
+ 90%|████████▉ | 521/580 [04:01<00:27,  2.16benchmark time-series/s]
+ 90%|█████████ | 522/580 [04:02<00:26,  2.16benchmark time-series/s]
+ 90%|█████████ | 523/580 [04:02<00:26,  2.16benchmark time-series/s]
+ 90%|█████████ | 524/580 [04:03<00:25,  2.16benchmark time-series/s]
+ 91%|█████████ | 525/580 [04:03<00:25,  2.15benchmark time-series/s]
+ 91%|█████████ | 526/580 [04:04<00:25,  2.16benchmark time-series/s]
+ 91%|█████████ | 527/580 [04:04<00:24,  2.16benchmark time-series/s]
+ 91%|█████████ | 528/580 [04:05<00:24,  2.16benchmark time-series/s]
+ 91%|█████████ | 529/580 [04:05<00:23,  2.17benchmark time-series/s]
+ 91%|█████████▏| 530/580 [04:05<00:23,  2.16benchmark time-series/s]
+ 92%|█████████▏| 531/580 [04:06<00:22,  2.16benchmark time-series/s]
+ 92%|█████████▏| 532/580 [04:06<00:22,  2.15benchmark time-series/s]
+ 92%|█████████▏| 533/580 [04:07<00:21,  2.15benchmark time-series/s]
+ 92%|█████████▏| 534/580 [04:07<00:21,  2.15benchmark time-series/s]
+ 92%|█████████▏| 535/580 [04:08<00:20,  2.15benchmark time-series/s]
+ 92%|█████████▏| 536/580 [04:08<00:20,  2.15benchmark time-series/s]
+ 93%|█████████▎| 537/580 [04:09<00:20,  2.15benchmark time-series/s]
+ 93%|█████████▎| 538/580 [04:09<00:19,  2.14benchmark time-series/s]
+ 93%|█████████▎| 539/580 [04:10<00:19,  2.14benchmark time-series/s]
+ 93%|█████████▎| 540/580 [04:10<00:18,  2.14benchmark time-series/s]
+ 93%|█████████▎| 541/580 [04:11<00:18,  2.15benchmark time-series/s]
+ 93%|█████████▎| 542/580 [04:11<00:17,  2.15benchmark time-series/s]
+ 94%|█████████▎| 543/580 [04:12<00:17,  2.14benchmark time-series/s]
+ 94%|█████████▍| 544/580 [04:12<00:16,  2.14benchmark time-series/s]
+ 94%|█████████▍| 545/580 [04:12<00:16,  2.14benchmark time-series/s]
+ 94%|█████████▍| 546/580 [04:13<00:15,  2.14benchmark time-series/s]
+ 94%|█████████▍| 547/580 [04:13<00:15,  2.13benchmark time-series/s]
+ 94%|█████████▍| 548/580 [04:14<00:14,  2.14benchmark time-series/s]
+ 95%|█████████▍| 549/580 [04:14<00:14,  2.12benchmark time-series/s]
+ 95%|█████████▍| 550/580 [04:15<00:14,  2.13benchmark time-series/s]
+ 95%|█████████▌| 551/580 [04:15<00:13,  2.14benchmark time-series/s]
+ 95%|█████████▌| 552/580 [04:16<00:13,  2.14benchmark time-series/s]
+ 95%|█████████▌| 553/580 [04:16<00:12,  2.14benchmark time-series/s]
+ 96%|█████████▌| 554/580 [04:17<00:12,  2.15benchmark time-series/s]
+ 96%|█████████▌| 555/580 [04:17<00:11,  2.14benchmark time-series/s]
+ 96%|█████████▌| 556/580 [04:18<00:11,  2.11benchmark time-series/s]
+ 96%|█████████▌| 557/580 [04:18<00:10,  2.13benchmark time-series/s]
+ 96%|█████████▌| 558/580 [04:19<00:10,  2.14benchmark time-series/s]
+ 96%|█████████▋| 559/580 [04:19<00:09,  2.13benchmark time-series/s]
+ 97%|█████████▋| 560/580 [04:19<00:09,  2.14benchmark time-series/s]
+ 97%|█████████▋| 561/580 [04:20<00:08,  2.14benchmark time-series/s]
+ 97%|█████████▋| 562/580 [04:20<00:08,  2.14benchmark time-series/s]
+ 97%|█████████▋| 563/580 [04:21<00:07,  2.13benchmark time-series/s]
+ 97%|█████████▋| 564/580 [04:21<00:07,  2.13benchmark time-series/s]
+ 97%|█████████▋| 565/580 [04:22<00:07,  2.14benchmark time-series/s]
+ 98%|█████████▊| 566/580 [04:22<00:06,  2.13benchmark time-series/s]
+ 98%|█████████▊| 567/580 [04:23<00:06,  2.14benchmark time-series/s]
+ 98%|█████████▊| 568/580 [04:23<00:05,  2.14benchmark time-series/s]
+ 98%|█████████▊| 569/580 [04:24<00:05,  2.14benchmark time-series/s]
+ 98%|█████████▊| 570/580 [04:24<00:04,  2.15benchmark time-series/s]
+ 98%|█████████▊| 571/580 [04:25<00:04,  2.14benchmark time-series/s]
+ 99%|█████████▊| 572/580 [04:25<00:03,  2.14benchmark time-series/s]
+ 99%|█████████▉| 573/580 [04:26<00:03,  2.14benchmark time-series/s]
+ 99%|█████████▉| 574/580 [04:26<00:02,  2.14benchmark time-series/s]
+ 99%|█████████▉| 575/580 [04:27<00:02,  2.12benchmark time-series/s]
+ 99%|█████████▉| 576/580 [04:27<00:01,  2.12benchmark time-series/s]
+ 99%|█████████▉| 577/580 [04:27<00:01,  2.13benchmark time-series/s]
+100%|█████████▉| 578/580 [04:28<00:00,  2.13benchmark time-series/s]
+100%|█████████▉| 579/580 [04:28<00:00,  2.14benchmark time-series/s]
+100%|██████████| 580/580 [04:29<00:00,  2.14benchmark time-series/s]
+100%|██████████| 580/580 [04:29<00:00,  2.15benchmark time-series/s]
+2025-07-08 11:09:39,201 INFO Adding a total of 174 server side metrics collected at the end of benchmark
+
+  0%|          | 0/348 [00:00<?, ?benchmark time-series/s]
+  0%|          | 1/348 [00:00<02:41,  2.15benchmark time-series/s]
+  1%|          | 2/348 [00:00<02:42,  2.13benchmark time-series/s]
+  1%|          | 3/348 [00:01<02:42,  2.12benchmark time-series/s]
+  1%|          | 4/348 [00:01<02:41,  2.13benchmark time-series/s]
+  1%|▏         | 5/348 [00:02<02:41,  2.13benchmark time-series/s]
+  2%|▏         | 6/348 [00:02<02:40,  2.13benchmark time-series/s]
+  2%|▏         | 7/348 [00:03<02:39,  2.14benchmark time-series/s]
+  2%|▏         | 8/348 [00:03<02:38,  2.14benchmark time-series/s]
+  3%|▎         | 9/348 [00:04<02:38,  2.15benchmark time-series/s]
+  3%|▎         | 10/348 [00:04<02:37,  2.14benchmark time-series/s]
+  3%|▎         | 11/348 [00:05<02:39,  2.12benchmark time-series/s]
+  3%|▎         | 12/348 [00:05<02:38,  2.13benchmark time-series/s]
+  4%|▎         | 13/348 [00:06<02:37,  2.13benchmark time-series/s]
+  4%|▍         | 14/348 [00:06<02:36,  2.14benchmark time-series/s]
+  4%|▍         | 15/348 [00:07<02:35,  2.14benchmark time-series/s]
+  5%|▍         | 16/348 [00:07<02:34,  2.14benchmark time-series/s]
+  5%|▍         | 17/348 [00:07<02:34,  2.14benchmark time-series/s]
+  5%|▌         | 18/348 [00:08<02:33,  2.14benchmark time-series/s]
+  5%|▌         | 19/348 [00:08<02:33,  2.14benchmark time-series/s]
+  6%|▌         | 20/348 [00:09<02:33,  2.14benchmark time-series/s]
+  6%|▌         | 21/348 [00:09<02:32,  2.14benchmark time-series/s]
+  6%|▋         | 22/348 [00:10<02:32,  2.14benchmark time-series/s]
+  7%|▋         | 23/348 [00:10<02:31,  2.14benchmark time-series/s]
+  7%|▋         | 24/348 [00:11<02:31,  2.14benchmark time-series/s]
+  7%|▋         | 25/348 [00:11<02:30,  2.14benchmark time-series/s]
+  7%|▋         | 26/348 [00:12<02:30,  2.14benchmark time-series/s]
+  8%|▊         | 27/348 [00:12<02:29,  2.14benchmark time-series/s]
+  8%|▊         | 28/348 [00:13<02:29,  2.14benchmark time-series/s]
+  8%|▊         | 29/348 [00:13<02:28,  2.14benchmark time-series/s]
+  9%|▊         | 30/348 [00:14<02:28,  2.14benchmark time-series/s]
+  9%|▉         | 31/348 [00:14<02:27,  2.15benchmark time-series/s]
+  9%|▉         | 32/348 [00:14<02:27,  2.14benchmark time-series/s]
+  9%|▉         | 33/348 [00:15<02:26,  2.15benchmark time-series/s]
+ 10%|▉         | 34/348 [00:15<02:26,  2.14benchmark time-series/s]
+ 10%|█         | 35/348 [00:16<02:25,  2.15benchmark time-series/s]
+ 10%|█         | 36/348 [00:16<02:28,  2.10benchmark time-series/s]
+ 11%|█         | 37/348 [00:17<02:30,  2.07benchmark time-series/s]
+ 11%|█         | 38/348 [00:17<02:28,  2.09benchmark time-series/s]
+ 11%|█         | 39/348 [00:18<02:26,  2.11benchmark time-series/s]
+ 11%|█▏        | 40/348 [00:18<02:25,  2.12benchmark time-series/s]
+ 12%|█▏        | 41/348 [00:19<02:24,  2.12benchmark time-series/s]
+ 12%|█▏        | 42/348 [00:19<02:23,  2.13benchmark time-series/s]
+ 12%|█▏        | 43/348 [00:20<02:23,  2.13benchmark time-series/s]
+ 13%|█▎        | 44/348 [00:20<02:22,  2.13benchmark time-series/s]
+ 13%|█▎        | 45/348 [00:21<02:21,  2.14benchmark time-series/s]
+ 13%|█▎        | 46/348 [00:21<02:21,  2.14benchmark time-series/s]
+ 14%|█▎        | 47/348 [00:22<02:20,  2.14benchmark time-series/s]
+ 14%|█▍        | 48/348 [00:22<02:20,  2.14benchmark time-series/s]
+ 14%|█▍        | 49/348 [00:22<02:19,  2.14benchmark time-series/s]
+ 14%|█▍        | 50/348 [00:23<02:18,  2.15benchmark time-series/s]
+ 15%|█▍        | 51/348 [00:23<02:18,  2.15benchmark time-series/s]
+ 15%|█▍        | 52/348 [00:24<02:17,  2.15benchmark time-series/s]
+ 15%|█▌        | 53/348 [00:24<02:17,  2.15benchmark time-series/s]
+ 16%|█▌        | 54/348 [00:25<02:16,  2.15benchmark time-series/s]
+ 16%|█▌        | 55/348 [00:25<02:16,  2.15benchmark time-series/s]
+ 16%|█▌        | 56/348 [00:26<02:15,  2.15benchmark time-series/s]
+ 16%|█▋        | 57/348 [00:26<02:15,  2.15benchmark time-series/s]
+ 17%|█▋        | 58/348 [00:27<02:14,  2.15benchmark time-series/s]
+ 17%|█▋        | 59/348 [00:27<02:14,  2.15benchmark time-series/s]
+ 17%|█▋        | 60/348 [00:28<02:14,  2.15benchmark time-series/s]
+ 18%|█▊        | 61/348 [00:28<02:14,  2.14benchmark time-series/s]
+ 18%|█▊        | 62/348 [00:29<02:16,  2.10benchmark time-series/s]
+ 18%|█▊        | 63/348 [00:29<02:16,  2.09benchmark time-series/s]
+ 18%|█▊        | 64/348 [00:30<02:15,  2.10benchmark time-series/s]
+ 19%|█▊        | 65/348 [00:30<02:14,  2.10benchmark time-series/s]
+ 19%|█▉        | 66/348 [00:30<02:13,  2.12benchmark time-series/s]
+ 19%|█▉        | 67/348 [00:31<02:12,  2.12benchmark time-series/s]
+ 20%|█▉        | 68/348 [00:31<02:11,  2.13benchmark time-series/s]
+ 20%|█▉        | 69/348 [00:32<02:10,  2.14benchmark time-series/s]
+ 20%|██        | 70/348 [00:32<02:10,  2.13benchmark time-series/s]
+ 20%|██        | 71/348 [00:33<02:09,  2.14benchmark time-series/s]
+ 21%|██        | 72/348 [00:33<02:08,  2.14benchmark time-series/s]
+ 21%|██        | 73/348 [00:34<02:08,  2.14benchmark time-series/s]
+ 21%|██▏       | 74/348 [00:34<02:07,  2.14benchmark time-series/s]
+ 22%|██▏       | 75/348 [00:35<02:07,  2.14benchmark time-series/s]
+ 22%|██▏       | 76/348 [00:35<02:07,  2.14benchmark time-series/s]
+ 22%|██▏       | 77/348 [00:36<02:06,  2.14benchmark time-series/s]
+ 22%|██▏       | 78/348 [00:36<02:05,  2.14benchmark time-series/s]
+ 23%|██▎       | 79/348 [00:37<02:05,  2.15benchmark time-series/s]
+ 23%|██▎       | 80/348 [00:37<02:04,  2.15benchmark time-series/s]
+ 23%|██▎       | 81/348 [00:37<02:04,  2.14benchmark time-series/s]
+ 24%|██▎       | 82/348 [00:38<02:04,  2.14benchmark time-series/s]
+ 24%|██▍       | 83/348 [00:38<02:03,  2.14benchmark time-series/s]
+ 24%|██▍       | 84/348 [00:39<02:03,  2.14benchmark time-series/s]
+ 24%|██▍       | 85/348 [00:39<02:02,  2.14benchmark time-series/s]
+ 25%|██▍       | 86/348 [00:40<02:02,  2.15benchmark time-series/s]
+ 25%|██▌       | 87/348 [00:40<02:01,  2.15benchmark time-series/s]
+ 25%|██▌       | 88/348 [00:41<02:00,  2.15benchmark time-series/s]
+ 26%|██▌       | 89/348 [00:41<02:00,  2.14benchmark time-series/s]
+ 26%|██▌       | 90/348 [00:42<02:00,  2.15benchmark time-series/s]
+ 26%|██▌       | 91/348 [00:42<01:59,  2.14benchmark time-series/s]
+ 26%|██▋       | 92/348 [00:43<01:59,  2.15benchmark time-series/s]
+ 27%|██▋       | 93/348 [00:43<01:58,  2.15benchmark time-series/s]
+ 27%|██▋       | 94/348 [00:44<01:58,  2.15benchmark time-series/s]
+ 27%|██▋       | 95/348 [00:44<01:59,  2.12benchmark time-series/s]
+ 28%|██▊       | 96/348 [00:44<01:58,  2.12benchmark time-series/s]
+ 28%|██▊       | 97/348 [00:45<01:57,  2.13benchmark time-series/s]
+ 28%|██▊       | 98/348 [00:45<01:57,  2.14benchmark time-series/s]
+ 28%|██▊       | 99/348 [00:46<01:56,  2.14benchmark time-series/s]
+ 29%|██▊       | 100/348 [00:46<01:55,  2.14benchmark time-series/s]
+ 29%|██▉       | 101/348 [00:47<01:55,  2.14benchmark time-series/s]
+ 29%|██▉       | 102/348 [00:47<01:54,  2.15benchmark time-series/s]
+ 30%|██▉       | 103/348 [00:48<01:54,  2.15benchmark time-series/s]
+ 30%|██▉       | 104/348 [00:48<01:54,  2.13benchmark time-series/s]
+ 30%|███       | 105/348 [00:49<01:54,  2.13benchmark time-series/s]
+ 30%|███       | 106/348 [00:49<01:53,  2.14benchmark time-series/s]
+ 31%|███       | 107/348 [00:50<01:52,  2.14benchmark time-series/s]
+ 31%|███       | 108/348 [00:50<01:51,  2.15benchmark time-series/s]
+ 31%|███▏      | 109/348 [00:51<01:51,  2.14benchmark time-series/s]
+ 32%|███▏      | 110/348 [00:51<01:50,  2.15benchmark time-series/s]
+ 32%|███▏      | 111/348 [00:51<01:50,  2.15benchmark time-series/s]
+ 32%|███▏      | 112/348 [00:52<01:50,  2.14benchmark time-series/s]
+ 32%|███▏      | 113/348 [00:52<01:49,  2.14benchmark time-series/s]
+ 33%|███▎      | 114/348 [00:53<01:49,  2.14benchmark time-series/s]
+ 33%|███▎      | 115/348 [00:53<01:48,  2.14benchmark time-series/s]
+ 33%|███▎      | 116/348 [00:54<01:47,  2.15benchmark time-series/s]
+ 34%|███▎      | 117/348 [00:54<01:47,  2.15benchmark time-series/s]
+ 34%|███▍      | 118/348 [00:55<01:47,  2.15benchmark time-series/s]
+ 34%|███▍      | 119/348 [00:55<01:46,  2.15benchmark time-series/s]
+ 34%|███▍      | 120/348 [00:56<01:45,  2.15benchmark time-series/s]
+ 35%|███▍      | 121/348 [00:56<01:45,  2.15benchmark time-series/s]
+ 35%|███▌      | 122/348 [00:57<01:45,  2.15benchmark time-series/s]
+ 35%|███▌      | 123/348 [00:57<01:44,  2.15benchmark time-series/s]
+ 36%|███▌      | 124/348 [00:58<01:44,  2.15benchmark time-series/s]
+ 36%|███▌      | 125/348 [00:58<01:44,  2.14benchmark time-series/s]
+ 36%|███▌      | 126/348 [00:58<01:43,  2.14benchmark time-series/s]
+ 36%|███▋      | 127/348 [00:59<01:43,  2.13benchmark time-series/s]
+ 37%|███▋      | 128/348 [00:59<01:42,  2.14benchmark time-series/s]
+ 37%|███▋      | 129/348 [01:00<01:42,  2.14benchmark time-series/s]
+ 37%|███▋      | 130/348 [01:00<01:42,  2.14benchmark time-series/s]
+ 38%|███▊      | 131/348 [01:01<01:41,  2.14benchmark time-series/s]
+ 38%|███▊      | 132/348 [01:01<01:41,  2.14benchmark time-series/s]
+ 38%|███▊      | 133/348 [01:02<01:40,  2.14benchmark time-series/s]
+ 39%|███▊      | 134/348 [01:02<01:40,  2.14benchmark time-series/s]
+ 39%|███▉      | 135/348 [01:03<01:39,  2.14benchmark time-series/s]
+ 39%|███▉      | 136/348 [01:03<01:38,  2.14benchmark time-series/s]
+ 39%|███▉      | 137/348 [01:04<01:38,  2.14benchmark time-series/s]
+ 40%|███▉      | 138/348 [01:04<01:37,  2.15benchmark time-series/s]
+ 40%|███▉      | 139/348 [01:05<01:39,  2.11benchmark time-series/s]
+ 40%|████      | 140/348 [01:05<01:37,  2.12benchmark time-series/s]
+ 41%|████      | 141/348 [01:05<01:36,  2.14benchmark time-series/s]
+ 41%|████      | 142/348 [01:06<01:35,  2.15benchmark time-series/s]
+ 41%|████      | 143/348 [01:06<01:35,  2.15benchmark time-series/s]
+ 41%|████▏     | 144/348 [01:07<01:35,  2.14benchmark time-series/s]
+ 42%|████▏     | 145/348 [01:07<01:34,  2.14benchmark time-series/s]
+ 42%|████▏     | 146/348 [01:08<01:34,  2.15benchmark time-series/s]
+ 42%|████▏     | 147/348 [01:08<01:33,  2.15benchmark time-series/s]
+ 43%|████▎     | 148/348 [01:09<01:32,  2.16benchmark time-series/s]
+ 43%|████▎     | 149/348 [01:09<01:32,  2.16benchmark time-series/s]
+ 43%|████▎     | 150/348 [01:10<01:31,  2.16benchmark time-series/s]
+ 43%|████▎     | 151/348 [01:10<01:30,  2.17benchmark time-series/s]
+ 44%|████▎     | 152/348 [01:11<01:30,  2.16benchmark time-series/s]
+ 44%|████▍     | 153/348 [01:11<01:30,  2.17benchmark time-series/s]
+ 44%|████▍     | 154/348 [01:11<01:29,  2.16benchmark time-series/s]
+ 45%|████▍     | 155/348 [01:12<01:29,  2.16benchmark time-series/s]
+ 45%|████▍     | 156/348 [01:12<01:28,  2.16benchmark time-series/s]
+ 45%|████▌     | 157/348 [01:13<01:28,  2.16benchmark time-series/s]
+ 45%|████▌     | 158/348 [01:13<01:27,  2.16benchmark time-series/s]
+ 46%|████▌     | 159/348 [01:14<01:27,  2.17benchmark time-series/s]
+ 46%|████▌     | 160/348 [01:14<01:26,  2.16benchmark time-series/s]
+ 46%|████▋     | 161/348 [01:15<01:26,  2.17benchmark time-series/s]
+ 47%|████▋     | 162/348 [01:15<01:25,  2.17benchmark time-series/s]
+ 47%|████▋     | 163/348 [01:16<01:25,  2.17benchmark time-series/s]
+ 47%|████▋     | 164/348 [01:16<01:25,  2.16benchmark time-series/s]
+ 47%|████▋     | 165/348 [01:17<01:24,  2.16benchmark time-series/s]
+ 48%|████▊     | 166/348 [01:17<01:24,  2.17benchmark time-series/s]
+ 48%|████▊     | 167/348 [01:18<01:23,  2.16benchmark time-series/s]
+ 48%|████▊     | 168/348 [01:18<01:23,  2.17benchmark time-series/s]
+ 49%|████▊     | 169/348 [01:18<01:22,  2.17benchmark time-series/s]
+ 49%|████▉     | 170/348 [01:19<01:22,  2.17benchmark time-series/s]
+ 49%|████▉     | 171/348 [01:19<01:21,  2.17benchmark time-series/s]
+ 49%|████▉     | 172/348 [01:20<01:21,  2.17benchmark time-series/s]
+ 50%|████▉     | 173/348 [01:20<01:20,  2.17benchmark time-series/s]
+ 50%|█████     | 174/348 [01:21<01:20,  2.16benchmark time-series/s]
+ 50%|█████     | 175/348 [01:21<01:19,  2.16benchmark time-series/s]
+ 51%|█████     | 176/348 [01:22<01:20,  2.13benchmark time-series/s]
+ 51%|█████     | 177/348 [01:22<01:20,  2.13benchmark time-series/s]
+ 51%|█████     | 178/348 [01:23<01:19,  2.14benchmark time-series/s]
+ 51%|█████▏    | 179/348 [01:23<01:18,  2.15benchmark time-series/s]
+ 52%|█████▏    | 180/348 [01:24<01:18,  2.15benchmark time-series/s]
+ 52%|█████▏    | 181/348 [01:24<01:17,  2.16benchmark time-series/s]
+ 52%|█████▏    | 182/348 [01:24<01:16,  2.16benchmark time-series/s]
+ 53%|█████▎    | 183/348 [01:25<01:16,  2.17benchmark time-series/s]
+ 53%|█████▎    | 184/348 [01:25<01:15,  2.16benchmark time-series/s]
+ 53%|█████▎    | 185/348 [01:26<01:15,  2.16benchmark time-series/s]
+ 53%|█████▎    | 186/348 [01:26<01:15,  2.16benchmark time-series/s]
+ 54%|█████▎    | 187/348 [01:27<01:14,  2.16benchmark time-series/s]
+ 54%|█████▍    | 188/348 [01:27<01:13,  2.16benchmark time-series/s]
+ 54%|█████▍    | 189/348 [01:28<01:13,  2.15benchmark time-series/s]
+ 55%|█████▍    | 190/348 [01:28<01:13,  2.15benchmark time-series/s]
+ 55%|█████▍    | 191/348 [01:29<01:12,  2.16benchmark time-series/s]
+ 55%|█████▌    | 192/348 [01:29<01:12,  2.16benchmark time-series/s]
+ 55%|█████▌    | 193/348 [01:30<01:12,  2.15benchmark time-series/s]
+ 56%|█████▌    | 194/348 [01:30<01:11,  2.16benchmark time-series/s]
+ 56%|█████▌    | 195/348 [01:30<01:10,  2.16benchmark time-series/s]
+ 56%|█████▋    | 196/348 [01:31<01:10,  2.16benchmark time-series/s]
+ 57%|█████▋    | 197/348 [01:31<01:09,  2.16benchmark time-series/s]
+ 57%|█████▋    | 198/348 [01:32<01:09,  2.17benchmark time-series/s]
+ 57%|█████▋    | 199/348 [01:32<01:08,  2.17benchmark time-series/s]
+ 57%|█████▋    | 200/348 [01:33<01:08,  2.17benchmark time-series/s]
+ 58%|█████▊    | 201/348 [01:33<01:07,  2.17benchmark time-series/s]
+ 58%|█████▊    | 202/348 [01:34<01:07,  2.15benchmark time-series/s]
+ 58%|█████▊    | 203/348 [01:34<01:07,  2.16benchmark time-series/s]
+ 59%|█████▊    | 204/348 [01:35<01:06,  2.15benchmark time-series/s]
+ 59%|█████▉    | 205/348 [01:35<01:06,  2.15benchmark time-series/s]
+ 59%|█████▉    | 206/348 [01:36<01:05,  2.16benchmark time-series/s]
+ 59%|█████▉    | 207/348 [01:36<01:05,  2.16benchmark time-series/s]
+ 60%|█████▉    | 208/348 [01:36<01:04,  2.17benchmark time-series/s]
+ 60%|██████    | 209/348 [01:37<01:04,  2.17benchmark time-series/s]
+ 60%|██████    | 210/348 [01:37<01:03,  2.17benchmark time-series/s]
+ 61%|██████    | 211/348 [01:38<01:03,  2.17benchmark time-series/s]
+ 61%|██████    | 212/348 [01:38<01:02,  2.17benchmark time-series/s]
+ 61%|██████    | 213/348 [01:39<01:02,  2.17benchmark time-series/s]
+ 61%|██████▏   | 214/348 [01:39<01:01,  2.17benchmark time-series/s]
+ 62%|██████▏   | 215/348 [01:40<01:01,  2.17benchmark time-series/s]
+ 62%|██████▏   | 216/348 [01:40<01:00,  2.17benchmark time-series/s]
+ 62%|██████▏   | 217/348 [01:41<01:00,  2.17benchmark time-series/s]
+ 63%|██████▎   | 218/348 [01:41<00:59,  2.17benchmark time-series/s]
+ 63%|██████▎   | 219/348 [01:42<00:59,  2.16benchmark time-series/s]
+ 63%|██████▎   | 220/348 [01:42<00:59,  2.17benchmark time-series/s]
+ 64%|██████▎   | 221/348 [01:42<00:58,  2.17benchmark time-series/s]
+ 64%|██████▍   | 222/348 [01:43<00:58,  2.15benchmark time-series/s]
+ 64%|██████▍   | 223/348 [01:43<00:58,  2.14benchmark time-series/s]
+ 64%|██████▍   | 224/348 [01:44<00:57,  2.15benchmark time-series/s]
+ 65%|██████▍   | 225/348 [01:44<00:57,  2.14benchmark time-series/s]
+ 65%|██████▍   | 226/348 [01:45<00:56,  2.15benchmark time-series/s]
+ 65%|██████▌   | 227/348 [01:45<00:56,  2.15benchmark time-series/s]
+ 66%|██████▌   | 228/348 [01:46<00:55,  2.15benchmark time-series/s]
+ 66%|██████▌   | 229/348 [01:46<00:55,  2.15benchmark time-series/s]
+ 66%|██████▌   | 230/348 [01:47<00:54,  2.15benchmark time-series/s]
+ 66%|██████▋   | 231/348 [01:47<00:54,  2.16benchmark time-series/s]
+ 67%|██████▋   | 232/348 [01:48<00:53,  2.16benchmark time-series/s]
+ 67%|██████▋   | 233/348 [01:48<00:53,  2.16benchmark time-series/s]
+ 67%|██████▋   | 234/348 [01:49<00:52,  2.17benchmark time-series/s]
+ 68%|██████▊   | 235/348 [01:49<00:52,  2.17benchmark time-series/s]
+ 68%|██████▊   | 236/348 [01:49<00:51,  2.17benchmark time-series/s]
+ 68%|██████▊   | 237/348 [01:50<00:51,  2.17benchmark time-series/s]
+ 68%|██████▊   | 238/348 [01:50<00:50,  2.17benchmark time-series/s]
+ 69%|██████▊   | 239/348 [01:51<00:50,  2.17benchmark time-series/s]
+ 69%|██████▉   | 240/348 [01:51<00:49,  2.16benchmark time-series/s]
+ 69%|██████▉   | 241/348 [01:52<00:49,  2.16benchmark time-series/s]
+ 70%|██████▉   | 242/348 [01:52<00:49,  2.16benchmark time-series/s]
+ 70%|██████▉   | 243/348 [01:53<00:48,  2.16benchmark time-series/s]
+ 70%|███████   | 244/348 [01:53<00:48,  2.16benchmark time-series/s]
+ 70%|███████   | 245/348 [01:54<00:47,  2.16benchmark time-series/s]
+ 71%|███████   | 246/348 [01:54<00:47,  2.17benchmark time-series/s]
+ 71%|███████   | 247/348 [01:55<00:46,  2.17benchmark time-series/s]
+ 71%|███████▏  | 248/348 [01:55<00:46,  2.17benchmark time-series/s]
+ 72%|███████▏  | 249/348 [01:55<00:45,  2.17benchmark time-series/s]
+ 72%|███████▏  | 250/348 [01:56<00:45,  2.17benchmark time-series/s]
+ 72%|███████▏  | 251/348 [01:56<00:44,  2.16benchmark time-series/s]
+ 72%|███████▏  | 252/348 [01:57<00:44,  2.17benchmark time-series/s]
+ 73%|███████▎  | 253/348 [01:57<00:43,  2.17benchmark time-series/s]
+ 73%|███████▎  | 254/348 [01:58<00:43,  2.17benchmark time-series/s]
+ 73%|███████▎  | 255/348 [01:58<00:43,  2.16benchmark time-series/s]
+ 74%|███████▎  | 256/348 [01:59<00:42,  2.16benchmark time-series/s]
+ 74%|███████▍  | 257/348 [01:59<00:42,  2.16benchmark time-series/s]
+ 74%|███████▍  | 258/348 [02:00<00:41,  2.16benchmark time-series/s]
+ 74%|███████▍  | 259/348 [02:00<00:41,  2.17benchmark time-series/s]
+ 75%|███████▍  | 260/348 [02:01<00:40,  2.17benchmark time-series/s]
+ 75%|███████▌  | 261/348 [02:01<00:40,  2.17benchmark time-series/s]
+ 75%|███████▌  | 262/348 [02:01<00:39,  2.17benchmark time-series/s]
+ 76%|███████▌  | 263/348 [02:02<00:39,  2.17benchmark time-series/s]
+ 76%|███████▌  | 264/348 [02:02<00:38,  2.16benchmark time-series/s]
+ 76%|███████▌  | 265/348 [02:03<00:38,  2.15benchmark time-series/s]
+ 76%|███████▋  | 266/348 [02:03<00:38,  2.15benchmark time-series/s]
+ 77%|███████▋  | 267/348 [02:04<00:37,  2.15benchmark time-series/s]
+ 77%|███████▋  | 268/348 [02:04<00:37,  2.16benchmark time-series/s]
+ 77%|███████▋  | 269/348 [02:05<00:36,  2.16benchmark time-series/s]
+ 78%|███████▊  | 270/348 [02:05<00:36,  2.15benchmark time-series/s]
+ 78%|███████▊  | 271/348 [02:06<00:35,  2.16benchmark time-series/s]
+ 78%|███████▊  | 272/348 [02:06<00:35,  2.16benchmark time-series/s]
+ 78%|███████▊  | 273/348 [02:07<00:34,  2.15benchmark time-series/s]
+ 79%|███████▊  | 274/348 [02:07<00:34,  2.16benchmark time-series/s]
+ 79%|███████▉  | 275/348 [02:07<00:33,  2.16benchmark time-series/s]
+ 79%|███████▉  | 276/348 [02:08<00:33,  2.16benchmark time-series/s]
+ 80%|███████▉  | 277/348 [02:08<00:32,  2.17benchmark time-series/s]
+ 80%|███████▉  | 278/348 [02:09<00:32,  2.17benchmark time-series/s]
+ 80%|████████  | 279/348 [02:09<00:31,  2.17benchmark time-series/s]
+ 80%|████████  | 280/348 [02:10<00:31,  2.16benchmark time-series/s]
+ 81%|████████  | 281/348 [02:10<00:31,  2.16benchmark time-series/s]
+ 81%|████████  | 282/348 [02:11<00:30,  2.14benchmark time-series/s]
+ 81%|████████▏ | 283/348 [02:11<00:30,  2.14benchmark time-series/s]
+ 82%|████████▏ | 284/348 [02:12<00:29,  2.15benchmark time-series/s]
+ 82%|████████▏ | 285/348 [02:12<00:29,  2.15benchmark time-series/s]
+ 82%|████████▏ | 286/348 [02:13<00:28,  2.16benchmark time-series/s]
+ 82%|████████▏ | 287/348 [02:13<00:28,  2.16benchmark time-series/s]
+ 83%|████████▎ | 288/348 [02:14<00:27,  2.16benchmark time-series/s]
+ 83%|████████▎ | 289/348 [02:14<00:27,  2.16benchmark time-series/s]
+ 83%|████████▎ | 290/348 [02:14<00:26,  2.17benchmark time-series/s]
+ 84%|████████▎ | 291/348 [02:15<00:26,  2.17benchmark time-series/s]
+ 84%|████████▍ | 292/348 [02:15<00:25,  2.17benchmark time-series/s]
+ 84%|████████▍ | 293/348 [02:16<00:25,  2.17benchmark time-series/s]
+ 84%|████████▍ | 294/348 [02:16<00:24,  2.17benchmark time-series/s]
+ 85%|████████▍ | 295/348 [02:17<00:24,  2.15benchmark time-series/s]
+ 85%|████████▌ | 296/348 [02:17<00:24,  2.15benchmark time-series/s]
+ 85%|████████▌ | 297/348 [02:18<00:23,  2.15benchmark time-series/s]
+ 86%|████████▌ | 298/348 [02:18<00:23,  2.16benchmark time-series/s]
+ 86%|████████▌ | 299/348 [02:19<00:22,  2.16benchmark time-series/s]
+ 86%|████████▌ | 300/348 [02:19<00:22,  2.16benchmark time-series/s]
+ 86%|████████▋ | 301/348 [02:20<00:21,  2.16benchmark time-series/s]
+ 87%|████████▋ | 302/348 [02:20<00:21,  2.17benchmark time-series/s]
+ 87%|████████▋ | 303/348 [02:20<00:20,  2.17benchmark time-series/s]
+ 87%|████████▋ | 304/348 [02:21<00:20,  2.17benchmark time-series/s]
+ 88%|████████▊ | 305/348 [02:21<00:19,  2.16benchmark time-series/s]
+ 88%|████████▊ | 306/348 [02:22<00:19,  2.16benchmark time-series/s]
+ 88%|████████▊ | 307/348 [02:22<00:18,  2.16benchmark time-series/s]
+ 89%|████████▊ | 308/348 [02:23<00:18,  2.16benchmark time-series/s]
+ 89%|████████▉ | 309/348 [02:23<00:18,  2.14benchmark time-series/s]
+ 89%|████████▉ | 310/348 [02:24<00:17,  2.15benchmark time-series/s]
+ 89%|████████▉ | 311/348 [02:24<00:17,  2.16benchmark time-series/s]
+ 90%|████████▉ | 312/348 [02:25<00:16,  2.16benchmark time-series/s]
+ 90%|████████▉ | 313/348 [02:25<00:16,  2.16benchmark time-series/s]
+ 90%|█████████ | 314/348 [02:26<00:15,  2.16benchmark time-series/s]
+ 91%|█████████ | 315/348 [02:26<00:15,  2.16benchmark time-series/s]
+ 91%|█████████ | 316/348 [02:26<00:14,  2.15benchmark time-series/s]
+ 91%|█████████ | 317/348 [02:27<00:14,  2.16benchmark time-series/s]
+ 91%|█████████▏| 318/348 [02:27<00:13,  2.15benchmark time-series/s]
+ 92%|█████████▏| 319/348 [02:28<00:13,  2.15benchmark time-series/s]
+ 92%|█████████▏| 320/348 [02:28<00:12,  2.16benchmark time-series/s]
+ 92%|█████████▏| 321/348 [02:29<00:12,  2.15benchmark time-series/s]
+ 93%|█████████▎| 322/348 [02:29<00:12,  2.16benchmark time-series/s]
+ 93%|█████████▎| 323/348 [02:30<00:11,  2.13benchmark time-series/s]
+ 93%|█████████▎| 324/348 [02:30<00:11,  2.14benchmark time-series/s]
+ 93%|█████████▎| 325/348 [02:31<00:10,  2.14benchmark time-series/s]
+ 94%|█████████▎| 326/348 [02:31<00:10,  2.14benchmark time-series/s]
+ 94%|█████████▍| 327/348 [02:32<00:09,  2.15benchmark time-series/s]
+ 94%|█████████▍| 328/348 [02:32<00:09,  2.16benchmark time-series/s]
+ 95%|█████████▍| 329/348 [02:33<00:08,  2.16benchmark time-series/s]
+ 95%|█████████▍| 330/348 [02:33<00:08,  2.16benchmark time-series/s]
+ 95%|█████████▌| 331/348 [02:33<00:07,  2.17benchmark time-series/s]
+ 95%|█████████▌| 332/348 [02:34<00:07,  2.17benchmark time-series/s]
+ 96%|█████████▌| 333/348 [02:34<00:06,  2.17benchmark time-series/s]
+ 96%|█████████▌| 334/348 [02:35<00:06,  2.16benchmark time-series/s]
+ 96%|█████████▋| 335/348 [02:35<00:06,  2.16benchmark time-series/s]
+ 97%|█████████▋| 336/348 [02:36<00:05,  2.14benchmark time-series/s]
+ 97%|█████████▋| 337/348 [02:36<00:05,  2.15benchmark time-series/s]
+ 97%|█████████▋| 338/348 [02:37<00:04,  2.15benchmark time-series/s]
+ 97%|█████████▋| 339/348 [02:37<00:04,  2.16benchmark time-series/s]
+ 98%|█████████▊| 340/348 [02:38<00:03,  2.16benchmark time-series/s]
+ 98%|█████████▊| 341/348 [02:38<00:03,  2.16benchmark time-series/s]
+ 98%|█████████▊| 342/348 [02:39<00:02,  2.15benchmark time-series/s]
+ 99%|█████████▊| 343/348 [02:39<00:02,  2.16benchmark time-series/s]
+ 99%|█████████▉| 344/348 [02:39<00:01,  2.16benchmark time-series/s]
+ 99%|█████████▉| 345/348 [02:40<00:01,  2.16benchmark time-series/s]
+ 99%|█████████▉| 346/348 [02:40<00:00,  2.16benchmark time-series/s]
+100%|█████████▉| 347/348 [02:41<00:00,  2.16benchmark time-series/s]
+100%|██████████| 348/348 [02:41<00:00,  2.16benchmark time-series/s]
+100%|██████████| 348/348 [02:41<00:00,  2.15benchmark time-series/s]
+2025-07-08 11:12:21,152 INFO Pushing results to RedisTimeSeries. Have 8 distinct data-points to insert. (deployment_name=oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20, deployment_type=oss-cluster)
+
+  0%|          | 0/8 [00:00<?, ?benchmark time-series/s]
+ 12%|█▎        | 1/8 [00:00<00:02,  2.91benchmark time-series/s]
+ 25%|██▌       | 2/8 [00:00<00:02,  2.88benchmark time-series/s]
+ 38%|███▊      | 3/8 [00:01<00:01,  2.88benchmark time-series/s]
+ 50%|█████     | 4/8 [00:01<00:01,  2.87benchmark time-series/s]
+ 62%|██████▎   | 5/8 [00:01<00:01,  2.87benchmark time-series/s]
+ 75%|███████▌  | 6/8 [00:02<00:00,  2.87benchmark time-series/s]
+ 88%|████████▊ | 7/8 [00:02<00:00,  2.88benchmark time-series/s]
+100%|██████████| 8/8 [00:02<00:00,  2.88benchmark time-series/s]
+100%|██████████| 8/8 [00:02<00:00,  2.88benchmark time-series/s]
+2025-07-08 11:12:23,934 INFO There are a total of 2 distinct target tables by version
+2025-07-08 11:12:23,935 INFO Setting target table by version on key target_tables:C7Y9VWRL2Y-Joan-Fontanals-Martinez:ci.benchmarks.redislabs/version/by.version/RediSearch/RediSearch/oss-cluster/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/search-numeric-with-results-16k-no-cluster-client/Ops/sec
+2025-07-08 11:12:24,049 INFO Setting target table by version on key target_tables:C7Y9VWRL2Y-Joan-Fontanals-Martinez:ci.benchmarks.redislabs/version/by.version/RediSearch/RediSearch/oss-cluster/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/search-numeric-with-results-16k-no-cluster-client/Latency
+2025-07-08 11:12:24,164 INFO There are a total of 2 distinct target tables by branch
+2025-07-08 11:12:24,164 INFO Setting target table by branch on key target_tables:C7Y9VWRL2Y-Joan-Fontanals-Martinez:ci.benchmarks.redislabs/branch/by.branch/RediSearch/RediSearch/oss-cluster/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/search-numeric-with-results-16k-no-cluster-client/Ops/sec
+2025-07-08 11:12:24,282 INFO Setting target table by branch on key target_tables:C7Y9VWRL2Y-Joan-Fontanals-Martinez:ci.benchmarks.redislabs/branch/by.branch/RediSearch/RediSearch/oss-cluster/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/search-numeric-with-results-16k-no-cluster-client/Latency
+2025-07-08 11:12:26,150 INFO Adding metric benchmark_duration=487 to time-serie named ci.benchmarks.redislabs/by.branch/C7Y9VWRL2Y-Joan-Fontanals-Martinez/RediSearch/RediSearch/search-numeric-with-results-16k-no-cluster-client/oss-cluster/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/joan-uv-threads-benchmark/benchmark_duration
+2025-07-08 11:12:26,380 ERROR {'github_org': 'RediSearch', 'github_repo': 'RediSearch', 'Project': 'RediSearch', 'project': 'RediSearch', 'Environment': 'RediSearch', 'environment': 'RediSearch', 'github_org/github_repo': 'RediSearch/RediSearch', 'deployment_type': 'oss-cluster', 'deployment_name': 'oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20', 'triggering_env': 'C7Y9VWRL2Y-Joan-Fontanals-Martinez', 'component': 'search', 'arch': 'x86_64', 'branch': 'joan-uv-threads-benchmark', 'deployment_name+branch': 'oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20 joan-uv-threads-benchmark', 'test_name': 'search-numeric-with-results-16k-no-cluster-client', 'metric': 'benchmark_duration'}
+2025-07-08 11:12:26,495 INFO Adding metric dataset_load_duration=14 to time-serie named ci.benchmarks.redislabs/by.branch/C7Y9VWRL2Y-Joan-Fontanals-Martinez/RediSearch/RediSearch/search-numeric-with-results-16k-no-cluster-client/oss-cluster/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/joan-uv-threads-benchmark/dataset_load_duration
+2025-07-08 11:12:26,730 ERROR {'github_org': 'RediSearch', 'github_repo': 'RediSearch', 'Project': 'RediSearch', 'project': 'RediSearch', 'Environment': 'RediSearch', 'environment': 'RediSearch', 'github_org/github_repo': 'RediSearch/RediSearch', 'deployment_type': 'oss-cluster', 'deployment_name': 'oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20', 'triggering_env': 'C7Y9VWRL2Y-Joan-Fontanals-Martinez', 'component': 'search', 'arch': 'x86_64', 'branch': 'joan-uv-threads-benchmark', 'deployment_name+branch': 'oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20 joan-uv-threads-benchmark', 'test_name': 'search-numeric-with-results-16k-no-cluster-client', 'metric': 'dataset_load_duration'}
+2025-07-08 11:12:26,852 INFO Adding metric benchmark_duration=487 to time-serie named ci.benchmarks.redislabs/by.version/C7Y9VWRL2Y-Joan-Fontanals-Martinez/RediSearch/RediSearch/search-numeric-with-results-16k-no-cluster-client/oss-cluster/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/255.255.255/benchmark_duration
+2025-07-08 11:12:27,197 INFO Adding metric dataset_load_duration=14 to time-serie named ci.benchmarks.redislabs/by.version/C7Y9VWRL2Y-Joan-Fontanals-Martinez/RediSearch/RediSearch/search-numeric-with-results-16k-no-cluster-client/oss-cluster/oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20/255.255.255/dataset_load_duration
+# Results for search-numeric-with-results-16k-no-cluster-client test-case on oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20 topology (type=oss-cluster)
+|    Metric JSON Path    |Metric Value|
+|------------------------|-----------:|
+|"ALL STATS".*."Ops/sec" |      13.670|
+|"ALL STATS".*."Ops/sec" |      13.670|
+|"ALL STATS".*."Latency" |    9382.203|
+|"ALL STATS".*."Latency" |    9382.000|
+|Total shards CPU usage %|    2245.084|
+# Benchmark client artifacts
+|                         Setup                         |                    Test-case                    |                                                                                                         Artifact                                                                                                          |  link   |
+|-------------------------------------------------------|-------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+|oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20|search-numeric-with-results-16k-no-cluster-client|2025-07-08-08-56-20-RediSearch-RediSearch-joan-uv-threads-benchmark-search-numeric-with-results-16k-no-cluster-client-oss-cluster-08-primaries_joan-uv-threads_w12_st20_sio20-581804b7dd7e34fb552f9f7fdac2428dbb9e54e6.json| - n/a - |
+Benchmark completed!!!!
+
+All benchmarks completed
