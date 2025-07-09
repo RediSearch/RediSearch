@@ -1878,9 +1878,6 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
-  if (req->vsimQueryParams) {
-    VectorQueryData_Free(req->vsimQueryParams);
-  }
   if (req->vsimQueryParameters) {
     VectorQueryParameters_Free(req->vsimQueryParameters);
   }
@@ -1943,8 +1940,14 @@ void VectorQueryParameters_Free(VectorQueryParameters *vqParams) {
     VectorQuery_Free(vqParams->vq);
   }
 
-  // Free QueryAttribute arrays (attributes are shared with VectorQueryData, so we don't free them here)
-  // The attributes themselves are freed when VectorQueryData is freed
+  // Free QueryAttribute arrays
+  if (vqParams->attributes) {
+    for (size_t i = 0; i < vqParams->numAttributes; i++) {
+      rm_free((char*)vqParams->attributes[i].value);
+      // Note: .name is not freed because it points to string literals like "yield_distance_as"
+    }
+    array_free(vqParams->attributes);
+  }
 
   rm_free(vqParams);
 }

@@ -161,7 +161,6 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
-  VectorQueryData *vsimQueryParams;
   VectorQueryParameters *vsimQueryParameters;
   /** Fields to be output and otherwise processed */
   FieldList outFields;
