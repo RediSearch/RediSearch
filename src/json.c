@@ -499,11 +499,13 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
           break;
         default:
           rv = REDISMODULE_ERR;
+          QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
           break;
       }
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
+      QueryError_SetError(status, QUERY_EGENERIC, "Object type is not supported");
       break;
     case JSONType__EOF:
       RS_ABORT("Should not happen");
@@ -547,6 +549,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
         break;
       default:
         rv = REDISMODULE_ERR;
+        QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
         break;
     }
   }
@@ -565,6 +568,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       df->multisv = rsv;
     } else {
       rv = REDISMODULE_ERR;
+      QueryError_SetError(status, QUERY_EGENERIC, "Failed to get value from iterator");
     }
   }
   return rv;
