@@ -198,7 +198,7 @@ impl Default for Numeric {
 
 /// The [`Numeric`] encoder only supports encoding deltas that fit within 7 bytes
 #[derive(Debug, PartialEq)]
-pub struct NumericDelta(pub u64);
+pub struct NumericDelta(u64);
 
 impl ToBytes<8> for NumericDelta {
     fn pack(self) -> [u8; 8] {
@@ -219,6 +219,13 @@ impl IdDelta for NumericDelta {
 
     fn reset() -> Self {
         Self(0)
+    }
+}
+
+impl NumericDelta {
+    /// Creates a new [`NumericDelta`] from a given delta value
+    pub fn new(delta: u64) -> Self {
+        Self(delta)
     }
 }
 
