@@ -17,11 +17,18 @@
 struct RLookupKey; // Forward declaration
 
 typedef enum IteratorStatus {
-   ITERATOR_OK,
-   ITERATOR_NOTFOUND,
-   ITERATOR_EOF,
-   ITERATOR_TIMEOUT,
+  ITERATOR_OK,
+  ITERATOR_NOTFOUND,
+  ITERATOR_EOF,
+  ITERATOR_TIMEOUT,
 } IteratorStatus;
+
+typedef enum VALIDATE_OK {
+  VALIDATE_OK, // The iterator is still valid and lastDocID did not change
+  VALIDATE_MOVED, // The iterator is still valid but lastDocID changed
+  VALIDATE_ABORTED,
+  VALIDATE_EOF
+} ValidateStatus;
 
 enum IteratorType {
   READ_ITERATOR,
@@ -38,11 +45,6 @@ enum IteratorType {
   OPTIMUS_ITERATOR,
   MAX_ITERATOR,
 };
-
-IteratorStatus DefaultOnReValidate(struct QueryIterator *self) {
-  // Default implementation does nothing.
-  return ITERATOR_OK;
-}
 
 /* An abstract interface used by readers / intersectors / uniones etc.
 Basically query execution creates a tree of iterators that activate each other
@@ -85,9 +87,13 @@ typedef struct QueryIterator {
 
   /**
    * Called when the iterator is being revalidated after a concurrent index change.
-   * The iterator should check if it is still valid`.
+   * The iterator should check if it is still valid.
+   *
+   * @return VALIDATE_OK if the iterator is still valid
+   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed
+   * @return VALIDATE_ABORTED if the iterator is no longer valid
    */
-  IteratorStatus (*OnReValidate)(struct QueryIterator *self);
+  ValidateStatus (*Revalidate)(struct QueryIterator *self);
 
   /* release the iterator's context and free everything needed */
   void (*Free)(struct QueryIterator *self);
@@ -95,6 +101,11 @@ typedef struct QueryIterator {
   /* Rewind the iterator to the beginning and reset its state (including `atEOF` and `lastDocId`) */
   void (*Rewind)(struct QueryIterator *self);
 } QueryIterator;
+
+static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
+  // Default implementation does nothing.
+  return base->atEOF ? VALIDATE_EOF : VALIDATE_OK;
+}
 
 // Scaffold for the iterator API. TODO: Remove this when the old API is removed
 #define IT_V2(api_name) api_name##_V2

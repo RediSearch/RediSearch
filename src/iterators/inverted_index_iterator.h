@@ -51,7 +51,16 @@ typedef struct InvIndIterator {
 
   // The context for the field/s filter, used to determine if the field/s is/are expired
   FieldFilterContext filterCtx;
+
+  ValidateStatus (*CheckAbort)(struct InvIndIterator *self);
+
 } InvIndIterator;
+
+//TODO(Joan): Maybe we need another one for TagIndex with the TagIdx as member
+typedef struct {
+  InvIndIterator base;
+  uint32_t revisionId;
+} NumericInvIndIterator;
 
 // API for full index scan. Not suitable for queries
 QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx);

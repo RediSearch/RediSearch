@@ -171,6 +171,6 @@ QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, si
   ret->Rewind = IL_Rewind;
   ret->Free = MR_Free;
   ret->NumEstimated = IL_NumEstimated;
-  ret->OnReValidate = DefaultOnReValidate;
+  ret->Revalidate = Default_Revalidate;
   return ret;
 }
