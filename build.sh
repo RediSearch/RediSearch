@@ -278,6 +278,8 @@ prepare_cmake_arguments() {
 
   # Enable Rust/C LTO by using clang and lld
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS='-fuse-ld=lld' -DCMAKE_MODULE_LINKER_FLAGS='-fuse-ld=lld' -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+  clang -v
+  ld.lld-20 -v
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
