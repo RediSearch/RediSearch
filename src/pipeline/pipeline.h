@@ -109,7 +109,7 @@ typedef struct HybridPipelineParams {
      *  Contains all the standard parameters needed for processing search results,
      *  including field loading, sorting, filtering, and output formatting that
      *  will be applied to the merged hybrid search results. */
-    AggregationPipelineParams aggregation;
+    AggregationPipelineParams aggregationParams;
 
     /** Whether to synchronize read locks between depleter result processors.
      *  When true, ensures that all depleter processors coordinate their read

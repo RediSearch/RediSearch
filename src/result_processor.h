@@ -329,10 +329,10 @@ void PipelineAddCrash(struct AREQ *r);
  * Constructs a new RPDepleter processor that offloads result consumption to a background thread.
  * The returned processor takes ownership of result depleting and yielding.
  * @param sync_ref Reference to shared synchronization object for coordinating multiple depleters
- * @param upstream Search context for the upstream processor being wrapped
- * @param downstream Search context for the downstream processor that will receive results
+ * @param depletingThreadCtx Search context for the upstream processor being wrapped
+ * @param nextThreadCtx Search context for the downstream processor that will receive results
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThread, RedisSearchCtx *nextThread);
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
 
 /**
  * Creates a new shared synchronization object for coordinating multiple RPDepleter processors.

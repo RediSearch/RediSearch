@@ -145,7 +145,7 @@ TEST_F(HybridRequestTest, testHybridRequestCreationBasic) {
   ASSERT_TRUE(hybridReq->requests != nullptr);
 
   // Verify the merge pipeline is initialized
-  ASSERT_TRUE(hybridReq->tail.ap.steps.next != nullptr);
+  ASSERT_TRUE(hybridReq->pipeline.ap.steps.next != nullptr);
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -165,7 +165,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
 
   // Add a basic LOAD step to test pipeline building
   const char *loadFields[] = {"test_field"};
-  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 1);
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 1);
 
   ASSERT_TRUE(hybridReq != nullptr);
 
@@ -174,7 +174,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   EXPECT_TRUE(hybridReq->requests != nullptr);
 
   // Verify merge pipeline structure
-  EXPECT_TRUE(hybridReq->tail.ap.steps.next != nullptr);
+  EXPECT_TRUE(hybridReq->pipeline.ap.steps.next != nullptr);
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -206,7 +206,7 @@ TEST_F(HybridRequestTest, testHybridRequestCreationWithRedis) {
   ASSERT_TRUE(hybridReq->requests != nullptr);
 
   // Verify the merge pipeline is initialized
-  ASSERT_TRUE(hybridReq->tail.ap.steps.next != nullptr);
+  ASSERT_TRUE(hybridReq->pipeline.ap.steps.next != nullptr);
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -239,10 +239,16 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   ASSERT_TRUE(hybridReq != nullptr);
 
   const char *loadFields[] = {"title", "score"};
-  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 2);
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 2);
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
 
   HybridPipelineParams params = {
-      .aggregation = {
+      .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
@@ -252,7 +258,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
         .maxResultsLimit = 10,
       },
       .synchronize_read_locks = true,
-      .scoringCtx = nullptr,
+      .scoringCtx = scoringCtx,
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
@@ -265,7 +271,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   }
 
   // Verify merge pipeline has processors
-  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Tail pipeline not built";
+  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Tail pipeline not built";
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -301,10 +307,16 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   ASSERT_EQ(hybridReq->nrequests, 3);
 
   const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
 
   HybridPipelineParams params = {
-      .aggregation = {
+      .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
@@ -314,7 +326,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
         .maxResultsLimit = 10,
       },
       .synchronize_read_locks = true,
-      .scoringCtx = nullptr,
+      .scoringCtx = scoringCtx,
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
@@ -328,8 +340,8 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   }
 
   // Verify merge pipeline structure
-  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Tail pipeline end processor not set";
-  EXPECT_TRUE(hybridReq->tail.qctx.rootProc != nullptr) << "Tail pipeline root processor not set";
+  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Tail pipeline end processor not set";
+  EXPECT_TRUE(hybridReq->pipeline.qctx.rootProc != nullptr) << "Tail pipeline root processor not set";
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -353,8 +365,14 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 1);
   ASSERT_TRUE(hybridReq != nullptr);
 
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
+
   HybridPipelineParams params = {
-      .aggregation = {
+      .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
@@ -364,7 +382,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
         .maxResultsLimit = 10,
       },
       .synchronize_read_locks = true,
-      .scoringCtx = nullptr,
+      .scoringCtx = scoringCtx,
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
@@ -405,10 +423,16 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
 
   // Create AGGPlan with comprehensive LOAD step
   const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
 
   HybridPipelineParams params = {
-      .aggregation = {
+      .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
@@ -418,7 +442,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
         .maxResultsLimit = 10,
       },
       .synchronize_read_locks = true,
-      .scoringCtx = nullptr,
+      .scoringCtx = scoringCtx,
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
@@ -440,7 +464,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
   }
 
   // Verify merge pipeline
-  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Tail pipeline not built";
+  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Tail pipeline not built";
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -468,10 +492,16 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
 
   // Create AGGPlan with LOAD step
   const char *loadFields[] = {"title"};
-  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 1);
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 1);
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
 
   HybridPipelineParams params = {
-      .aggregation = {
+      .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
@@ -481,7 +511,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
         .maxResultsLimit = 10,
       },
       .synchronize_read_locks = true,
-      .scoringCtx = nullptr,
+      .scoringCtx = scoringCtx,
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
@@ -489,7 +519,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
 
   // Verify proper cleanup - this test mainly ensures no memory leaks
   // The actual verification happens during cleanup
-  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Merge pipeline not built";
+  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Merge pipeline not built";
 
   // Clean up - this should not crash or leak memory
   HybridRequest_Free(hybridReq);
@@ -521,11 +551,17 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
 
   // Create AGGPlan with LOAD step
   const char *loadFields[] = {"title", "score"};
-  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 2);
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 2);
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
 
   // Build pipeline
   HybridPipelineParams params = {
-      .aggregation = {
+      .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
@@ -535,7 +571,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
         .maxResultsLimit = 10,
       },
       .synchronize_read_locks = true,
-      .scoringCtx = nullptr,
+      .scoringCtx = scoringCtx,
     };
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
 
@@ -557,7 +593,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   }
 
   // Verify merge pipeline has hybrid merger
-  ResultProcessor *mergeRP = hybridReq->tail.qctx.endProc;
+  ResultProcessor *mergeRP = hybridReq->pipeline.qctx.endProc;
   EXPECT_TRUE(mergeRP != nullptr) << "Tail pipeline has no end processor";
 
   // The merge pipeline should have processors for handling the merged results
@@ -599,10 +635,16 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
 
   // Add LOAD step
   const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&hybridReq->tail.ap, loadFields, 3);
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
 
   HybridPipelineParams params = {
-      .aggregation = {
+      .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = hybridReq->requests[0]->reqflags,
@@ -612,7 +654,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
         .maxResultsLimit = 10,
       },
       .synchronize_read_locks = true,
-      .scoringCtx = nullptr,
+      .scoringCtx = scoringCtx,
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
@@ -626,7 +668,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
   }
 
   // Verify merge pipeline handles complex structure
-  EXPECT_TRUE(hybridReq->tail.qctx.endProc != nullptr) << "Complex merge pipeline not built";
+  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Complex merge pipeline not built";
 
   // Clean up
   HybridRequest_Free(hybridReq);

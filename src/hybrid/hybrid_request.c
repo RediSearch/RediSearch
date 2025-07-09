@@ -10,7 +10,7 @@ extern "C" {
  * Build the complete hybrid search pipeline for processing multiple search requests.
  * This function constructs a sophisticated pipeline that:
  * 1. Builds individual pipelines for each AREQ (search request)
- * 2. Creates depleter processors to extract results from each pipeline
+ * 2. Creates depleter processors to extract results from each pipeline concurrently
  * 3. Sets up a hybrid merger to combine and score results from all requests
  * 4. Applies aggregation processing (sorting, filtering, field loading) to merged results
  *
@@ -26,10 +26,7 @@ extern "C" {
 int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params) {
     // Find any LOAD step in the tail pipeline that specifies which fields to load
     // This step will be temporarily removed and re-added after merger setup
-    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->tail.ap, NULL, NULL, PLN_T_LOAD);
-    if (!loadStep) {
-        return REDISMODULE_ERR;
-    }
+    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->pipeline.ap, NULL, NULL, PLN_T_LOAD);
 
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -52,13 +49,15 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
-
-        ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), areq->reqflags, lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
-        QITR_PushRP(qctx, loader);
+        if (loadStep) {
+            // Add a loader to load the fields specified in the LOAD step
+            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), areq->reqflags, lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
+            QITR_PushRP(qctx, loader);
+        }
 
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
-        RedisSearchCtx *nextThread = params->aggregation.common.sctx; // We will use the context provided in the params
+        RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
         RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
         array_ensure_append_1(depleters, depleter);
@@ -71,7 +70,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Create the hybrid merger that combines results from all depleter processors
     // This is where the magic happens - results from different search modalities are merged
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests);
-    QITR_PushRP(&req->tail.qctx, merger);
+    QITR_PushRP(&req->pipeline.qctx, merger);
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts
     // during aggregation pipeline building, then restore it afterwards
@@ -82,11 +81,11 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    Pipeline_BuildAggregationPart(&req->tail, &params->aggregation, &stateFlags);
+    Pipeline_BuildAggregationPart(&req->pipeline, &params->aggregationParams, &stateFlags);
 
     // Restore the LOAD step to the tail pipeline for proper cleanup
     if (loadStep) {
-        AGPLN_AddStep(&req->tail.ap, &loadStep->base);
+        AGPLN_AddStep(&req->pipeline.ap, &loadStep->base);
     }
     return REDISMODULE_OK;
 }
@@ -96,7 +95,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
  * This function initializes the hybrid request structure and sets up the tail pipeline
  * that will be used to merge and process results from all individual search requests.
  *
- * @param requests Array of AREQ pointers representing individual search requests
+ * @param requests Array of AREQ pointers representing individual search requests, the hybrid reques will take ownership of the array
  * @param nrequests Number of requests in the array
  * @return Newly allocated HybridRequest, or NULL on failure
  */
@@ -109,9 +108,9 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
     req->errors = array_new(QueryError, nrequests);
 
     // Initialize the tail pipeline that will merge results from all requests
-    AGPLN_Init(&req->tail.ap);
-    QueryError_Init(&req->tailError);
-    Pipeline_Initialize(&req->tail, requests[0]->pipeline.qctx.timeoutPolicy, &req->tailError);
+    AGPLN_Init(&req->pipeline.ap);
+    QueryError_Init(&req->pipelineError);
+    Pipeline_Initialize(&req->pipeline, requests[0]->pipeline.qctx.timeoutPolicy, &req->pipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
@@ -130,14 +129,9 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
  */
 void HybridRequest_Free(HybridRequest *req) {
     // Free all individual AREQ requests and their pipelines
-    for (size_t i = 0; i < req->nrequests; i++) {
-        AREQ_Free(req->requests[i]);
-    }
-
-    // Free the arrays and tail pipeline
-    array_free(req->requests);
+    array_free_ex(req->requests, AREQ_Free(*(AREQ **)ptr));
     array_free(req->errors);
-    Pipeline_Clean(&req->tail);  // Cleans up the merger and aggregation pipeline
+    Pipeline_Clean(&req->pipeline);  // Cleans up the merger and aggregation pipeline
     rm_free(req);
 }
 

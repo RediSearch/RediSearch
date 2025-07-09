@@ -10,9 +10,9 @@ extern "C" {
 typedef struct {
     arrayof(AREQ*) requests;
     size_t nrequests;
-    QueryError tailError;
+    QueryError pipelineError;
     QueryError *errors;
-    Pipeline tail;
+    Pipeline pipeline;
 } HybridRequest;
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
