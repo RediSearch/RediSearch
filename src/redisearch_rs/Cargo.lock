@@ -1417,6 +1417,8 @@ dependencies = [
  "enumflags2",
  "ffi",
  "pin-project",
+ "sorting_vector",
+ "value",
 ]
 
 [[package]]
