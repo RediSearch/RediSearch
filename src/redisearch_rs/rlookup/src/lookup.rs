@@ -225,7 +225,8 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    pub fn from_parts(
+    /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
+    fn from_parts(
         name: Cow<'a, CStr>,
         path: Option<Cow<'a, CStr>>,
         dstidx: u16,
@@ -234,13 +235,13 @@ impl<'a> RLookupKey<'a> {
         debug_assert_eq!(
             matches!(name, Cow::Owned(_)),
             flags.contains(RLookupKeyFlag::NameAlloc),
-            "RLookupKeyFlag::NameAlloc but name is Cow::Borrowed"
+            "`RLookupKeyFlag::NameAlloc` was provided, but `name` was not `Cow::Owned`"
         );
         if let Some(path) = &path {
             debug_assert_eq!(
                 matches!(path, Cow::Owned(_)),
                 flags.contains(RLookupKeyFlag::NameAlloc),
-                "RLookupKeyFlag::NameAlloc but path is Cow::Borrowed"
+                "`RLookupKeyFlag::NameAlloc` was provided, but `path` was not `Cow::Owned`"
             );
         }
 
@@ -676,10 +677,12 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         Some(unsafe { Pin::new_unchecked(curr) })
     }
 
-    /// Override the [`RLookupKey`] currently being pointed to by this cursor (if any) with the given flags.
+    /// Override the [`RLookupKey`] at this cursor position and extend it with the given flags.
     ///
-    /// The new key will inherit the `name`, `path`, and `dstidx` of the current key but receive a
-    /// **new pointer identity**. The new key is returned.
+    /// The new key will inherit the `name`, `path`, and `dstidx`, and the `flags` of the key at the current position, but
+    /// receive a **new pointer identity**. The new key is returned.
+    ///
+    /// The old key remains as a hidden tombstone in the linked list.
     #[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
     pub fn override_current(
         mut self,
@@ -699,7 +702,12 @@ impl<'list, 'a> CursorMut<'list, 'a> {
             *old.path = ptr::null();
             let path = mem::take(old._path.deref_mut());
 
-            RLookupKey::from_parts(name, path, *old.dstidx, flags)
+            let new = RLookupKey::from_parts(name, path, *old.dstidx, *old.flags | flags);
+
+            // Mark the old key as hidden, so it won't show up in iteration.
+            *old.flags |= RLookupKeyFlag::Hidden;
+
+            new
         };
 
         // Safety: we treat the pointer as pinned below and only hand out a pinned mutable reference.
@@ -1065,7 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn keylist_override_key() {
+    fn keylist_override_key_find() {
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
@@ -1090,17 +1098,29 @@ mod tests {
         assert_eq!(found.dstidx, 0);
         // new key should have provided keys
         assert!(found.flags.contains(RLookupKeyFlag::Numeric));
-        // new key should not inherit any old flags
-        assert!(!found.flags.contains(RLookupKeyFlag::Unresolved));
+        // new key should inherit any old flags
+        assert!(found.flags.contains(RLookupKeyFlag::Unresolved));
+    }
+
+    #[test]
+    fn keylist_override_key_iterate() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Unresolved),
+        ));
+        keylist
+            .cursor_front_mut()
+            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
 
         let mut c = keylist.cursor_front();
 
         // we expect the first item to be the tombstone of the old key
-        assert!(c.current().unwrap()._name.is_empty());
-        assert!(c.current().unwrap().flags.contains(RLookupKeyFlag::Hidden));
+        assert!(c.current().unwrap().is_tombstone());
 
         // and the next item to be the new key
         c.move_next();
-        assert_eq!(found._name.as_ref(), c"foo");
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
     }
 }
