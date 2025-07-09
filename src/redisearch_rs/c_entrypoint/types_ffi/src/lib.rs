@@ -60,3 +60,15 @@ pub extern "C" fn NewTokenRecord(term: *mut RSQueryTerm, weight: f64) -> *mut RS
     let result = RSIndexResult::term(0, term, weight);
     Box::into_raw(Box::new(result))
 }
+
+/// Free an index result's internal allocations and also free the result itself
+#[unsafe(no_mangle)]
+pub extern "C" fn IndexResult_Free(result: *mut RSIndexResult) {
+    debug_assert!(!result.is_null(), "result cannot be NULL");
+
+    // SAFETY: caller is to ensure `result` points to a valid RSIndexResult created by one of the
+    // constructors
+    unsafe {
+        let _ = Box::from_raw(result);
+    }
+}

@@ -42,15 +42,10 @@ static inline void ResultMetrics_Reset(RSIndexResult *r) {
   array_clear(r->metrics);
 }
 
-static inline void ResultMetrics_Free(RSIndexResult *r) {
-  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
-  r->metrics = NULL;
-}
+/* Clear / free the metrics of a result */
+void ResultMetrics_Free(RSIndexResult *r);
 
-/* Prepare an Index Result to be reused. Add here any relevant cleanup function */
-static inline void IndexResult_Clear(RSIndexResult *r) {
-  ResultMetrics_Free(r);
-}
+void Term_Offset_Data_Free(RSTermRecord *tr);
 
 /* Reset the aggregate result's child vector */
 static inline void AggregateResult_Reset(RSIndexResult *r) {
@@ -58,7 +53,7 @@ static inline void AggregateResult_Reset(RSIndexResult *r) {
   r->docId = 0;
   r->data.agg.numChildren = 0;
   r->data.agg.typeMask = (RSResultType)0;
-  IndexResult_Clear(r);
+  ResultMetrics_Free(r);
 }
 
 /* Append a child to an aggregate result */
@@ -83,9 +78,6 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
 /* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
-
-/* Free an index result's internal allocations, does not free the result itself */
-void IndexResult_Free(RSIndexResult *r);
 
 /* Get the minimal delta between the terms in the result */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r);

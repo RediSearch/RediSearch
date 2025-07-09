@@ -303,6 +303,11 @@ struct RSIndexResult *NewHybridResult(void);
  */
 struct RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
+/**
+ * Free an index result's internal allocations and also free the result itself
+ */
+void IndexResult_Free(struct RSIndexResult *result);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

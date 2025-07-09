@@ -74,6 +74,16 @@ void Term_Free(RSQueryTerm *t) {
   }
 }
 
+/* Clear / free the metrics of a result */
+void ResultMetrics_Free(RSIndexResult *r) {
+  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
+  r->metrics = NULL;
+}
+
+void Term_Offset_Data_Free(RSTermRecord *tr) {
+  rm_free(tr->offsets.data);
+}
+
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
@@ -91,34 +101,6 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     default:
       return 0;
   }
-}
-
-void IndexResult_Free(RSIndexResult *r) {
-  if (!r) return;
-  ResultMetrics_Free(r);
-  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
-    // for deep-copy results we also free the children
-    if (r->isCopy && r->data.agg.children) {
-      for (int i = 0; i < r->data.agg.numChildren; i++) {
-        IndexResult_Free(r->data.agg.children[i]);
-      }
-    }
-    rm_free(r->data.agg.children);
-    r->data.agg.children = NULL;
-  } else if (r->type == RSResultType_Term) {
-    if (r->isCopy) {
-      rm_free(r->data.term.offsets.data);
-
-    } else {  // non copy result...
-
-      // we only free up terms for non copy results
-      if (r->data.term.term != NULL) {
-        Term_Free(r->data.term.term);
-      }
-    }
-  }
-
-  rm_free(r);
 }
 
 inline int RSIndexResult_IsAggregate(const RSIndexResult *r) {
