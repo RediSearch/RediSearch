@@ -185,6 +185,12 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: ./build.sh TESTS
+      - name: print so size
+        run: |
+            ls -llh bin/linux-x64-debug-asan/search-community/redisearch.so
+            ls -llh bin/linux-x64-release/search-community/redisearch.so
+            ls -llh bin/linux-aarch64-release/search-community/search-community
+        continue-on-error: true
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
