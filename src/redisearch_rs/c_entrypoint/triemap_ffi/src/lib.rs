@@ -355,3 +355,10 @@ pub unsafe extern "C" fn TrieMap_NNodes(t: *mut TrieMap) -> usize {
     let TrieMap(trie) = unsafe { &mut *t };
     trie.n_nodes()
 }
+
+#[allow(unused_attributes)]
+#[unsafe(no_mangle)]
+#[inline(always)]
+pub extern "C" fn inline_me(x: i32) -> i32 {
+    x + 42
+}

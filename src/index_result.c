@@ -14,6 +14,7 @@
 #include <sys/param.h>
 #include "src/util/arr.h"
 #include "value.h"
+#include "triemap.h"
 
 
 void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {
@@ -58,6 +59,8 @@ void Term_Free(RSQueryTerm *t) {
 }
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
+  printf ("INLINE %d\n", inline_me (0));
+
   switch (res->data.tag) {
     case RSResultData_Term:
       return RSOffsetVector_Len(IndexResult_TermOffsetsRef(res)) > 0;
@@ -65,7 +68,6 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     case RSResultData_Union:
     {
       const RSAggregateResult *agg = IndexResult_AggregateRef(res);
-
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
       return AggregateResult_KindMask(agg) != RSResultData_Virtual && AggregateResult_KindMask(agg) != RS_RESULT_NUMERIC;
