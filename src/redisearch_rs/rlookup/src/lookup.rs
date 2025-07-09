@@ -73,7 +73,8 @@ const GET_KEY_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | Hidden | ExplicitReturn | ForceLoad});
 
 /// Flags do not persist to the key, they are just options to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
-const TRANSIENT_FLAGS: RLookupKeyFlags = make_bitflags!(RLookupKeyFlag::{Override | ForceLoad});
+const TRANSIENT_FLAGS: RLookupKeyFlags =
+    make_bitflags!(RLookupKeyFlag::{Override | ForceLoad | NameAlloc});
 
 /// RLookup key
 ///
