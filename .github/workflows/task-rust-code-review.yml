@@ -11,6 +11,11 @@ on:
         required: true
         type: string
         description: "The repository name with owner (e.g., owner/repo)"
+      comment_body:
+        required: false
+        type: string
+        description: "The comment body that triggered the review (for extracting user topics)"
+        default: ""
 
 jobs:
   review-rust-code:
@@ -31,23 +36,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests openai
 
-      - name: Get changed Rust files
+      - name: Get changed files
         id: changed-files
         run: |
           PR_NUMBER=${{ inputs.pr_number }}
           REPO=${{ inputs.repository }}
 
-          # Get the list of changed Rust files in the PR
-          FILES=$(gh pr view $PR_NUMBER --repo $REPO --json files --jq '.files[].path' | grep '\.rs$' || echo "")
+          # Get the list of changed Rust files to determine if we should run
+          RUST_FILES=$(gh pr view $PR_NUMBER --repo $REPO --json files --jq '[.files[].path | select(test("\\.rs$"))]')
 
-          if [ -z "$FILES" ]; then
+          if [ "$RUST_FILES" = "[]" ]; then
             echo "No Rust files changed in this PR."
             echo "rust_files_changed=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
+          # Get all relevant files for context (Rust, C, C++, headers)
+          ALL_FILES=$(gh pr view $PR_NUMBER --repo $REPO --json files --jq '[.files[].path | select(test("\\.(rs|c|cpp|cc|cxx|h|hpp)$"))] | join(" ")')
+
           echo "rust_files_changed=true" >> $GITHUB_OUTPUT
-          echo "files=$FILES" >> $GITHUB_OUTPUT
+          echo "files=$ALL_FILES" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
@@ -63,6 +71,7 @@ jobs:
           CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
           PR_NUMBER: ${{ inputs.pr_number }}
           REPO: ${{ inputs.repository }}
+          COMMENT_BODY: ${{ inputs.comment_body }}
 
       - name: Report status
         run: |

@@ -73,10 +73,18 @@ jobs:
         id: check
         if: steps.check-permissions.outputs.has_write_access == 'true'
         run: |
-          if [[ "${{ github.event.comment.body }}" == *"/rust_review"* || "${{ github.event.comment.body }}" == "rust_review" ]]; then
+          # Normalize comment body (lowercase, trim whitespace)
+          NORMALIZED_BODY=$(echo "${{ github.event.comment.body }}" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+          # Check for various trigger patterns
+          if [[ "$NORMALIZED_BODY" == *"/rust_review"* ]] || \
+             [[ "$NORMALIZED_BODY" == "rust_review" ]] || \
+             [[ "$NORMALIZED_BODY" == "/rust_review" ]]; then
             echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ Rust code review triggered by comment"
           else
             echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Comment does not contain rust review trigger"
           fi
 
   run-rust-review:
@@ -86,4 +94,5 @@ jobs:
     with:
       pr_number: ${{ needs.check-comment.outputs.pr_number }}
       repository: ${{ github.repository }}
+      comment_body: ${{ github.event.comment.body }}
     secrets: inherit
