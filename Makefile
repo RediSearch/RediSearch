@@ -87,10 +87,20 @@ ifneq ($(REDIS_STANDALONE),)
 endif
 
 # Package variables (used by pack target)
-PACKAGE_NAME ?= redisearch-oss
-MODULE_NAME ?= search
+PACKAGE_NAME := redisearch
+MODULE_NAME := search
 RAMP_YAML ?=
+RAMP_VARIANT ?=
 RAMP_ARGS ?=
+
+# Set RAMP_VARIANT based on COORD if not explicitly set
+ifeq ($(RAMP_VARIANT),)
+ifeq ($(COORD),rlec)
+    override RAMP_VARIANT := enterprise
+else
+    override RAMP_VARIANT := community
+endif
+endif
 
 #-----------------------------------------------------------------------------
 # Main targets
@@ -136,8 +146,17 @@ Development:
   make fmt           Format source files
     CHECK=1            Check formatting without modifying files
 
+Benchmarks:
+  make benchmark     Run RediSearch benchmarks
+  make vecsim-bench  Run VectorSimilarity benchmarks
+    DEBUG=1            Build debug version for benchmarks
+    COORD=oss|rlec     Build with coordinator type
+    BM_FILTER=name     Run specific benchmark filter
+
 Packaging:
   make pack          Create installation packages
+    RAMP_VARIANT=name  Use specific RAMP variant (community|enterprise|light)
+                       Default: community for oss, enterprise for rlec
   make docker        Build for specified platform
 endef
 
@@ -257,13 +276,13 @@ pack: $(BUILD_SCRIPT)
 	if command -v python3 >/dev/null 2>&1 && python3 -c "import RAMP.ramp" >/dev/null 2>&1; then \
 		echo "RAMP is available, creating RAMP packages..."; \
 		RAMP=1 COORD=$(COORD) PACKAGE_NAME=$(PACKAGE_NAME) MODULE_NAME=$(MODULE_NAME) \
-		RAMP_YAML=$(RAMP_YAML) RAMP_ARGS=$(RAMP_ARGS) \
+		RAMP_YAML=$(RAMP_YAML) RAMP_VARIANT=$(RAMP_VARIANT) RAMP_ARGS=$(RAMP_ARGS) \
 		$(ROOT)/sbin/pack.sh "$$MODULE_PATH"; \
 	else \
 		echo "RAMP not available, skipping RAMP package creation..."; \
-		echo "To install RAMP: pip install redismodules-ramp"; \
-		RAMP=0 COORD=$(COORD) PACKAGE_NAME=$(PACKAGE_NAME) MODULE_NAME=$(MODULE_NAME) \
-		$(ROOT)/sbin/pack.sh "$$MODULE_PATH"; \
+		echo "To install required packaging dependencies:"; \
+		echo "  pip install -r $(ROOT)/.install/build_package_requirments.txt"; \
+		exit 1; \
 	fi
 
 upload-artifacts:
@@ -278,9 +297,9 @@ benchmark:
 	@echo "Running benchmarks..."
 	@cd tests/benchmarks && redisbench-admin run-local
 
-vecsim-bench: $(BUILD_SCRIPT)
+vecsim-bench:
 	@echo "Running VecSim micro-benchmarks..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_MICRO_BENCHMARKS
+	@$(MAKE) -C deps/VectorSimilarity benchmark DEBUG=$(DEBUG) COORD=$(COORD) BM_FILTER=$(BM_FILTER)
 
 callgrind:
 	@echo "Running callgrind profiling..."
