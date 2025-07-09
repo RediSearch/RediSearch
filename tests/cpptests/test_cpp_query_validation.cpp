@@ -92,6 +92,7 @@ TEST_F(QueryValidationTest, testInvalidVectorFilter) {
 
   // // Complex queries with range
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar", ctx);
+  assertInvalidHybridVectorFilterQuery("bar OR @v:[VECTOR_RANGE 0.01 $BLOB]", ctx);
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar @v:[VECTOR_RANGE 0.04 $BLOB2]", ctx);
   assertInvalidHybridVectorFilterQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo) => [KNN 5 @v $BLOB2]", ctx);
   assertInvalidHybridVectorFilterQuery("@v:[VECTOR_RANGE 0.01 $BLOB] => [KNN 5 @v $BLOB2 AS second_score]", ctx);
@@ -158,6 +159,7 @@ TEST_F(QueryValidationTest, testInvalidHybridSearch) {
 
   // Complex queries with range
   assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar", ctx);
+  assertInvalidHybridSearchQuery("bar OR @v:[VECTOR_RANGE 0.01 $BLOB]", ctx);
   assertInvalidHybridSearchQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo) => { $weight: 2.0 }", ctx);
   assertInvalidHybridSearchQuery("@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo OR bar @v:[VECTOR_RANGE 0.04 $BLOB2]", ctx);
   assertInvalidHybridSearchQuery("(@v:[VECTOR_RANGE 0.01 $BLOB] @title:foo) => [KNN 5 @v $BLOB2]", ctx);
