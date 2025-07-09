@@ -210,17 +210,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
           return REDISMODULE_ERR;
         }
 
-        // Add as both parameter and attribute for maximum compatibility
-        // As VecSimRawParam (for vector query processing)
-        VecSimRawParam yieldDistanceAsParam = {
-          .name = rm_strdup("YIELD_DISTANCE_AS"),
-          .nameLen = strlen("YIELD_DISTANCE_AS"),
-          .value = rm_strdup(value),
-          .valLen = strlen(value)
-        };
-        array_append(vq->params.params, yieldDistanceAsParam);
-        array_append(vq->params.needResolve, false);
-
         // As QueryAttribute (for query node processing)
         QueryAttribute attr = {
           .name = YIELD_DISTANCE_ATTR,
@@ -328,6 +317,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
     // Set vector data for RANGE
     vq->range.vector = vectorData;
     vq->range.vecLen = vectorLen;
+    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
   }
 
   // Store attributes in VectorQueryParameters
@@ -339,13 +329,14 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
     int n_written = rm_asprintf(&vq->scoreField, "__%s_score", vqParams->vectorField);
     RS_ASSERT(n_written != -1);
   }
-
   // Check for optional FILTER clause - parameter may not be in our scope
   if (!strcasecmp(current, "FILTER")) {
     if (parseFilterClause(ac, vectorRequest, status) != REDISMODULE_OK) {
       VectorQueryParameters_Free(vqParams);
       return REDISMODULE_ERR;
     }
+  } else {
+    vectorRequest->query = "*";
   }
   // If not FILTER, the parameter may be for the next parsing function (COMBINE, etc.)
 
