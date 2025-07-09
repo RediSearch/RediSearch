@@ -121,22 +121,26 @@ def get_file_diff(file_path):
 
 def generate_review_prompt(all_diffs, user_topics=None):
     """Generate the prompt for OpenAI based on the file diffs and user topics."""
-    prompt = """
+    default_sections = [
+        "Code quality and best practices",
+        "Potential bugs or edge cases",
+        "Performance considerations",
+        "Readability and maintainability",
+        "Proper error handling",
+        "Memory safety concerns",
+        "FFI safety (for C/Rust interop code)",
+        "Unsafe code correctness"
+    ]
+
+    prompt = f"""
 You are a senior Rust developer performing a code review. Review the following code changes with focus on Rust code for:
-1. Code quality and best practices
-2. Potential bugs or edge cases
-3. Performance considerations
-4. Readability and maintainability
-5. Proper error handling
-6. Memory safety concerns
-7. FFI safety (for C/Rust interop code)
-8. Unsafe code correctness
+{''.join([f"{i + 1}. {section}\n" for i, section in enumerate(default_sections)])}
 """
 
     # Add user-specified topics if provided
     if user_topics:
         prompt += "\nAdditionally, pay special attention to the following areas:\n"
-        for i, topic in enumerate(user_topics, 7):
+        for i, topic in enumerate(user_topics, len(default_sections) + 1):
             prompt += f"{i}. {topic.title()}\n"
 
     prompt += """
