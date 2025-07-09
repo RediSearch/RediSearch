@@ -85,6 +85,14 @@ impl RSValueTrait for RSValueMock {
         // Mock implementation, return false
         false
     }
+
+    fn increment(&mut self) {
+        todo!("not used in that mock")
+    }
+
+    fn decrement(&mut self) {
+        todo!("not used in that mock")
+    }
 }
 
 #[test]

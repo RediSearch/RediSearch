@@ -54,6 +54,12 @@ where
     /// returns true if the RSValue is stored as a pointer on the heap (the C implementation)
     fn is_ptr_type() -> bool;
 
+    /// Increments the reference count of the RSValue instance.
+    fn increment(&mut self);
+
+    /// Decrements the reference count of the RSValue instance.
+    fn decrement(&mut self);
+
     /// returns the approximate memory size of the RSValue instance.
     fn mem_size() -> usize {
         std::mem::size_of::<Self>()
