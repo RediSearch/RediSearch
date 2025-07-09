@@ -45,6 +45,10 @@ unsafe extern "C" fn RSSortingVector_Get(
     vec: *const RSSortingVector,
     idx: libc::size_t,
 ) -> *mut ffi::RSValue {
+    if vec.is_null() {
+        panic!("RSSortingVector_Get called with null pointer");
+    }
+
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { &*vec };
     if idx >= vec.len() {

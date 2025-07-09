@@ -68,7 +68,7 @@ where
     }
 }
 
-/// [RSValueFFI] is a wrapper around the C struct `RSValue` implement as new-type over a [std::ptr::NonNull<ffi::RSValue>].
+/// [RSValueFFI] is a wrapper around the C struct `RSValue` implemented as a new-type over a [std::ptr::NonNull<ffi::RSValue>].
 ///
 /// It implements the [`Clone`] and [`Drop`] traits to manage the reference counting of the underlying C struct.
 ///
