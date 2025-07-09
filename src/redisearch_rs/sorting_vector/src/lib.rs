@@ -87,7 +87,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
                 len: self.values.len(),
             });
             #[cfg(not(debug_assertions))]
-            return Err(IndexOutOfBounds);
+            return Err(IndexOutOfBounds {});
         }
     }
 
