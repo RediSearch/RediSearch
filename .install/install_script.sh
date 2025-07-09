@@ -36,3 +36,13 @@ fi
 source install_rust.sh
 
 git config --global --add safe.directory '*'
+
+# install clang 20 instead of the one from package manager
+sudo apt remove clang
+wget https://apt.llvm.org/llvm.sh
+chmod +x llvm.sh
+sudo ./llvm.sh 20
+
+sudo ln -s /usr/bin/clang-20 /usr/bin/clang
+sudo ln -s /usr/bin/clang++-20 /usr/bin/clang++
+sudo ln -s /usr/bin/lld-20 /usr/bin/lld
