@@ -169,10 +169,11 @@ impl<T: RSValueTrait> RSSortingVector<T> {
     /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
     /// as in C. We have another implementation for the Rust type based on it's [RSValueTrait] implementation.
     pub fn get_memory_size(&self) -> usize {
-        // Each RSValue is a pointer, so we multiply by the size of a pointer
         let mut sz = if T::is_ptr_type() {
+            // Each RSValue is a pointer, so we multiply by the size of a pointer
             self.values.len() * std::mem::size_of::<*const T>()
         } else {
+            // Each RSValue is in the heap array, so we multiply by the size of the type
             self.values.len() * T::mem_size()
         };
 
@@ -181,11 +182,12 @@ impl<T: RSValueTrait> RSSortingVector<T> {
                 continue;
             }
             if T::is_ptr_type() {
-                // count the size of the struct if not null, like in C
+                // count the size of the struct if not null, like in C we add the pointer and the struct size
                 sz += T::mem_size();
             }
 
             // the original behavior would by-pass references in the middle of the chain
+            // fixup in: MOD-10347
             let value = walk_down_rsvalue_ref_chain(&self.values[idx]);
 
             if value.get_type() == ffi::RSValueType_RSValue_String {
