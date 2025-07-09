@@ -95,7 +95,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
  * This function initializes the hybrid request structure and sets up the tail pipeline
  * that will be used to merge and process results from all individual search requests.
  *
- * @param requests Array of AREQ pointers representing individual search requests, the hybrid reques will take ownership of the array
+ * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
  * @param nrequests Number of requests in the array
  * @return Newly allocated HybridRequest, or NULL on failure
  */
