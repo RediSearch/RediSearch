@@ -69,6 +69,8 @@ public:
     spec = {0};
     spec.rule = &rule;
     spec.existingDocs = nullptr;
+    spec.monitorDocumentExpiration = true; // Only depends on API availability, so always true
+    spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
     spec.docs.maxDocId = maxDocId;
     spec.docs.size = numDocs ?: maxDocId;
 
