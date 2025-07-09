@@ -276,7 +276,8 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
-    pub fn from_parts(
+    /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
+    fn from_parts(
         name: Cow<'a, CStr>,
         path: Option<Cow<'a, CStr>>,
         dstidx: u16,
@@ -285,13 +286,13 @@ impl<'a> RLookupKey<'a> {
         debug_assert_eq!(
             matches!(name, Cow::Owned(_)),
             flags.contains(RLookupKeyFlag::NameAlloc),
-            "RLookupKeyFlag::NameAlloc but name is Cow::Borrowed"
+            "`RLookupKeyFlag::NameAlloc` was provided, but `name` was not `Cow::Owned`"
         );
         if let Some(path) = &path {
             debug_assert_eq!(
                 matches!(path, Cow::Owned(_)),
                 flags.contains(RLookupKeyFlag::NameAlloc),
-                "RLookupKeyFlag::NameAlloc but path is Cow::Borrowed"
+                "`RLookupKeyFlag::NameAlloc` was provided, but `path` was not `Cow::Owned`"
             );
         }
 
@@ -300,7 +301,9 @@ impl<'a> RLookupKey<'a> {
             svidx: 0,
             flags: flags & !TRANSIENT_FLAGS,
             name: name.as_ptr(),
-            path: name.as_ptr(),
+            // if a separate path was provided we should set the pointer accordingly
+            // if not, we fall back to the name as usual
+            path: path.as_ref().map_or(name.as_ptr(), |path| path.as_ptr()),
             name_len: name.count_bytes(),
             _name: name,
             _path: path,
@@ -727,21 +730,22 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         Some(unsafe { Pin::new_unchecked(curr) })
     }
 
-    /// Override the [`RLookupKey`] currently being pointed to by this cursor (if any) with the given flags.
+    /// Override the [`RLookupKey`] at this cursor position and extend it with the given flags.
     ///
-    /// The new key will inherit the `name`, `path`, and `dstidx` of the current key but receive a
-    /// **new pointer identity**. The new key is returned.
+    /// The new key will inherit the `name`, `path`, and `dstidx`, and the `flags` of the key at the current position, but
+    /// receive a **new pointer identity**. The *new key* is returned.
+    ///
+    /// The old key remains as a hidden tombstone in the linked list.
     #[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
     pub fn override_current(
         mut self,
         flags: RLookupKeyFlags,
     ) -> Option<Pin<&'list mut RLookupKey<'a>>> {
         let mut old = self.current()?;
+        println!("overriding key {old:?}");
 
         let new = {
             let mut old = old.as_mut().project();
-
-            *old.flags |= RLookupKeyFlag::Hidden;
 
             *old.name = ptr::null();
             *old.name_len = usize::MAX;
@@ -750,7 +754,12 @@ impl<'list, 'a> CursorMut<'list, 'a> {
             *old.path = ptr::null();
             let path = mem::take(old._path.deref_mut());
 
-            RLookupKey::from_parts(name, path, *old.dstidx, flags)
+            let new = RLookupKey::from_parts(name, path, *old.dstidx, *old.flags | flags);
+
+            // Mark the old key as hidden, so it won't show up in iteration.
+            *old.flags |= RLookupKeyFlag::Hidden;
+
+            new
         };
 
         // Safety: we treat the pointer as pinned below and only hand out a pinned mutable reference.
@@ -1017,6 +1026,92 @@ mod tests {
         }
     }
 
+    #[test]
+    fn key_from_parts_only_name() {
+        let name = Cow::Borrowed(c"foo");
+        let key = RLookupKey::from_parts(name, None, 0, RLookupKeyFlags::empty());
+
+        assert_eq!(key.name, key._name.as_ptr());
+        assert_eq!(key.path, key._name.as_ptr());
+    }
+
+    #[test]
+    fn key_from_parts_name_and_path() {
+        let name = Cow::Borrowed(c"foo");
+        let path = Cow::Borrowed(c"bar");
+        let key = RLookupKey::from_parts(name, Some(path), 0, RLookupKeyFlags::empty());
+
+        assert_eq!(key.name, key._name.as_ptr());
+        assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
+    }
+
+    // Assert that `RLookupKey::from_parts` catches the mismatch between owned name & missing namealloc flag
+    #[test]
+    #[allow(unreachable_code, unused)]
+    #[cfg_attr(debug_assertions, should_panic)]
+    fn key_from_parts_name_namealloc_fail() {
+        let name = Cow::Owned(c"foo".to_owned());
+        let key = RLookupKey::from_parts(name, None, 0, RLookupKeyFlags::empty());
+
+        #[cfg(debug_assertions)]
+        unreachable!();
+
+        assert_eq!(key.name, key._name.as_ptr());
+        assert_eq!(key.path, key._name.as_ptr());
+    }
+
+    // Assert that `RLookupKey::from_parts` catches the mismatch between owned path & missing namealloc flag
+    #[test]
+    #[allow(unreachable_code, unused)]
+    #[cfg_attr(debug_assertions, should_panic)]
+    fn key_from_parts_name_nonamealloc_fail() {
+        let name = Cow::Borrowed(c"foo");
+        let key = RLookupKey::from_parts(name, None, 0, make_bitflags!(RLookupKeyFlag::NameAlloc));
+
+        #[cfg(debug_assertions)]
+        unreachable!();
+
+        assert_eq!(key.name, key._name.as_ptr());
+        assert_eq!(key.path, key._name.as_ptr());
+    }
+
+    // Assert that `RLookupKey::from_parts` catches the mismatch between borrowed name & namealloc flag
+    #[test]
+    #[allow(unreachable_code, unused)]
+    #[cfg_attr(debug_assertions, should_panic)]
+    fn key_from_parts_path_namealloc_fail() {
+        let name = Cow::Borrowed(c"foo");
+        let path = Cow::Owned(c"bar".to_owned());
+        let key = RLookupKey::from_parts(name, Some(path), 0, RLookupKeyFlags::empty());
+
+        #[cfg(debug_assertions)]
+        unreachable!();
+
+        assert_eq!(key.name, key._name.as_ptr());
+        assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
+    }
+
+    // Assert that `RLookupKey::from_parts` catches the mismatch between borrowed path & namealloc flag
+    #[test]
+    #[allow(unreachable_code, unused)]
+    #[cfg_attr(debug_assertions, should_panic)]
+    fn key_from_parts_path_nonamealloc_fail() {
+        let name = Cow::Owned(c"foo".to_owned());
+        let path = Cow::Borrowed(c"bar");
+        let key = RLookupKey::from_parts(
+            name,
+            Some(path),
+            0,
+            make_bitflags!(RLookupKeyFlag::NameAlloc),
+        );
+
+        #[cfg(debug_assertions)]
+        unreachable!();
+
+        assert_eq!(key.name, key._name.as_ptr());
+        assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
+    }
+
     // assert that the linked list is produced and linked correctly
     #[test]
     fn keylist_push_consistency() {
@@ -1262,7 +1357,7 @@ mod tests {
     }
 
     #[test]
-    fn keylist_override_key() {
+    fn keylist_override_key_find() {
         let mut keylist = KeyList::new();
 
         keylist.push(RLookupKey::new(
@@ -1287,18 +1382,30 @@ mod tests {
         assert_eq!(found.dstidx, 0);
         // new key should have provided keys
         assert!(found.flags.contains(RLookupKeyFlag::Numeric));
-        // new key should not inherit any old flags
-        assert!(!found.flags.contains(RLookupKeyFlag::Unresolved));
+        // new key should inherit any old flags
+        assert!(found.flags.contains(RLookupKeyFlag::Unresolved));
+    }
+
+    #[test]
+    fn keylist_override_key_iterate() {
+        let mut keylist = KeyList::new();
+
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Unresolved),
+        ));
+        keylist
+            .cursor_front_mut()
+            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
 
         let mut c = keylist.cursor_front();
 
         // we expect the first item to be the tombstone of the old key
-        assert!(c.current().unwrap()._name.is_empty());
-        assert!(c.current().unwrap().flags.contains(RLookupKeyFlag::Hidden));
+        assert!(c.current().unwrap().is_tombstone());
 
         // and the next item to be the new key
         c.move_next();
-        assert_eq!(found._name.as_ref(), c"foo");
+        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
     }
 
     #[repr(C)]
