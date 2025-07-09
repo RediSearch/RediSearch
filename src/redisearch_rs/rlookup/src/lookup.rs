@@ -120,38 +120,38 @@ const TRANSIENT_FLAGS: RLookupKeyFlags =
 #[repr(C)]
 pub struct RLookupKey<'a> {
     /// Index into the dynamic values array within the associated `RLookupRow`.
-    dstidx: u16,
+    pub dstidx: u16,
 
     /// If the source for this key is a sorting vector, this is the index
     /// into the `RSSortingVector` within the associated `RLookupRow`.
-    svidx: u16,
+    pub svidx: u16,
 
     /// Various flags dictating the behavior of looking up the value of this key.
     /// Most notably, `Flags::SVSRC` means the source is an `RSSortingVector` and
     /// `Self::svidx` should be used to look up the value.
-    flags: RLookupKeyFlags,
+    pub flags: RLookupKeyFlags,
 
     /// The path of this key.
     ///
     /// For fields *not* loaded from a [`FieldSpec`][ffi::FieldSpec], this points to the *same* string
     /// as `Self::path`.
-    path: *const c_char,
+    pub path: *const c_char,
 
     /// The name of this key.
-    name: *const c_char,
+    pub name: *const c_char,
     /// The length of this key, without the null-terminator.
     /// Should be used to avoid repeated `strlen` computations.
-    name_len: usize,
+    pub name_len: usize,
 
     /// Pointer to next field in the list
     #[pin]
-    next: Option<NonNull<RLookupKey<'a>>>,
+    pub next: Option<NonNull<RLookupKey<'a>>>,
 
     // Private Rust fields
     /// The actual "owning" strings, we need to hold onto these
     /// so the pointers above stay valid. Note that you
-    /// MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS LESS
-    /// YOU WANT POTENTIALLY RISK UB
+    /// MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
+    /// YOU WANT TO POTENTIALLY RISK UB
     #[pin]
     _name: Cow<'a, CStr>,
     #[pin]
@@ -168,7 +168,7 @@ pub struct RLookupKey<'a> {
 // reference `Pin<&mut CStr>` which safe Rust also cannot move out of.
 // This means you may NEVER EVER hand out a `&mut CStr` EVER.
 impl<'a> RLookupKey<'a> {
-    /// Constructs a new `RLookupKey` using te provided `CStr` and flags.
+    /// Constructs a new `RLookupKey` using the provided `CStr` and flags.
     ///
     /// If the [`RLookupKeyFlag::NameAlloc`] is given, then the provided `CStr` will be cloned into
     /// a new allocation that is owned by this key. If the flag is *not* provided the key
