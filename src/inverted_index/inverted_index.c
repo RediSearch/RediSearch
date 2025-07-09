@@ -473,7 +473,6 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
       // for numeric it is allowed (to support multi values)
       same_doc = true;
       // TODO: Implement turning off this flag on GC collection
-      // TODO: Mark the block as having multi values as well?
       idx->flags |= Index_HasMultiValue;
     }
   }
