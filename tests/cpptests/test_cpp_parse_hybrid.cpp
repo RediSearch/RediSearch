@@ -168,7 +168,6 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
   QueryError status = {QueryErrorCode(0)};
 
   // Test with LINEAR combine method
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "world", "COMBINE", "LINEAR", "0.7", "0.3");
 
   // Create a fresh sctx for this test
@@ -177,15 +176,14 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
 
   HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &hybridParams, &status);
 
-  // Debug: Print error details if parsing failed
-  if (!result) {
-    printf("Parsing failed: code=%d, detail='%s'\n", status.code, status.detail ? status.detail : "NULL");
-    fflush(stdout);
-  }
+  // // Debug: Print error details if parsing failed
+  // if (!result) {
+  //   printf("Parsing failed: code=%d, detail='%s'\n", status.code, status.detail ? status.detail : "NULL");
+  //   fflush(stdout);
+  // }
 
   // Verify the request was parsed successfully
   EXPECT_TRUE(result != NULL);
-  if (!result) return;
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify LINEAR scoring type was set
@@ -197,6 +195,7 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
 
   // Clean up
   HybridRequest_Free(result);
+  QueryError_ClearError(&status);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRF) {
