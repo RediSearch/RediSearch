@@ -49,7 +49,7 @@ IndexError IndexError_Init() {
 void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key) {
     if (!NA_rstr) initDefaultKey();
     if (!error_message) {
-        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
+        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG,
                         "Index error occurred but no index error message was set.");
     }
     if (error->last_error != NA) {
