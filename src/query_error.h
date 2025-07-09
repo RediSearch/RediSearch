@@ -71,7 +71,7 @@ extern "C" {
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                         \
   X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")                   \
   X(QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER")  \
-  X(QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, "Weight attribute is not allowed in FT.HYBRID VSIM subquery FILTER") \
+  X(QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER") \
   X(QUERY_EHYBRID_SEARCH_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID SEARCH subquery")            \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
