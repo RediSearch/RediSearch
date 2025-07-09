@@ -9,6 +9,8 @@ publish.workspace = true
 ffi.workspace = true
 enumflags2.workspace = true
 pin-project.workspace = true
+sorting_vector.workspace = true
+value.workspace = true
 
 [lints]
 workspace = true
