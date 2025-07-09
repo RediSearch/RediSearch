@@ -15,7 +15,7 @@ use criterion::{
     measurement::{Measurement, WallTime},
 };
 use inverted_index::{
-    Decoder, Encoder,
+    Decoder, Encoder, IdDelta,
     numeric::{Numeric, NumericDelta},
 };
 use itertools::Itertools;
@@ -200,7 +200,7 @@ fn generate_test_values() -> Vec<BenchGroup> {
                         let record = inverted_index::RSIndexResult::numeric(0, value);
                         let mut buffer = Cursor::new(Vec::new());
                         let _grew_size = Numeric::new()
-                            .encode(&mut buffer, NumericDelta::new(delta), &record)
+                            .encode(&mut buffer, NumericDelta::from_u64(delta).unwrap(), &record)
                             .unwrap();
                         let buffer = buffer.into_inner();
 
@@ -329,7 +329,11 @@ fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
                         let record = inverted_index::RSIndexResult::numeric(0, *value);
 
                         let grew_size = Numeric::new()
-                            .encode(&mut buffer, NumericDelta::new(*delta), &record)
+                            .encode(
+                                &mut buffer,
+                                NumericDelta::from_u64(*delta).unwrap(),
+                                &record,
+                            )
                             .unwrap();
 
                         black_box(grew_size);

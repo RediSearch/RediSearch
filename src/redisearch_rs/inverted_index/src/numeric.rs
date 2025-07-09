@@ -223,9 +223,9 @@ impl IdDelta for NumericDelta {
 }
 
 impl NumericDelta {
-    /// Creates a new [`NumericDelta`] from a given delta value
-    pub fn new(delta: u64) -> Self {
-        Self(delta)
+    /// Get the value this delta type is wrapping
+    pub fn inner(&self) -> u64 {
+        self.0
     }
 }
 
