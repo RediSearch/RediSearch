@@ -303,7 +303,7 @@ static int getNextReply(RPNet *nc) {
 }
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
-  for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
+  for (const RLookupKey *kk = nc->lookup->keys.head; kk; kk = kk->next) {
     if (!strcmp(kk->name, s)) {
       return kk;
     }

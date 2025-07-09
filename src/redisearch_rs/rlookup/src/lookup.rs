@@ -73,6 +73,7 @@ pub enum RLookupKeyFlag {
     Numeric = 0x1000,
 }
 
+/// cbindgen:no-export
 pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
@@ -95,6 +96,8 @@ pub enum RLookupOption {
     /// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
     AllLoaded = 0x02,
 }
+
+/// cbindgen:no-export
 pub type RLookupOptions = BitFlags<RLookupOption>;
 
 /// RLookup key
@@ -136,10 +139,27 @@ pub type RLookupOptions = BitFlags<RLookupOption>;
 /// This is used for data generated on the fly, or for data not stored within
 /// the sorting vector.
 /// ```
+/// cbindgen:no-export
 #[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookupKey<'a> {
+    header: RLookupKeyHeader<'a>,
+
+    // Private Rust fields
+    // The actual "owning" strings, we need to hold onto these
+    // so the pointers above stay valid. Note that you
+    // MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
+    // YOU WANT TO POTENTIALLY RISK UB
+    #[pin]
+    name: Cow<'a, CStr>,
+    #[pin]
+    path: Option<Cow<'a, CStr>>,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+struct RLookupKeyHeader<'a> {
     /// Index into the dynamic values array within the associated `RLookupRow`.
     pub dstidx: u16,
 
@@ -166,32 +186,31 @@ pub struct RLookupKey<'a> {
 
     /// Pointer to next field in the list
     pub next: UnsafeCell<Option<NonNull<RLookupKey<'a>>>>,
-
-    // Private Rust fields
-    /// The actual "owning" strings, we need to hold onto these
-    /// so the pointers above stay valid. Note that you
-    /// MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
-    /// YOU WANT TO POTENTIALLY RISK UB
-    #[pin]
-    _name: Cow<'a, CStr>,
-    #[pin]
-    _path: Option<Cow<'a, CStr>>,
 }
 
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type allows the creation and retrieval of [`RLookupKey`]s.
+/// cbindgen:no-export
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
+    header: RLookupHeader<'a>,
+
+    // If present, then GetKey will consult this list if the value is not found in
+    // the existing list of keys.
+    pub spcache: Option<IndexSpecCache>,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct RLookupHeader<'a> {
     keys: KeyList<'a>,
 
     // Flags/options
     options: RLookupOptions,
 
-    // If present, then GetKey will consult this list if the value is not found in
-    // the existing list of keys.
-    spcache: Option<IndexSpecCache>,
+    spcache: *mut ffi::IndexSpecCache,
 }
 
 #[derive(Debug)]
@@ -242,15 +261,17 @@ impl<'a> RLookupKey<'a> {
         };
 
         Self {
-            dstidx: 0,
-            svidx: 0,
-            flags: flags & !TRANSIENT_FLAGS,
-            name: name.as_ptr(),
-            path: name.as_ptr(),
-            name_len: name.count_bytes(),
-            _name: name,
-            _path: None,
-            next: UnsafeCell::new(None),
+            header: RLookupKeyHeader {
+                dstidx: 0,
+                svidx: 0,
+                flags: flags & !TRANSIENT_FLAGS,
+                name: name.as_ptr(),
+                path: name.as_ptr(),
+                name_len: name.count_bytes(),
+                next: UnsafeCell::new(None),
+            },
+            name,
+            path: None,
         }
     }
 
@@ -275,15 +296,17 @@ impl<'a> RLookupKey<'a> {
         }
 
         Self {
-            dstidx,
-            svidx: 0,
-            flags: flags & !TRANSIENT_FLAGS,
-            name: name.as_ptr(),
-            path: name.as_ptr(),
-            name_len: name.count_bytes(),
-            _name: name,
-            _path: path,
-            next: UnsafeCell::new(None),
+            header: RLookupKeyHeader {
+                dstidx,
+                svidx: 0,
+                flags: flags & !TRANSIENT_FLAGS,
+                name: name.as_ptr(),
+                path: name.as_ptr(),
+                name_len: name.count_bytes(),
+                next: UnsafeCell::new(None),
+            },
+            name,
+            path,
         }
     }
 
@@ -334,10 +357,10 @@ impl<'a> RLookupKey<'a> {
 
     #[cfg(any(debug_assertions, test))]
     fn is_tombstone(&self) -> bool {
-        self.name.is_null()
-            && self.name_len == usize::MAX
-            && self.path.is_null()
-            && self.flags.contains(RLookupKeyFlag::Hidden)
+        self.header.name.is_null()
+            && self.header.name_len == usize::MAX
+            && self.header.path.is_null()
+            && self.header.flags.contains(RLookupKeyFlag::Hidden)
     }
 
     /// Returns `true` if this node is currently linked to a [`List`].
@@ -351,7 +374,7 @@ impl<'a> RLookupKey<'a> {
     fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
         // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
         // can therefore assume this pointer is safe to dereference at this point.
-        unsafe { *self.next.get() }
+        unsafe { *self.header.next.get() }
     }
 
     /// Update the pointer to the next node
@@ -361,36 +384,36 @@ impl<'a> RLookupKey<'a> {
         next: Option<NonNull<RLookupKey<'a>>>,
     ) -> Option<NonNull<RLookupKey<'a>>> {
         let me = self.project();
-        mem::replace(me.next.get_mut(), next)
+        mem::replace(me.header.next.get_mut(), next)
     }
 
     #[cfg(any(debug_assertions, test))]
     fn assert_valid(&self, tail: &Self, ctx: &str) {
         assert!(
-            !self.flags.intersects(TRANSIENT_FLAGS),
+            !self.header.flags.intersects(TRANSIENT_FLAGS),
             "{ctx}key flags must not contain transient ({TRANSIENT_FLAGS:?}) flags. Found {:?}.",
-            self.flags
+            self.header.flags
         );
 
         if !self.is_tombstone() {
             assert!(
-                ptr::eq(self.name, self._name.as_ptr()),
+                ptr::eq(self.header.name, self.name.as_ptr()),
                 "{ctx}`key.name` did not match `key._name`. ({self:?})",
             );
-            if let Some(path) = self._path.as_ref() {
+            if let Some(path) = self.path.as_ref() {
                 assert!(
-                    ptr::eq(self.path, path.as_ptr()),
+                    ptr::eq(self.header.path, path.as_ptr()),
                     "{ctx}`key._path` is present, but `key.path` did not match `key._path`. ({self:?})"
                 );
             } else {
                 assert!(
-                    ptr::eq(self.path, self._name.as_ptr()),
+                    ptr::eq(self.header.path, self.name.as_ptr()),
                     "{ctx}`key._path` is not present, but `key.path` did not match `key._name`. ({self:?})"
                 );
             }
             assert_eq!(
-                self.name_len,
-                self._name.count_bytes(),
+                self.header.name_len,
+                self.name.count_bytes(),
                 "{ctx}`key.name_len` did not match `key._name` length"
             );
         }
@@ -406,8 +429,8 @@ impl<'a> RLookupKey<'a> {
         if let Some(next) = self.next() {
             assert_ne!(
                 // Safety:
-                NonNull::from(unsafe { &next.as_ref().next }),
-                NonNull::from(&self.next),
+                NonNull::from(unsafe { &next.as_ref().header.next }),
+                NonNull::from(&self.header.next),
                 "{ctx}key's next link cannot be to itself; node={self:#?}",
             );
         }
@@ -417,7 +440,7 @@ impl<'a> RLookupKey<'a> {
     pub fn update_from_field_spec(self: Pin<&mut Self>, fs: &ffi::FieldSpec) {
         let mut me = self.project();
 
-        *me.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
+        me.header.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
 
         let path = {
             debug_assert!(!fs.fieldPath.is_null());
@@ -436,32 +459,32 @@ impl<'a> RLookupKey<'a> {
                 .expect("string returned by HiddenString_GetUnsafe is malformed");
 
             // When the name is owned, we also want the path to be owned
-            if matches!(me._name.deref(), Cow::Owned(_)) {
+            if matches!(me.name.deref(), Cow::Owned(_)) {
                 Cow::Owned(path.to_owned())
             } else {
                 Cow::Borrowed(path)
             }
         };
-        *me._path = Some(path);
-        *me.path = me._path.as_deref().unwrap().as_ptr();
+        *me.path = Some(path);
+        me.header.path = me.path.as_deref().unwrap().as_ptr();
 
         let fs_options = FieldSpecOptions::from_bits(fs.options()).unwrap();
 
         if fs_options.contains(FieldSpecOption::Sortable) {
-            *me.flags |= RLookupKeyFlag::SvSrc;
-            *me.svidx = u16::try_from(fs.sortIdx).unwrap();
+            me.header.flags |= RLookupKeyFlag::SvSrc;
+            me.header.svidx = u16::try_from(fs.sortIdx).unwrap();
 
             if fs_options.contains(FieldSpecOption::Unf) {
                 // If the field is sortable and not normalized (UNF), the available data in the
                 // sorting vector is the same as the data in the document.
-                *me.flags |= RLookupKeyFlag::ValAvailable;
+                me.header.flags |= RLookupKeyFlag::ValAvailable;
             }
         }
 
         let fs_types = FieldSpecTypes::from_bits(fs.types()).unwrap();
 
         if fs_types.contains(FieldSpecType::Numeric) {
-            *me.flags |= RLookupKeyFlag::Numeric;
+            me.header.flags |= RLookupKeyFlag::Numeric;
         }
     }
 }
@@ -477,22 +500,29 @@ impl Default for RLookup<'_> {
 impl<'a> RLookup<'a> {
     pub fn new() -> Self {
         Self {
-            keys: KeyList::new(),
-            options: RLookupOptions::empty(),
+            header: RLookupHeader {
+                keys: KeyList::new(),
+                options: RLookupOptions::empty(),
+                spcache: ptr::null_mut(),
+            },
             spcache: None,
         }
     }
 
     pub const fn with_options(options: RLookupOptions) -> Self {
         Self {
-            keys: KeyList::new(),
-            options,
+            header: RLookupHeader {
+                keys: KeyList::new(),
+                options,
+                spcache: ptr::null_mut(),
+            },
             spcache: None,
         }
     }
 
     pub fn init(&mut self, spcache: IndexSpecCache) {
         assert!(self.spcache.is_none());
+        self.header.spcache = spcache.as_ptr();
         self.spcache = Some(spcache);
     }
 
@@ -513,25 +543,25 @@ impl<'a> RLookup<'a> {
         // borrow below.
         // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
         let me = unsafe { &*(self as *const Self) };
-        if let Some(c) = me.keys.find_by_name(name) {
+        if let Some(c) = me.header.keys.find_by_name(name) {
             return Some(c.into_current().unwrap());
         }
 
         // If we didn't find the key at the lookup table, check if it exists in
         // the schema as SORTABLE, and create only if so.
         if let Some(key) = self.gen_key_from_spec(name, flags) {
-            let key = self.keys.push(key);
+            let key = self.header.keys.push(key);
 
             // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
             return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
         }
 
         // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
-        if self.options.contains(RLookupOption::AllowUnresolved) {
+        if self.header.options.contains(RLookupOption::AllowUnresolved) {
             let mut key = RLookupKey::new(name, flags);
-            key.flags |= RLookupKeyFlag::Unresolved;
+            key.header.flags |= RLookupKeyFlag::Unresolved;
 
-            let key = self.keys.push(key);
+            let key = self.header.keys.push(key);
 
             // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
             return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
@@ -565,7 +595,7 @@ impl<'a> RLookup<'a> {
         // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
         let me = unsafe { &mut *(self as *mut Self) };
 
-        let key = if let Some(c) = me.keys.find_by_name_mut(name) {
+        let key = if let Some(c) = me.header.keys.find_by_name_mut(name) {
             if flags.contains(RLookupKeyFlag::Override) {
                 c.override_current(flags | RLookupKeyFlag::QuerySrc)
                     .unwrap()
@@ -573,7 +603,8 @@ impl<'a> RLookup<'a> {
                 return None;
             }
         } else {
-            self.keys
+            self.header
+                .keys
                 .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
         };
 
@@ -607,17 +638,18 @@ impl<'a> RLookup<'a> {
         // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
         let me = unsafe { &mut *(self as *mut Self) };
 
-        let mut key = if let Some(mut c) = me.keys.find_by_name_mut(name) {
+        let mut key = if let Some(mut c) = me.header.keys.find_by_name_mut(name) {
             let key = c.current().unwrap();
 
-            if (key.flags.contains(RLookupKeyFlag::ValAvailable)
-                && !key.flags.contains(RLookupKeyFlag::IsLoaded))
+            if (key.header.flags.contains(RLookupKeyFlag::ValAvailable)
+                && !key.header.flags.contains(RLookupKeyFlag::IsLoaded))
                 && !key
+                    .header
                     .flags
                     .intersects(RLookupKeyFlag::Override | RLookupKeyFlag::ForceLoad)
-                || (key.flags.contains(RLookupKeyFlag::IsLoaded)
+                || (key.header.flags.contains(RLookupKeyFlag::IsLoaded)
                     && !flags.contains(RLookupKeyFlag::Override))
-                || (key.flags.contains(RLookupKeyFlag::QuerySrc)
+                || (key.header.flags.contains(RLookupKeyFlag::QuerySrc)
                     && !flags.contains(RLookupKeyFlag::Override))
             {
                 // We found a key with the same name. We return NULL if:
@@ -629,7 +661,7 @@ impl<'a> RLookup<'a> {
                 let key = key.project();
 
                 // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
-                *key.flags |= flags & RLookupKeyFlag::ExplicitReturn;
+                key.header.flags |= flags & RLookupKeyFlag::ExplicitReturn;
 
                 return None;
             } else {
@@ -637,7 +669,7 @@ impl<'a> RLookup<'a> {
                     .unwrap()
             }
         } else {
-            self.keys.push(RLookupKey::new(
+            self.header.keys.push(RLookupKey::new(
                 name,
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
             ))
@@ -646,7 +678,7 @@ impl<'a> RLookup<'a> {
         if let Some(fs) = self.spcache.as_ref()?.find_field(name) {
             key.as_mut().update_from_field_spec(fs);
 
-            if key.flags.contains(RLookupKeyFlag::ValAvailable)
+            if key.header.flags.contains(RLookupKeyFlag::ValAvailable)
                 && !flags.contains(RLookupKeyFlag::ForceLoad)
             {
                 // If the key is marked as "value available", it means that it is sortable and un-normalized.
@@ -658,13 +690,13 @@ impl<'a> RLookup<'a> {
             let mut key = key.as_mut().project();
 
             // We assume `field_name` is the path to load from in the document.
-            if !key.flags.contains(RLookupKeyFlag::NameAlloc) {
-                *key.path = field_name.as_ptr();
-                *key._path = Some(Cow::Borrowed(field_name));
+            if !key.header.flags.contains(RLookupKeyFlag::NameAlloc) {
+                key.header.path = field_name.as_ptr();
+                *key.path = Some(Cow::Borrowed(field_name));
             } else if name != field_name {
                 let field_name: Cow<'_, CStr> = Cow::Owned(field_name.to_owned());
-                *key.path = field_name.as_ptr();
-                *key._path = Some(field_name);
+                key.header.path = field_name.as_ptr();
+                *key.path = Some(field_name);
             } // else
             // If the caller requested to allocate the name, and the name is the same as the path,
             // it was already set to the same allocation for the name, so we don't need to do anything.
@@ -687,7 +719,7 @@ impl<'a> RLookup<'a> {
         // FIXME: LOAD ALL loads the key properties by their name, and we won't find their value by the field name
         //        if the field has a different name (alias) than its path.
         if !fs_options.contains(FieldSpecOption::Sortable)
-            && !self.options.contains(RLookupOption::AllLoaded)
+            && !self.header.options.contains(RLookupOption::AllLoaded)
         {
             return None;
         }
@@ -703,6 +735,19 @@ impl<'a> RLookup<'a> {
                 RLookupKey::new(c"", RLookupKeyFlags::empty()),
             ))
         }
+    }
+
+    pub fn c_create_new_key(
+        &mut self,
+        name: &'a CStr,
+        flags: RLookupKeyFlags,
+    ) -> Pin<&mut RLookupKey<'a>> {
+        self.header.keys.push(RLookupKey::new(name, flags))
+    }
+
+    pub fn c_find_key(&self, name: &'a CStr) -> Option<&RLookupKey<'a>> {
+        let c = self.header.keys.find_by_name(name)?;
+        Some(c.into_current().unwrap())
     }
 }
 
@@ -725,7 +770,7 @@ impl<'a> KeyList<'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push before");
 
-        key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
+        key.header.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
 
         // Safety: RLookup never hands out mutable references to the key (except `Pin<&mut T>` which is fine)
         // and never copies, or memmoves the memory internally.
@@ -799,7 +844,7 @@ impl<'a> KeyList<'a> {
 
         let mut c = self.cursor_front();
         while let Some(key) = c.current() {
-            if key._name.as_ref() == name {
+            if key.name.as_ref() == name {
                 return Some(c);
             }
             c.move_next();
@@ -816,7 +861,7 @@ impl<'a> KeyList<'a> {
 
         let mut c = self.cursor_front_mut();
         while let Some(key) = c.current() {
-            if key._name.as_ref() == name {
+            if key.name.as_ref() == name {
                 return Some(c);
             }
             c.move_next();
@@ -862,8 +907,8 @@ impl<'a> KeyList<'a> {
 
         if ptr::addr_eq(head, tail) {
             assert_eq!(
-                NonNull::from(&head.next),
-                NonNull::from(&tail.next),
+                NonNull::from(&head.header.next),
+                NonNull::from(&tail.header.next),
                 "{ctx}if the head and tail nodes are the same, their links must be the same"
             );
             assert_eq!(
@@ -955,7 +1000,7 @@ impl<'list, 'a> Cursor<'list, 'a> {
     /// Skip a consecutive run of keys marked as "hidden". Used in the [`Iterator`] implementation.
     fn skip_hidden(&mut self) {
         while let Some(curr) = self.current()
-            && curr.flags.contains(RLookupKeyFlag::Hidden)
+            && curr.header.flags.contains(RLookupKeyFlag::Hidden)
         {
             self.move_next();
         }
@@ -1019,19 +1064,18 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         let new = {
             let mut old = old.as_mut().project();
 
-            *old.flags |= RLookupKeyFlag::Hidden;
+            old.header.name = ptr::null();
+            old.header.name_len = usize::MAX;
+            let name = mem::take(old.name.deref_mut());
 
-            *old.name = ptr::null();
-            *old.name_len = usize::MAX;
-            let name = mem::take(old._name.deref_mut());
+            old.header.path = ptr::null();
+            let path = mem::take(old.path.deref_mut());
 
-            *old.path = ptr::null();
-            let path = mem::take(old._path.deref_mut());
-
-            let new = RLookupKey::from_parts(name, path, *old.dstidx, *old.flags | flags);
+            let new =
+                RLookupKey::from_parts(name, path, old.header.dstidx, old.header.flags | flags);
 
             // Mark the old key as hidden, so it won't show up in iteration.
-            *old.flags |= RLookupKeyFlag::Hidden;
+            old.header.flags |= RLookupKeyFlag::Hidden;
 
             new
         };
@@ -1068,7 +1112,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     /// Skip a consecutive run of keys marked as "hidden". Used in the [`Iterator`] implementation.
     fn skip_hidden(&mut self) {
         while let Some(curr) = self.current()
-            && curr.flags.contains(RLookupKeyFlag::Hidden)
+            && curr.header.flags.contains(RLookupKeyFlag::Hidden)
         {
             self.move_next();
         }
@@ -1113,8 +1157,8 @@ mod tests {
         let ptr = unsafe { RLookupKey::into_ptr(key) };
         let key = unsafe { RLookupKey::from_ptr(ptr) };
 
-        assert_eq!(unsafe { CStr::from_ptr(key.name) }, c"test");
-        assert_eq!(key.flags, RLookupKeyFlags::empty());
+        assert_eq!(unsafe { CStr::from_ptr(key.header.name) }, c"test");
+        assert_eq!(key.header.flags, RLookupKeyFlags::empty());
     }
 
     // Assert that creating a RLookupKey with the NameAlloc flag indeed allocates a new string
@@ -1123,8 +1167,8 @@ mod tests {
         let name = c"test";
 
         let key = RLookupKey::new(name, make_bitflags!(RLookupKeyFlag::NameAlloc));
-        assert_ne!(key.name, name.as_ptr());
-        assert!(matches!(key._name, Cow::Owned(_)));
+        assert_ne!(key.header.name, name.as_ptr());
+        assert!(matches!(key.name, Cow::Owned(_)));
     }
 
     // Assert that creating a RLookupKey *without* the NameAlloc flag keeps the provided string
@@ -1133,8 +1177,8 @@ mod tests {
         let name = c"test";
 
         let key = RLookupKey::new(name, RLookupKeyFlags::empty());
-        assert_eq!(key.name, name.as_ptr());
-        assert!(matches!(key._name, Cow::Borrowed(_)));
+        assert_eq!(key.header.name, name.as_ptr());
+        assert!(matches!(key.name, Cow::Borrowed(_)));
     }
 
     // Assert that creating a RLookupKey with the NameAlloc flag indeed allocates a new string
@@ -1143,9 +1187,9 @@ mod tests {
         let name = c"🔍🔥🎶";
 
         let key = RLookupKey::new(name, make_bitflags!(RLookupKeyFlag::NameAlloc));
-        assert_ne!(key.name, name.as_ptr());
-        assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
-        assert!(matches!(key._name, Cow::Owned(_)));
+        assert_ne!(key.header.name, name.as_ptr());
+        assert_eq!(key.header.name_len, 12); // 3 characters, 4 bytes each
+        assert!(matches!(key.name, Cow::Owned(_)));
     }
 
     // Assert that creating a RLookupKey *without* the NameAlloc flag keeps the provided string
@@ -1154,9 +1198,9 @@ mod tests {
         let name = c"🔍🔥🎶";
 
         let key = RLookupKey::new(name, RLookupKeyFlags::empty());
-        assert_eq!(key.name, name.as_ptr());
-        assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
-        assert!(matches!(key._name, Cow::Borrowed(_)));
+        assert_eq!(key.header.name, name.as_ptr());
+        assert_eq!(key.header.name_len, 12); // 3 characters, 4 bytes each
+        assert!(matches!(key.name, Cow::Borrowed(_)));
     }
 
     #[test]
@@ -1174,13 +1218,14 @@ mod tests {
         key.as_mut().update_from_field_spec(&fs);
 
         assert!(
-            key.flags
+            key.header
+                .flags
                 .contains(RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc)
         );
-        assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert_ne!(key.header.path, key.header.name);
+        assert!(matches!(key.path.as_ref().unwrap(), Cow::Borrowed(_)));
         assert_eq!(
-            unsafe { CStr::from_ptr(key.path) },
+            unsafe { CStr::from_ptr(key.header.path) },
             c"this is the field path"
         );
 
@@ -1211,19 +1256,19 @@ mod tests {
 
         key.as_mut().update_from_field_spec(&fs);
 
-        assert!(key.flags.contains(
+        assert!(key.header.flags.contains(
             RLookupKeyFlag::DocSrc
                 | RLookupKeyFlag::SchemaSrc
                 | RLookupKeyFlag::SvSrc
                 | RLookupKeyFlag::ValAvailable
         ));
-        assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert_ne!(key.header.path, key.header.name);
+        assert!(matches!(key.path.as_ref().unwrap(), Cow::Borrowed(_)));
         assert_eq!(
-            unsafe { CStr::from_ptr(key.path) },
+            unsafe { CStr::from_ptr(key.header.path) },
             c"this is the field path"
         );
-        assert_eq!(key.svidx, 43);
+        assert_eq!(key.header.svidx, 43);
 
         // cleanup
         unsafe {
@@ -1249,13 +1294,13 @@ mod tests {
 
         key.as_mut().update_from_field_spec(&fs);
 
-        assert!(key.flags.contains(
+        assert!(key.header.flags.contains(
             RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc | RLookupKeyFlag::Numeric
         ));
-        assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert_ne!(key.header.path, key.header.name);
+        assert!(matches!(key.path.as_ref().unwrap(), Cow::Borrowed(_)));
         assert_eq!(
-            unsafe { CStr::from_ptr(key.path) },
+            unsafe { CStr::from_ptr(key.header.path) },
             c"this is the field path"
         );
 
@@ -1287,15 +1332,16 @@ mod tests {
         key.as_mut().update_from_field_spec(&fs);
 
         assert!(
-            key.flags
+            key.header
+                .flags
                 .contains(RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc)
         );
-        assert_ne!(key.path, key.name);
+        assert_ne!(key.header.path, key.header.name);
         assert_eq!(
-            unsafe { CStr::from_ptr(key.path) },
+            unsafe { CStr::from_ptr(key.header.path) },
             c"this is the field path"
         );
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Owned(_)));
+        assert!(matches!(key.path.as_ref().unwrap(), Cow::Owned(_)));
 
         // cleanup
         unsafe {
@@ -1339,9 +1385,9 @@ mod tests {
         keylist.assert_valid("tests::keylist_iter after insertions");
 
         let mut c = keylist.cursor_front();
-        assert_eq!(c.next().unwrap()._name.as_ref(), c"foo");
-        assert_eq!(c.next().unwrap()._name.as_ref(), c"bar");
-        assert_eq!(c.next().unwrap()._name.as_ref(), c"baz");
+        assert_eq!(c.next().unwrap().name.as_ref(), c"foo");
+        assert_eq!(c.next().unwrap().name.as_ref(), c"bar");
+        assert_eq!(c.next().unwrap().name.as_ref(), c"baz");
         assert!(c.next().is_none());
     }
 
@@ -1356,9 +1402,9 @@ mod tests {
 
         let mut c = keylist.cursor_front_mut();
 
-        assert_eq!(c.next().unwrap()._name.as_ref(), c"foo");
-        assert_eq!(c.next().unwrap()._name.as_ref(), c"bar");
-        assert_eq!(c.next().unwrap()._name.as_ref(), c"baz");
+        assert_eq!(c.next().unwrap().name.as_ref(), c"foo");
+        assert_eq!(c.next().unwrap().name.as_ref(), c"bar");
+        assert_eq!(c.next().unwrap().name.as_ref(), c"baz");
         assert!(c.next().is_none());
     }
 
@@ -1402,7 +1448,7 @@ mod tests {
         keylist.assert_valid("tests::keylist_cursor_skip_hidden after insertions");
 
         let mut c = keylist.cursor_front();
-        assert_eq!(c.next().unwrap()._name.as_ref(), c"bar");
+        assert_eq!(c.next().unwrap().name.as_ref(), c"bar");
         assert!(c.next().is_none());
     }
 
@@ -1446,7 +1492,7 @@ mod tests {
         keylist.assert_valid("tests::keylist_cursor_mut_skip_hidden after insertions");
 
         let mut c = keylist.cursor_front_mut();
-        assert_eq!(c.next().unwrap()._name.as_ref(), c"bar");
+        assert_eq!(c.next().unwrap().name.as_ref(), c"bar");
         assert!(c.next().is_none());
     }
 
@@ -1467,11 +1513,11 @@ mod tests {
         keylist.assert_valid("tests::keylist_cursor_move_next after insertions");
 
         let mut c = keylist.cursor_front();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        assert_eq!(c.current().unwrap().name.as_ref(), c"foo");
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"bar");
+        assert_eq!(c.current().unwrap().name.as_ref(), c"bar");
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"baz");
+        assert_eq!(c.current().unwrap().name.as_ref(), c"baz");
         c.move_next();
         assert!(c.current().is_none());
     }
@@ -1493,11 +1539,11 @@ mod tests {
         keylist.assert_valid("tests::keylist_cursor_mut_move_next after insertions");
 
         let mut c = keylist.cursor_front_mut();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        assert_eq!(c.current().unwrap().name.as_ref(), c"foo");
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"bar");
+        assert_eq!(c.current().unwrap().name.as_ref(), c"bar");
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"baz");
+        assert_eq!(c.current().unwrap().name.as_ref(), c"baz");
         c.move_next();
         assert!(c.current().is_none());
     }
@@ -1571,13 +1617,13 @@ mod tests {
             .current()
             .expect("cursor should have current, this is a bug");
 
-        assert_eq!(found._name.as_ref(), c"foo");
-        assert!(found._path.is_none());
-        assert_eq!(found.dstidx, 0);
+        assert_eq!(found.name.as_ref(), c"foo");
+        assert!(found.path.is_none());
+        assert_eq!(found.header.dstidx, 0);
         // new key should have provided keys
-        assert!(found.flags.contains(RLookupKeyFlag::Numeric));
+        assert!(found.header.flags.contains(RLookupKeyFlag::Numeric));
         // new key should inherit any old flags
-        assert!(found.flags.contains(RLookupKeyFlag::Unresolved));
+        assert!(found.header.flags.contains(RLookupKeyFlag::Unresolved));
     }
 
     #[test]
@@ -1599,7 +1645,7 @@ mod tests {
 
         // and the next item to be the new key
         c.move_next();
-        assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+        assert_eq!(c.current().unwrap().name.as_ref(), c"foo");
     }
 
     #[test]

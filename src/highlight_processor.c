@@ -338,7 +338,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
       processField(hlp, &docParams, &combinedSpec);
     }
   } else if (fields->defaultField.mode != SummarizeMode_None) {
-    for (const RLookupKey *k = hlp->lookup->head; k; k = k->next) {
+    for (const RLookupKey *k = hlp->lookup->keys.head; k; k = k->next) {
       if (k->flags & RLOOKUP_F_HIDDEN) {
         continue;
       }

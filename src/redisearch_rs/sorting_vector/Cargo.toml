@@ -1,0 +1,15 @@
+[package]
+name = "sorting_vector"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+ffi.workspace = true
+icu_casemap.workspace = true
+thiserror.workspace = true
+value.workspace = true
+
+[lints]
+workspace = true
