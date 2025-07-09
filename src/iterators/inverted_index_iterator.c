@@ -420,7 +420,10 @@ static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, 
   // Choose the Read and SkipTo methods for best performance
   skipMulti = skipMulti && (idx->flags & Index_HasMultiValue);
   bool hasSeeker = it->decoders.seeker != NULL;
-  bool hasExpiration = sctx && sctx->spec->docs.ttl;
+  // TODO: better estimation
+  // check if the specific field/fieldMask has expiration, according to the `filterCtx`
+  bool hasExpiration = sctx && sctx->spec->docs.ttl && sctx->spec->monitorFieldExpiration &&
+                       (!filterCtx->field.isFieldMask && filterCtx->field.value.index != RS_INVALID_FIELD_INDEX);
 
   // Read function choice:
   // skip multi     |  no                   |  yes

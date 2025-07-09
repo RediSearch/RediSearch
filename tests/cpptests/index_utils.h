@@ -100,22 +100,23 @@ public:
       InvertedIndex_Free(spec.existingDocs);
     }
     TimeToLiveTable_Destroy(&spec.docs.ttl);
+    array_free(spec.fieldIdToIndex);
   }
 
   void TTL_Add(t_docId docId, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
-    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
+    VerifyTTLInit();
     TimeToLiveTable_Add(spec.docs.ttl, docId, expiration, NULL);
   }
 
   void TTL_Add(t_docId docId, t_fieldIndex field, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
-    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
+    VerifyTTLInit();
     arrayof(FieldExpiration) fe = array_new(FieldExpiration, 1);
     FieldExpiration fe_entry = {field, expiration};
     array_append(fe, fe_entry);
     TimeToLiveTable_Add(spec.docs.ttl, docId, {LONG_MAX, LONG_MAX}, fe);
   }
   void TTL_Add(t_docId docId, t_fieldMask fieldMask, t_expirationTimePoint expiration = {LONG_MAX, LONG_MAX}) {
-    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
+    VerifyTTLInit();
     arrayof(FieldExpiration) fe = array_new(FieldExpiration, __builtin_popcountll(fieldMask));
     for (t_fieldIndex i = 0; i < sizeof(fieldMask) * 8; ++i) {
       if (fieldMask & (1ULL << i)) {
@@ -124,5 +125,17 @@ public:
       }
     }
     TimeToLiveTable_Add(spec.docs.ttl, docId, {LONG_MAX, LONG_MAX}, fe);
+  }
+
+private:
+  void VerifyTTLInit() {
+    if (!spec.fieldIdToIndex) {
+      // By default, set a max-length array (128 text fields) with fieldId(i) -> index(i)
+      spec.fieldIdToIndex = array_new(t_fieldIndex, 128);
+      for (t_fieldIndex i = 0; i < 128; ++i) {
+        array_append(spec.fieldIdToIndex, i);
+      }
+    }
+    TimeToLiveTable_VerifyInit(&spec.docs.ttl);
   }
 };
