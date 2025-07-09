@@ -12,7 +12,6 @@ use std::{
     borrow::Cow,
     cell::UnsafeCell,
     ffi::{CStr, c_char},
-    marker::PhantomPinned,
     mem,
     pin::Pin,
     ptr::{self, NonNull},
@@ -118,7 +117,7 @@ const TRANSIENT_FLAGS: RLookupKeyFlags =
 /// This is used for data generated on the fly, or for data not stored within
 /// the sorting vector.
 /// ```
-#[pin_project]
+#[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookupKey<'a> {
@@ -148,7 +147,7 @@ pub struct RLookupKey<'a> {
 
     /// Pointer to next field in the list
     #[pin]
-    pub next: Option<NonNull<RLookupKey<'a>>>,
+    pub next: UnsafeCell<Option<NonNull<RLookupKey<'a>>>>,
 
     // Private Rust fields
     /// The actual "owning" strings, we need to hold onto these
@@ -172,23 +171,6 @@ struct KeyList<'a> {
     // Length of the data row. This is not necessarily the number
     // of lookup keys.
     rowlen: u32,
-}
-
-/// Link to other keys in a [`KeyList`].
-#[derive(Debug)]
-#[repr(C)]
-struct Link<'a> {
-    inner: UnsafeCell<LinkInner<'a>>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-#[repr(C)]
-struct LinkInner<'a> {
-    next: Option<NonNull<RLookupKey<'a>>>,
-    /// Linked list links must always be `!Unpin`, in order to ensure that they
-    /// never receive LLVM `noalias` annotations; see also
-    /// <https://github.com/rust-lang/rust/issues/63818>.
-    _unpin: PhantomPinned,
 }
 
 /// A cursor over a [`KeyList`].
@@ -234,7 +216,7 @@ impl<'a> RLookupKey<'a> {
             name_len: name.count_bytes(),
             _name: name,
             _path: None,
-            next: Link::new(),
+            next: UnsafeCell::new(None),
         }
     }
 
@@ -282,6 +264,74 @@ impl<'a> RLookupKey<'a> {
         // Safety: 3 -> Caller has to uphold the pin contract
         unsafe { Pin::new_unchecked(b) }
     }
+
+    /// Returns `true` if this node is currently linked to a [`List`].
+    #[cfg(test)]
+    fn has_next(&self) -> bool {
+        self.next().is_some()
+    }
+
+    /// Return the next pointer in the linked list
+    #[inline]
+    fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
+        // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
+        // can therefore assume this pointer is safe to dereference at this point.
+        unsafe { *self.next.get() }
+    }
+
+    /// Update the pointer to the next node
+    #[inline]
+    fn set_next(
+        &mut self,
+        next: Option<NonNull<RLookupKey<'a>>>,
+    ) -> Option<NonNull<RLookupKey<'a>>> {
+        mem::replace(self.next.get_mut(), next)
+    }
+
+    fn assert_valid(&self, tail: &Self, ctx: &str) {
+        assert!(
+            !self.flags.intersects(TRANSIENT_FLAGS),
+            "{ctx}key flags must not contain transient ({TRANSIENT_FLAGS:?}) flags. Found {:?}.",
+            self.flags
+        );
+        assert!(
+            ptr::eq(self.name, self._name.as_ptr()),
+            "{ctx}`key.name` did not match `key._name`. ({self:?})",
+        );
+        if let Some(path) = self._path.as_ref() {
+            assert!(
+                ptr::eq(self.path, path.as_ptr()),
+                "{ctx}`key._path` is present, but `key.path` did not match `key._path`. ({self:?})"
+            );
+        } else {
+            assert!(
+                ptr::eq(self.path, self._name.as_ptr()),
+                "{ctx}`key._path` is not present, but `key.path` did not match `key._name`. ({self:?})"
+            );
+        }
+        assert_eq!(
+            self.name_len,
+            self._name.count_bytes(),
+            "{ctx}`key.name_len` did not match `key._name` lentgh"
+        );
+
+        if ptr::eq(self, tail) {
+            assert_eq!(
+                self.next(),
+                None,
+                "{ctx}tail key must not have a next link; node={self:#?}",
+            );
+        }
+
+        if let Some(next) = self.next() {
+            assert_ne!(
+                // Safety:
+                NonNull::from(unsafe { &next.as_ref().next }),
+                NonNull::from(&self.next),
+                "{ctx}key's next link cannot be to itself; node={self:#?}",
+            );
+        }
+    }
 }
 
 // ===== impl KeyList =====
@@ -319,7 +369,7 @@ impl<'a> KeyList<'a> {
             // this method call AND that we have exclusive access to mutate the key.
             let tail = unsafe { tail.as_mut() };
 
-            tail.next.set_next(Some(ptr));
+            tail.set_next(Some(ptr));
             self.tail = Some(ptr);
         } else {
             // if we have no tail we also must have no head
@@ -432,18 +482,18 @@ impl<'a> KeyList<'a> {
 
         // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
         // can therefore assume this pointer is safe to dereference at this point.
-        let head_link = unsafe { &head.as_ref().next };
+        let head = unsafe { head.as_ref() };
         // Safety: see abvove
-        let tail_link = unsafe { &tail.as_ref().next };
+        let tail = unsafe { tail.as_ref() };
 
-        if ptr::addr_eq(head.as_ptr(), tail.as_ptr()) {
+        if ptr::addr_eq(head, tail) {
             assert_eq!(
-                NonNull::from(head_link),
-                NonNull::from(tail_link),
+                NonNull::from(&head.next),
+                NonNull::from(&tail.next),
                 "{ctx}if the head and tail nodes are the same, their links must be the same"
             );
             assert_eq!(
-                head_link.next(),
+                head.next(),
                 None,
                 "{ctx}if the linked list has only one node, it must not be linked"
             );
@@ -452,11 +502,12 @@ impl<'a> KeyList<'a> {
 
         let mut curr = Some(head);
         let mut actual_len = 0;
-        while let Some(node) = curr {
-            // Safety: see abvove
-            let link = unsafe { &node.as_ref().next };
-            link.assert_valid(tail_link);
-            curr = link.next();
+        while let Some(key) = curr {
+            key.assert_valid(tail, ctx);
+            curr = key.next().map(|key| {
+                // Safety: see abvove
+                unsafe { key.as_ref() }
+            });
             actual_len += 1;
         }
 
@@ -477,77 +528,20 @@ impl Drop for KeyList<'_> {
             // which means it is valid & safe to deref at this point.
             let head = unsafe { head_ptr.as_mut() };
 
-            self.head = head.next.next();
+            self.head = head.next();
 
-            if head.next.next().is_none() {
+            if head.next().is_none() {
                 self.tail = None;
             }
 
             // clear the pointer before dropping the key, just to be sure
-            head.next.set_next(None);
+            head.set_next(None);
 
             // Safety:
             // 1 -> all keys here are created through `push_key`, which correctly calls into_ptr.
             // 2 -> after this destructor runs, this RLookup is inaccessible making double frees impossible.
             // 3 -> RLookupKey is about to be freed, we don't need to worry about pinning anymore.
             drop(unsafe { RLookupKey::from_ptr(head_ptr) });
-        }
-    }
-}
-
-// ===== impl Links =====
-
-impl<'a> Link<'a> {
-    /// Returns new links for a [doubly-linked intrusive list](List).
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            inner: UnsafeCell::new(LinkInner {
-                next: None,
-                _unpin: PhantomPinned,
-            }),
-        }
-    }
-
-    /// Returns `true` if this node is currently linked to a [`List`].
-    #[cfg(test)]
-    pub fn has_next(&self) -> bool {
-        self.next().is_some()
-    }
-
-    /// Return the next pointer in the linked list
-    #[inline]
-    fn next(&self) -> Option<NonNull<RLookupKey<'a>>> {
-        // Safety: RLookupKeys are created through `KeyList::push` and owned by the `List`. We
-        // can therefore assume this pointer is safe to dereference at this point.
-        unsafe { (*self.inner.get()).next }
-    }
-
-    /// Update the pointer to the next node
-    #[inline]
-    fn set_next(
-        &mut self,
-        next: Option<NonNull<RLookupKey<'a>>>,
-    ) -> Option<NonNull<RLookupKey<'a>>> {
-        mem::replace(&mut self.inner.get_mut().next, next)
-    }
-
-    fn assert_valid(&self, tail: &Self) {
-        if ptr::eq(self, tail) {
-            assert_eq!(
-                self.next(),
-                None,
-                "tail node must not have a next link; node={self:#?}",
-            );
-        }
-
-        if let Some(next) = self.next() {
-            assert_ne!(
-                // Safety:
-                NonNull::from(unsafe { &next.as_ref().next }),
-                NonNull::from(self),
-                "node's next link cannot be to itself; node={self:#?}",
-            );
         }
     }
 }
@@ -566,7 +560,7 @@ impl<'a> Cursor<'_, 'a> {
             // The returned item will not outlive the iterator.
             let curr = unsafe { curr.as_ref() };
 
-            self.current = curr.next.next();
+            self.current = curr.next();
         }
     }
 
@@ -614,7 +608,7 @@ impl<'a> CursorMut<'_, 'a> {
             // to the keys it owns (and can therefore hand out mutable references).
             // The returned item will not outlive the iterator.
             let curr = unsafe { curr.as_ref() };
-            self.current = curr.next.next();
+            self.current = curr.next();
         }
     }
 
@@ -733,10 +727,10 @@ mod tests {
         assert_eq!(keylist.head.unwrap(), foo);
         assert_eq!(keylist.tail.unwrap(), bar);
         unsafe {
-            assert!(foo.as_ref().next.has_next());
+            assert!(foo.as_ref().has_next());
         }
         unsafe {
-            assert!(!bar.as_ref().next.has_next());
+            assert!(!bar.as_ref().has_next());
         }
     }
 
