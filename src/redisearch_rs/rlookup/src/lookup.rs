@@ -166,6 +166,8 @@ pub struct RLookupKey<'a> {
 #[derive(Debug)]
 #[repr(C)]
 struct KeyList<'a> {
+    // The head and tail nodes of this linked-list.
+    // FIXME [MOD-10314] make this more type-safe when we no longer have direct field access from C
     head: Option<NonNull<RLookupKey<'a>>>,
     tail: Option<NonNull<RLookupKey<'a>>>,
     // Length of the data row. This is not necessarily the number
@@ -312,7 +314,7 @@ impl<'a> RLookupKey<'a> {
         assert_eq!(
             self.name_len,
             self._name.count_bytes(),
-            "{ctx}`key.name_len` did not match `key._name` lentgh"
+            "{ctx}`key.name_len` did not match `key._name` length"
         );
 
         if ptr::eq(self, tail) {
