@@ -14,6 +14,7 @@
 #include <sys/param.h>
 #include "src/util/arr.h"
 #include "value.h"
+#include "triemap.h"
 
 /* Allocate a new aggregate result of a given type with a given capacity*/
 RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
@@ -194,6 +195,8 @@ void Term_Free(RSQueryTerm *t) {
 }
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
+  printf ("INLINE %d\n", inline_me (0));
+
   switch (res->type) {
     case RSResultType_Term:
       return RSOffsetVector_Len(&res->data.term.offsets) > 0;
