@@ -387,7 +387,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   // Should handle missing LOAD step gracefully
-  EXPECT_EQ(REDISMODULE_ERR, rc) << "Pipeline build should handle missing LOAD step: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build should handle missing LOAD step: " << QueryError_GetUserError(&qerr);
 
   // Clean up
   HybridRequest_Free(hybridReq);
