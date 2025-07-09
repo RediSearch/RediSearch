@@ -124,7 +124,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
       double weight;
       if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
-        return REDISMODULE_ERR;
+        goto error;
       }
       combineCtx->linearCtx.linearWeights[i] = weight;
     }
@@ -141,7 +141,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
       // Parameters were provided
       if (params.argc % 2 != 0) {
         QueryError_SetError(status, QUERY_ESYNTAX, "RRF parameters must be in name-value pairs");
-        return REDISMODULE_ERR;
+        goto error;
       }
 
       // Parse the specified parameters
@@ -149,32 +149,36 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
         const char *paramName = AC_GetStringNC(&params, NULL);
         if (!paramName) {
           QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter name in RRF");
-          return REDISMODULE_ERR;
+          goto error;
         }
 
         if (strcasecmp(paramName, "K") == 0) {
           double k;
           if (AC_GetDouble(&params, &k, 0) != AC_OK) {
             QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value in RRF");
-            return REDISMODULE_ERR;
+            goto error;
           }
           combineCtx->rrfCtx.k = k;
         } else if (strcasecmp(paramName, "WINDOW") == 0) {
           long long window;
           if (AC_GetLongLong(&params, &window, 0) != AC_OK || window <= 0) {
             QueryError_SetError(status, QUERY_ESYNTAX, "Invalid WINDOW value in RRF");
-            return REDISMODULE_ERR;
+            goto error;
           }
           combineCtx->rrfCtx.window = window;
         } else {
           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RRF", paramName);
-          return REDISMODULE_ERR;
+          goto error;
         }
       }
     }
   }
 
   return REDISMODULE_OK;
+
+error:
+  HybridScoringContext_Free(combineCtx);
+  return REDISMODULE_ERR;
 }
 
 
@@ -200,10 +204,16 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
 }
 int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params) { return REDISMODULE_OK; }
 void HybridRequest_Free(HybridRequest *req) {
+  if (!req) return;
+
   // Free all individual AREQ requests and their pipelines
   for (size_t i = 0; i < req->nrequests; i++) {
+    Pipeline_Clean(&req->requests[i]->pipeline);
     AREQ_Free(req->requests[i]);
   }
+
+  // Free the scoring context resources
+  HybridScoringContext_Free(&req->scoringCtx);
 
   // Free the arrays and tail pipeline
   array_free(req->requests);
@@ -334,10 +344,7 @@ error:
     array_free(requests);
   }
 
-  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR &&
-        hybridParams->scoringCtx->linearCtx.linearWeights) {
-    rm_free(hybridParams->scoringCtx->linearCtx.linearWeights);
-  }
+  HybridScoringContext_Free(hybridParams->scoringCtx);
 
   return NULL;
 }
