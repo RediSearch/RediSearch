@@ -123,6 +123,14 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
+typedef struct VectorQueryParameters {
+  const char *vectorField;
+  VectorQuery* vq;
+  QueryAttribute *attributes; // For YIELD_DISTANCE_AS and other query attributes
+  size_t numAttributes;      // Number of attributes
+} VectorQueryParameters;
+
+
 
 typedef struct VectorQueryData {
   const char *vectorField;
@@ -139,6 +147,7 @@ typedef struct VectorQueryData {
 } VectorQueryData;
 
 void VectorQueryData_Free(VectorQueryData *vqData);
+void VectorQueryParameters_Free(VectorQueryParameters *vqParams);
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct AREQ {
@@ -152,8 +161,8 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
- VectorQueryData *vsimQueryParams;
-
+  VectorQueryData *vsimQueryParams;
+  VectorQueryParameters *vsimQueryParameters;
   /** Fields to be output and otherwise processed */
   FieldList outFields;
 

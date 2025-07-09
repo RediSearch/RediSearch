@@ -245,6 +245,64 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vectorRequest, QueryError *st
   return REDISMODULE_OK;
 }
 
+static VectorQueryParameters* convertVectorQueryDataToParameters(VectorQueryData *vqData, QueryError *status) {
+
+  // Allocate VectorQueryParameters
+  VectorQueryParameters *vqParams = rm_calloc(1, sizeof(VectorQueryParameters));
+
+  // Copy vectorField
+  vqParams->vectorField = vqData->vectorField;
+
+  // Allocate and initialize VectorQuery
+  VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
+  vqParams->vq = vq;
+
+  vq->field = NULL;
+
+  // Set query type
+  vq->type = vqData->type;
+
+  // Copy VectorQueryParams (runtime parameters)
+  vq->params = vqData->params;
+
+  // Set up the union based on query type
+  switch (vqData->type) {
+    case VECSIM_QT_KNN:
+      vq->knn.vector = (void*)vqData->vector;
+      vq->knn.vecLen = vqData->vectorLen;
+      vq->knn.k = vqData->k;
+      vq->knn.order = BY_SCORE; // Default order
+      break;
+    case VECSIM_QT_RANGE:
+      vq->range.vector = (void*)vqData->vector;
+      vq->range.vecLen = vqData->vectorLen;
+      vq->range.radius = vqData->radius;
+      vq->range.order = BY_SCORE; // Default order
+      break;
+    default:
+      QueryError_SetError(status, QUERY_ESYNTAX, "Unknown vector query type");
+      rm_free(vq);
+      rm_free(vqParams);
+      return NULL;
+  }
+
+  // Copy attributes
+  vqParams->attributes = vqData->attributes;
+  vqParams->numAttributes = vqData->numAttributes;
+
+  // Initialize results arrays (empty initially)
+  vq->results = NULL;
+  vq->resultsLen = 0;
+
+  // Set default scoreField using vector field name
+  if (!vq->scoreField) {
+    int n_written = rm_asprintf(&vq->scoreField, "__%s_score", vqData->vectorField);
+    RS_ASSERT(n_written != -1);
+  }
+
+  return vqParams;
+}
+
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
   struct VectorQueryData *vqData = rm_calloc(1, sizeof(struct VectorQueryData));
   // assert VSIM is current
@@ -311,6 +369,9 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   // If not FILTER, the parameter may be for the next parsing function (COMBINE, etc.)
 
   vectorRequest->vsimQueryParams = vqData;
+
+  VectorQueryParameters *vqParams = convertVectorQueryDataToParameters(vqData, status);
+  vectorRequest->vsimQueryParameters = vqParams;
 
   return REDISMODULE_OK;
 }

@@ -18,6 +18,7 @@
 #include "extension.h"
 #include "profile.h"
 #include "config.h"
+#include "query_parser/tokenizer.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
 #include "resp3.h"
@@ -1171,71 +1172,77 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (req->vsimQueryParams){
-    VectorQueryData *vqData = req->vsimQueryParams;
-    const FieldSpec *vectorField = GetVectorFieldSpec(sctx->spec, vqData->vectorField, strlen(vqData->vectorField));
-    // 1. Create the base QueryNode
-    typedef struct {
-      const char *s;
-      int len;
-      int pos;
-      double numval;
-      QueryTokenType type;
-      int sign; // for numeric range, it stores the sign of the parameter
-    } QueryToken;
+  if (req->vsimQueryParameters) {
+    VectorQueryParameters *vqParams = req->vsimQueryParameters;
+    VectorQuery *vq = vqParams->vq;
 
-    QueryToken *vecToken = rm_calloc(1, sizeof(*vecToken));
-    vecToken->type = QT_PARAM_VEC;
-    vecToken->s = vqData->vector;
-    vecToken->len = strlen(vqData->vector);
-    vecToken->pos = 0;
-    vecToken->numval = 0;
-    vecToken->sign = 0;
+    // Set the field spec
+    const FieldSpec *vectorField = GetVectorFieldSpec(sctx->spec, vqParams->vectorField, strlen(vqParams->vectorField));
+    vq->field = vectorField;
 
-    QueryToken *valueToken = rm_calloc(1, sizeof(*valueToken));
-    valueToken->type = QT_PARAM_SIZE;
-    valueToken->s = sdsfromlonglong(vqData->k);
-    valueToken->len = 0;
-    valueToken->pos = 0;
-    valueToken->numval = vqData->k;
-    // The lexer update sign but drop the '$' string, here it icludes the '$'
-    valueToken->sign = 1;
+    // Create the vector node and set up parameters for resolution
+    QueryNode *vecNode = NewQueryNode(QN_VECTOR);
+    vecNode->vn.vq = vq;
+    vecNode->opts.flags |= QueryNode_YieldsDistance;
+
+    // Set up parameters that need to be resolved during QAST_EvalParams
+    // We need to create QueryTokens for the parameter resolution system
+    // Get the vector parameter data from the VectorQuery in vsimQueryParameters
+
+    const char *vectorParam;
+    double kOrRadius;
+
+    switch (vq->type) {
+      case VECSIM_QT_KNN:
+        vectorParam = (const char*)vq->knn.vector;
+        kOrRadius = vq->knn.k;
+        break;
+      case VECSIM_QT_RANGE:
+        vectorParam = (const char*)vq->range.vector;
+        kOrRadius = vq->range.radius;
+        break;
+      default:
+        // Should not happen, but handle gracefully
+        return REDISMODULE_ERR;
+    }
+
+    QueryToken vecToken = {
+      .type = QT_PARAM_VEC,
+      .s = vectorParam,
+      .len = strlen(vectorParam),
+      .pos = 0,
+      .numval = 0,
+      .sign = 0
+    };
+
+    QueryToken valueToken = {
+      .type = QT_PARAM_SIZE,
+      .s = sdsfromlonglong((long long)kOrRadius),
+      .len = 0,
+      .pos = 0,
+      .numval = kOrRadius,
+      .sign = 1
+    };
 
     QueryParseCtx q = {0};
-    QueryNode *vecNode = NewVectorNode_WithParams(&q, vqData->type, valueToken, vecToken);
 
-    // Set default scoreField (same as parser does in vector_command rule)
-    VectorQuery *vq = vecNode->vn.vq;
-    if (!vq->scoreField) {
-      int n_written = rm_asprintf(&vq->scoreField, "__%s_score", vqData->vectorField);
-      RS_ASSERT(n_written != -1);
-    }
-
-    // 2. VectorQuery was already created by NewVectorNode_WithParams
-    // 3. Set basic fields
-    vq->field = vectorField;  // FieldSpec for the vector field
-    vq->type = vqData->type;  // VECSIM_QT_KNN or VECSIM_QT_RANGE
-
-    switch (vqData->type) {
+    // Set up parameters for resolution
+    switch (vq->type) {
       case VECSIM_QT_KNN:
-        vq->knn.k = vqData->k;
-        vq->knn.order = BY_SCORE;
+        QueryNode_InitParams(vecNode, 2);
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
+        QueryNode_SetParam(&q, &vecNode->params[1], &vq->knn.k, NULL, &valueToken);
         break;
-
       case VECSIM_QT_RANGE:
-        vq->range.radius = vqData->radius;
-        vq->range.order = BY_ID;
+        QueryNode_InitParams(vecNode, 2);
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
+        QueryNode_SetParam(&q, &vecNode->params[1], &vq->range.radius, NULL, &valueToken);
         break;
     }
 
-    if (vqData->params.params) {
-      vq->params.params = vqData->params.params;
-      vq->params.needResolve = vqData->params.needResolve;
-    }
-
-    // Apply query attributes (like YIELD_DISTANCE_AS)
-    if (vqData->attributes && vqData->numAttributes > 0) {
-      QueryNode_ApplyAttributes(vecNode, vqData->attributes, vqData->numAttributes, status);
+    // Apply attributes if any
+    if (vqParams->attributes && vqParams->numAttributes > 0) {
+      QueryNode_ApplyAttributes(vecNode, vqParams->attributes, vqParams->numAttributes, status);
     }
 
     QueryNode_AddChild(vecNode, ast->root);
@@ -1874,6 +1881,9 @@ void AREQ_Free(AREQ *req) {
   if (req->vsimQueryParams) {
     VectorQueryData_Free(req->vsimQueryParams);
   }
+  if (req->vsimQueryParameters) {
+    VectorQueryParameters_Free(req->vsimQueryParameters);
+  }
   rm_free(req->args);
   rm_free(req);
 }
@@ -1923,5 +1933,19 @@ void VectorQueryData_Free(VectorQueryData *vqData) {
   }
 
   rm_free(vqData);
+}
+
+void VectorQueryParameters_Free(VectorQueryParameters *vqParams) {
+  if (!vqParams) return;
+
+  // Free the VectorQuery object
+  if (vqParams->vq) {
+    VectorQuery_Free(vqParams->vq);
+  }
+
+  // Free QueryAttribute arrays (attributes are shared with VectorQueryData, so we don't free them here)
+  // The attributes themselves are freed when VectorQueryData is freed
+
+  rm_free(vqParams);
 }
 
