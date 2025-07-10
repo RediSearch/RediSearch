@@ -165,6 +165,7 @@ QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, si
   ret->lastDocId = 0;
   setEof(ret, false);
   ret->type = METRIC_ITERATOR;
+  ret->isAborted = false;
   ret->current = NewMetricResult();
   ret->Read = MR_Read;
   ret->SkipTo = MR_SkipTo;

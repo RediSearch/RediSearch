@@ -27,7 +27,6 @@ typedef enum VALIDATE_OK {
   VALIDATE_OK, // The iterator is still valid and lastDocID did not change
   VALIDATE_MOVED, // The iterator is still valid but lastDocID changed
   VALIDATE_ABORTED,
-  VALIDATE_EOF
 } ValidateStatus;
 
 enum IteratorType {
@@ -55,6 +54,8 @@ typedef struct QueryIterator {
   // Can the iterator yield more results? The Iterator must ensure that `atEOF` is set correctly when it is sure that the Next Read returns `ITERATOR_EOF`.
   // For instance, NotIterator needs to know if the ChildIterator finishes, otherwise it may not skip the last result correctly.
   bool atEOF;
+
+  bool isAborted;
 
   // the last docId read. Initially should be 0.
   t_docId lastDocId;
@@ -104,7 +105,7 @@ typedef struct QueryIterator {
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
   // Default implementation does nothing.
-  return base->atEOF ? VALIDATE_EOF : VALIDATE_OK;
+  return VALIDATE_OK;
 }
 
 // Scaffold for the iterator API. TODO: Remove this when the old API is removed

@@ -54,11 +54,27 @@ static ValidateStatus EmptyCheckAbort(QueryIterator *base) {
 }
 
 static ValidateStatus NumericCheckAbort(QueryIterator *base) {
-  /*NumericInvIndIterator *nit = (NumericInvIndIterator *)base;
-  if (nit->lastRevId != nit->idx->revisionId) {
-    //base->Abort(base);
+  NumericInvIndIterator *nit = (NumericInvIndIterator *)base;
+  InvIndIterator *it = (InvIndIterator *)base;
+
+  // For numeric fields, we need to get the field name from the filter context
+  // We need to use the field spec directly from the numeric filter
+  const NumericFilter *filter = it->decoderCtx.filter;
+  if (!filter) {
+    // No filter means we can't check for revision changes
+    return VALIDATE_OK;
+  }
+
+  RedisModuleString *numField = IndexSpec_GetFormattedKey(it->sctx->spec, filter->fieldSpec, INDEXFLD_T_NUMERIC);
+  NumericRangeTree *rt = openNumericKeysDict(it->sctx->spec, numField, DONT_CREATE_INDEX);
+
+  if (!rt || rt->revisionId != nit->revisionId) {
+    // The numeric tree was either completely deleted or a node was split or removed.
+    // The cursor is invalidated.
+    base->isAborted = true;
     return VALIDATE_ABORTED;
-  }*/
+  }
+
   return VALIDATE_OK;
 }
 
@@ -71,8 +87,7 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
     // for this specific inverted index.
-
-    //base->Abort(base);
+    base->isAborted = true;
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -90,7 +105,7 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
     // We will not continue reading those new results and instead abort reading
     // for this specific inverted index.
 
-    //base->Abort(base);
+    base->isAborted = true;
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -102,7 +117,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
   if (base->atEOF) {
     // Save time and state if we are already at the end
-    return VALIDATE_EOF;
+    return VALIDATE_OK;
   }
 
   ValidateStatus ret = it->CheckAbort(it);
@@ -130,7 +145,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
     if (rc == ITERATOR_NOTFOUND) {
       ret = VALIDATE_MOVED;
     } else if (rc == ITERATOR_EOF) {
-      ret = VALIDATE_EOF;
+      ret = VALIDATE_OK;
     }
   }
 
@@ -371,6 +386,7 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, InvertedIndex *idx,
   SetCurrentBlockReader(it);
 
   it->base.current = res;
+  it->base.isAborted = false;
   it->base.type = READ_ITERATOR;
   it->base.atEOF = false;
   it->base.lastDocId = 0;
@@ -394,8 +410,20 @@ static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndex
                 bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
   RS_ASSERT(idx && idx->size > 0);
   NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
-  //it->lastRevId = idx->revisionId; //TODO(Joan): Somehow set the revisionId
-  return InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
+
+  // Initialize the iterator first
+  InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
+
+  // Get the numeric field key and retrieve the NumericRangeTree
+  const NumericFilter *filter = decoderCtx->filter;
+  RS_ASSERT(filter);
+  RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, filter->fieldSpec, INDEXFLD_T_NUMERIC);
+  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
+  if (rt) {
+    it->revisionId = rt->revisionId;
+  }
+
+  return &it->base.base;
 }
 
 QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {

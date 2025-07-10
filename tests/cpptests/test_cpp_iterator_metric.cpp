@@ -179,6 +179,10 @@ TEST_P(MetricIteratorCommonTest, Rewind) {
   ASSERT_FALSE(iterator_base->atEOF);
 }
 
+TEST_F(MetricIteratorCommonTest, Revalidate) {
+  ASSERT_EQ(iterator_base->Revalidate(iterator_base), VALIDATE_OK);
+}
+
 INSTANTIATE_TEST_SUITE_P(MetricIteratorP, MetricIteratorCommonTest,
 ::testing::Values(
   std::make_tuple(

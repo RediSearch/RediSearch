@@ -34,6 +34,7 @@ static QueryIterator eofIterator = {.Read = EOI_Read,
                                     .atEOF = true,
                                     .lastDocId = 0,
                                     .current = NULL,
+                                    .isAborted = false,
                                     .Revalidate = Default_Revalidate,
     };
 
