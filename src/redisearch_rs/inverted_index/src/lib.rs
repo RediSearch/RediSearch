@@ -419,6 +419,7 @@ unsafe extern "C" {
     #[allow(improper_ctypes)]
     unsafe fn ResultMetrics_Concat(parent: *mut RSIndexResult, child: *mut RSIndexResult);
     unsafe fn RSOffsetVector_Copy(src: *const RSOffsetVector, dest: *mut RSOffsetVector);
+    unsafe fn RSYieldableMetrics_Clone(src: *mut RSYieldableMetric) -> *mut RSYieldableMetric;
 }
 
 impl Clone for RSIndexResult {
@@ -439,7 +440,7 @@ impl Clone for RSIndexResult {
         };
 
         if !self.metrics.is_null() {
-            todo!()
+            new.metrics = unsafe { RSYieldableMetrics_Clone(self.metrics) }
         }
 
         new.data = match self.result_type {

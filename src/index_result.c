@@ -27,6 +27,16 @@ void RSOffsetVector_Copy(RSOffsetVector *src, RSOffsetVector *dest) {
   memcpy(dest->data, src->data, src->len);
 }
 
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src) {
+   // Create a copy of the array and increase the refcount for each element's value
+    RSYieldableMetric* ret = NULL;
+    ret = array_ensure_append_n(ret, src, array_len(src));
+    for (size_t i = 0; i < array_len(ret); i++)
+      RSValue_IncrRef(ret[i].value);
+
+    return ret;
+}
+
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
   RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
   ret->idf = 1;

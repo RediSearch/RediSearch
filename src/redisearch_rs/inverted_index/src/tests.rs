@@ -1,4 +1,4 @@
-use ffi::{RS_FIELDMASK_ALL, RSQueryTerm};
+use ffi::{RS_FIELDMASK_ALL, RSQueryTerm, RSYieldableMetric};
 
 use crate::{
     RSAggregateResult, RSIndexResult, RSNumericRecord, RSOffsetVector, RSResultType,
@@ -40,6 +40,11 @@ pub extern "C" fn ResultMetrics_Concat(_parent: *mut RSIndexResult, _child: *mut
 #[unsafe(no_mangle)]
 pub extern "C" fn RSOffsetVector_Copy(_src: *const RSOffsetVector, _dest: *mut RSOffsetVector) {
     panic!("there are no term tests yet");
+}
+
+#[unsafe(no_mangle)]
+unsafe fn RSYieldableMetrics_Clone(src: *mut RSYieldableMetric) -> *mut RSYieldableMetric {
+    panic!("none of the tests should set any metrics");
 }
 
 impl RSAggregateResult {

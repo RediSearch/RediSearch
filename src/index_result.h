@@ -27,6 +27,9 @@ void Term_Free(RSQueryTerm *t);
 /* Make a of the offset vector into the destination. This assumes the destination is empty */
 void RSOffsetVector_Copy(RSOffsetVector *src, RSOffsetVector *dest);
 
+/* Make a complete clone of the metrics array and increment the reference count of each value  */
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src);
+
 void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child);
 
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
