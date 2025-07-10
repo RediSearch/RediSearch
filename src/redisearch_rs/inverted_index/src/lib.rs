@@ -27,11 +27,11 @@ where
 {
     /// Try to convert a `u64` into this delta type. If the `u64` will be too big for this delta
     /// type, then `None` should be returned. Returning `None` will cause the [`InvertedIndex`]
-    /// to make a new block to reset the delta.
+    /// to make a new block so that it can have a zero delta.
     fn from_u64(delta: u64) -> Option<Self>;
 
-    /// The delta value when the [`InvertedIndex`] has to reset it for a new block.
-    fn reset() -> Self;
+    /// The delta value when the [`InvertedIndex`] makes a new block and needs a delta equal to `0`.
+    fn zero() -> Self;
 }
 
 impl IdDelta for u32 {
@@ -39,7 +39,7 @@ impl IdDelta for u32 {
         delta.try_into().ok()
     }
 
-    fn reset() -> Self {
+    fn zero() -> Self {
         0
     }
 }
@@ -323,8 +323,8 @@ impl PartialEq for RSIndexResult {
 /// Encoder to write a record into an index
 pub trait Encoder {
     /// Document ids are represented as `u64`s and stored using delta-encoding.
-    /// 
-    /// Some encoders can't encode arbitrarily large id deltas—e.g. they might be limited to `u32::MAX` or 
+    ///
+    /// Some encoders can't encode arbitrarily large id deltas—e.g. they might be limited to `u32::MAX` or
     /// another subset of the `u64` value range.
     ///
     /// This associated type can be used by each encoder to specify which range they support, thus
@@ -498,8 +498,8 @@ impl<E: Encoder> InvertedIndex<E> {
         let delta = match E::Delta::from_u64(delta) {
             Some(delta) => delta,
             None => {
-                // The delta is too large for this encoder, we need to create a new block and reset
-                // the delta.
+                // The delta is too large for this encoder. We need to create a new block.
+                // Since the new block is empty, we'll start with `delta` equal to 0.
                 let (new_block, block_size) = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
@@ -507,7 +507,7 @@ impl<E: Encoder> InvertedIndex<E> {
                 block = new_block;
                 mem_growth += block_size;
 
-                E::Delta::reset()
+                E::Delta::zero()
             }
         };
 

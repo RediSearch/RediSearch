@@ -217,7 +217,7 @@ impl IdDelta for NumericDelta {
         }
     }
 
-    fn reset() -> Self {
+    fn zero() -> Self {
         Self(0)
     }
 }
