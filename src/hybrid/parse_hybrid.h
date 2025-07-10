@@ -18,6 +18,11 @@
 extern "C" {
 #endif
 
+typedef struct HybridPipelineParams {
+    AggregationPipelineParams aggregation;
+    bool synchronize_read_locks;
+    HybridScoringContext *scoringCtx;
+} HybridPipelineParams;
 
 typedef struct {
   arrayof(AREQ*) requests;
@@ -26,15 +31,8 @@ typedef struct {
   QueryError *errors;
   RequestConfig reqConfig;
   Pipeline tail;
-  HybridScoringContext scoringCtx;
+  HybridPipelineParams *hybridParams;
 } HybridRequest;
-
-
-  typedef struct HybridPipelineParams {
-    AggregationPipelineParams aggregation;
-    bool synchronize_read_locks;
-    HybridScoringContext *scoringCtx;
-  } HybridPipelineParams;
 
 void HybridRequest_Free(HybridRequest *hybridRequest);
 
@@ -43,7 +41,7 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 // Function for parsing hybrid request parameters - exposed for testing
 HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                   RedisSearchCtx *sctx, const char* indexname,
-                                  HybridPipelineParams *hybridParams, QueryError *status);
+                                  QueryError *status);
 
 #ifdef __cplusplus
 }

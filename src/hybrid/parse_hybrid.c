@@ -202,18 +202,42 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
   }
   return req;
 }
-int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params) { return REDISMODULE_OK; }
+
+int HybridRequest_BuildPipeline(HybridRequest *req) { return REDISMODULE_OK; }
+
 void HybridRequest_Free(HybridRequest *req) {
   if (!req) return;
 
-  // Free all individual AREQ requests and their pipelines
+  // Free all individual AREQ requests
   for (size_t i = 0; i < req->nrequests; i++) {
-    Pipeline_Clean(&req->requests[i]->pipeline);
+    // Check if we need to manually free the thread-safe context
+    // if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx &&
+    //     !(req->requests[i]->reqflags & QEXEC_F_IS_CURSOR)) {
+    if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
+
+      // Free the search context
+      RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
+      RedisSearchCtx *sctx = req->requests[i]->sctx;
+      SearchCtx_Free(sctx);
+      // Free the thread-safe context
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+      req->requests[i]->sctx = NULL;
+    }
+
     AREQ_Free(req->requests[i]);
   }
 
   // Free the scoring context resources
-  HybridScoringContext_Free(&req->scoringCtx);
+  HybridScoringContext_Free(req->hybridParams->scoringCtx);
+
+  // Free the aggregation search context
+  if(req->hybridParams->aggregation.common.sctx) {
+    SearchCtx_Free(req->hybridParams->aggregation.common.sctx);
+  }
+  // Free the hybrid parameters
+  rm_free(req->hybridParams);
 
   // Free the arrays and tail pipeline
   array_free(req->requests);
@@ -224,16 +248,24 @@ void HybridRequest_Free(HybridRequest *req) {
 
 
 HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 RedisSearchCtx *sctx, const char* indexname,
-                                 HybridPipelineParams *hybridParams, QueryError *status) {
+                                 RedisSearchCtx *sctx, const char *indexname,
+                                 QueryError *status) {
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
 
+  HybridPipelineParams *hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
+  hybridParams->scoringCtx = rm_calloc(1, sizeof(HybridScoringContext));
+  hybridParams->scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  hybridParams->scoringCtx->rrfCtx = (HybridRRFContext) {
+    .k = 1,
+    .window = 20
+  };
+
   RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
   RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
+  searchRequest->sctx = NewSearchCtxC(ctx1, indexname, true);
   RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
   RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
-  searchRequest->sctx = NewSearchCtxC(ctx1, indexname, true);
   vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
 
   AREQ *mergeAreq = NULL;
@@ -255,12 +287,6 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (parseVectorSubquery(&ac, vectorRequest, status) != REDISMODULE_OK) {
     goto error;
   }
-
-  hybridParams->scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  hybridParams->scoringCtx->rrfCtx = (HybridRRFContext) {
-    .k = 1,
-    .window = 20
-  };
 
   // Look for optional COMBINE parameter
   if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
@@ -295,7 +321,8 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     }
   }
 
-  if (AREQ_ApplyContext(searchRequest, sctx, status) != REDISMODULE_OK) {
+  // TODO: copy sctx to searchRequest->sctx ?
+  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -305,6 +332,7 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   array_ensure_append_1(requests, vectorRequest);
 
   HybridRequest *hybridRequest = HybridRequest_New(requests, 2);
+  hybridRequest->hybridParams = hybridParams;
 
   // thread safe context
   const AggregationPipelineParams params = {
@@ -335,8 +363,30 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   return hybridRequest;
 
 error:
-  AREQ_Free(searchRequest);
-  AREQ_Free(vectorRequest);
+  if (searchRequest) {
+    if (searchRequest->sctx) {
+      RedisModuleCtx *thctx = searchRequest->sctx->redisCtx;
+      SearchCtx_Free(searchRequest->sctx);
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+      searchRequest->sctx = NULL;
+    }
+    AREQ_Free(searchRequest);
+  }
+
+  if (vectorRequest) {
+    if (vectorRequest->sctx) {
+      RedisModuleCtx *thctx = vectorRequest->sctx->redisCtx;
+      SearchCtx_Free(vectorRequest->sctx);
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+      vectorRequest->sctx = NULL;
+    }
+    AREQ_Free(vectorRequest);
+  }
+
   if (mergeAreq) {
     AREQ_Free(mergeAreq);
   }
@@ -344,7 +394,10 @@ error:
     array_free(requests);
   }
 
-  HybridScoringContext_Free(hybridParams->scoringCtx);
+  if (hybridParams) {
+    HybridScoringContext_Free(hybridParams->scoringCtx);
+    rm_free(hybridParams);
+  }
 
   return NULL;
 }
@@ -368,14 +421,12 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   QueryError status = {0};
 
-  HybridPipelineParams params = {0};
-
-  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, indexname, &params, &status);
+  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, indexname, &status);
   if (!hybridRequest) {
     goto error;
   }
 
-  if (HybridRequest_BuildPipeline(hybridRequest, &params) != REDISMODULE_OK) {
+  if (HybridRequest_BuildPipeline(hybridRequest) != REDISMODULE_OK) {
     goto error;
   }
 
