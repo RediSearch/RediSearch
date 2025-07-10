@@ -193,6 +193,7 @@ jobs:
       - name: print so size
         run: |
             ls -llh bin/linux-x64-debug-asan/search-community/redisearch.so|| true
+            ls -llh bin/linux-x64-debug/search-community/redisearch.so|| true
             ls -llh bin/linux-x64-release/search-community/redisearch.so|| true
             ls -llh bin/linux-aarch64-release/search-community/redisearch.so|| true
         continue-on-error: true
