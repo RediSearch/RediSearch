@@ -23,7 +23,7 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   cl->current_round_robin = 0;  // Initialize round-robin counter
   cl->io_runtimes_pool = rm_malloc(cl->num_io_threads * sizeof(IORuntimeCtx*));
   for (size_t i = 0; i < cl->num_io_threads; i++) {
-    cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, initialTopology, i + 1, i == 0 ? true : false);
+    cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, initialTopology, i + 1, i == 0);
   }
 
   return cl;

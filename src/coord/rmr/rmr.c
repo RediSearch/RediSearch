@@ -258,8 +258,7 @@ static void uvUpdateTopologyRequest(void *p) {
   struct UpdateTopologyCtx *ctx = p;
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   MRClusterTopology *old_topo = ioRuntime->topo;
-  MRClusterTopology *new_topo = ctx->new_topo;
-  ioRuntime->topo = new_topo;
+  ioRuntime->topo = ctx->new_topo;
   IORuntimeCtx_UpdateNodesAndConnectAll(ioRuntime);
   rm_free(ctx);
   if (old_topo) {
