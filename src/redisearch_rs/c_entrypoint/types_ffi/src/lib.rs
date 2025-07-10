@@ -28,6 +28,7 @@ pub extern "C" fn NewUnionResult(cap: usize, weight: f64) -> *mut RSIndexResult 
 
 /// Allocate a new virtual result with a given weight and field mask
 #[unsafe(no_mangle)]
+#[allow(improper_ctypes_definitions)]
 pub extern "C" fn NewVirtualResult(weight: f64, field_mask: t_fieldMask) -> *mut RSIndexResult {
     let result = RSIndexResult::virt(0, field_mask, weight);
     Box::into_raw(Box::new(result))
