@@ -596,7 +596,7 @@ def testNameLoader(env: Env):
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
     env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
 
-def _test_with_io_threads(io_threads):
+def _test_ft_search_with_io_threads(io_threads):
     """Helper function to test queries with specific IO thread count"""
     # Create environment with specific IO thread count
     env = initEnv(moduleArgs=f'SEARCH_IO_THREADS {io_threads}')
@@ -637,16 +637,142 @@ def _test_with_io_threads(io_threads):
 
     # Clean up for next iteration
     env.cmd('FLUSHALL')
+    env.flush()
+    env.stop()
 
 
 @skip(cluster=False)
-def test_query_with_coord_1_io_thread():
-    _test_with_io_threads(1)
+def test_ft_search_with_coord_1_io_thread():
+    _test_ft_search_with_io_threads(1)
 
 @skip(cluster=False)
-def test_query_with_coord_5_io_threads():
-    _test_with_io_threads(5)
+def test_ft_search_with_coord_5_io_threads():
+    _test_ft_search_with_io_threads(5)
 
 @skip(cluster=False)
-def test_query_with_coord_10_io_threads():
-    _test_with_io_threads(10)
+def test_ft_search_with_coord_10_io_threads():
+    _test_ft_search_with_io_threads(10)
+
+
+def _test_ft_aggregate_with_io_threads(io_threads):
+    """Helper function to test aggregate queries with specific IO thread count"""
+    # Create environment with specific IO thread count
+    env = initEnv(moduleArgs=f'SEARCH_IO_THREADS {io_threads}')
+
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'num', 'NUMERIC', 'SORTABLE', 'tag', 'TAG').ok()
+
+    # Add test documents
+    conn = getConnectionByEnv(env)
+    doc_count = 100
+    for i in range(doc_count):
+        tag_value = f"tag{i % 10}" # Create 10 different tag values
+        conn.execute_command('HSET', f'doc:{i}',
+                            'txt', f'hello world document {i}',
+                            'num', i,
+                            'tag', tag_value)
+
+    # Run different aggregate queries and verify results
+
+    # 1. Simple aggregate
+    res = env.cmd('FT.AGGREGATE', 'idx', '*')
+    # Check exact structure - 100 empty arrays after the counter
+    env.assertEqual(len(res), 101, message=f"Simple aggregate with {io_threads} IO threads")
+    env.assertEqual(res[1:], [[] for _ in range(100)], message=f"Simple aggregate structure with {io_threads} IO threads")
+
+    # 2. Aggregate with LOAD
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@num', 'LIMIT', 0, 10)
+    # Check exact number of results and structure
+    env.assertEqual(len(res), 11, message=f"Aggregate with LOAD with {io_threads} IO threads")
+    # Verify each result has the correct format ['num', value]
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 2, message=f"Result format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'num', message=f"Field name with {io_threads} IO threads")
+
+    # 3. Aggregate with GROUPBY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', 1, '@tag',
+                 'REDUCE', 'COUNT', 0, 'AS', 'count')
+    # Check exact number of groups and their structure
+    env.assertEqual(len(res), 11, message=f"Aggregate with GROUPBY with {io_threads} IO threads")
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 4, message=f"Group format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'tag', message=f"Group field name with {io_threads} IO threads")
+        env.assertEqual(res[i][2], 'count', message=f"Count field name with {io_threads} IO threads")
+        env.assertEqual(res[i][3], '10', message=f"Group count with {io_threads} IO threads")
+
+    # 4. Aggregate with SORTBY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'SORTBY', 2, '@num', 'DESC',
+                 'LIMIT', 0, 5)
+    # Check exact number of results and descending order
+    env.assertEqual(len(res), 6, message=f"Aggregate with SORTBY with {io_threads} IO threads")
+    # Verify descending order of results
+    expected_values = ['99', '98', '97', '96', '95']
+    for i in range(5):
+        env.assertEqual(res[i+1][1], expected_values[i],
+                       message=f"Sort order at position {i} with {io_threads} IO threads")
+
+    # 5. Aggregate with APPLY
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'LOAD', 1, '@num',
+                 'APPLY', '@num * 2', 'AS', 'doubled',
+                 'LIMIT', 0, 5)
+    # Check exact structure and calculated values
+    env.assertEqual(len(res), 6, message=f"Aggregate with APPLY with {io_threads} IO threads")
+    for i in range(1, len(res)):
+        env.assertEqual(len(res[i]), 4, message=f"Result format with {io_threads} IO threads")
+        env.assertEqual(res[i][0], 'num', message=f"First field name with {io_threads} IO threads")
+        env.assertEqual(res[i][2], 'doubled', message=f"Second field name with {io_threads} IO threads")
+        # Verify doubled value is correct
+        num_val = int(res[i][1])
+        doubled_val = int(res[i][3])
+        env.assertEqual(doubled_val, num_val * 2,
+                       message=f"APPLY calculation for {num_val} with {io_threads} IO threads")
+
+    # 6. Aggregate with FILTER
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'LOAD', 1, '@num',
+                 'FILTER', '@num > 90')
+    # Check exact number of results (9 documents with num > 90)
+    env.assertEqual(len(res), 10, message=f"Aggregate with FILTER with {io_threads} IO threads")
+    # Verify all values are > 90
+    for i in range(1, len(res)):
+        env.assertGreater(int(res[i][1]), 90,
+                         message=f"Filter condition with {io_threads} IO threads")
+
+    # 7. Complex aggregate with multiple operations
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                 'GROUPBY', 1, '@tag',
+                 'REDUCE', 'AVG', 1, '@num', 'AS', 'avg_num',
+                 'REDUCE', 'COUNT', 0, 'AS', 'count',
+                 'SORTBY', 2, '@avg_num', 'DESC')
+    # Check exact number of groups and descending order of avg_num
+    env.assertEqual(len(res), 11, message=f"Complex aggregate with {io_threads} IO threads")
+    # Verify descending order of avg_num
+    for i in range(1, len(res)-1):
+        current_avg = float(res[i][5])  # Fixed: value is at index 5, not 4
+        next_avg = float(res[i+1][5])   # Fixed: value is at index 5, not 4
+        env.assertGreaterEqual(current_avg, next_avg,
+                              message=f"Sort order of avg_num with {io_threads} IO threads")
+
+    # Clean up for next iteration
+    env.cmd('FLUSHALL')
+    env.flush()
+    env.stop()
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_1_io_thread():
+    _test_ft_aggregate_with_io_threads(1)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_5_io_threads():
+    _test_ft_aggregate_with_io_threads(5)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_10_io_threads():
+    _test_ft_aggregate_with_io_threads(10)
+
+@skip(cluster=False)
+def test_ft_aggregate_with_coord_20_io_threads():
+    _test_ft_aggregate_with_io_threads(20)
