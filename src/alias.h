@@ -9,7 +9,6 @@
 #ifndef ALIAS_H
 #define ALIAS_H
 
-#include "redismodule.h"
 #include "spec.h"
 
 #ifdef __cplusplus
