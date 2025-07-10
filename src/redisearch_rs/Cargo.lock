@@ -1288,6 +1288,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlookup"
+version = "0.0.1"
+dependencies = [
+ "enumflags2",
+ "ffi",
+ "pin-project",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
