@@ -16,6 +16,7 @@
 #include "value.h"
 #include "sortable.h"
 #include "util/arr.h"
+#include "rlookup_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -106,23 +107,6 @@ typedef struct RLookup {
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
 
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
-typedef struct {
-  /** Sorting vector attached to document */
-  const RSSortingVector *sv;
-
-  /** Dynamic values obtained from prior processing */
-  RSValue **dyn;
-
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
-  size_t ndyn;
-} RLookupRow;
 
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
@@ -248,31 +232,6 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
  */
 
 /**
- * Write a value to a lookup table. Key must already be registered, and not
- * refer to a read-only (SVSRC) key.
- *
- * The value written will have its refcount incremented
- */
-void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-
-/**
- * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
- * a leak.
- */
-void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-
-/**
- * Move data from the source row to the destination row. The source row is cleared.
- * The destination row should be pre-cleared (though its cache may still
- * exist).
- * @param lk lookup common to both rows
- * @param src the source row
- * @param dst the destination row
- */
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
-
-/**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
@@ -313,21 +272,6 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
   }
   return ret;
 }
-
-/**
- * Wipes the row, retaining its memory but decrefing any included values.
- * This does not free all the memory consumed by the row, but simply resets
- * the row data (preserving any caches) so that it may be refilled.
- */
-void RLookupRow_Wipe(RLookupRow *row);
-
-/**
- * Frees all the memory consumed by the row. Implies Wipe(). This should be used
- * when the row object will no longer be used.
- */
-void RLookupRow_Cleanup(RLookupRow *row);
-
-sds RLookupRow_DumpSds(const RLookupRow *row, bool obfuscate);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */

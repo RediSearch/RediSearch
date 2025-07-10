@@ -304,21 +304,6 @@ void RLookup_Init(RLookup *lk, IndexSpecCache *spcache) {
   lk->spcache = spcache;
 }
 
-void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  // Find the pointer to write to ...
-  RSValue **vptr = array_ensure_at(&row->dyn, key->dstidx, RSValue *);
-  if (*vptr) {
-    RSValue_Decref(*vptr);
-    row->ndyn--;
-  }
-  *vptr = v;
-  row->ndyn++;
-}
-
-void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  RLookup_WriteOwnKey(key, row, RSValue_IncrRef(v));
-}
-
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
   // Get the key first
   RLookupKey *k = RLookup_FindKey(lookup, name, len);
@@ -331,55 +316,6 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
   RLookup_WriteKeyByName(lookup, name, len, row, value);
   RSValue_Decref(value);
-}
-
-void RLookupRow_Wipe(RLookupRow *r) {
-  for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
-    RSValue **vpp = r->dyn + ii;
-    if (*vpp) {
-      RSValue_Decref(*vpp);
-      *vpp = NULL;
-      r->ndyn--;
-    }
-  }
-  r->sv = NULL;
-}
-
-void RLookupRow_Cleanup(RLookupRow *r) {
-  RLookupRow_Wipe(r);
-  if (r->dyn) {
-    array_free(r->dyn);
-  }
-}
-
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
-  for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-    RSValue *vv = RLookup_GetItem(kk, src);
-    if (vv) {
-      RLookup_WriteKey(kk, dst, vv);
-    }
-  }
-  RLookupRow_Wipe(src);
-}
-
-sds RLookupRow_DumpSds(const RLookupRow *rr, bool obfuscate) {
-  sds s = sdsempty();
-  s = sdscatfmt(s, "Row @%p\n", rr);
-  if (rr->dyn) {
-    s = sdscatfmt(s, "  DYN @%p\n", rr->dyn);
-    for (size_t ii = 0; ii < array_len(rr->dyn); ++ii) {
-      s = sdscatfmt(s, "  [%lu]: %p\n", ii, rr->dyn[ii]);
-      if (rr->dyn[ii]) {
-        s = sdscat(s, "    ");
-        s = RSValue_DumpSds(rr->dyn[ii], s, obfuscate);
-        s = sdscat(s, "\n");
-      }
-    }
-  }
-  if (rr->sv) {
-    s = sdscatfmt(s, "  SV @%p\n", rr->sv);
-  }
-  return s;
 }
 
 static void RLookupKey_Cleanup(RLookupKey *k) {

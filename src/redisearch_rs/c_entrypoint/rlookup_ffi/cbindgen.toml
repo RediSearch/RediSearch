@@ -90,5 +90,5 @@ after_includes = """
 parse_deps = true
 include = ["rlookup"]
 
-# [export]
-# include = ["RSIndexResult"]
+[export]
+include = ["RLookupRow"]
