@@ -189,7 +189,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-        run: ./build.sh
+        run: ./build.sh DEBUG
       - name: print so size
         run: |
             ls -llh bin/linux-x64-debug-asan/search-community/redisearch.so|| true
