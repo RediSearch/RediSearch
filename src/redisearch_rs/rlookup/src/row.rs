@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use crate::RLookupKey;
+
 #[derive(Debug, Clone)]
 pub struct RSValueOpqaue {
     // Placeholder for the actual type definition
@@ -19,7 +21,6 @@ pub struct RSSortingVectorOpaque {
 }
 
 impl RSValueOpqaue {
-    #[expect(unused, reason = "used by later stacked PRs")]
     pub fn increment(&mut self) {}
 
     pub fn decrement(&mut self) {}
@@ -60,5 +61,34 @@ impl RLookupRow {
                 self.num -= 1;
             }
         }
+    }
+
+    /// Write a value to a lookup table. Key must already be registered, and not
+    /// refer to a read-only (SVSRC) key.
+    ///
+    /// The value written won't have its refcount incremented
+    pub fn write_own_key(&mut self, key: &RLookupKey, val: RSValueOpqaue) {
+        let idx = key.dstidx;
+        if self.values.len() <= idx as usize {
+            self.values.resize((idx + 1) as usize, None);
+        }
+
+        let in_place = &mut self.values[idx as usize];
+        if let Some(existing_value) = in_place {
+            existing_value.decrement();
+            self.num -= 1;
+        }
+
+        *in_place = Some(val);
+        self.num += 1;
+    }
+
+    /// Write a value to a lookup table. Key must already be registered, and not
+    /// refer to a read-only (SVSRC) key.
+    ///
+    /// The value written will have its refcount incremented
+    pub fn write_key(&mut self, key: &RLookupKey, mut val: RSValueOpqaue) {
+        val.increment();
+        self.write_own_key(key, val);
     }
 }
