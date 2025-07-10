@@ -34,6 +34,15 @@ typedef struct MetricRequest{
   RLookupKey **key_ptr;
 } MetricRequest;
 
+// Flags indicating which syntax features are enabled for this query
+typedef enum {
+  // All syntax features are enabled
+  QAST_SYNTAX_DEFAULT = 0,
+  // weight attribute is not allowed, vector commands are not allowed
+  QAST_HYBRID_VSIM_FILTER_CLAUSE = 0x01,
+  // weight attribute is not allowed
+  QAST_HYBRID_SEARCH_CLAUSE = 0x02,
+} QAST_ValidationFlags;
 
 /**
  * Query AST structure.
@@ -62,6 +71,9 @@ typedef struct QueryAST {
   // Copy of RSGlobalConfig parameters required for query execution,
   // to ensure that they won't change during query execution.
   IteratorsConfig config;
+
+  // Flags indicating which syntax features are enabled for this query
+  QAST_ValidationFlags validationFlags;
 } QueryAST;
 
 /**
@@ -130,7 +142,6 @@ int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVers
 int QueryNode_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
-
 /* Return a string representation of the QueryParseCtx parse tree. The string should be freed by the
  * caller */
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec);
