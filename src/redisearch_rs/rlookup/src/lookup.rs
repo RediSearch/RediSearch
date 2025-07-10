@@ -244,24 +244,31 @@ impl<'a> RLookupKey<'a> {
     }
 
     /// Updates this `RLookupKey`'s fields according to the provided [`ffi::FieldSpec`].
-    pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
+    ///
+    /// # Safety
+    ///
+    /// The caller has to ensure that the given field spec is well formed. In particular it needs
+    /// to uphold the following invariants:
+    /// - The `fieldPath` ptr must be valid, non-null, and point to an [`ffi::HiddenString`].
+    /// - The `sortIdx` `i16` value can be represented by the keys `u16` `svidx` field.
+    pub unsafe fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
         self.flags |= RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc;
 
         let path = {
             debug_assert!(!fs.fieldPath.is_null());
 
             let mut path_len = 0;
-            // Safety: we received the pointer from the field spec and have to assume it is valid
+            // Safety: The caller is responsible for making sure the FieldSpec's fieldPath pointer
+            // is not null and points to a valid `HiddenString`.
             let path_ptr =
                 unsafe { ffi::HiddenString_GetUnsafe(fs.fieldPath, ptr::from_mut(&mut path_len)) };
-
             debug_assert!(!path_ptr.is_null());
-            // Safety: We assume the `path_ptr` and `length` information returned by the field spec
-            // point to a valid null-terminated C string. Importantly `length` here is value as returned by
-            // `strlen` so **does not** include the null terminator (that is why we do `path_len + 1` below)
+
+            // Safety: Assuming the `HiddenString_GetUnsafe` function is correctly implemented, the returned
+            // pointer should be valid and non-null, and together with the length form a null-terminated C string.
             let bytes = unsafe { slice::from_raw_parts(path_ptr.cast::<u8>(), path_len + 1) };
-            let path = CStr::from_bytes_with_nul(bytes)
-                .expect("string returned by HiddenString_GetUnsafe is malformed");
+            // Safety: See above, we assume `HiddenString_GetUnsafe` is correct.
+            let path = unsafe { CStr::from_bytes_with_nul_unchecked(bytes) };
 
             // When the name is owned, we also want the path to be owned
             if matches!(self._name, Cow::Owned(_)) {
@@ -277,7 +284,14 @@ impl<'a> RLookupKey<'a> {
 
         if fs_options.contains(FieldSpecOption::Sortable) {
             self.flags |= RLookupKeyFlag::SvSrc;
-            self.svidx = u16::try_from(fs.sortIdx).unwrap();
+
+            debug_assert!(
+                u16::try_from(fs.sortIdx).is_ok(),
+                "conversion from i16 ffi::FieldSpec::sortIdx to u16 RLookupKey::svidx overflowed. This is a bug!"
+            );
+            // Safety: The caller is responsible for making sure the FieldSpec is valid.
+            // We also double above when debug assertions are enabled.
+            self.svidx = unsafe { u16::try_from(fs.sortIdx).unwrap_unchecked() };
 
             if fs_options.contains(FieldSpecOption::Unf) {
                 // If the field is sortable and not normalized (UNF), the available data in the
@@ -366,7 +380,7 @@ mod tests {
         fs.fieldPath =
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
 
-        key.update_from_field_spec(&fs);
+        unsafe { key.update_from_field_spec(&fs) };
 
         assert!(
             key.flags
@@ -404,7 +418,9 @@ mod tests {
         );
         fs.sortIdx = 43;
 
-        key.update_from_field_spec(&fs);
+        unsafe {
+            key.update_from_field_spec(&fs);
+        }
 
         assert!(key.flags.contains(
             RLookupKeyFlag::DocSrc
@@ -442,7 +458,9 @@ mod tests {
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
         fs.set_types(ffi::FieldType_INDEXFLD_T_NUMERIC);
 
-        key.update_from_field_spec(&fs);
+        unsafe {
+            key.update_from_field_spec(&fs);
+        }
 
         assert!(key.flags.contains(
             RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc | RLookupKeyFlag::Numeric
@@ -476,7 +494,9 @@ mod tests {
         fs.fieldPath =
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
 
-        key.update_from_field_spec(&fs);
+        unsafe {
+            key.update_from_field_spec(&fs);
+        }
 
         assert!(
             key.flags
