@@ -1172,91 +1172,61 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (req->vsimQueryParameters) {
-    VectorQueryParameters *vqParams = req->vsimQueryParameters;
-    VectorQuery *vq = vqParams->vq;
+  if (req->simpleVectorQuery) {
+    SimpleVectorQuery *svq = req->simpleVectorQuery;
 
-    // Set the field spec
-    const FieldSpec *vectorField = GetVectorFieldSpec(sctx->spec, vqParams->vectorField, strlen(vqParams->vectorField));
+    // Resolve field spec
+    const FieldSpec *vectorField = GetVectorFieldSpec(sctx->spec, svq->fieldName, strlen(svq->fieldName));
+    if (!vectorField) {
+      QueryError_SetError(status, QUERY_ENOOPTION, "Vector field not found");
+      return REDISMODULE_ERR;
+    }
+
+    // Create VectorQuery from SimpleVectorQuery data
+    VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
     vq->field = vectorField;
+    vq->type = svq->type;
 
-    // Create the vector node and set up parameters for resolution
+    // Set default scoreField using vector field name
+    int n_written = rm_asprintf(&vq->scoreField, "__%s_score", svq->fieldName);
+    RS_ASSERT(n_written != -1);
+
+    // Initialize empty params (will be populated by attributes)
+    vq->params.params = array_new(VecSimRawParam, 0);
+    vq->params.needResolve = array_new(bool, 0);
+
+    // Set vector data and parameters based on type
+    switch (svq->type) {
+      case VECSIM_QT_KNN:
+        vq->knn.vector = (void*)svq->vector;  // Cast away const - VectorQuery expects non-const
+        vq->knn.vecLen = svq->vectorLen;
+        vq->knn.k = svq->k;  // Directly assign size_t to size_t
+        vq->knn.order = BY_SCORE;
+        break;
+      case VECSIM_QT_RANGE:
+        vq->range.vector = (void*)svq->vector;  // Cast away const - VectorQuery expects non-const
+        vq->range.vecLen = svq->vectorLen;
+        vq->range.radius = svq->radius;  // Directly assign double to double
+        vq->range.order = BY_SCORE;
+        break;
+    }
+
+    // Create the vector node
     QueryNode *vecNode = NewQueryNode(QN_VECTOR);
     vecNode->vn.vq = vq;
     vecNode->opts.flags |= QueryNode_YieldsDistance;
 
-    // Set up parameters that need to be resolved during QAST_EvalParams
-    // We need to create QueryTokens for the parameter resolution system
-    // Get the vector parameter data from the VectorQuery in vsimQueryParameters
-
-    const char *vectorParam;
-    double kOrRadius;
-
-    switch (vq->type) {
-      case VECSIM_QT_KNN:
-        vectorParam = (const char*)vq->knn.vector;
-        kOrRadius = vq->knn.k;
-        break;
-      case VECSIM_QT_RANGE:
-        vectorParam = (const char*)vq->range.vector;
-        kOrRadius = vq->range.radius;
-        break;
-      default:
-        // Should not happen, but handle gracefully
-        return REDISMODULE_ERR;
-    }
-
-    QueryToken vecToken = {
-      .type = QT_PARAM_VEC,
-      .s = vectorParam,
-      .len = strlen(vectorParam),
-      .pos = 0,
-      .numval = 0,
-      .sign = 0
-    };
-
-    // Fix SDS leak - store in variable so we can free it
-    char *sds_string = sdsfromlonglong((long long)kOrRadius);
-    QueryToken valueToken = {
-      .type = QT_PARAM_SIZE,
-      .s = sds_string,
-      .len = 0,
-      .pos = 0,
-      .numval = kOrRadius,
-      .sign = 1
-    };
-
-    QueryParseCtx q = {0};
-
-    // Set up parameters for resolution
-    switch (vq->type) {
-      case VECSIM_QT_KNN:
-        QueryNode_InitParams(vecNode, 2);
-        QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
-        QueryNode_SetParam(&q, &vecNode->params[1], &vq->knn.k, NULL, &valueToken);
-        break;
-      case VECSIM_QT_RANGE:
-        QueryNode_InitParams(vecNode, 2);
-        QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
-        QueryNode_SetParam(&q, &vecNode->params[1], &vq->range.radius, NULL, &valueToken);
-        break;
-    }
-
-    // Free the SDS string we created
-    sdsfree(sds_string);
-
     // Apply attributes if any (this will transfer ownership of attribute values)
-    if (vqParams->attributes && array_len(vqParams->attributes) > 0) {
-      QueryNode_ApplyAttributes(vecNode, vqParams->attributes, array_len(vqParams->attributes), status);
+    if (svq->attributes && array_len(svq->attributes) > 0) {
+      QueryNode_ApplyAttributes(vecNode, svq->attributes, array_len(svq->attributes), status);
     }
 
     QueryNode_AddChild(vecNode, ast->root);
     ast->root = vecNode;
-    // Transfer ownership of VectorQuery to QueryNode - nullify original reference
-    vqParams->vq = NULL;
-    // Clean up the now-empty VectorQueryParameters container
-    VectorQueryParameters_Free(vqParams);
-    req->vsimQueryParameters = NULL;
+
+    // SimpleVectorQuery retains ownership of vector data
+    // VectorQuery just references it, and VectorQuery_Free won't free it
+    // SimpleVectorQuery will be cleaned up in AREQ_Free
   }
 
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
@@ -1888,8 +1858,8 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
-  if (req->vsimQueryParameters) {
-    VectorQueryParameters_Free(req->vsimQueryParameters);
+  if (req->simpleVectorQuery) {
+    SimpleVectorQuery_Free(req->simpleVectorQuery);
   }
   rm_free(req->args);
   rm_free(req);
@@ -1942,17 +1912,14 @@ void VectorQueryData_Free(VectorQueryData *vqData) {
   rm_free(vqData);
 }
 
-void VectorQueryParameters_Free(VectorQueryParameters *vqParams) {
-  if (!vqParams) return;
+void SimpleVectorQuery_Free(SimpleVectorQuery *svq) {
+  if (!svq) return;
 
-  // Free the VectorQuery object only if ownership wasn't transferred
-  if (vqParams->vq) {
-    VectorQuery_Free(vqParams->vq);
-  }
+  // Vector data is NOT owned (just a reference to args) - don't free it
 
   // Free QueryAttribute arrays with callback
-  if (vqParams->attributes) {
-    array_free_ex(vqParams->attributes, {
+  if (svq->attributes) {
+    array_free_ex(svq->attributes, {
       QueryAttribute *attr = (QueryAttribute*)ptr;
       // Only free values that weren't transferred (still non-NULL)
       if (attr->value) {
@@ -1962,6 +1929,6 @@ void VectorQueryParameters_Free(VectorQueryParameters *vqParams) {
     });
   }
 
-  rm_free(vqParams);
+  rm_free(svq);
 }
 

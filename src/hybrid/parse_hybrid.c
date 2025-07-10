@@ -68,10 +68,11 @@ static int parseKNNClause(ArgsCursor *ac, SimpleVectorQuery *svq, QueryAttribute
   AC_Advance(ac);
   // Try to get number of parameters
   long long params;
-  if (AC_GetLongLong(ac, &params, 0) != AC_OK) {
+  if (AC_GetLongLong(ac, &params, 0) != AC_OK || params == 0 || params % 2 != 0) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for KNN");
     return REDISMODULE_ERR;
   }
+
   bool hasK = false;
   bool hasEF = false;
   bool hasYieldDistanceAs = false;
@@ -140,13 +141,17 @@ static int parseKNNClause(ArgsCursor *ac, SimpleVectorQuery *svq, QueryAttribute
       return REDISMODULE_ERR;
     }
   }
+  if (!hasK) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing K parameter");
+    return REDISMODULE_ERR;
+  }
   return REDISMODULE_OK;
 }
 
 static int parseRangeClause(ArgsCursor *ac, SimpleVectorQuery *svq, QueryAttribute **attributes, QueryError *status) {
   AC_Advance(ac);
   long long params;
-  if (AC_GetLongLong(ac, &params, 0) != AC_OK) {
+  if (AC_GetLongLong(ac, &params, 0) != AC_OK || params == 0 || params % 2 != 0) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for RANGE");
     return REDISMODULE_ERR;
   }
@@ -217,6 +222,10 @@ static int parseRangeClause(ArgsCursor *ac, SimpleVectorQuery *svq, QueryAttribu
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RANGE", current);
       return REDISMODULE_ERR;
     }
+  }
+  if (!hasRadius) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing RADIUS parameter");
+    return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
