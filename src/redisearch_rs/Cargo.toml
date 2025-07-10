@@ -17,6 +17,7 @@ members = [
     "inverted_index_bencher",
     "value",
     "varint",
+    "rlookup",
 ]
 default-members = [
     "low_memory_thin_vec",
@@ -29,6 +30,7 @@ default-members = [
     "sorting_vector",
     "value",
     "varint",
+    "rlookup",
 ]
 resolver = "3"
 
@@ -73,6 +75,7 @@ sorting_vector = { path = "./sorting_vector"}
 value = { path = "./value" }
 varint = { path = "./varint" }
 qint = { path = "./qint" }
+rlookup = { path = "./rlookup" }
 
 cbindgen = "0.28.0"
 cc = "1"
