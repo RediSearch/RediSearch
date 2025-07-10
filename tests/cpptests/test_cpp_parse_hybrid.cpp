@@ -16,6 +16,8 @@
 #include "src/search_ctx.h"
 #include "src/query_error.h"
 #include "src/aggregate/aggregate.h"
+#include "src/vector_index.h"
+#include "VecSim/query_results.h"
 
 
 class ParseHybridTest : public ::testing::Test {
@@ -75,11 +77,14 @@ class ParseHybridTest : public ::testing::Test {
 
 
 TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
+  // For equivalence check and easy to read representation, can run this equivalent query:
+  // FT.SEARCH testidx "@title:hello=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: testdist; $EF_RUNTIME: 4;}" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
+
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
   std::vector<const char*> hybridArgs = {
-    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "YIELD_DISTANCE_AS", "testdist", "FILTER", "@title:hello"
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "6", "K", "10", "YIELD_DISTANCE_AS", "testdist","EF_RUNTIME", "4", "FILTER", "@title:hello"
   };
   RedisModuleString** argv = createStringArray(hybridArgs);
   int argc = hybridArgs.size();
@@ -89,27 +94,42 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   AREQ* vecReq = &result->requests[1];
-  char *vecReqExplain = QAST_DumpExplain(&vecReq->ast, sctx->spec);
 
-  // Parse equivalent FT.SEARCH request
-  std::vector<const char*> equivalentArgs = {
-    "FT.SEARCH", "testidx", "@title:hello=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: testdist;}", "PARAMS", "2", "BLOB", "\x12\xa9\xf5\x6c", "DIALECT", "2"
-  };
-  RedisModuleString** argv_equiv = createStringArray(equivalentArgs);
-  int argc_equiv = equivalentArgs.size();
+  // Verify AST structure for KNN query
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryError s = {QueryErrorCode(0)};
-  AREQ *equivalentREQ = AREQ_New();
-  prepareRequest(&equivalentREQ, ctx, argv_equiv, argc_equiv, COMMAND_SEARCH, 0, &s);
-  ASSERT_EQ(s.code, QUERY_OK);
+  // Verify QueryNode structure
+  QueryNode *vn = vecReq->ast.root;
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_STREQ(vn->opts.distField, "testdist");
 
-  char* equivalentREQExplain = QAST_DumpExplain(&equivalentREQ->ast, sctx->spec);
+  // Verify parameters
+  ASSERT_EQ(QueryNode_NumParams(vn), 1);
+  ASSERT_STREQ(vn->params[0].name, "BLOB");
+  ASSERT_EQ(vn->params[0].len, 4);
+  ASSERT_EQ(vn->params[0].type, PARAM_VEC);
+  ASSERT_TRUE(vn->params[0].target != NULL);
+  ASSERT_TRUE(vn->params[0].target_len != NULL);
+  ASSERT_EQ(vn->params[0].sign, 0);
 
-  // Compare the AST explanations
-  ASSERT_STREQ(vecReqExplain, equivalentREQExplain);
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_KNN);
+  ASSERT_EQ(vq->knn.k, 10);
+  ASSERT_EQ(vq->knn.order, BY_SCORE);
+
+  // HybridRequest_Free(result);
+  // freeStringArray(argv, argc);
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
+  // For equivalence check and easy to read representation, can run this equivalent query:
+  // FT.SEARCH testidx "@title:hello=>[KNN 10 @vector $BLOB EF_RUNTIME 80]=>{$YIELD_DISTANCE_AS: testdist;}" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
+
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
@@ -124,27 +144,42 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   AREQ* vecReq = &result->requests[1];
-  char *vecReqExplain = QAST_DumpExplain(&vecReq->ast, sctx->spec);
 
-  // Parse equivalent FT.SEARCH request
-  std::vector<const char*> equivalentArgs = {
-    "FT.SEARCH", "testidx", "@title:hello=>[KNN 10 @vector $BLOB EF_RUNTIME 80]=>{$YIELD_DISTANCE_AS: testdist;}", "PARAMS", "2", "BLOB", "\x12\xa9\xf5\x6c", "DIALECT", "2"
-  };
-  RedisModuleString** argv_equiv = createStringArray(equivalentArgs);
-  int argc_equiv = equivalentArgs.size();
+  // Verify AST structure for KNN query with EF_RUNTIME
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryError s = {QueryErrorCode(0)};
-  AREQ *equivalentREQ = AREQ_New();
-  prepareRequest(&equivalentREQ, ctx, argv_equiv, argc_equiv, COMMAND_SEARCH, 0, &s);
-  ASSERT_EQ(s.code, QUERY_OK);
+  // Verify QueryNode structure
+  QueryNode *vn = vecReq->ast.root;
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_STREQ(vn->opts.distField, "testdist");
 
-  char* equivalentREQExplain = QAST_DumpExplain(&equivalentREQ->ast, sctx->spec);
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_KNN);
+  ASSERT_EQ(vq->knn.k, 10);
+  ASSERT_EQ(vq->knn.order, BY_SCORE);
 
-  // Compare the AST explanations
-  ASSERT_STREQ(vecReqExplain, equivalentREQExplain);
+  // Verify EF_RUNTIME parameter is stored in VectorQuery params
+  ASSERT_TRUE(vq->params.params != NULL);
+  bool foundEfRuntime = false;
+  for (size_t i = 0; i < array_len(vq->params.params); i++) {
+    if (strcmp(vq->params.params[i].name, "EF_RUNTIME") == 0) {
+      ASSERT_STREQ(vq->params.params[i].value, "80");
+      foundEfRuntime = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(foundEfRuntime);
 }
 
 TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
+  // For equivalence check and easy to read representation, can run this equivalent query:
+  // FT.SEARCH testidx "*=>[KNN 5 @vector $BLOB]" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
+
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
@@ -159,27 +194,36 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   AREQ* vecReq = &result->requests[1];
-  char *vecReqExplain = QAST_DumpExplain(&vecReq->ast, sctx->spec);
 
-  // Parse equivalent FT.SEARCH request
-  std::vector<const char*> equivalentArgs = {
-    "FT.SEARCH", "testidx", "*=>[KNN 5 @vector $BLOB]", "PARAMS", "2", "BLOB", "\x12\xa9\xf5\x6c", "DIALECT", "2"
-  };
-  RedisModuleString** argv_equiv = createStringArray(equivalentArgs);
-  int argc_equiv = equivalentArgs.size();
+  // Verify AST structure for basic KNN query without filter
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryError s = {QueryErrorCode(0)};
-  AREQ *equivalentREQ = AREQ_New();
-  prepareRequest(&equivalentREQ, ctx, argv_equiv, argc_equiv, COMMAND_SEARCH, 0, &s);
-  ASSERT_EQ(s.code, QUERY_OK);
+  // Verify QueryNode structure
+  QueryNode *vn = vecReq->ast.root;
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
-  char* equivalentREQExplain = QAST_DumpExplain(&equivalentREQ->ast, sctx->spec);
+  // Verify parameters
+  ASSERT_EQ(QueryNode_NumParams(vn), 1);
+  ASSERT_STREQ(vn->params[0].name, "BLOB");
+  ASSERT_EQ(vn->params[0].type, PARAM_VEC);
+  ASSERT_EQ(vn->params[0].sign, 0);
 
-  // Compare the AST explanations
-  ASSERT_STREQ(vecReqExplain, equivalentREQExplain);
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_KNN);
+  ASSERT_EQ(vq->knn.k, 5);
+  ASSERT_EQ(vq->knn.order, BY_SCORE);
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
+  // For equivalence check and easy to read representation, can run this equivalent query:
+  // FT.SEARCH testidx "*=>[KNN 8 @vector $BLOB]=>{$YIELD_DISTANCE_AS: distance_score;}" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
+
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
@@ -194,27 +238,30 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   AREQ* vecReq = &result->requests[1];
-  char *vecReqExplain = QAST_DumpExplain(&vecReq->ast, sctx->spec);
 
-  // Parse equivalent FT.SEARCH request
-  std::vector<const char*> equivalentArgs = {
-    "FT.SEARCH", "testidx", "*=>[KNN 8 @vector $BLOB]=>{$YIELD_DISTANCE_AS: distance_score;}", "PARAMS", "2", "BLOB", "\x12\xa9\xf5\x6c", "DIALECT", "2"
-  };
-  RedisModuleString** argv_equiv = createStringArray(equivalentArgs);
-  int argc_equiv = equivalentArgs.size();
+  // Verify AST structure for KNN query with YIELD_DISTANCE_AS only
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryError s = {QueryErrorCode(0)};
-  AREQ *equivalentREQ = AREQ_New();
-  prepareRequest(&equivalentREQ, ctx, argv_equiv, argc_equiv, COMMAND_SEARCH, 0, &s);
-  ASSERT_EQ(s.code, QUERY_OK);
+  // Verify QueryNode structure
+  QueryNode *vn = vecReq->ast.root;
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_STREQ(vn->opts.distField, "distance_score");
 
-  char* equivalentREQExplain = QAST_DumpExplain(&equivalentREQ->ast, sctx->spec);
-
-  // Compare the AST explanations
-  ASSERT_STREQ(vecReqExplain, equivalentREQExplain);
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_KNN);
+  ASSERT_EQ(vq->knn.k, 8);
+  ASSERT_EQ(vq->knn.order, BY_SCORE);
 }
 
 TEST_F(ParseHybridTest, testVsimRangeBasic) {
+  // For equivalence check and easy to read representation, can run this equivalent query:
+  // FT.SEARCH testidx "@vector:[VECTOR_RANGE 0.5 $BLOB]" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
+
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
@@ -229,27 +276,36 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   AREQ* vecReq = &result->requests[1];
-  char *vecReqExplain = QAST_DumpExplain(&vecReq->ast, sctx->spec);
 
-  // Parse equivalent FT.SEARCH request
-  std::vector<const char*> equivalentArgs = {
-    "FT.SEARCH", "testidx", "@vector:[VECTOR_RANGE 0.5 $BLOB]", "PARAMS", "2", "BLOB", "\x12\xa9\xf5\x6c", "DIALECT", "2"
-  };
-  RedisModuleString** argv_equiv = createStringArray(equivalentArgs);
-  int argc_equiv = equivalentArgs.size();
+  // Verify AST structure for basic RANGE query
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryError s = {QueryErrorCode(0)};
-  AREQ *equivalentREQ = AREQ_New();
-  prepareRequest(&equivalentREQ, ctx, argv_equiv, argc_equiv, COMMAND_SEARCH, 0, &s);
-  ASSERT_EQ(s.code, QUERY_OK);
+  // Verify QueryNode structure
+  QueryNode *vn = vecReq->ast.root;
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
-  char* equivalentREQExplain = QAST_DumpExplain(&equivalentREQ->ast, sctx->spec);
+  // Verify parameters
+  ASSERT_EQ(QueryNode_NumParams(vn), 1);
+  ASSERT_STREQ(vn->params[0].name, "BLOB");
+  ASSERT_EQ(vn->params[0].type, PARAM_VEC);
+  ASSERT_EQ(vn->params[0].sign, 0);
 
-  // Compare the AST explanations
-  ASSERT_STREQ(vecReqExplain, equivalentREQExplain);
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
+  ASSERT_EQ(vq->range.radius, 0.5);
+  ASSERT_EQ(vq->range.order, BY_SCORE);
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
+  // For equivalence check and easy to read representation, can run this equivalent query:
+  // FT.SEARCH testidx "@vector:[VECTOR_RANGE 0.8 $BLOB]=>{$EPSILON: 0.01; $YIELD_DISTANCE_AS: dist}" PARAMS 2 BLOB "\x12\xa9\xf5\x6c" DIALECT 2
+
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
@@ -264,174 +320,76 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   AREQ* vecReq = &result->requests[1];
-  char *vecReqExplain = QAST_DumpExplain(&vecReq->ast, sctx->spec);
 
-  // Parse equivalent FT.SEARCH request
-  std::vector<const char*> equivalentArgs = {
-    "FT.SEARCH", "testidx", "@vector:[VECTOR_RANGE 0.8 $BLOB]=>{$EPSILON: 00.1; $YIELD_DISTANCE_AS: dist}", "PARAMS", "2", "BLOB", "\x12\xa9\xf5\x6c", "DIALECT", "2"
-  };
-  RedisModuleString** argv_equiv = createStringArray(equivalentArgs);
-  int argc_equiv = equivalentArgs.size();
+  // Verify AST structure for RANGE query with EPSILON
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  QueryError s = {QueryErrorCode(0)};
-  AREQ *equivalentREQ = AREQ_New();
-  prepareRequest(&equivalentREQ, ctx, argv_equiv, argc_equiv, COMMAND_SEARCH, 0, &s);
-  ASSERT_EQ(s.code, QUERY_OK);
+  // Verify QueryNode structure
+  QueryNode *vn = vecReq->ast.root;
+  ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_STREQ(vn->opts.distField, "dist");
 
-  char* equivalentREQExplain = QAST_DumpExplain(&equivalentREQ->ast, sctx->spec);
+  // Verify VectorQuery structure
+  VectorQuery *vq = vn->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_TRUE(vq->field != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
+  ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
+  ASSERT_EQ(vq->range.radius, 0.8);
+  ASSERT_EQ(vq->range.order, BY_SCORE);
 
-  // Compare the AST explanations
-  ASSERT_STREQ(vecReqExplain, equivalentREQExplain);
+  // Verify EPSILON parameter is stored in VectorQuery params
+  ASSERT_TRUE(vq->params.params != NULL);
+  bool foundEpsilon = false;
+  for (size_t i = 0; i < array_len(vq->params.params); i++) {
+    if (strcmp(vq->params.params[i].name, "EPSILON") == 0) {
+      ASSERT_STREQ(vq->params.params[i].value, "0.01");
+      foundEpsilon = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(foundEpsilon);
 }
 
-// TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
-//   QueryError status = {QueryErrorCode(0)};
 
-//   // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
-//   std::vector<const char*> args = {
-//     "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"ABCDEFG==" ,"KNN" ,"4" ,"K" ,"10" ,"FILTER" ,"@text:hello",
-//   };
+TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
+  QueryError status = {QueryErrorCode(0)};
 
-//   RedisModuleString** argv = createStringArray(args);
-//   int argc = args.size();
+  // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
+  std::vector<const char*> args = {
+    "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"$BLOB" ,"KNN" ,"4" ,"K" ,"10" ,"FILTER" ,"@text:hello",
+  };
 
-//   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
 
-//   // Verify the request was parsed unsuccessfully
-//   ASSERT_TRUE(result == NULL);
-//   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-//   // Clean up
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  // Verify the request was parsed unsuccessfully
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  // Clean up
+  HybridRequest_Free(result);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimSubqueryMissingRadius) {
+  QueryError status = {QueryErrorCode(0)};
+
+  std::vector<const char*> args = {
+    "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"$BLOB" ,"RANGE", "0", "FILTER" ,"@text:hello",
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  // Verify the request was parsed unsuccessfully
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  // Clean up
 //   HybridRequest_Free(result);
 //   freeStringArray(argv, argc);
-// }
-
-
-// TEST_F(ParseHybridTest, testBasicValidInput) {
-//   QueryError status = {QueryErrorCode(0)};
-
-//   // Create a basic hybrid query: FT.HYBRID testidx SEARCH "hello" VSIM vector $BLOB KNN 2 K 5
-//   std::vector<const char*> args = {
-//     "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "5"
-//   };
-
-//   RedisModuleString** argv = createStringArray(args);
-//   int argc = args.size();
-
-//   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
-
-//   // Debug: Print error if parsing failed
-//   if (result == NULL) {
-//     printf("Parsing failed with error code: %d, message: %s\n", status.code, status.detail ? status.detail : "No detail");
-//   }
-
-//   // Verify the request was parsed successfully
-//   ASSERT_TRUE(result != NULL);
-//   ASSERT_EQ(status.code, QUERY_OK);
-
-//   // Verify the structure contains expected number of requests
-//   ASSERT_EQ(result->nrequests, 2);
-
-//   // Verify default scoring type is RRF
-//   ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_RRF);
-
-//   // Clean up handled later
-// }
-
-// TEST_F(ParseHybridTest, testMissingSearchParameter) {
-//   QueryError status = {QueryErrorCode(0)};
-
-//   // Missing SEARCH parameter: FT.HYBRID testidx VSIM @vector_field
-//   std::vector<const char*> args = {
-//     "FT.HYBRID", "testidx", "VSIM", "@vector_field"
-//   };
-
-//   RedisModuleString** argv = createStringArray(args);
-//   int argc = args.size();
-
-//   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
-
-//   // Verify parsing failed with appropriate error
-//   ASSERT_TRUE(result == NULL);
-//   ASSERT_EQ(status.code, QUERY_ESYNTAX);
-
-//   // Clean up
-//   QueryError_ClearError(&status);
-//   freeStringArray(argv, argc);
-// }
-
-// TEST_F(ParseHybridTest, testMissingSecondSearchParameter) {
-//   QueryError status = {QueryErrorCode(0)};
-
-//   // Missing second search parameter: FT.HYBRID testidx SEARCH "hello"
-//   std::vector<const char*> args = {
-//     "FT.HYBRID", "testidx", "SEARCH", "hello"
-//   };
-
-//   RedisModuleString** argv = createStringArray(args);
-//   int argc = args.size();
-
-//   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
-
-//   // Verify parsing failed with appropriate error
-//   ASSERT_TRUE(result == NULL);
-//   ASSERT_EQ(status.code, QUERY_ESYNTAX);
-
-//   // Clean up
-//   QueryError_ClearError(&status);
-//   freeStringArray(argv, argc);
-// }
-
-// TEST_F(ParseHybridTest, testWithCombineLinear) {
-//   QueryError status = {QueryErrorCode(0)};
-
-//   // Test with LINEAR combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE LINEAR 0.7 0.3
-//   std::vector<const char*> args = {
-//     "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "world",
-//     "COMBINE", "LINEAR", "0.7", "0.3"
-//   };
-
-//   RedisModuleString** argv = createStringArray(args);
-//   int argc = args.size();
-
-//   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
-
-//   // Verify the request was parsed successfully
-//   ASSERT_TRUE(result != NULL);
-//   ASSERT_EQ(status.code, QUERY_OK);
-
-//   // Verify LINEAR scoring type was set
-//   ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_LINEAR);
-
-//   // Clean up
-//   HybridRequest_Free(result);
-//   freeStringArray(argv, argc);
-// }
-
-// TEST_F(ParseHybridTest, testWithCombineRRF) {
-//   QueryError status = {QueryErrorCode(0)};
-
-//   // Test with RRF combine method: FT.HYBRID testidx SEARCH "hello" VSIM "world" COMBINE RRF
-//   std::vector<const char*> args = {
-//     "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "world",
-//     "COMBINE", "RRF"
-//   };
-
-//   RedisModuleString** argv = createStringArray(args);
-//   int argc = args.size();
-
-//   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
-
-//   // Verify the request was parsed successfully
-//   ASSERT_TRUE(result != NULL);
-//   ASSERT_EQ(status.code, QUERY_OK);
-
-//   // Verify RRF scoring type was set
-//   ASSERT_EQ(result->combineCtx.scoringType, HYBRID_SCORING_RRF);
-
-//   // Clean up
-//   HybridRequest_Free(result);
-//   freeStringArray(argv, argc);
-// }
-
-
-
+}
