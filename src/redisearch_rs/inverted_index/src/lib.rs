@@ -322,6 +322,13 @@ impl PartialEq for RSIndexResult {
 
 /// Encoder to write a record into an index
 pub trait Encoder {
+    /// Document ids are represented as `u64`s and stored using delta-encoding.
+    /// 
+    /// Some encoders can't encode arbitrarily large id deltas—e.g. they might be limited to `u32::MAX` or 
+    /// another subset of the `u64` value range.
+    ///
+    /// This associated type can be used by each encoder to specify which range they support, thus
+    /// allowing the inverted index to work around their limitations accordingly (i.e. by creating new blocks).
     type Delta: IdDelta;
 
     /// Does this encoder allow the same document to appear in the index multiple times. Defaults
