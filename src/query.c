@@ -154,6 +154,7 @@ QueryNode *NewQueryNode(QueryNodeType type) {
     .maxSlop = -1,
     .inOrder = 0,
     .weight = 1,
+    .explicitWeight = false,
     .distField = NULL,
   };
   return s;
@@ -1747,8 +1748,15 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
   return true;
 }
 
-static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  int withChildren = 1;
+static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
+  QueryError *status, QAST_ValidationFlags validationFlags) {
+  // Check for weight attribute
+  if ((validationFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) && n->opts.explicitWeight) {
+    QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, NULL);
+    return REDISMODULE_ERR;
+  }
+
+  bool withChildren = true;
   int res = REDISMODULE_OK;
   switch(n->type) {
     case QN_PHRASE:
@@ -1763,7 +1771,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NULL:
     case QN_MISSING:
-      withChildren = 0;
+      withChildren = false;
       break;
     case QN_TAG:
       {
@@ -1792,6 +1800,15 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
         }
       }
       break;
+    case QN_VECTOR:
+      if (validationFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) {
+        QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, NULL);
+        res = REDISMODULE_ERR;
+      } else if (validationFlags & QAST_HYBRID_SEARCH_CLAUSE) {
+        QueryError_SetError(status, QUERY_EHYBRID_SEARCH_INVALID_QUERY, NULL);
+        res = REDISMODULE_ERR;
+      }
+      break;
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
@@ -1801,14 +1818,14 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
     case QN_LEXRANGE:
-    case QN_VECTOR:
     case QN_GEOMETRY:
       break;
   }
+
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status);
+      res = QueryNode_CheckIsValid(n->children[ii], spec, opts, status, validationFlags);
       if (res == REDISMODULE_ERR)
         break;
     }
@@ -1825,8 +1842,9 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
   ) {
     return REDISMODULE_OK;
   }
-  return QueryNode_CheckIsValid(q->root, spec, opts, status);
+  return QueryNode_CheckIsValid(q->root, spec, opts, status, q->validationFlags);
 }
+
 
 /* Set the field mask recursively on a query node. This is called by the parser to handle
  * situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */
@@ -2207,6 +2225,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
       return res;
     }
     qn->opts.weight = d;
+    qn->opts.explicitWeight = true;
     res = 1;
 
   } else if (STR_EQCASE(attr->name, attr->namelen, PHONETIC_ATTR)) {
