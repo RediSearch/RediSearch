@@ -40,6 +40,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
+        // Worth noting that in the current syntax we expect the AGGPlan to be empty
         int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
         if (rc != REDISMODULE_OK) {
             StrongRef_Release(sync_ref);
@@ -51,7 +52,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
         if (loadStep) {
             // Add a loader to load the fields specified in the LOAD step
-            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), areq->reqflags, lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
+            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
             QITR_PushRP(qctx, loader);
         }
 
