@@ -57,6 +57,15 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   return ret;
 }
 
+
+void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
+  if (child->metrics) {
+    // Passing ownership over the RSValues in the child metrics, but not on the array itself
+    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
+    array_clear(child->metrics);
+  }
+}
+
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
   RSQueryTerm *ret = rm_malloc(sizeof(RSQueryTerm));
   ret->idf = 1;

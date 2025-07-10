@@ -24,13 +24,7 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
-  if (child->metrics) {
-    // Passing ownership over the RSValues in the child metrics, but not on the array itself
-    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
-    array_clear(child->metrics);
-  }
-}
+void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child);
 
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
@@ -56,25 +50,6 @@ static inline void AggregateResult_Reset(RSIndexResult *r) {
   ResultMetrics_Free(r);
 }
 
-/* Append a child to an aggregate result */
-static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
-
-  RSAggregateResult *agg = &parent->data.agg;
-
-  /* Increase capacity if needed */
-  if (agg->numChildren >= agg->childrenCap) {
-    agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
-    agg->children = (__typeof__(agg->children))rm_realloc(
-        agg->children, agg->childrenCap * sizeof(RSIndexResult *));
-  }
-  agg->children[agg->numChildren++] = child;
-  // update the parent's type mask
-  agg->typeMask |= child->type;
-  parent->freq += child->freq;
-  parent->docId = child->docId;
-  parent->fieldMask |= child->fieldMask;
-  ResultMetrics_Concat(parent, child);
-}
 /* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);

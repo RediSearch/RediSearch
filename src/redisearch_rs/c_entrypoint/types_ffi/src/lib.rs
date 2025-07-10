@@ -72,3 +72,20 @@ pub extern "C" fn IndexResult_Free(result: *mut RSIndexResult) {
         let _ = Box::from_raw(result);
     }
 }
+
+/// Append a child to an aggregate result
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_AddChild(parent: *mut RSIndexResult, child: *mut RSIndexResult) {
+    debug_assert!(!parent.is_null(), "parent cannot be NULL");
+    debug_assert!(!child.is_null(), "child cannot be NULL");
+
+    // SAFETY: we just checked that `parent` is a valid pointer and the caller is to ensure it is a
+    // valid `RSIndexResult`
+    let parent = unsafe { &mut *parent };
+
+    // SAFETY: we just checked that `child` is a valid pointer and the caller is to ensure it is a
+    // valid `RSIndexResult`
+    let child = unsafe { &mut *child };
+
+    parent.push(child);
+}

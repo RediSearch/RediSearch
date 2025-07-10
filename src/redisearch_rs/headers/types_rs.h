@@ -308,6 +308,11 @@ struct RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
  */
 void IndexResult_Free(struct RSIndexResult *result);
 
+/**
+ * Append a child to an aggregate result
+ */
+void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

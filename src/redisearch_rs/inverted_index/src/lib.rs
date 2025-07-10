@@ -136,14 +136,10 @@ impl RSAggregateResult {
         }
     }
 
-    fn push(&mut self, result: RSIndexResult) {
+    fn push(&mut self, result: &mut RSIndexResult) {
         if self.num_children >= self.children_cap {
             self.grow()
         }
-
-        let child_type = result.result_type;
-        let boxed_child = Box::new(result);
-        let child_ptr = Box::into_raw(boxed_child);
 
         // SAFETY: `num_children` is within the valid range of the `children` pointer, else we would
         // have grown above to make it valid.
@@ -151,11 +147,11 @@ impl RSAggregateResult {
 
         // SAFETY: we just used `add` to ensure `slot` is a valid pointer and is "aligned correctly"
         unsafe {
-            *slot = child_ptr;
+            *slot = result;
         }
 
         self.num_children += 1;
-        self.type_mask |= child_type;
+        self.type_mask |= result.result_type;
     }
 
     fn get(&self, index: usize) -> Option<&RSIndexResult> {
@@ -393,6 +389,8 @@ unsafe extern "C" {
     unsafe fn ResultMetrics_Free(result: *mut RSIndexResult);
     unsafe fn Term_Offset_Data_Free(tr: *mut RSTermRecord);
     unsafe fn Term_Free(t: *mut RSQueryTerm);
+    #[allow(improper_ctypes)]
+    unsafe fn ResultMetrics_Concat(parent: *mut RSIndexResult, child: *mut RSIndexResult);
 }
 
 impl RSIndexResult {
@@ -504,6 +502,45 @@ impl RSIndexResult {
             // SAFETY: We are guaranteed the record data is numeric because of the check we just
             // did on the `result_type`.
             Some(unsafe { &self.data.num })
+        } else {
+            None
+        }
+    }
+
+    /// True if this is an aggregate type
+    fn is_aggregate(&self) -> bool {
+        matches!(
+            self.result_type,
+            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+        )
+    }
+
+    /// Adds a result if this is an aggregate type. Else nothing happens to the added result.
+    pub fn push(&mut self, result: &mut RSIndexResult) {
+        if self.is_aggregate() {
+            unsafe {
+                ResultMetrics_Concat(self, result);
+            }
+
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &mut self.data.agg };
+
+            agg.push(result);
+
+            self.doc_id = result.doc_id;
+            self.freq += result.freq;
+            self.field_mask |= result.field_mask;
+        }
+    }
+
+    /// Get the result at the index if this is an aggregate type. If this is not an aggregate type,
+    /// or if the index is out-of-bounds, then `None` is returned
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &self.data.agg };
+
+            agg.get(index)
         } else {
             None
         }
