@@ -1216,6 +1216,27 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     vecNode->vn.vq = vq;
     vecNode->opts.flags |= QueryNode_YieldsDistance;
 
+    QueryToken vecToken = {
+      .type = QT_PARAM_VEC,
+      .s = svq->vector,
+      .len = strlen(svq->vector),
+      .pos = 0,
+      .numval = 0,
+      .sign = 0
+    };
+
+    QueryParseCtx q = {0};
+
+    QueryNode_InitParams(vecNode, 1);
+    switch (vq->type) {
+      case VECSIM_QT_KNN:
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
+        break;
+      case VECSIM_QT_RANGE:
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
+        break;
+    }
+
     // Apply attributes if any (this will transfer ownership of attribute values)
     if (svq->attributes && array_len(svq->attributes) > 0) {
       QueryNode_ApplyAttributes(vecNode, svq->attributes, array_len(svq->attributes), status);
