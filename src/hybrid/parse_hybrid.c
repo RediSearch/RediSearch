@@ -64,7 +64,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
   return REDISMODULE_OK;
 }
 
-static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, size_t *numAttributes, QueryError *status) {
+static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
   vq->type = VECSIM_QT_KNN;
   vq->knn.order = BY_SCORE; // Default order
   AC_Advance(ac);
@@ -136,7 +136,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attr
           .vallen = strlen(value)
         };
         *attributes = array_ensure_append_1(*attributes, attr);
-        *numAttributes = array_len(*attributes);
         hasYieldDistanceAs = true;
       }
     } else {
@@ -147,7 +146,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attr
   return REDISMODULE_OK;
 }
 
-static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, size_t *numAttributes, QueryError *status) {
+static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
   vq->type = VECSIM_QT_RANGE;
   vq->range.order = BY_SCORE; // Default order
   AC_Advance(ac);
@@ -218,7 +217,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
           .vallen = strlen(value)
         };
         *attributes = array_ensure_append_1(*attributes, attr);
-        *numAttributes = array_len(*attributes);
         hasYieldDistanceAs = true;
       }
     } else {
@@ -239,7 +237,6 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vectorRequest, QueryError *st
 
 
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
-  // assert VSIM is current
   const char *cur;
   if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) != AC_OK || strcasecmp("VSIM", cur)) {
     QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
@@ -285,7 +282,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
 
   // Initialize QueryAttribute array for attributes like YIELD_DISTANCE_AS
   QueryAttribute *attributes = array_new(QueryAttribute, 0);
-  size_t numAttributes = 0;
 
   const char *current;
   if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
@@ -297,7 +293,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   }
 
   if (!strcasecmp(current, "KNN")) {
-    if (parseKNNClause(ac, vq, &attributes, &numAttributes, status) != REDISMODULE_OK) {
+    if (parseKNNClause(ac, vq, &attributes, status) != REDISMODULE_OK) {
       VectorQueryParameters_Free(vqParams);
       rm_free(vectorData);
       array_free(attributes);
@@ -308,7 +304,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
     vq->knn.vecLen = vectorLen;
     AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
   } else if (!strcasecmp(current, "RANGE")) {
-    if (parseRangeClause(ac, vq, &attributes, &numAttributes, status) != REDISMODULE_OK) {
+    if (parseRangeClause(ac, vq, &attributes, status) != REDISMODULE_OK) {
       VectorQueryParameters_Free(vqParams);
       rm_free(vectorData);
       array_free(attributes);
@@ -322,7 +318,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
 
   // Store attributes in VectorQueryParameters
   vqParams->attributes = attributes;
-  vqParams->numAttributes = numAttributes;
 
   // Set default scoreField using vector field name
   if (!vq->scoreField) {

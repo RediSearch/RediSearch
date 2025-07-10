@@ -126,8 +126,7 @@ typedef enum {
 typedef struct VectorQueryParameters {
   const char *vectorField;
   VectorQuery* vq;
-  QueryAttribute *attributes; // For YIELD_DISTANCE_AS and other query attributes
-  size_t numAttributes;      // Number of attributes
+  QueryAttribute *attributes; // Array of QueryAttribute (self-describing array)
 } VectorQueryParameters;
 
 
@@ -142,8 +141,7 @@ typedef struct VectorQueryData {
     double radius;           // For RANGE queries
   };
   VectorQueryParams params;  // Parsed runtime parameters (EF_RUNTIME, EPSILON, etc.)
-  QueryAttribute *attributes; // For YIELD_DISTANCE_AS and other query attributes
-  size_t numAttributes;      // Number of attributes
+  QueryAttribute *attributes; // Array of QueryAttribute (self-describing array)
 } VectorQueryData;
 
 void VectorQueryData_Free(VectorQueryData *vqData);

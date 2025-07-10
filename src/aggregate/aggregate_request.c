@@ -1215,9 +1215,11 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
       .sign = 0
     };
 
+    // Fix SDS leak - store in variable so we can free it
+    char *sds_string = sdsfromlonglong((long long)kOrRadius);
     QueryToken valueToken = {
       .type = QT_PARAM_SIZE,
-      .s = sdsfromlonglong((long long)kOrRadius),
+      .s = sds_string,
       .len = 0,
       .pos = 0,
       .numval = kOrRadius,
@@ -1240,13 +1242,21 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
         break;
     }
 
-    // Apply attributes if any
-    if (vqParams->attributes && vqParams->numAttributes > 0) {
-      QueryNode_ApplyAttributes(vecNode, vqParams->attributes, vqParams->numAttributes, status);
+    // Free the SDS string we created
+    sdsfree(sds_string);
+
+    // Apply attributes if any (this will transfer ownership of attribute values)
+    if (vqParams->attributes && array_len(vqParams->attributes) > 0) {
+      QueryNode_ApplyAttributes(vecNode, vqParams->attributes, array_len(vqParams->attributes), status);
     }
 
     QueryNode_AddChild(vecNode, ast->root);
     ast->root = vecNode;
+    // Transfer ownership of VectorQuery to QueryNode - nullify original reference
+    vqParams->vq = NULL;
+    // Clean up the now-empty VectorQueryParameters container
+    VectorQueryParameters_Free(vqParams);
+    req->vsimQueryParameters = NULL;
   }
 
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
@@ -1920,13 +1930,13 @@ void VectorQueryData_Free(VectorQueryData *vqData) {
     array_free(vqData->params.needResolve);
   }
 
-  // Free QueryAttribute arrays
+  // Free QueryAttribute arrays with callback
   if (vqData->attributes) {
-    for (size_t i = 0; i < vqData->numAttributes; i++) {
-      rm_free((char*)vqData->attributes[i].value);
+    array_free_ex(vqData->attributes, {
+      QueryAttribute *attr = (QueryAttribute*)ptr;
+      rm_free((char*)attr->value);
       // Note: .name is not freed because it points to string literals like "yield_distance_as"
-    }
-    array_free(vqData->attributes);
+    });
   }
 
   rm_free(vqData);
@@ -1935,18 +1945,21 @@ void VectorQueryData_Free(VectorQueryData *vqData) {
 void VectorQueryParameters_Free(VectorQueryParameters *vqParams) {
   if (!vqParams) return;
 
-  // Free the VectorQuery object
+  // Free the VectorQuery object only if ownership wasn't transferred
   if (vqParams->vq) {
     VectorQuery_Free(vqParams->vq);
   }
 
-  // Free QueryAttribute arrays
+  // Free QueryAttribute arrays with callback
   if (vqParams->attributes) {
-    for (size_t i = 0; i < vqParams->numAttributes; i++) {
-      rm_free((char*)vqParams->attributes[i].value);
+    array_free_ex(vqParams->attributes, {
+      QueryAttribute *attr = (QueryAttribute*)ptr;
+      // Only free values that weren't transferred (still non-NULL)
+      if (attr->value) {
+        rm_free((char*)attr->value);
+      }
       // Note: .name is not freed because it points to string literals like "yield_distance_as"
-    }
-    array_free(vqParams->attributes);
+    });
   }
 
   rm_free(vqParams);
