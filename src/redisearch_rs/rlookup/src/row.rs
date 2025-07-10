@@ -20,6 +20,8 @@ use crate::RLookupKey;
 /// methods to get the length of the dynamic values array and check if it is empty.
 ///
 /// The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
+///
+/// The cleanup of the RLookupRow can be triggered by Drop.
 #[derive(Debug)]
 pub struct RLookupRow<T: RSValueTrait> {
     /// Sorting vector attached to document
@@ -71,9 +73,7 @@ impl<T: RSValueTrait> RLookupRow<T> {
     pub fn num(&self) -> u32 {
         self.num
     }
-}
 
-impl<T: RSValueTrait> RLookupRow<T> {
     /// Write a value to a lookup table. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
     ///
@@ -101,5 +101,25 @@ impl<T: RSValueTrait> RLookupRow<T> {
     pub fn write_key(&mut self, key: &RLookupKey, val: &mut T) {
         let val = val.clone(); // this calls increment on the value
         self.write_own_key(key, val);
+    }
+
+    /// Wipes the row, retaining its memory but decrementing any included values.
+    /// This does not free all the memory consumed by the row, but simply resets
+    /// the row data (preserving any caches) so that it may be refilled.    
+    pub fn wipe(&mut self) {
+        for value in &mut self.values.iter_mut().filter(|v| v.is_some()) {
+            if let Some(v) = value {
+                v.decrement();
+                *value = None;
+                self.num -= 1;
+            }
+        }
+    }
+}
+
+impl<T: RSValueTrait> Drop for RLookupRow<T> {
+    fn drop(&mut self) {
+        // Wipe the row, decrementing any RSValues
+        self.wipe();
     }
 }
