@@ -12,6 +12,8 @@
 pub use inverted_index::RSIndexResult;
 use inverted_index::{RSQueryTerm, t_fieldMask};
 
+// TODO: add safety comments to this file
+
 /// Allocate a new intersection result with a given capacity
 #[unsafe(no_mangle)]
 pub extern "C" fn NewIntersectResult(cap: usize, weight: f64) -> *mut RSIndexResult {
