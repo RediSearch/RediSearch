@@ -16,6 +16,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "reply.h"
+#include "vector_index.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -123,11 +124,17 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct VectorQueryParameters {
-  const char *vectorField;
-  VectorQuery* vq;
-  QueryAttribute *attributes; // Array of QueryAttribute (self-describing array)
-} VectorQueryParameters;
+typedef struct SimpleVectorQuery {
+  const char *fieldName;      // Field name string (NOT owned - points to args)
+  const void *vector;         // Vector data (NOT owned - points to args)
+  size_t vectorLen;           // Vector length
+  VectorQueryType type;       // KNN or RANGE
+  union {
+    size_t k;                 // For KNN
+    double radius;            // For RANGE
+  };
+  QueryAttribute *attributes; // Self-describing array (OWNED)
+} SimpleVectorQuery;
 
 
 
@@ -145,7 +152,7 @@ typedef struct VectorQueryData {
 } VectorQueryData;
 
 void VectorQueryData_Free(VectorQueryData *vqData);
-void VectorQueryParameters_Free(VectorQueryParameters *vqParams);
+void SimpleVectorQuery_Free(SimpleVectorQuery *svq);
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct AREQ {
@@ -159,7 +166,7 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
-  VectorQueryParameters *vsimQueryParameters;
+  SimpleVectorQuery *simpleVectorQuery;
   /** Fields to be output and otherwise processed */
   FieldList outFields;
 
