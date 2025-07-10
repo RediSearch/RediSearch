@@ -66,6 +66,10 @@ impl IndexSpecCache {
         Self(ptr)
     }
 
+    pub fn as_ptr(&self) -> *mut ffi::IndexSpecCache {
+        self.0.as_ptr()
+    }
+
     pub fn fields(&self) -> &[ffi::FieldSpec] {
         // Safety: The caller promised - on construction of this type - that this pointer is valid, and alias rules for immutable access are obeyed.
         // Furthermore, we maintain the refcount ourselves giving us extra confidence that this pointer is safe to access.
