@@ -179,7 +179,7 @@ TEST_P(MetricIteratorCommonTest, Rewind) {
   ASSERT_FALSE(iterator_base->atEOF);
 }
 
-TEST_F(MetricIteratorCommonTest, Revalidate) {
+TEST_P(MetricIteratorCommonTest, Revalidate) {
   ASSERT_EQ(iterator_base->Revalidate(iterator_base), VALIDATE_OK);
 }
 

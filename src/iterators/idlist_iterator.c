@@ -110,6 +110,7 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   ret->Read = IL_Read;
   ret->SkipTo = IL_SkipTo;
   ret->Rewind = IL_Rewind;
+  ret->Revalidate = Default_Revalidate;
   return ret;
 }
 

@@ -416,12 +416,18 @@ static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndex
 
   // Get the numeric field key and retrieve the NumericRangeTree
   const NumericFilter *filter = decoderCtx->filter;
-  RS_ASSERT(filter);
-  RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, filter->fieldSpec, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
-  if (rt) {
-    it->revisionId = rt->revisionId;
+  if (sctx && filter) {
+    RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, filter->fieldSpec, INDEXFLD_T_NUMERIC);
+    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
+    if (rt) {
+      it->revisionId = rt->revisionId;
+    }
+  } else {
+    // TODO(Joan): Without Sctx (NumericFull should I check for Validation?)
+    it->revisionId = 0;
+    it->base.CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))EmptyCheckAbort;
   }
+
 
   return &it->base.base;
 }
