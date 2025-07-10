@@ -48,7 +48,7 @@ pub enum RLookupKeyFlag {
     /// field for another consumer. Don't output this field.
     Hidden = 0x100,
 
-    /// The opposite of F_HIDDEN. This field is specified as an explicit return in
+    /// The opposite of [`RLookupKeyFlag::Hidden`]. This field is specified as an explicit return in
     /// the RETURN list, so ensure that this gets emitted. Only set if
     /// explicitReturn is true in the aggregation request.
     ExplicitReturn = 0x200,
@@ -139,7 +139,7 @@ pub struct RLookupKey<'a> {
 
     /// The name of this key.
     pub name: *const c_char,
-    /// The length of this key, without the null-terminator.
+    /// The length of this key in bytes, without the null-terminator.
     /// Should be used to avoid repeated `strlen` computations.
     pub name_len: usize,
 
@@ -274,6 +274,28 @@ mod tests {
 
         let key = RLookupKey::new(name, RLookupKeyFlags::empty());
         assert_eq!(key.name, name.as_ptr());
+        assert!(matches!(key._name, Cow::Borrowed(_)));
+    }
+
+    // Assert that creating a RLookupKey with the NameAlloc flag indeed allocates a new string
+    #[test]
+    fn rlookupkey_new_utf8_with_namealloc() {
+        let name = c"🔍🔥🎶";
+
+        let key = RLookupKey::new(name, make_bitflags!(RLookupKeyFlag::NameAlloc));
+        assert_ne!(key.name, name.as_ptr());
+        assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
+        assert!(matches!(key._name, Cow::Owned(_)));
+    }
+
+    // Assert that creating a RLookupKey *without* the NameAlloc flag keeps the provided string
+    #[test]
+    fn rlookupkey_new_utf8_without_namealloc() {
+        let name = c"🔍🔥🎶";
+
+        let key = RLookupKey::new(name, RLookupKeyFlags::empty());
+        assert_eq!(key.name, name.as_ptr());
+        assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
         assert!(matches!(key._name, Cow::Borrowed(_)));
     }
 }
