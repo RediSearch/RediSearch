@@ -18,11 +18,20 @@ pub struct RSSortingVectorOpaque {
     // This should be defined based on the actual use case
 }
 
+impl RSValueOpqaue {
+    #[expect(unused, reason = "used by later stacked PRs")]
+    pub fn increment(&mut self) {}
+
+    pub fn decrement(&mut self) {}
+}
+
 /// Row data for a lookup key. This abstracts the question of if the data comes from a SortinVector
 /// or from a dynamic value.
-#[expect(unused, reason = "used by later stacked PRs")]
+///
+/// The cleanup of the RLookupRow can be triggered by Drop.
 pub struct RLookupRow {
     /// Sorting vector attached to document
+    #[expect(unused, reason = "used by later stacked PRs")]
     sorting_vector: RSSortingVectorOpaque,
 
     /// Dynamic values obtained from prior processing
@@ -32,4 +41,24 @@ pub struct RLookupRow {
     num: u32,
 }
 
-impl RLookupRow {}
+impl Drop for RLookupRow {
+    fn drop(&mut self) {
+        // Wipe the row, decrementing any RSValues
+        self.wipe();
+    }
+}
+
+impl RLookupRow {
+    /// Wipes the row, retaining its memory but decrementing any included values.
+    /// This does not free all the memory consumed by the row, but simply resets
+    /// the row data (preserving any caches) so that it may be refilled.    
+    pub fn wipe(&mut self) {
+        for value in &mut self.values.iter_mut().filter(|v| v.is_some()) {
+            if let Some(v) = value {
+                v.decrement();
+                *value = None;
+                self.num -= 1;
+            }
+        }
+    }
+}
