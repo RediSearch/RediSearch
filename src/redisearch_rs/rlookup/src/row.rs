@@ -10,6 +10,8 @@
 use sorting_vector::RSSortingVector;
 use value::RSValueTrait;
 
+use crate::RLookupKey;
+
 /// Row data for a lookup key. This abstracts the question of if the data comes from a SortinVector
 /// or from a dynamic value.
 pub struct RLookupRow<T: RSValueTrait> {
@@ -45,5 +47,34 @@ impl<T: RSValueTrait> RLookupRow<T> {
                 self.num -= 1;
             }
         }
+    }
+
+    /// Write a value to a lookup table. Key must already be registered, and not
+    /// refer to a read-only (SVSRC) key.
+    ///
+    /// The value written won't have its refcount incremented
+    pub fn write_own_key(&mut self, key: &RLookupKey, val: T) {
+        let idx = key.dstidx;
+        if self.values.len() <= idx as usize {
+            self.values.resize((idx + 1) as usize, None);
+        }
+
+        let in_place = &mut self.values[idx as usize];
+        if let Some(existing_value) = in_place {
+            existing_value.decrement();
+            self.num -= 1;
+        }
+
+        *in_place = Some(val);
+        self.num += 1;
+    }
+
+    /// Write a value to a lookup table. Key must already be registered, and not
+    /// refer to a read-only (SVSRC) key.
+    ///
+    /// The value written will have its refcount incremented
+    pub fn write_key(&mut self, key: &RLookupKey, mut val: T) {
+        val.increment();
+        self.write_own_key(key, val);
     }
 }
