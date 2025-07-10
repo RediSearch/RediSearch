@@ -105,15 +105,14 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attr
           QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
           return REDISMODULE_ERR;
         }
-        // Add to params following parser pattern
-        VecSimRawParam efParam = {
-          .name = rm_strdup("EF_RUNTIME"),
-          .nameLen = strlen("EF_RUNTIME"),
+        // Add as QueryAttribute (for query node processing)
+        QueryAttribute attr = {
+          .name = VECSIM_EFRUNTIME,
+          .namelen = strlen(VECSIM_EFRUNTIME),
           .value = rm_strdup(value),
-          .valLen = strlen(value)
+          .vallen = strlen(value)
         };
-        array_append(vq->params.params, efParam);
-        array_append(vq->params.needResolve, false);
+        *attributes = array_ensure_append_1(*attributes, attr);
         hasEF = true;
       }
     } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
@@ -186,15 +185,14 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
           QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
           return REDISMODULE_ERR;
         }
-        // Add to params following parser pattern
-        VecSimRawParam epsilonParam = {
-          .name = rm_strdup("EPSILON"),
-          .nameLen = strlen("EPSILON"),
+        // Add as QueryAttribute (for query node processing)
+        QueryAttribute attr = {
+          .name = VECSIM_EPSILON,
+          .namelen = strlen(VECSIM_EPSILON),
           .value = rm_strdup(value),
-          .valLen = strlen(value)
+          .vallen = strlen(value)
         };
-        array_append(vq->params.params, epsilonParam);
-        array_append(vq->params.needResolve, false);
+        *attributes = array_ensure_append_1(*attributes, attr);
         hasEpsilon = true;
       }
     } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
@@ -276,7 +274,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   size_t vectorLen = strlen(vectorParam);
   void *vectorData = rm_strndup(vectorParam, vectorLen);
 
-  // Initialize VectorQueryParams following parser pattern
+  // Initialize empty VectorQueryParams (EF_RUNTIME and EPSILON are now QueryAttributes)
   vq->params.params = array_new(VecSimRawParam, 0);
   vq->params.needResolve = array_new(bool, 0);
 
