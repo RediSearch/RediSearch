@@ -145,7 +145,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
 
   // Free the topology before freeing the cluster
   rm_free(topo);
-  MRClust_Free(cluster);
+  MRCluster_Free(cluster);
   ASSERT_EQ(counters[0], 20);
   ASSERT_EQ(counters[1], 10);
   // Thread that was removed should still have executed its callbacks

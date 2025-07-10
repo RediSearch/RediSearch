@@ -186,7 +186,7 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
   return ret;
 }
 
-void MRClust_Free(MRCluster *cl) {
+void MRCluster_Free(MRCluster *cl) {
   if (cl) {
     // First, fire the shutdown event for all runtimes
     if (cl->io_runtimes_pool) {

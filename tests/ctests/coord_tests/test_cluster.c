@@ -120,7 +120,7 @@ void testShardingFunc() {
     mu_assert_int_eq(shard, 717);
   }
   MRCommand_Free(&cmd);
-  MRClust_Free(cl);
+  MRCluster_Free(cl);
 }
 
 void testClusterTopology_Clone() {
@@ -204,7 +204,7 @@ void testCluster() {
       }
     }
 
-    MRClust_Free(cl);
+    MRCluster_Free(cl);
   }
 }
 
@@ -225,7 +225,7 @@ void testClusterSharding() {
     mu_check(!strcmp(sh->nodes[0].id, hosts[3]));
   }
   MRCommand_Free(&cmd);
-  MRClust_Free(cl);
+  MRCluster_Free(cl);
 }
 
 static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ...) {}

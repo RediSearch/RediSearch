@@ -748,7 +748,7 @@ void MR_Debug_ClearPendingTopo() {
 void MR_FreeCluster() {
   if (!cluster_g) return;
   RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  MRClust_Free(cluster_g);
+  MRCluster_Free(cluster_g);
   cluster_g = NULL;
   RedisModule_ThreadSafeContextLock(RSDummyContext);
 }
