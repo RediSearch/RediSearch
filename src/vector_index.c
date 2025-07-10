@@ -14,7 +14,7 @@
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
 #include "redis_index.h"
-// ======================== MEOW!!!!!!========================
+
 
 #if defined(__x86_64__) && defined(__GLIBC__)
 #include <cpuid.h>

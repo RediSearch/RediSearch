@@ -62,11 +62,6 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: checkthat print so size works
-        run: |
-          ls -llh bin/linux-x64-debug-asan/search-community/redisearch.so|| true
-          ls -llh bin/linux-x64-release/search-community/redisearch.so|| true
-          ls -llh bin/linux-aarch64-release/search-community/search-community|| true
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
@@ -189,14 +184,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-        run: ./build.sh DEBUG
-      - name: print so size
-        run: |
-            ls -llh bin/linux-x64-debug-asan/search-community/redisearch.so|| true
-            ls -llh bin/linux-x64-debug/search-community/redisearch.so|| true
-            ls -llh bin/linux-x64-release/search-community/redisearch.so|| true
-            ls -llh bin/linux-aarch64-release/search-community/redisearch.so|| true
-        continue-on-error: true
+        run: ./build.sh TESTS
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
