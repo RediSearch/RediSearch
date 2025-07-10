@@ -13,9 +13,6 @@ extern "C" {
  * whether they're for indexing, aggregation, or search queries.
  */
 typedef struct CommonPipelineParams {
-  /** Aggregation plan containing the logical sequence of processing steps */
-  AGGPlan *pln;
-
   /** Redis search context containing index spec and Redis module context.
    *  This context is owned by the request and provides access to the index
    *  configuration, field definitions, and Redis module APIs. */
@@ -99,6 +96,34 @@ typedef struct QueryPipelineParams {
      *  execution constraints like memory limits. */
     RequestConfig *reqConfig;
 } QueryPipelineParams;
+
+
+/**
+ * Parameters specific to hybrid search pipeline construction.
+ * This struct extends the pipeline parameter system to support hybrid search operations
+ * that combine multiple search requests (e.g., vector + text search) and merge their
+ * results using sophisticated scoring algorithms. Used by HybridRequest_BuildPipeline.
+ */
+typedef struct HybridPipelineParams {
+    /** Aggregation pipeline parameters for result processing and output formatting.
+     *  Contains all the standard parameters needed for processing search results,
+     *  including field loading, sorting, filtering, and output formatting that
+     *  will be applied to the merged hybrid search results. */
+    AggregationPipelineParams aggregationParams;
+
+    /** Whether to synchronize read locks between depleter result processors.
+     *  When true, ensures that all depleter processors coordinate their read
+     *  operations to prevent race conditions and maintain consistency when
+     *  multiple search threads are accessing shared index data concurrently.
+     *  Set to false for better performance when thread safety is not required. */
+    bool synchronize_read_locks;
+
+    /** Hybrid scoring context containing algorithms and parameters for result merging.
+     *  This context defines how results from different search modalities (vector, text, etc.)
+     *  are combined and scored. The pipeline takes ownership of this pointer and will
+     *  free it during cleanup. Can be NULL for default scoring behavior. */
+    HybridScoringContext *scoringCtx;
+} HybridPipelineParams;
 
 /**
  * Main query pipeline structure that orchestrates the entire query execution process.

@@ -18,7 +18,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "util/references.h"
-#include "hybrid_scoring.h"
+#include "hybrid/hybrid_scoring.h"
 #include "src/util/likely.h"
 
 /*******************************************************************************************************************
@@ -1456,14 +1456,17 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
 typedef struct {
-  ResultProcessor base;             // Base result processor struct
-  RedisSearchCtx *sctx;             // Search context
-  arrayof(SearchResult *) results;  // Array of pointers to SearchResult, filled by the depleting thread
-  bool done_depleting;              // Set to `true` when depleting is finished (under lock)
-  uint cur_idx;                     // Current index for yielding results
-  RPStatus last_rc;                 // Last return code from upstream
-  bool first_call;                  // Whether the first call to Next has been made
-  StrongRef sync_ref;               // Reference to shared synchronization object (DepleterSync)
+  ResultProcessor base;                // Base result processor struct
+  // We require separate contexts because we have different threads.
+  // Each thread may use the redis context in the search context and in order for things to be thread safe we need a context for each thread
+  RedisSearchCtx *depletingThreadCtx;  // Upstream Search context - used by the depleting thread
+  RedisSearchCtx *nextThreadCtx;       // Downstream search context - used by the thread calling Next
+  arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
+  bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
+  uint cur_idx;                        // Current index for yielding results
+  RPStatus last_rc;                    // Last return code from upstream
+  bool first_call;                     // Whether the first call to Next has been made
+  StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
 } RPDepleter;
 
 /*
@@ -1527,7 +1530,7 @@ static void RPDepleter_Deplete(void *arg) {
 
   if (sync->take_index_lock) {
     // Lock the index for read
-    RedisSearchCtx_LockSpecRead(self->sctx);
+    RedisSearchCtx_LockSpecRead(self->depletingThreadCtx);
     // Increment the counter
     atomic_fetch_add(&sync->num_locked, 1);
   }
@@ -1545,7 +1548,7 @@ static void RPDepleter_Deplete(void *arg) {
   // Verify the index is unlocked (in case the pipeline did not release the lock,
   // e.g., limit + no Loader)
   if (sync->take_index_lock) {
-    RedisSearchCtx_UnlockSpec(self->sctx);
+    RedisSearchCtx_UnlockSpec(self->depletingThreadCtx);
   }
 
   // Signal completion under mutex protection
@@ -1601,7 +1604,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
     RS_ASSERT(num_locked <= sync->num_depleters);
     if (num_locked == sync->num_depleters) {
       // Release the index
-      RedisSearchCtx_UnlockSpec(self->sctx);
+      RedisSearchCtx_UnlockSpec(self->nextThreadCtx);
       // Mark the index as released
       sync->index_released = true;
     } else {
@@ -1642,7 +1645,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
 /**
  * Constructs a new RPDepleter processor. Consumes the StrongRef given.
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *sctx) {
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx) {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPDepleter_Next_Dispatch;
@@ -1650,7 +1653,8 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *sctx) {
   ret->base.type = RP_DEPLETER;
   ret->first_call = true;
   ret->sync_ref = sync_ref;
-  ret->sctx = sctx;
+  ret->depletingThreadCtx = depletingThreadCtx;
+  ret->nextThreadCtx = nextThreadCtx;
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;
@@ -1844,7 +1848,8 @@ dictType dictTypeHybridSearchResult = {
      HybridScoringContext_Free(self->hybridScoringCtx);
    }
 
-   // Note: Don't free self->upstreams - it's managed by the caller
+   // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
+   array_free(self->upstreams);
 
    // Free the processor itself
    rm_free(self);
@@ -1867,7 +1872,8 @@ dictType dictTypeHybridSearchResult = {
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
    // Calculate maximal dictionary size based on scoring type
-   size_t window = hybridScoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridScoringCtx->rrfCtx.window : 1000; // Default window for linear
+   RS_ASSERT(hybridScoringCtx);
+   size_t window = (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) ? hybridScoringCtx->rrfCtx.window : 1000; // Default window for linear
    size_t maximalSize = window * numUpstreams;
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);

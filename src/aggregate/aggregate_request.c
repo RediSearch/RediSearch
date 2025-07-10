@@ -1273,7 +1273,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
       .common = {
-        .pln = &req->pipeline.ap,
         .sctx = req->sctx,
         .reqflags = req->reqflags,
         .optimizer = req->optimizer,
@@ -1291,7 +1290,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   }
   AggregationPipelineParams params = { 
     .common = {
-      .pln = &req->pipeline.ap,
       .sctx = req->sctx,
       .reqflags = req->reqflags,
       .optimizer = req->optimizer,

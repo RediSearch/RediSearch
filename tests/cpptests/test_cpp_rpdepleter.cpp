@@ -18,13 +18,17 @@
 #include <chrono>
 #include <atomic>
 
+#define NumberOfContexts 3
+
 // Base test class for parameterized tests
 class RPDepleterTest : public ::testing::Test, public ::testing::WithParamInterface<bool> {
 protected:
   void SetUp() override {
     // Create a real index for testing index locking
     if (GetParam()) {  // Only create spec when testing with index locking
-      ctx = RedisModule_GetThreadSafeContext(NULL);
+      for (size_t i = 0; i < NumberOfContexts; ++i) {
+        redisContexts[i] = RedisModule_GetThreadSafeContext(NULL);
+      }
 
       // Generate a unique index name for each test to avoid conflicts
       const ::testing::TestInfo* const test_info =
@@ -32,6 +36,7 @@ protected:
       std::string index_name = std::string("test_index_") + test_info->test_case_name() + "_" + test_info->name();
 
       QueryError err = {};
+      RedisModuleCtx *ctx = redisContexts[0];
       RMCK::ArgvList argv(ctx, "FT.CREATE", index_name.c_str(), "SKIPINITIALSCAN", "SCHEMA", "field1", "TEXT");
       mockSpec = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);
       if (!mockSpec) {
@@ -39,23 +44,23 @@ protected:
                err.code, QueryError_GetUserError(&err));
       }
       ASSERT_NE(mockSpec, nullptr) << "Failed to create index spec. Error: " << QueryError_GetUserError(&err);
-      mockSctx = SEARCH_CTX_STATIC(ctx, mockSpec);
-      mockSctx2 = SEARCH_CTX_STATIC(ctx, mockSpec);
+      for (size_t i = 0; i < NumberOfContexts; ++i) {
+        searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
+      }
     }
   }
 
   void TearDown() override {
     if (GetParam()) {
-      if (ctx) {
+      for (auto ctx : redisContexts) {
         RedisModule_FreeThreadSafeContext(ctx);
       }
     }
   }
 
-  RedisModuleCtx* ctx = nullptr;
+  std::array<RedisModuleCtx*, NumberOfContexts> redisContexts;
+  std::array<RedisSearchCtx, NumberOfContexts> searchContexts;
   IndexSpec* mockSpec = nullptr;
-  RedisSearchCtx mockSctx;
-  RedisSearchCtx mockSctx2;
 };
 
 TEST_P(RPDepleterTest, RPDepleter_Basic) {
@@ -83,7 +88,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -140,7 +145,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
@@ -223,8 +228,8 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
 
   // Create shared sync reference and two depleters sharing it
   StrongRef sync_ref = DepleterSync_New(2, take_index_lock);
-  ResultProcessor *fastDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &mockSctx);
-  ResultProcessor *slowDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &mockSctx2);
+  ResultProcessor *fastDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[0], &searchContexts[2]);
+  ResultProcessor *slowDepleter = RPDepleter_New(StrongRef_Clone(sync_ref), &searchContexts[1], &searchContexts[2]);
   StrongRef_Release(sync_ref);  // Release our reference
 
   // Set up pipelines
@@ -305,7 +310,7 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
   } mockUpstream;
 
   // Create depleter processor with new sync reference
-  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &mockSctx);
+  ResultProcessor *depleter = RPDepleter_New(DepleterSync_New(1, take_index_lock), &searchContexts[0], &searchContexts[1]);
 
   QITR_PushRP(&qitr, &mockUpstream);
   QITR_PushRP(&qitr, depleter);
