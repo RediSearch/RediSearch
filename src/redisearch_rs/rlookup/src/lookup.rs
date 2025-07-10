@@ -8,13 +8,15 @@
 */
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
+#[cfg(any(debug_assertions, test))]
+use std::ptr;
 use std::{
     borrow::Cow,
     cell::UnsafeCell,
     ffi::{CStr, c_char},
     mem,
     pin::Pin,
-    ptr::{self, NonNull},
+    ptr::NonNull,
 };
 
 #[bitflags]
@@ -290,6 +292,7 @@ impl<'a> RLookupKey<'a> {
         mem::replace(self.next.get_mut(), next)
     }
 
+    #[cfg(any(debug_assertions, test))]
     fn assert_valid(&self, tail: &Self, ctx: &str) {
         assert!(
             !self.flags.intersects(TRANSIENT_FLAGS),
@@ -356,7 +359,7 @@ impl<'a> KeyList<'a> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push before");
 
-        key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupRow::dstidx overflowed. This is a bug!");
+        key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
 
         // Safety: RLookup never hands out mutable references to the key (except `Pin<&mut T>` which is fine)
         // and never copies, or memmoves the memory internally.
@@ -366,8 +369,8 @@ impl<'a> KeyList<'a> {
             // if we have a tail we also must have a head
             debug_assert!(self.head.is_some());
 
-            // Safety: We know we can borrow tail here, since we mutably borrow the RLookup
-            // which owns all keys allocated within it. This ensures the RLookup and all keys outlive
+            // Safety: We know we can borrow tail here, since we mutably borrow the KeyList
+            // which owns all keys allocated within it. This ensures the KeyList and all keys outlive
             // this method call AND that we have exclusive access to mutate the key.
             let tail = unsafe { tail.as_mut() };
 
@@ -380,7 +383,7 @@ impl<'a> KeyList<'a> {
             self.tail = Some(ptr);
         }
 
-        // Increase the RLookup table row length. (all rows have the same length).
+        // Increase the table row length. (all rows have the same length).
         self.rowlen += 1;
 
         #[cfg(debug_assertions)]
@@ -458,6 +461,7 @@ impl<'a> KeyList<'a> {
     /// We use this method to absolutely make sure the linked list is internally consistent
     /// before reading from it and after writing to it.
     #[track_caller]
+    #[cfg(any(debug_assertions, test))]
     fn assert_valid(&self, ctx: &str) {
         let Some(head) = self.head else {
             assert!(
