@@ -313,6 +313,12 @@ void IndexResult_Free(struct RSIndexResult *result);
  */
 void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
 
+/**
+ * Create a deep copy of the results that is totally thread safe. This is very slow so use it with
+ * caution
+ */
+struct RSIndexResult *IndexResult_DeepCopy(const struct RSIndexResult *source);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

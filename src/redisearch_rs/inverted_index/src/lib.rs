@@ -48,7 +48,7 @@ impl From<Delta> for usize {
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
@@ -244,6 +244,33 @@ impl RSAggregateResult {
     }
 }
 
+impl Clone for RSAggregateResult {
+    fn clone(&self) -> Self {
+        let mut new = Self::new(self.num_children as _);
+
+        // Copy existing items to new array
+        if !self.children.is_null() && self.num_children > 0 {
+            for i in 0..self.num_children as _ {
+                let self_child = unsafe { *self.children.add(i) };
+                let new_child = unsafe { new.children.add(i) };
+
+                let child = unsafe { (*self_child).clone() };
+                let child_boxed = Box::new(child);
+                let child_ptr = Box::into_raw(child_boxed);
+
+                unsafe {
+                    *new_child = child_ptr;
+                }
+            }
+        }
+
+        new.num_children = self.num_children;
+        new.type_mask = self.type_mask;
+
+        new
+    }
+}
+
 impl Drop for RSAggregateResult {
     fn drop(&mut self) {
         self.free_children();
@@ -391,6 +418,63 @@ unsafe extern "C" {
     unsafe fn Term_Free(t: *mut RSQueryTerm);
     #[allow(improper_ctypes)]
     unsafe fn ResultMetrics_Concat(parent: *mut RSIndexResult, child: *mut RSIndexResult);
+    unsafe fn RSOffsetVector_Copy(src: *const RSOffsetVector, dest: *mut RSOffsetVector);
+}
+
+impl Clone for RSIndexResult {
+    fn clone(&self) -> Self {
+        let mut new = Self {
+            doc_id: self.doc_id.clone(),
+            dmd: self.dmd.clone(),
+            field_mask: self.field_mask.clone(),
+            freq: self.freq.clone(),
+            offsets_sz: self.offsets_sz.clone(),
+            data: RSIndexResultData {
+                virt: ManuallyDrop::new(RSVirtualResult),
+            },
+            result_type: self.result_type.clone(),
+            is_copy: true,
+            metrics: ptr::null_mut(),
+            weight: self.weight.clone(),
+        };
+
+        if !self.metrics.is_null() {
+            todo!()
+        }
+
+        new.data = match self.result_type {
+            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
+                let old_agg = unsafe { &self.data.agg };
+                let agg = old_agg.clone();
+
+                RSIndexResultData { agg }
+            }
+            RSResultType::Term => {
+                let old_term = unsafe { &self.data.term };
+                let mut term = RSTermRecord::new(old_term.term);
+
+                unsafe {
+                    RSOffsetVector_Copy(&old_term.offsets, &mut term.offsets);
+                }
+
+                RSIndexResultData {
+                    term: ManuallyDrop::new(term),
+                }
+            }
+            RSResultType::Numeric | RSResultType::Metric => {
+                let old_num = unsafe { &self.data.num };
+
+                RSIndexResultData {
+                    num: old_num.clone(),
+                }
+            }
+            RSResultType::Virtual => RSIndexResultData {
+                virt: ManuallyDrop::new(RSVirtualResult),
+            },
+        };
+
+        new
+    }
 }
 
 impl RSIndexResult {

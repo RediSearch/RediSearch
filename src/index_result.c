@@ -14,56 +14,17 @@
 #include "src/util/arr.h"
 #include "value.h"
 
-RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
-  RSIndexResult *ret = rm_new(RSIndexResult);
-  *ret = *src;
-  ret->isCopy = 1;
-
-  if (src->metrics) {
-    // Create a copy of the array and increase the refcount for each element's value
-    ret->metrics = NULL;
-    ret->metrics = array_ensure_append_n(ret->metrics, src->metrics, array_len(src->metrics));
-    for (size_t i = 0; i < array_len(ret->metrics); i++)
-      RSValue_IncrRef(ret->metrics[i].value);
-  }
-
-  switch (src->type) {
-    // copy aggregate types
-    case RSResultType_Intersection:
-    case RSResultType_Union:
-    case RSResultType_HybridMetric:
-      // allocate a new child pointer array
-      ret->data.agg.children = rm_malloc(src->data.agg.numChildren * sizeof(RSIndexResult *));
-      ret->data.agg.childrenCap = src->data.agg.numChildren;
-      // deep copy recursively all children
-      for (int i = 0; i < src->data.agg.numChildren; i++) {
-        ret->data.agg.children[i] = IndexResult_DeepCopy(src->data.agg.children[i]);
-      }
-      break;
-
-    // copy term results
-    case RSResultType_Term:
-      // copy the offset vectors
-      if (src->data.term.offsets.data) {
-        ret->data.term.offsets.data = rm_malloc(ret->data.term.offsets.len);
-        memcpy(ret->data.term.offsets.data, src->data.term.offsets.data, ret->data.term.offsets.len);
-      }
-      break;
-
-    // the rest have no dynamic stuff, we can just copy the base result
-    default:
-      break;
-  }
-  return ret;
-}
-
-
 void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
   if (child->metrics) {
     // Passing ownership over the RSValues in the child metrics, but not on the array itself
     parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
     array_clear(child->metrics);
   }
+}
+
+void RSOffsetVector_Copy(RSOffsetVector *src, RSOffsetVector *dest) {
+  dest->data = rm_malloc(src->len);
+  memcpy(dest->data, src->data, src->len);
 }
 
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {

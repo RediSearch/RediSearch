@@ -89,3 +89,15 @@ pub extern "C" fn AggregateResult_AddChild(parent: *mut RSIndexResult, child: *m
 
     parent.push(child);
 }
+
+/// Create a deep copy of the results that is totally thread safe. This is very slow so use it with
+/// caution
+#[unsafe(no_mangle)]
+pub extern "C" fn IndexResult_DeepCopy(source: *const RSIndexResult) -> *mut RSIndexResult {
+    let source = unsafe { &*source };
+
+    let copy = source.clone();
+    let copy = Box::new(copy);
+
+    Box::into_raw(copy)
+}

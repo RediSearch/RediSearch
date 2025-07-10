@@ -24,6 +24,9 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
+/* Make a of the offset vector into the destination. This assumes the destination is empty */
+void RSOffsetVector_Copy(RSOffsetVector *src, RSOffsetVector *dest);
+
 void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child);
 
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
@@ -49,10 +52,6 @@ static inline void AggregateResult_Reset(RSIndexResult *r) {
   r->data.agg.typeMask = (RSResultType)0;
   ResultMetrics_Free(r);
 }
-
-/* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
- * caution */
-RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
 
 /* Get the minimal delta between the terms in the result */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r);
