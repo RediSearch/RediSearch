@@ -85,6 +85,8 @@ jobs:
         run: |
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
+          llvm-config-20 --host-target
+          rustc -Vv
           ./build.sh run_microbenchmarks
           llvm-objdump-20 -d $(find bin -name redisearch.so) | grep inline_me
       - name: Collect results
