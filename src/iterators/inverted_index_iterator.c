@@ -365,7 +365,9 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, InvertedIndex *idx,
   it->skipMulti = skipMulti;
   it->sctx = sctx;
   it->filterCtx = *filterCtx;
+  it->isWildcard = false;
   it->CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))checkAbortFn;
+
   SetCurrentBlockReader(it);
 
   it->base.current = res;
@@ -505,13 +507,13 @@ QueryIterator *NewInvIndIterator_TagQuery(InvertedIndex *idx, TagIndex *tagIdx, 
 
 
 QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
-                                              enum FieldExpirationPredicate predicate) {
+                                              enum FieldExpirationPredicate predicate, double weight) {
   FieldFilterContext fieldCtx = {
     .field = {.isFieldMask = false, .value = {.index = fieldIndex}},
     .predicate = predicate,
   };
   IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  RSIndexResult *record = NewVirtualResult(1, RS_FIELDMASK_ALL);
+  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = (predicate == FIELD_EXPIRATION_MISSING) ? 0 : 1; // TODO: is this required?
   return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx, EmptyCheckAbort);
 }

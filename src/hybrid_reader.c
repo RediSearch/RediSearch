@@ -443,10 +443,27 @@ void HybridIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
+static IndexIterator* HybridIteratorReducer(HybridIteratorParams *hParams) {
+  IndexIterator* ret = NULL;
+  if (hParams->childIt && hParams->childIt->type == EMPTY_ITERATOR) {
+    ret = hParams->childIt;
+  } else if (hParams->childIt && hParams->childIt->type == WILDCARD_ITERATOR) {
+    //TODO: When new Iterator API (consider READER_ITERATOR with isWildcard flag)
+    hParams->childIt->Free(hParams->childIt);
+    hParams->qParams.searchMode = VECSIM_STANDARD_KNN;
+    hParams->childIt = NULL;
+  }
+  return ret;
+}
+
 IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
   // If searchMode is out of the expected range.
   if (hParams.qParams.searchMode < 0 || hParams.qParams.searchMode >= VECSIM_LAST_SEARCHMODE) {
     QueryError_SetError(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
+  }
+  IndexIterator* ri = HybridIteratorReducer(&hParams);
+  if (ri) {
+    return ri;
   }
 
   HybridIterator *hi = rm_new(HybridIterator);
@@ -503,7 +520,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
     hi->returnedResults = array_new(RSIndexResult *, hParams.query.k);
   }
 
-  IndexIterator *ri = &hi->base;
+  ri = &hi->base;
   ri->ctx = hi;
   // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
   // by the creation of the metrics loader results processor.

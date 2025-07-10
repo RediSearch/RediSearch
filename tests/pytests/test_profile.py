@@ -430,8 +430,9 @@ def testNotIterator(env):
             'Iterators profile',
             ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
               [['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1],
-               ['Type', 'NOT', 'Counter', 1, 'Child iterator',
+                ['Type', 'NOT', 'Counter', 1, 'Child iterator',
                 ['Type', 'EMPTY', 'Counter', 0]]]],
+                #['Type', 'WILDCARD', 'Counter', 1]]], (After Optimization and new iterators are used, NOT ITERATOR should change to this)
             'Result processors profile',
              [['Type', 'Index',  'Counter', 1],
               ['Type', 'Scorer', 'Counter', 1],
