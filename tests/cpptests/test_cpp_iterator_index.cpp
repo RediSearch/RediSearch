@@ -9,6 +9,7 @@
 
 #include "src/forward_index.h"
 #include "src/iterators/inverted_index_iterator.h"
+#include "src/tag_index.h"
 
 typedef enum IndexType {
     INDEX_TYPE_TERM_FULL,
@@ -16,6 +17,8 @@ typedef enum IndexType {
     INDEX_TYPE_TERM,
     INDEX_TYPE_NUMERIC,
     INDEX_TYPE_GENERIC,
+    INDEX_TYPE_TAG_FULL,
+    INDEX_TYPE_TAG,
 } IndexType;
 
 class IndexIteratorTest : public ::testing::TestWithParam<IndexType> {
@@ -24,8 +27,12 @@ protected:
     std::array<t_docId, n_docs> resultSet;
     InvertedIndex *idx;
     QueryIterator *it_base;
+    TagIndex *tagIdx;
 
     void SetUp() override {
+        // Initialize TagIndex to nullptr
+        tagIdx = nullptr;
+
         // Generate a set of document IDs for testing
         for (size_t i = 0; i < n_docs; ++i) {
             resultSet[i] = 2 * i + 1; // Document IDs start from 1
@@ -51,15 +58,34 @@ protected:
                 it_base = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, -INFINITY, INFINITY);
             }
                 break;
+            case INDEX_TYPE_TAG_FULL:
+                SetTagInvIndex();
+                it_base = NewInvIndIterator_TagFull(idx, tagIdx);
+                break;
+            case INDEX_TYPE_TAG: {
+                SetTagInvIndex();
+                RSToken tok = {.str = (char *)"tag", .len = 3};
+                RSQueryTerm *term = NewQueryTerm(&tok, 0);
+                FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+                it_base = NewInvIndIterator_TagQuery(idx, tagIdx, nullptr, fieldMaskOrIndex, term, 1.0);
+            }
+                break;
             case INDEX_TYPE_GENERIC:
                 SetGenericInvIndex();
                 it_base = NewInvIndIterator_GenericQuery(idx, nullptr, 0, FIELD_EXPIRATION_DEFAULT);
                 break;
+
         }
     }
     void TearDown() override {
         it_base->Free(it_base);
-        InvertedIndex_Free(idx);
+        // TagIndex owns the inverted index
+        if (!tagIdx) {
+            InvertedIndex_Free(idx);
+        }
+        if (tagIdx) {
+            TagIndex_Free(tagIdx);
+        }
     }
 
 private:
@@ -102,6 +128,24 @@ private:
             InvertedIndex_WriteEntryGeneric(idx, encoder, resultSet[i], nullptr);
         }
     }
+
+    void SetTagInvIndex() {
+        // This function should populate the InvertedIndex with tag data using TagIndex API
+        tagIdx = NewTagIndex();
+        ASSERT_TRUE(tagIdx != nullptr);
+
+        // Index tags for each document
+        for (size_t i = 0; i < n_docs; ++i) {
+            std::vector<const char *> tags{"tag", "test"};
+            TagIndex_Index(tagIdx, &tags[0], tags.size(), resultSet[i]);
+        }
+
+        // Get the inverted index for the "tag" value from the TagIndex
+        size_t sz;
+        idx = TagIndex_OpenIndex(tagIdx, "tag", 3, false, &sz);
+        ASSERT_TRUE(idx != nullptr);
+        ASSERT_NE(idx, TRIEMAP_NOTFOUND);
+    }
 };
 
 
@@ -110,7 +154,9 @@ INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Values(
     INDEX_TYPE_NUMERIC_FULL,
     INDEX_TYPE_TERM,
     INDEX_TYPE_NUMERIC,
-    INDEX_TYPE_GENERIC
+    INDEX_TYPE_GENERIC,
+    INDEX_TYPE_TAG_FULL,
+    INDEX_TYPE_TAG
 ));
 
 

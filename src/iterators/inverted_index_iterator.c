@@ -9,7 +9,6 @@
 
 #include "inverted_index_iterator.h"
 #include "redis_index.h"
-#include "tag_index.h"
 
 // pointer to the current block while reading the index
 #define CURRENT_BLOCK(it) ((it)->idx->blocks[(it)->currentBlock])
@@ -80,12 +79,12 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
 }
 
 static ValidateStatus TagCheckAbort(QueryIterator *base) {
-  InvIndIterator *it = (InvIndIterator *)base;
+  TagInvIndIterator *it = (TagInvIndIterator *)base;
   size_t sz;
   // TODO(Joan): This is wrong, We may need to have another class for tag iterators where we include the TagIndex there
-  InvertedIndex *idx = TagIndex_OpenIndex((TagIndex*)it->idx, base->current->data.term.term->str,
+  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, base->current->data.term.term->str,
       base->current->data.term.term->len, false, &sz);
-  if (!idx || idx == TRIEMAP_NOTFOUND || it->idx != idx) {
+  if (!idx || idx == TRIEMAP_NOTFOUND || it->base.idx != idx) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
@@ -418,6 +417,20 @@ QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx) {
   return NewInvIndIterator(idx, res, &fieldCtx, false, NULL, &decoderCtx, TermCheckAbort);
 }
 
+QueryIterator *NewInvIndIterator_TagFull(InvertedIndex *idx, TagIndex *tagIdx) {
+  FieldFilterContext fieldCtx = {
+    .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
+    .predicate = FIELD_EXPIRATION_DEFAULT,
+  };
+  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
+  TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
+  it->tagIdx = tagIdx;
+  return InitInvIndIterator(&it->base, idx, res, &fieldCtx, false, NULL, &decoderCtx, TagCheckAbort);
+}
+
 QueryIterator *NewInvIndIterator_NumericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, double rangeMin, double rangeMax) {
   IndexDecoderCtx decoderCtx = {.filter = flt};
@@ -464,6 +477,32 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
 
   return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx, TermCheckAbort);
 }
+
+QueryIterator *NewInvIndIterator_TagQuery(InvertedIndex *idx, TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+                                           RSQueryTerm *term, double weight) {
+
+  FieldFilterContext fieldCtx = {
+    .field = fieldMaskOrIndex,
+    .predicate = FIELD_EXPIRATION_DEFAULT,
+  };
+
+  RSIndexResult *record = NewTokenRecord(term, weight);
+  record->fieldMask = RS_FIELDMASK_ALL;
+  record->freq = 1;
+
+  IndexDecoderCtx dctx = {0};
+  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
+    dctx.wideMask = fieldMaskOrIndex.value.mask;
+  else if (fieldMaskOrIndex.isFieldMask)
+    dctx.mask = fieldMaskOrIndex.value.mask;
+  else
+    dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+
+  TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
+  it->tagIdx = tagIdx;
+  return InitInvIndIterator(&it->base, idx, record, &fieldCtx, true, sctx, &dctx, TagCheckAbort);
+}
+
 
 QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                               enum FieldExpirationPredicate predicate) {
