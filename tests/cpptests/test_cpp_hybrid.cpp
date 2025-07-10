@@ -471,61 +471,6 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
-TEST_F(HybridRequestTest, testHybridRequestBuildPipelineMemoryManagement) {
-  // Create test index spec
-  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx6", &qerr);
-  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
-
-  // No need to add documents for pipeline building tests
-
-  // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "memory", spec, &qerr);
-  ASSERT_TRUE(req1 != nullptr) << "Failed to create AREQ: " << QueryError_GetUserError(&qerr);
-
-  // Create array of requests
-  AREQ **requests = array_new(AREQ*, 1);
-  requests = array_ensure_append_1(requests, req1);
-
-  // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 1);
-  ASSERT_TRUE(hybridReq != nullptr);
-
-  // Create AGGPlan with LOAD step
-  const char *loadFields[] = {"title"};
-  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 1);
-
-  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
-
-  HybridPipelineParams params = {
-      .aggregationParams = {
-        .common = {
-          .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = hybridReq->requests[0]->reqflags,
-          .optimizer = hybridReq->requests[0]->optimizer,
-        },
-        .outFields = &hybridReq->requests[0]->outFields,
-        .maxResultsLimit = 10,
-      },
-      .synchronize_read_locks = true,
-      .scoringCtx = scoringCtx,
-  };
-
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
-
-  // Verify proper cleanup - this test mainly ensures no memory leaks
-  // The actual verification happens during cleanup
-  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Merge pipeline not built";
-
-  // Clean up - this should not crash or leak memory
-  HybridRequest_Free(hybridReq);
-  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
-}
-
 TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   // Create test index spec
   IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx7", &qerr);
@@ -593,17 +538,15 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   }
 
   // Verify merge pipeline has hybrid merger
-  ResultProcessor *mergeRP = hybridReq->pipeline.qctx.endProc;
-  EXPECT_TRUE(mergeRP != nullptr) << "Tail pipeline has no end processor";
+  ResultProcessor *tail = hybridReq->pipeline.qctx.endProc;
+  EXPECT_TRUE(tail != nullptr) << "Tail pipeline has no end processor";
 
   // The merge pipeline should have processors for handling the merged results
-  ResultProcessor *current = mergeRP;
-  int processorCount = 0;
-  while (current && processorCount < 10) { // Safety limit
-    processorCount++;
-    current = current->upstream;
-  }
-  EXPECT_GT(processorCount, 0) << "Tail pipeline has no processors";
+  EXPECT_EQ(tail->type, RP_HYBRID_MERGER) << "Tail pipeline missing hybrid merger";
+
+  tail = hybridReq->requests[0]->pipeline.qctx.endProc;
+  EXPECT_TRUE(tail != nullptr) << "Request 0 has no end processor";
+  EXPECT_EQ(tail->type, RP_DEPLETER) << "Request 0 missing depleter processor";
 
   // Clean up
   HybridRequest_Free(hybridReq);
