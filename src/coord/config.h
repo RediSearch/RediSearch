@@ -23,6 +23,7 @@ typedef struct {
   size_t connPerShard;
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
+  size_t coordinatorIOThreads; // number of I/O threads in the coordinator
   size_t topologyValidationTimeoutMS;
 } SearchClusterConfig;
 
@@ -33,6 +34,7 @@ extern RedisModuleString *config_dummy_password;
 #define CLUSTER_TYPE_RLABS "redislabs"
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
+#define COORDINATOR_IO_THREADS_DEFAULT_SIZE 1
 #define DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT 30000
 #define DEFAULT_CURSOR_REPLY_THRESHOLD 1
 #define DEFAULT_CONN_PER_SHARD 0
@@ -44,6 +46,7 @@ extern RedisModuleString *config_dummy_password;
     .timeoutMS = 0,                                                            \
     .cursorReplyThreshold = DEFAULT_CURSOR_REPLY_THRESHOLD,                    \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
+    .coordinatorIOThreads = COORDINATOR_IO_THREADS_DEFAULT_SIZE,               \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
   }
 
