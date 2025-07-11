@@ -39,7 +39,7 @@
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
 
-/* Currently a single cluster is supported */
+/* A cluster is a pool of IORuntimes. It is owned by the main thread and accessed in the coordinator threads */
 static MRCluster *cluster_g = NULL;
 
 /* Coordination request timeout */
@@ -58,7 +58,7 @@ typedef struct MRCtx {
   RedisModuleBlockedClient *bc;
   bool mastersOnly;
   MRCommand cmd;
-  size_t ioRuntimeIdx;
+  IORuntimeCtx *ioRuntime;
 
   /**
    * This is a reduce function inside the MRCtx.
@@ -92,7 +92,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->bc = bc;
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
-  ret->ioRuntimeIdx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
+  ret->ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   return ret;
 }
 
@@ -197,7 +197,7 @@ void MR_Init(size_t num_io_threads, size_t conn_pool_size, long long timeoutMS) 
 /* The fanout request received in the event loop in a thread safe manner */
 static void uvFanoutRequest(void *p) {
   MRCtx *mrctx = p;
-  IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, mrctx->ioRuntimeIdx);
+  IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
   mrctx->numExpected =
       MRCluster_FanoutCommand(ioRuntime, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
@@ -213,7 +213,7 @@ static void uvFanoutRequest(void *p) {
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRCtx
 static void uvMapRequest(void *p) {
   MRCtx *mrctx = p;
-  IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, mrctx->ioRuntimeIdx);
+  IORuntimeCtx *ioRuntime = mrctx->ioRuntime;
 
   int rc = MRCluster_SendCommand(ioRuntime, mrctx->mastersOnly, &mrctx->cmd, fanoutCallback, mrctx);
   mrctx->numExpected = (rc == REDIS_OK) ? 1 : 0;
@@ -239,7 +239,8 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   mrctx->reducer = reducer;
   mrctx->cmd = cmd;
 
-  IORuntimeCtx_Schedule(MRCluster_GetIORuntimeCtx(cluster_g, mrctx->ioRuntimeIdx), uvFanoutRequest, mrctx);
+
+  IORuntimeCtx_Schedule(mrctx->ioRuntime, uvFanoutRequest, mrctx);
   return REDIS_OK;
 }
 
@@ -249,7 +250,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   RS_ASSERT(!ctx->bc);
   ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
   RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
-  IORuntimeCtx_Schedule(MRCluster_GetIORuntimeCtx(cluster_g, ctx->ioRuntimeIdx), uvMapRequest, ctx);
+  IORuntimeCtx_Schedule(ctx->ioRuntime, uvMapRequest, ctx);
   return REDIS_OK;
 }
 
@@ -270,7 +271,7 @@ static void uvUpdateTopologyRequest(void *p) {
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // TODO(Joan): Most likely we need to make sure we wait for the topology to properly be applied to every runtime context before returning.
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-    IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == 0 ? true : false);
+    IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == 0);
   }
 }
 
@@ -480,7 +481,7 @@ struct MRIteratorCtx {
   // reference counter of the iterator.
   // When it reaches 0, both readers and the writer agree that the iterator can be released
   int8_t itRefCount;
-  size_t ioRuntimeIdx; // The IO Runtime pool index for the iterator. This implies all the connections for a given Iterator will be in the same IO thread (Not inner-query parallelism)
+  IORuntimeCtx *ioRuntime;
 };
 
 struct MRIteratorCallbackCtx {
@@ -506,7 +507,7 @@ static void mrIteratorRedisCB(redisAsyncContext *c, void *r, void *privdata) {
 }
 
 int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
-  IORuntimeCtx *io_runtime_ctx = MRCluster_GetIORuntimeCtx(cluster_g, ctx->it->ctx.ioRuntimeIdx);
+  IORuntimeCtx *io_runtime_ctx = ctx->it->ctx.ioRuntime;
   return MRCluster_SendCommand(io_runtime_ctx, true, &ctx->cmd, mrIteratorRedisCB, ctx);
 }
 
@@ -580,7 +581,7 @@ void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterStartCb(void *p) {
   MRIterator *it = p;
-  IORuntimeCtx *io_runtime_ctx = MRCluster_GetIORuntimeCtx(cluster_g, it->ctx.ioRuntimeIdx);
+  IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   size_t numShards = io_runtime_ctx->topo->numShards;
   it->len = numShards;
   it->ctx.pending = numShards;
@@ -608,7 +609,7 @@ void iterStartCb(void *p) {
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterManualNextCb(void *p) {
   MRIterator *it = p;
-  IORuntimeCtx *io_runtime_ctx = MRCluster_GetIORuntimeCtx(cluster_g, it->ctx.ioRuntimeIdx);
+  IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   for (size_t i = 0; i < it->len; i++) {
     if (!it->cbxs[i].cmd.depleted) {
       if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
@@ -642,7 +643,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     // We need to take a reference to the iterator for the next batch of commands.
     int8_t refCount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MR_ManuallyTriggerNextIfNeeded", refCount);
-    IORuntimeCtx_Schedule(MRCluster_GetIORuntimeCtx(cluster_g, it->ctx.ioRuntimeIdx), iterManualNextCb, it);
+    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
     return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
@@ -669,7 +670,7 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
       .inProcess = 1,
       .timedOut = false,
       .itRefCount = 2,
-      .ioRuntimeIdx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g),
+      .ioRuntime = MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g)),
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };
@@ -678,8 +679,7 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
     .cmd = MRCommand_Copy(cmd),
     .it = ret,
   };
-
-  IORuntimeCtx_Schedule(MRCluster_GetIORuntimeCtx(cluster_g, ret->ctx.ioRuntimeIdx), iterStartCb, ret);
+  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, ret);
   return ret;
 }
 
@@ -730,7 +730,7 @@ void MRIterator_Release(MRIterator *it) {
     // The iterator will be released when DEL commands are done.
     refcount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MRIterator_Release: triggering DEL on the shards' cursors", refcount);
-    IORuntimeCtx_Schedule(MRCluster_GetIORuntimeCtx(cluster_g, it->ctx.ioRuntimeIdx), iterManualNextCb, it);
+    IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterManualNextCb, it);
   } else {
     // No pending shards, so no remote resources to free.
     // Free the iterator and we are done.
