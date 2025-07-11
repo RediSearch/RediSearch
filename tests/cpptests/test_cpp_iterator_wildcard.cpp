@@ -28,6 +28,10 @@ protected:
   }
 };
 
+TEST_F(WildcardIteratorTest, Revalidate) {
+  ASSERT_EQ(iterator_base->Revalidate(iterator_base), VALIDATE_OK);
+}
+
 TEST_F(WildcardIteratorTest, InitialState) {
   WildcardIterator *wi = (WildcardIterator *)iterator_base;
 

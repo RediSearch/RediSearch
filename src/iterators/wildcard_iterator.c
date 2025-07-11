@@ -78,11 +78,13 @@ QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t num
   ret->atEOF = false;
   ret->lastDocId = 0;
   ret->type = WILDCARD_ITERATOR;
+  ret->isAborted = false;
   ret->Rewind = WI_Rewind;
   ret->Free = WI_Free;
   ret->Read = WI_Read;
   ret->SkipTo = WI_SkipTo;
   ret->NumEstimated = WI_NumEstimated;
+  ret->Revalidate = Default_Revalidate;
   return ret;
 }
 
