@@ -35,6 +35,7 @@ void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
   uv_mutex_unlock(&q->lock);
 }
 
+// To be called from the event loop thread, need to protect the link list
 queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async) {
   uv_mutex_lock(&q->lock);
 
@@ -73,10 +74,9 @@ queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async) {
   return r;
 }
 
+// To be called from the event loop thread, after the request is done, no need to protect the pending
 void RQ_Done(MRWorkQueue *q) {
-  uv_mutex_lock(&q->lock);
   --q->pending;
-  uv_mutex_unlock(&q->lock);
 }
 
 MRWorkQueue *RQ_New(int maxPending, size_t id) {
@@ -107,8 +107,7 @@ void RQ_Free(MRWorkQueue *q) {
   rm_free(q);
 }
 
+// To be called from the event loop thread, no need to protect the maxPending
 void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending) {
-  uv_mutex_lock(&q->lock);
   q->maxPending = maxPending;
-  uv_mutex_unlock(&q->lock);
 }
