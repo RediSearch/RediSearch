@@ -173,7 +173,7 @@ uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
 
 /* Initialize the connections to all shards */
 int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime) {
-  return MRConnManager_ConnectAll(&ioRuntime->conn_mgr, IORuntimeCtx_GetLoop(ioRuntime));
+  return MRConnManager_ConnectAll(&ioRuntime->conn_mgr);
 }
 
 void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
@@ -384,7 +384,7 @@ void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_po
   RS_ASSERT(new_conn_pool_size > 0);
   size_t old_conn_pool_size = ioRuntime->conn_mgr.nodeConns;
   if (old_conn_pool_size > new_conn_pool_size) {
-    MRConnManager_Shrink(&ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
+    MRConnManager_Shrink(&ioRuntime->conn_mgr, new_conn_pool_size);
   } else if (old_conn_pool_size < new_conn_pool_size) {
     MRConnManager_Expand(&ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
   }

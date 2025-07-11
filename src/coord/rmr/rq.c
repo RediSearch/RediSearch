@@ -45,8 +45,7 @@ queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async) {
   if (q->pending >= q->maxPending) {
     uv_mutex_unlock(&q->lock);
     // If the queue is full we need to wake up the drain callback
-    uv_async_send(async);  // Remove the & operator
-
+    uv_async_send(async);
     // Handle pending info logging. Access only to a non-NULL head and pendingInfo,
     // So it's safe to do without the lock.
     if (q->head == q->pendingInfo.head && q->sz > q->pendingInfo.warnSize) {
@@ -112,8 +111,4 @@ void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending) {
   uv_mutex_lock(&q->lock);
   q->maxPending = maxPending;
   uv_mutex_unlock(&q->lock);
-}
-
-size_t RQ_GetMaxPending(const MRWorkQueue *q) {
-  return q->maxPending;
 }
