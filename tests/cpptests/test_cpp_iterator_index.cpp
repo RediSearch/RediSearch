@@ -117,15 +117,21 @@ protected:
                 RSToken tok = {.str = (char *)"tag", .len = 3};
                 RSQueryTerm *term = NewQueryTerm(&tok, 0);
                 FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
-                MockQueryEvalCtx mockEvalCtx(resultSet.back(), n_docs);
-                it_base = NewInvIndIterator_TagQuery(idx, tagIdx, mockEvalCtx.qctx.sctx, fieldMaskOrIndex, term, 1.0);
+
+                mockEvalCtx = std::make_unique<MockQueryEvalCtx>(resultSet.back(), n_docs);
+
+                // Make sure the spec name is initialized
+                if (!mockEvalCtx->qctx.sctx->spec->specName) {
+                    mockEvalCtx->qctx.sctx->spec->specName = NewHiddenString("dummy_index", strlen("dummy_index"), true);
+                }
+                it_base = NewInvIndIterator_TagQuery(idx, tagIdx, mockEvalCtx->qctx.sctx, fieldMaskOrIndex, term, 1.0);
             }
                 break;
             case INDEX_TYPE_GENERIC:
                 SetGenericInvIndex();
                 {
                     MockQueryEvalCtx mockEvalCtx(resultSet.back(), n_docs);
-                    it_base = NewInvIndIterator_GenericQuery(idx, mockEvalCtx.qctx.sctx, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
+                    it_base = NewInvIndIterator_GenericQuery(idx, nullptr, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
                 }
                 break;
 
