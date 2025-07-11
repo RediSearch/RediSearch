@@ -46,7 +46,7 @@ typedef struct {
 //Structure to encapsulate the IO Runtime context for MR operations to take place
 typedef struct {
   // Connectivity / topology structures
-  MRConnManager *conn_mgr;
+  MRConnManager conn_mgr;
   struct MRClusterTopology *topo;
 
   // Request queue and topology requests

@@ -284,7 +284,7 @@ static void uvUpdateConnPoolSize(void *p) {
   struct UpdateConnPoolSizeCtx *ctx = p;
   IORuntimeCtx *ioRuntime = ctx->ioRuntime;
   IORuntimeCtx_UpdateConnPoolSize(ioRuntime, ctx->conn_pool_size);
-  size_t max_pending = ioRuntime->conn_mgr->nodeConns * PENDING_FACTOR;
+  size_t max_pending = ioRuntime->conn_mgr.nodeConns * PENDING_FACTOR;
   RQ_UpdateMaxPending(ioRuntime->queue, max_pending);
   rm_free(ctx);
 }
@@ -321,7 +321,7 @@ static void uvGetConnectionPoolState(void *p) {
   IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
   RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  MRConnManager_ReplyState(ioRuntime->conn_mgr, ctx);
+  MRConnManager_ReplyState(&ioRuntime->conn_mgr, ctx);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);

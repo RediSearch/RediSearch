@@ -127,12 +127,6 @@ static dictType nodeIdToConnPoolType = {
   .valDestructor = MRConnPool_Free,
 };
 
-MRConnManager *MRConnManager_New(size_t conn_pool_size) {
-  MRConnManager *mgr = rm_malloc(sizeof(*mgr));
-  MRConnManager_Init(mgr, conn_pool_size);
-  return mgr;
-}
-
 /* Init the connection manager */
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   /* Create the connection map */
@@ -143,7 +137,6 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
 /* Free the entire connection manager */
 void MRConnManager_Free(MRConnManager *mgr) {
   dictRelease(mgr->map);
-  rm_free(mgr);
 }
 
 void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {

@@ -75,7 +75,7 @@ static void UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads) {
     // Create new runtime contexts
     for (size_t i = cl->num_io_threads; i < num_io_threads; i++) {
       cl->io_runtimes_pool[i] = IORuntimeCtx_Create(
-          cl->io_runtimes_pool[0]->conn_mgr->nodeConns,
+          cl->io_runtimes_pool[0]->conn_mgr.nodeConns,
           NULL,
           i + 1,
           false);

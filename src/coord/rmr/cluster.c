@@ -128,7 +128,7 @@ MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *
   MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
   if (!node) return NULL;
 
-  return MRConn_Get(ioRuntime->conn_mgr, node->id);
+  return MRConn_Get(&ioRuntime->conn_mgr, node->id);
 }
 
 /* Send a single command to the right shard in the cluster, with an optional control over node
@@ -152,7 +152,7 @@ int MRCluster_CheckConnections(IORuntimeCtx *ioRuntime,
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
-      if (!MRConn_Get(ioRuntime->conn_mgr, sh->nodes[j].id)) {
+      if (!MRConn_Get(&ioRuntime->conn_mgr, sh->nodes[j].id)) {
         return REDIS_ERR;
       }
     }
@@ -175,7 +175,7 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
-      MRConn *conn = MRConn_Get(ioRuntime->conn_mgr, sh->nodes[j].id);
+      MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, sh->nodes[j].id);
       if (conn) {
         if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
           ret++;

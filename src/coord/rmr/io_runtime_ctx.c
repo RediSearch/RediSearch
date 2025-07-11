@@ -75,7 +75,7 @@ static int CheckTopologyConnections(const MRClusterTopology *topo,
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
-      if (!MRConn_Get(ioRuntime->conn_mgr, sh->nodes[j].id)) {
+      if (!MRConn_Get(&ioRuntime->conn_mgr, sh->nodes[j].id)) {
         return REDIS_ERR;
       }
     }
@@ -173,7 +173,7 @@ uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
 
 /* Initialize the connections to all shards */
 int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime) {
-  return MRConnManager_ConnectAll(ioRuntime->conn_mgr, IORuntimeCtx_GetLoop(ioRuntime));
+  return MRConnManager_ConnectAll(&ioRuntime->conn_mgr, IORuntimeCtx_GetLoop(ioRuntime));
 }
 
 void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
@@ -183,7 +183,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
   const struct MRClusterTopology *topo = ioRuntime->topo;
   dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
 
-  dictIterator *it = dictGetIterator(ioRuntime->conn_mgr->map);
+  dictIterator *it = dictGetIterator(ioRuntime->conn_mgr.map);
   dictEntry *de;
   while ((de = dictNext(it))) {
     dictAdd(nodesToDisconnect, dictGetKey(de), NULL);
@@ -195,7 +195,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
     for (int n = 0; n < topo->shards[sh].numNodes; n++) {
       // Update all the conn Manager in each of the runtimes.
       MRClusterNode *node = &topo->shards[sh].nodes[n];
-      MRConnManager_Add(ioRuntime->conn_mgr, &ioRuntime->uv_runtime.loop, node->id, &node->endpoint, 0);
+      MRConnManager_Add(&ioRuntime->conn_mgr, &ioRuntime->uv_runtime.loop, node->id, &node->endpoint, 0);
       /* This node is still valid, remove it from the nodes to delete list */
       dictDelete(nodesToDisconnect, node->id);
     }
@@ -205,7 +205,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
   // we need to disconnect the node's connections
   it = dictGetIterator(nodesToDisconnect);
   while ((de = dictNext(it))) {
-    MRConnManager_Disconnect(ioRuntime->conn_mgr, dictGetKey(de));
+    MRConnManager_Disconnect(&ioRuntime->conn_mgr, dictGetKey(de));
   }
   dictReleaseIterator(it);
   dictRelease(nodesToDisconnect);
@@ -253,15 +253,15 @@ static void UV_Close(IORuntimeCtx *io_runtime_ctx) {
 
 IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership) {
   IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
-  io_runtime_ctx->conn_mgr = MRConnManager_New(conn_pool_size);
-  io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
+  MRConnManager_Init(&io_runtime_ctx->conn_mgr, conn_pool_size);
+  io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr.nodeConns * PENDING_FACTOR, id);
   io_runtime_ctx->pendingTopo = NULL;
   io_runtime_ctx->pendingQueues = NULL;
 
   if (take_topo_ownership) {
     io_runtime_ctx->topo = initialTopology;
   } else {
-    io_runtime_ctx->topo = initialTopology ? MRClusterTopology_Clone(initialTopology): NULL;
+    io_runtime_ctx->topo = MRClusterTopology_Clone(initialTopology);
   }
   UV_Init(io_runtime_ctx);
 
@@ -292,7 +292,7 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   }
   array_free(io_runtime_ctx->pendingQueues);
   RQ_Free(io_runtime_ctx->queue);
-  MRConnManager_Free(io_runtime_ctx->conn_mgr);
+  MRConnManager_Free(&io_runtime_ctx->conn_mgr);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
     struct UpdateTopologyCtx *ctx = task->privdata;
@@ -382,10 +382,10 @@ void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
 
 void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size) {
   RS_ASSERT(new_conn_pool_size > 0);
-  size_t old_conn_pool_size = ioRuntime->conn_mgr->nodeConns;
+  size_t old_conn_pool_size = ioRuntime->conn_mgr.nodeConns;
   if (old_conn_pool_size > new_conn_pool_size) {
-    MRConnManager_Shrink(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
+    MRConnManager_Shrink(&ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
   } else if (old_conn_pool_size < new_conn_pool_size) {
-    MRConnManager_Expand(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
+    MRConnManager_Expand(&ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
   }
 }

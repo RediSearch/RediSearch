@@ -49,6 +49,9 @@ void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
 }
 
 MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
+  if (!t) {
+    return NULL;
+  }
   MRClusterTopology *topo = MR_NewTopology(t->numShards, t->numSlots, t->hashFunc);
   for (int s = 0; s < t->numShards; s++) {
     MRClusterShard *original_shard = &t->shards[s];

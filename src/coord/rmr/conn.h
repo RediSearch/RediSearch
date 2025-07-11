@@ -62,8 +62,6 @@ typedef struct {
   int nodeConns;
 } MRConnManager;
 
-MRConnManager *MRConnManager_New(size_t num_connections_per_shard);
-
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
 
 void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx);

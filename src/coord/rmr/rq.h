@@ -46,5 +46,3 @@ void RQ_Done(MRWorkQueue *q);
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata);
 
 queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async);
-
-size_t RQ_GetMaxPending(const MRWorkQueue *q);

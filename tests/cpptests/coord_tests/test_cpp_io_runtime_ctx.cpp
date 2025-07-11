@@ -63,7 +63,6 @@ protected:
 
 TEST_F(IORuntimeCtxCommonTest, InitialState) {
   ASSERT_NE(ctx, nullptr);
-  ASSERT_NE(ctx->conn_mgr, nullptr);
   ASSERT_NE(ctx->queue, nullptr);
   ASSERT_EQ(ctx->pendingTopo, nullptr);
   ASSERT_FALSE(ctx->uv_runtime.loop_th_ready);
