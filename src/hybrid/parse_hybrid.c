@@ -242,7 +242,10 @@ void HybridRequest_Free(HybridRequest *req) {
   // Free the arrays and tail pipeline
   array_free(req->requests);
   array_free(req->errors);
-  Pipeline_Clean(&req->tail);  // Cleans up the merger and aggregation pipeline
+
+  // Clean up the tail pipeline
+  Pipeline_Clean(&req->tail);
+
   rm_free(req);
 }
 
@@ -352,8 +355,15 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
-    hybridRequest->tail.ap = mergeAreq->pipeline.ap;
-    AGPLN_Init(&mergeAreq->pipeline.ap);
+    // Clean up the existing plan first to avoid memory leaks
+    AGPLN_FreeSteps(&hybridRequest->tail.ap);
+
+    // Use memcpy to create a deep copy of the aggregation plan
+    memcpy(&hybridRequest->tail.ap, &mergeAreq->pipeline.ap, sizeof(AGGPlan));
+
+    // Clear the source plan's pointers to avoid double free
+    // but keep the structure intact
+    memset(&mergeAreq->pipeline.ap, 0, sizeof(AGGPlan));
   }
 
   if (mergeAreq) {
