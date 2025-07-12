@@ -175,6 +175,54 @@ void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t 
   MRCommand_ReplaceArgNoDup(cmd, index, news, len);
 }
 
+void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t oldLen, const char *newStr, size_t newLen) {
+  if (index < 0 || index >= cmd->num) {
+    return;
+  }
+
+  char *oldArg = cmd->strs[index];
+  size_t oldArgLen = cmd->lens[index];
+
+  // Validate position and length
+  if (pos + oldLen > oldArgLen) {
+    return;
+  }
+
+  // Calculate new total length
+  size_t newArgLen = oldArgLen - oldLen + newLen;
+
+  // OPTIMIZATION: If new string is same or shorter, modify in-place to avoid reallocation
+  if (newArgLen <= oldArgLen) {
+    // Move the "after" part to make room for new substring
+    if (newLen != oldLen) {
+      memmove(oldArg + pos + newLen, oldArg + pos + oldLen, oldArgLen - pos - oldLen);
+    }
+
+    // Copy new substring in place
+    memcpy(oldArg + pos, newStr, newLen);
+
+    // Update length and null-terminate
+    cmd->lens[index] = newArgLen;
+    oldArg[newArgLen] = '\0';
+
+    return; // No reallocation needed!
+  }
+
+  // Fallback: Allocate new string for longer replacements
+  char *newArg = rm_malloc(newArgLen + 1);
+
+  // Copy parts: [before] + [new] + [after]
+  memcpy(newArg, oldArg, pos);                           // Copy before
+  memcpy(newArg + pos, newStr, newLen);                  // Copy new substring
+  memcpy(newArg + pos + newLen, oldArg + pos + oldLen,   // Copy after
+         oldArgLen - pos - oldLen);
+
+  newArg[newArgLen] = '\0';
+
+  // Replace the argument
+  MRCommand_ReplaceArgNoDup(cmd, index, newArg, newArgLen);
+}
+
 // Should only be relevant for _FT.ADD, _FT.GET, _FT.DEL,
 // and _FT.SUG* commands
 int MRCommand_GetShardingKey(const MRCommand *cmd) {

@@ -44,6 +44,9 @@ static int modifyParameterKInParams(MRCommand *cmd, const char *paramName, size_
  * Precise literal K modification using saved position information.
  * Replaces the exact K value at the known position in the query string.
  *
+ * PERFORMANCE OPTIMIZATION: Uses MRCommand_ReplaceArgSubstring for efficient
+ * in-place modification instead of copying the entire query string.
+ *
  * Example: "*=>[KNN 50 @vec $blob]" -> "*=>[KNN 25 @vec $blob]"
  *
  * @param cmd The MRCommand containing the query string
@@ -70,25 +73,13 @@ static int modifyLiteralKUsingPosition(MRCommand *cmd, size_t originalK, size_t 
                 snprintf(originalK_str, sizeof(originalK_str), "%zu", originalK);
 
                 if (strncmp(queryStr + k_pos, originalK_str, k_len) == 0) {
-                    // Create new query string with replaced K value
+                    // Use efficient substring replacement - no need to copy entire query!
                     char effectiveK_str[32];
                     snprintf(effectiveK_str, sizeof(effectiveK_str), "%zu", effectiveK);
-
                     size_t newK_len = strlen(effectiveK_str);
-                    size_t queryLen = strlen(queryStr);
-                    size_t newQueryLen = queryLen - k_len + newK_len;
 
-                    char* newQuery = malloc(newQueryLen + 1);
-                    if (!newQuery) return -1;
-
-                    // Copy: before K + new K + after K
-                    memcpy(newQuery, queryStr, k_pos);
-                    memcpy(newQuery + k_pos, effectiveK_str, newK_len);
-                    strcpy(newQuery + k_pos + newK_len, queryStr + k_pos + k_len);
-
-                    // Replace the query string in the command
-                    MRCommand_ReplaceArg(cmd, i, newQuery, newQueryLen);
-                    free(newQuery);
+                    // Replace just the K value substring at the exact position
+                    MRCommand_ReplaceArgSubstring(cmd, i, k_pos, k_len, effectiveK_str, newK_len);
                     return 0;  // Success
                 }
             }
