@@ -17,7 +17,9 @@
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/config.h"
+#include "config.h"  // For MIN_SHARD_WINDOW_RATIO and MAX_SHARD_WINDOW_RATIO constants
 #include "dist_profile.h"
+#include "shard_window_ratio.h"
 #include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
@@ -517,7 +519,7 @@ static RPNet *RPNet_New(const MRCommand *cmd) {
 }
 
 static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
   const char **tmparr = array_new(const char *, us->nserialized);
@@ -548,7 +550,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   array_append(tmparr, n_prefixes);
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (unsigned int i = 0; i < array_len(prefixes); i++) {
     array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
   }
 
@@ -583,6 +585,22 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   }
 
   *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);
+
+  // Handle KNN with shard ratio optimization for both multi-shard and standalone
+  if (knnCtx) {
+    KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+    double ratio = knn_query->shardWindowRatio;
+
+    if (ratio < MAX_SHARD_WINDOW_RATIO) {
+      // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+      // Calculate effective K based on deployment mode
+      size_t numShards = GetNumShards_UnSafe();
+      size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, numShards);
+
+      // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
+      modifyKNNCommand(xcmd, knn_query->k, effectiveK, &knnCtx->knn);
+    }
+  }
 
   // PARAMS was already validated at AREQ_Compile
   int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
@@ -701,12 +719,14 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
+  specialCaseCtx *knnCtx = NULL;
+
   if(dialect >= 2) {
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     if(strcasestr(r->query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
+      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
@@ -714,8 +734,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
       if (knnCtx != NULL) {
         // If we found KNN, add an arange step, so it will be the first step after
         // the root (which is first plan step to be executed after the root).
-        // Use originalK for coordinator to ensure full result set is returned to user
-        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.originalK, knnCtx->knn.fieldName);
+        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
       }
     }
   }
@@ -729,7 +748,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   // Construct the command string
   MRCommand xcmd;
-  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp);
+  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);

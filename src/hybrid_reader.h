@@ -28,7 +28,6 @@ typedef struct {
   IndexIterator *childIt;
   struct timespec timeout;
   const FieldFilterContext* filterCtx;
-  double shardWindowRatio;  // Shard window ratio for distributed queries
 } HybridIteratorParams;
 
 typedef struct {
@@ -53,8 +52,6 @@ typedef struct {
   size_t numIterations;
   bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
   TimeoutCtx timeoutCtx;           // Timeout parameters
-  double shardWindowRatio;         // Shard window ratio for distributed queries
-  size_t originalK;                // Original K value before shard window ratio optimization
   FieldFilterContext filterCtx;
 } HybridIterator;
 

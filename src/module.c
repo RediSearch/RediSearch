@@ -121,7 +121,7 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   bool ret = true;
   HiddenUnicodeString **prefixes = sp->rule->prefixes;
   RedisModuleString *prefix;
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (unsigned int i = 0; i < array_len(prefixes); i++) {
     prefix = HiddenUnicodeString_CreateRedisModuleString(prefixes[i], ctx);
     if (RedisModule_ACLCheckKeyPrefixPermissions(user, prefix, REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
       ret = false;
@@ -1756,17 +1756,15 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
   // For example the command request SORTBY text_field LIMIT 2 3
   // In this case the top 5 results relevant for this sort might be the in the last 5 results of the TOPK
   long long requestedResultsCount = req->requestedResultsCount;
-  // Use originalK for coordinator to ensure we can return the full requested result set
-  req->requestedResultsCount = MAX(knn_ctx->knn.originalK, requestedResultsCount);
+  req->requestedResultsCount = MAX(knn_ctx->knn.k, requestedResultsCount);
   if(array_len(req->specialCases) > 1) {
     specialCaseCtx* optionalSortCtx = req->specialCases[0];
     if(optionalSortCtx->specialCaseType == SPECIAL_CASE_SORTBY) {
       if(strcmp(optionalSortCtx->sortby.sortKey, knn_ctx->knn.fieldName) == 0){
         // If SORTBY is done by the vector score field, the coordinator will do it and no special operation is needed.
         knn_ctx->knn.shouldSort = false;
-        // The requested results should be at most effective K (for coordinator, this is originalK)
-        size_t effectiveK = getEffectiveK(&knn_ctx->knn, false);  // false = coordinator command
-        req->requestedResultsCount = MIN(effectiveK, requestedResultsCount);
+        // The requested results should be at most K
+        req->requestedResultsCount = MIN(knn_ctx->knn.k, requestedResultsCount);
       }
     }
   }
@@ -1776,10 +1774,8 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
 // was found).
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, unsigned int dialectVersion,
                                         QueryError *status) {
-  // Automatically detect if this is a shard-level command (_FT.*) vs coordinator command (FT.*)
-  bool isShardCommand = isShardLevelCommand(argv, argc);
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
   dict *params = NULL;
@@ -1834,9 +1830,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
       goto cleanup;
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
-    ctx->knn.originalK = k;  // Always store original K
-    ctx->knn.shardWindowRatio = queryVectorNode.vq->shardWindowRatio;  // Store ratio for later calculation
-
+    ctx->knn.k = k;
     ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
     ctx->knn.pq = NULL;
     ctx->knn.queryNode = queryNode;  // take ownership
@@ -2313,9 +2307,7 @@ static double parseNumeric(const char *str, const char *sortKey) {
 
 static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
   // As long as we don't have k results, keep insert
-  // For coordinator, use originalK (getEffectiveK with isShardCommand=false returns originalK)
-  size_t targetK = getEffectiveK(knnCtx, false);
-    if (heap_count(knnCtx->pq) < targetK) {
+    if (heap_count(knnCtx->pq) < knnCtx->k) {
       scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
       resWrapper->result = res;
       resWrapper->score = score;
@@ -2865,9 +2857,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
         rCtx.postProcess = (postProcessReplyCB) knnPostProcess;
         rCtx.reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
-          // Use originalK for coordinator heap to merge results back to full K
-          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.originalK));
-          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.originalK);
+          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
+          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
           rCtx.processReply = (processReplyCB) ProcessKNNSearchReply;
           break;
         }
@@ -2931,7 +2922,7 @@ cleanup:
   if (rCtx.reduceSpecialCaseCtxKnn &&
       rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
     heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
-    rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL; 
+    rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL;
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
@@ -3332,6 +3323,38 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
 
   cmd->protocol = protocol;
 
+  // Handle KNN with shard ratio optimization for both multi-shard and standalone
+  if (req->specialCases) {
+    for (size_t i = 0; i < array_len(req->specialCases); ++i) {
+      if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
+        specialCaseCtx* knnCtx = req->specialCases[i];
+        KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+        double ratio = knn_query->shardWindowRatio;
+
+        // Validate ratio range: must be > MIN_SHARD_WINDOW_RATIO and <= MAX_SHARD_WINDOW_RATIO
+        if (ratio <= MIN_SHARD_WINDOW_RATIO || ratio > MAX_SHARD_WINDOW_RATIO) {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+            "Shard k ratio must be greater than %g and at most %g (got %g)",
+            MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, ratio);
+          return REDISMODULE_ERR;
+        }
+
+        // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+        if (ratio < 1.0) {
+          // Calculate effective K based on deployment mode
+          size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, NumShards);
+
+          // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
+          if (modifyKNNCommand(cmd, knn_query->k, effectiveK, &knnCtx->knn) != 0) {
+            QueryError_SetError(status, QUERY_EGENERIC, "Failed to modify KNN command for shard distribution");
+            return REDISMODULE_ERR;
+          }
+        }
+        break; // Only handle first KNN context
+      }
+    }
+  }
+
   // replace the LIMIT {offset} {limit} with LIMIT 0 {limit}, because we need all top N to merge
   int limitIndex = RMUtil_ArgExists("LIMIT", argv, argc, 3);
   if (limitIndex && req->limit > 0 && limitIndex < argc - 2) {
@@ -3377,7 +3400,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   MRCommand_Insert(cmd, arg_pos++, n_prefixes, string_len);
   rm_free(n_prefixes);
 
-  for (uint i = 0; i < array_len(prefixes); i++) {
+  for (unsigned int i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
     MRCommand_Insert(cmd, arg_pos++, prefix, len);

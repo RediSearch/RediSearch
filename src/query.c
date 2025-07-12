@@ -376,13 +376,21 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   VectorQuery *vq = rm_calloc(1, sizeof(*vq));
   ret->vn.vq = vq;
   vq->type = type;
-  vq->shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
   ret->opts.flags |= QueryNode_YieldsDistance;
   switch (type) {
     case VECSIM_QT_KNN:
       QueryNode_InitParams(ret, 2);
       QueryNode_SetParam(q, &ret->params[0], &vq->knn.vector, &vq->knn.vecLen, vec);
       QueryNode_SetParam(q, &ret->params[1], &vq->knn.k, NULL, value);
+      vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
+
+      // Save position for literal K values so it can be modified later in the shard command.
+      // Only impacts queries with $SHARD_K_RATIO
+      if (value->type == QT_SIZE) {  // Literal K case (e.g., "KNN 50")
+        vq->knn.k_literal_pos = value->pos;
+        vq->knn.k_literal_len = value->len;
+      }
+      // If K is parameter (QT_PARAM_SIZE), k_literal_pos remains 0
       break;
     case VECSIM_QT_RANGE:
       QueryNode_InitParams(ret, 2);
@@ -2144,16 +2152,16 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
   return retVal;
 }
 
-static int ValidateShardWindowRatio(const char *value, double *ratio, QueryError *status) {
+static int ValidateShardKRatio(const char *value, double *ratio, QueryError *status) {
   if (!ParseDouble(value, ratio, 1)) {
     QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
-      "Invalid shard window ratio value", " '%s'", value);
+      "Invalid shard k ratio value", " '%s'", value);
     return 0;
   }
 
-  if (*ratio < MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
+  if (*ratio <= MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
-      "Shard window ratio must be between %g and %g (got %g)",
+      "Shard k ratio must be greater than %g and at most %g (got %g)",
       MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, *ratio);
     return 0;
   }
@@ -2164,12 +2172,12 @@ static int ValidateShardWindowRatio(const char *value, double *ratio, QueryError
 // Convert the query attribute into a raw vector param to be resolved by the vector iterator
 // down the road. return 0 in case of an unrecognized parameter.
 static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr, QueryError *status) {
-  if (STR_EQCASE(attr->name, attr->namelen, SHARD_WINDOW_RATIO_ATTR)) {
+  if (STR_EQCASE(attr->name, attr->namelen, SHARD_K_RATIO_ATTR)) {
     double ratio;
-    if (!ValidateShardWindowRatio(attr->value, &ratio, status)) {
+    if (!ValidateShardKRatio(attr->value, &ratio, status)) {
       return 0;
     }
-    vq->shardWindowRatio = ratio;
+    vq->knn.shardWindowRatio = ratio;
     return 1;
   } else if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
              STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||

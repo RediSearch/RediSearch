@@ -8,7 +8,6 @@
 */
 #include <math.h>
 #include "hybrid_reader.h"
-#include "shard_window_ratio.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 
@@ -469,14 +468,6 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->numIterations = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
-  hi->shardWindowRatio = hParams.shardWindowRatio;
-
-  // Store original K for final result limiting
-  hi->originalK = hi->query.k;
-
-  // Apply shard window ratio optimization (function handles all validation internally)
-  // This is only for internal processing, final results should still use originalK
-  hi->query.k = calculateEffectiveK(hi->query.k, hi->shardWindowRatio);
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
   hi->filterCtx = *hParams.filterCtx;

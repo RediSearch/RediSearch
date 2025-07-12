@@ -288,7 +288,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
 #define DEFAULT_SHARD_WINDOW_RATIO 1.0
-#define MIN_SHARD_WINDOW_RATIO 0.1
+#define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
 #define MAX_SHARD_WINDOW_RATIO 1.0
 
 // default configuration

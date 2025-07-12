@@ -93,6 +93,15 @@ typedef struct {
   size_t vecLen;                 // vector length
   size_t k;                      // number of vectors to return
   VecSimQueryReply_Order order;  // specify the result order.
+  double shardWindowRatio;       // shard window ratio for distributed queries
+
+  // Position tracking for literal K modification (shard ratio optimization)
+  // These fields are ONLY populated when:
+  // 1. K is literal (not parameter) AND
+  // 2. Used for precise K value replacement in coordinator->shard commands
+  // Otherwise they remain 0 (no memory/performance overhead for normal queries)
+  size_t k_literal_pos;          // Byte offset of K value in original query (0 = not set)
+  size_t k_literal_len;          // Length of K token (0 = not set)
 } KNNVectorQuery;
 
 typedef struct {
@@ -111,7 +120,6 @@ typedef struct VectorQuery {
   };
   VectorQueryType type;               // vector similarity query type
   VectorQueryParams params;           // generic query params array, for the vecsim library to check
-  double shardWindowRatio;            // shard window ratio for distributed queries
 
   VecSimQueryResult *results;         // array for results
   int resultsLen;                     // length of array

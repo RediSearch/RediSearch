@@ -13,65 +13,60 @@
 #include <stdbool.h>
 #include <string.h>
 #include "redismodule.h"
+#include "coord/rmr/command.h"
+#include "special_case_ctx.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * Check if a command is a shard-level command (_FT.*) vs coordinator command (FT.*).
- *
- * @param argv Command arguments array
- * @param argc Number of arguments
- * @return true if this is a shard-level command, false otherwise
- */
-static inline bool isShardLevelCommand(RedisModuleString **argv, int argc) {
-  if (argc == 0 || argv == NULL) {
-    return false;
-  }
-
-  size_t cmdLen;
-  const char *cmdName = RedisModule_StringPtrLen(argv[0], &cmdLen);
-  return (cmdLen > 3 && cmdName[0] == '_' && strncasecmp(cmdName + 1, "FT.", 3) == 0);
-}
-
-/**
  * Calculate effective K value for shard window ratio optimization.
  *
- * This function handles all edge cases and validation internally:
- * - If ratio is <= 0.0 or >= 1.0, returns originalK (no optimization)
- * - If ratio is valid (0.0 < ratio < 1.0), applies optimization
- * - Ensures result is at least 1
+ * Implements the PRD formula: k_per_shard = max(top_k/#shards, ceil(top_k × ratio))
+ * This ensures:
+ * - Minimum guarantee: Each shard returns at least top_k/#shards results
+ * - Optimization: If ceil(top_k × ratio) > top_k/#shards, use the larger value
  *
  * @param originalK The original K value requested
  * @param ratio The shard window ratio (any value, function handles validation)
- * @return Effective K value (originalK if no optimization, calculated value otherwise)
+ * @param numShards The number of shards in the cluster
+ * @return Effective K value per shard
  */
-static inline size_t calculateEffectiveK(size_t originalK, double ratio) {
-  // No optimization if ratio is invalid or >= 1.0
-  if (ratio <= 0.0 || ratio >= 1.0) {
+static inline size_t calculateEffectiveK(size_t originalK, double ratio, size_t numShards) {
+  // No optimization if ratio is invalid or > 1.0, or if numShards is 0
+  if (ratio <= 0.0 || ratio > 1.0 || numShards == 0) {
     return originalK;
   }
 
-  // Apply optimization for valid ratios (0.0 < ratio < 1.0)
-  // Use floating point math to ensure proper rounding
-  double exactK = (double)originalK * ratio;
-  size_t effectiveK = (size_t)ceil(exactK);
+  // Calculate minimum K per shard to ensure we can return full originalK results
+  // Use ceiling division: (originalK + numShards - 1) / numShards
+  size_t minKPerShard = (originalK + numShards - 1) / numShards;
+
+  // Calculate ratio-based K per shard
+  double exactRatioK = (double)originalK * ratio;
+  size_t ratioKPerShard = (size_t)ceil(exactRatioK);
+
+  // Apply PRD formula: max(top_k/#shards, ceil(top_k × ratio))
+  size_t effectiveK = (ratioKPerShard > minKPerShard) ? ratioKPerShard : minKPerShard;
 
   return effectiveK > 0 ? effectiveK : 1;  // Ensure at least 1 result
 }
 
 /**
- * Get the appropriate K value based on context (shard vs coordinator).
+ * Modify KNN command for shard distribution by replacing K value.
  *
- * @param originalK The original K value requested
- * @param ratio The shard window ratio
- * @param isShardCommand Whether this is a shard-level command
- * @return Effective K for shards, original K for coordinator
+ * This function handles two cases:
+ * 1. Literal K (e.g., "KNN 50") - uses saved position for exact replacement
+ * 2. Parameter K (e.g., "KNN $k") - modifies parameter value in PARAMS section
+ *
+ * @param cmd The MRCommand to modify
+ * @param originalK The original K value from the coordinator
+ * @param effectiveK The calculated effective K value for shards
+ * @param knnCtx Contains the QueryNode used to find K position and parameter name for modification
+ * @return 0 on success, -1 on error
  */
-static inline size_t getContextualK(size_t originalK, double ratio, bool isShardCommand) {
-  return isShardCommand ? calculateEffectiveK(originalK, ratio) : originalK;
-}
+int modifyKNNCommand(MRCommand *cmd, size_t originalK, size_t effectiveK, knnContext *knnCtx);
 
 #ifdef __cplusplus
 }

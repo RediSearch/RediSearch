@@ -126,7 +126,7 @@ typedef struct {
   struct GeometryQuery *geomq;
 } QueryGeometryNode;
 
-typedef struct {
+typedef struct {// TODO: consider remove this struct, not in use
   struct VectorQuery *vq;
 } QueryVectorNode;
 
@@ -178,7 +178,7 @@ typedef struct {
 #define INORDER_ATTR "inorder"
 #define WEIGHT_ATTR "weight"
 #define PHONETIC_ATTR "phonetic"
-#define SHARD_WINDOW_RATIO_ATTR "shard_window_ratio"
+#define SHARD_K_RATIO_ATTR "shard_k_ratio"
 
 
 /* Various modifiers and options that can apply to the entire query or any sub-query of it */

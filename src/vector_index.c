@@ -118,7 +118,6 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .timeout = q->sctx->time.timeout,
                                       .sctx = q->sctx,
                                       .filterCtx = &filterCtx,
-                                      .shardWindowRatio = vq->shardWindowRatio,
       };
       return NewHybridVectorIterator(hParams, q->status);
     }
@@ -170,11 +169,6 @@ int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVe
       return REDISMODULE_ERR;
     }
   }
-
-  if (node->vn.vq->shardWindowRatio == 0.0) {
-    node->vn.vq->shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
-  }
-
   return REDISMODULE_OK;
 }
 

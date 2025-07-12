@@ -15,6 +15,7 @@
 #include <util/heap.h>
 #include "rmutil/rm_assert.h"
 #include "shard_window_ratio.h"
+#include "special_case_ctx.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -78,36 +79,6 @@ do {                                            \
     return REDISMODULE_ERR;                                           \
   }
 
-typedef enum {
-  SPECIAL_CASE_NONE,
-  SPECIAL_CASE_KNN,
-  SPECIAL_CASE_SORTBY
-} searchRequestSpecialCase;
-
-typedef struct {
-  size_t originalK;       // Original K value (always store this)
-  double shardWindowRatio; // Shard window ratio for calculating effective K
-  const char* fieldName;  // Field name
-  bool shouldSort;        // Should run presort before the coordinator sort
-  size_t offset;          // Reply offset
-  heap_t *pq;             // Priority queue
-  QueryNode* queryNode;   // Query node
-} knnContext;
-
-typedef struct {
-  const char* sortKey;  // SortKey name;
-  bool asc;             // Sort order ASC/DESC
-  size_t offset;        // SortKey reply offset
-} sortbyContext;
-
-typedef struct {
-  union {
-    knnContext knn;
-    sortbyContext sortby;
-  };
-  searchRequestSpecialCase specialCaseType;
-} specialCaseCtx;
-
 typedef struct {
   char *queryString;
   long long offset;
@@ -137,18 +108,6 @@ bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
                              QueryError *status);
-
-/**
- * Get the effective K value for a KNN context based on whether this is a shard command.
- * For shard commands, applies shard window ratio optimization.
- * For coordinator commands, returns original K.
- */
-static inline size_t getEffectiveK(const knnContext *ctx, bool isShardCommand) {
-  if (!isShardCommand || ctx->shardWindowRatio >= 1.0) {
-    return ctx->originalK;
-  }
-  return calculateEffectiveK(ctx->originalK, ctx->shardWindowRatio);
-}
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 
