@@ -373,6 +373,16 @@ ENCODER(encodeNumeric) {
   return sz;
 }
 
+// Wrapper around the private static `encodeFreqsFields` function to expose it to benchmarking.
+size_t encode_freqs_fields(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFreqsFields(bw, delta, res);
+}
+
+// Wrapper around the private static `encodeFreqsFieldsWide` function to expose it to benchmarking.
+size_t encode_freqs_fields_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFreqsFieldsWide(bw, delta, res);
+}
+
 // Wrapper around the private static `encodeFreqsOnly` function to expose it to benchmarking.
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeFreqsOnly(bw, delta, res);
@@ -821,6 +831,16 @@ bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSInd
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   return readNumeric(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readFreqsFlags` function to expose it to benchmarking.
+bool read_freqs_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFreqsFlags(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readNumeric` function to expose it to benchmarking
+bool read_freqs_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFreqsFlagsWide(blockReader, ctx, res);
 }
 
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
