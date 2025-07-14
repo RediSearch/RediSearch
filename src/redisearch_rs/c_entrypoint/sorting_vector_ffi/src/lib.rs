@@ -18,7 +18,15 @@ use ffi::RS_StringVal;
 use value::{RSValueFFI, RSValueTrait as _};
 
 pub const RS_SORTABLES_MAX: usize = 1024;
+pub const RS_SORTABLE_NUM: usize = 1;
+pub const RS_SORTABLE_EMBEDDED_STR: usize = 2;
+pub const RS_SORTABLE_STR: usize = 3;
+pub const RS_SORTABLE_NIL: usize = 4;
+pub const RS_SORTABLE_RSVAL: usize = 5;
 
+/// As we only need pointers to the sorting vector in the C code, we can just use a typedef via cbindgen.toml
+/// Thus we don't need to export the full type definition here, which is cumbersome due to the generic type parameter.
+/// cbindgen:ignore
 pub struct RSSortingVector {
     inner: sorting_vector::RSSortingVector<RSValueFFI>,
 }
@@ -53,13 +61,12 @@ unsafe extern "C" fn RSSortingVector_Get(
 
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { &*vec };
-    if idx >= vec.len() {
-        panic!(
-            "RSSortingVector_Get: Index out of bounds: {} >= {}",
-            idx,
-            vec.len()
-        );
-    }
+    assert!(
+        idx < vec.len(),
+        "RSSortingVector_Get: Index out of bounds: {} >= {}",
+        idx,
+        vec.len()
+    );
 
     vec[idx].0.as_ptr()
 }
