@@ -13,7 +13,7 @@
 #include "redismodule.h"
 #include "triemap.h"
 #include "redisearch.h"
-#include "sortable.h"
+#include "sorting_vector_rs.h"
 #include "byte_offsets.h"
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
