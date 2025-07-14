@@ -8,10 +8,12 @@
 */
 
 use std::{
+    alloc::{Layout, alloc_zeroed},
     ffi::{c_char, c_int},
     fmt::Debug,
     io::{Read, Seek, Write},
     mem::ManuallyDrop,
+    ptr,
 };
 
 use enumflags2::{BitFlags, bitflags};
@@ -98,6 +100,35 @@ pub struct RSAggregateResult {
 
     /// A map of the aggregate type of the underlying records
     pub type_mask: RSResultTypeMask,
+}
+
+impl RSAggregateResult {
+    /// Create a new aggregate result with th given capacity
+    pub fn new(cap: usize) -> Self {
+        let children = if cap > 0 {
+            // Calculate the layout for an array of pointers
+            let layout = Layout::array::<*mut RSIndexResult>(cap as usize)
+                .expect("Failed to create layout for children array");
+
+            // Allocate zero-initialized memory (equivalent to calloc)
+            let ptr = unsafe { alloc_zeroed(layout) };
+
+            if ptr.is_null() {
+                panic!("Failed to allocate memory for children array");
+            }
+
+            ptr as *mut *mut RSIndexResult
+        } else {
+            ptr::null_mut()
+        };
+
+        Self {
+            num_children: 0,
+            children_cap: cap as c_int,
+            children,
+            type_mask: RSResultTypeMask::empty(),
+        }
+    }
 }
 
 /// Represents a virtual result in an index record.
