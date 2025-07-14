@@ -183,6 +183,7 @@ impl RSAggregateResult {
                 .expect("Failed to create layout for children array");
 
             // Allocate zero-initialized memory (equivalent to calloc)
+            // SAFETY: the alloc size is non-zero because of the `cap` check above
             let ptr = unsafe { alloc_zeroed(layout) };
 
             if ptr.is_null() {
