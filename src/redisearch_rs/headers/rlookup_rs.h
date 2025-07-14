@@ -7,6 +7,15 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+// forward declarations for bitflags type names
+typedef uint32_t RLookupKeyFlags;
+typedef uint32_t RLookupOptions;
+
+// forward declarations for types that are only used as a pointer
+typedef struct RLookupRow RLookupRow;
+typedef struct RSValue RSValue;
+
+
 enum RLookupKeyFlag
 #ifdef __cplusplus
   : uint32_t
@@ -94,3 +103,120 @@ enum RLookupOption
 #ifndef __cplusplus
 typedef uint32_t RLookupOption;
 #endif // __cplusplus
+
+typedef struct Option_Cow_CStr Option_Cow_CStr;
+
+/**
+ * RLookup key
+ *
+ * `RLookupKey`s are used to speed up accesses in an `RLookupRow`. Instead of having to do repeated
+ * string comparisons to find the correct value by path/name, an `RLookupKey` is created using the
+ * `RLookup` which then allows `O(1)` lookup within the `RLookupRow`.
+ *
+ *
+ * The old C documentation for this type for posterity and later reference. Note that it is unclear
+ * how much this reflects the actual state of the code.
+ *
+ * ```text
+ * RLookup Key
+ *
+ * A lookup key is a structure which contains an array index at which the
+ * data may be reliably located. This avoids needless string comparisons by
+ * using quick objects rather than "dynamic" string comparison mechanisms.
+ *
+ * The basic workflow is that users of a given key (i.e. "foo") are expected
+ * to first create the key by use of RLookup_GetKey(). This will provide
+ * the consumer with an opaque object that is the slot of "foo". Once the
+ * key is provided, it may then be use to both read and write the key.
+ *
+ * Using a pre-defined key also allows the query to maintain a central registry
+ * of used names. If a user makes a typo in a query, this registry will easily
+ * detect that the name was not used previously.
+ *
+ * Note that the same name can be registered twice, in which case it will simply
+ * increment the reference to the same key.
+ *
+ * There are two arrays which are accessed to check for the key. Their use is
+ * mutually exclusive per-key, though multiple keys may exist which can access
+ * either one or the other array. The first array is the "sorting vector" for
+ * a given document. The F_SVSRC flag is set on keys which are expected to be
+ * found within the sorting vector.
+ *
+ * The second array is a "dynamic" array within a given result's row data.
+ * This is used for data generated on the fly, or for data not stored within
+ * the sorting vector.
+ * ```
+ */
+typedef struct RLookupKey {
+  /**
+   * Index into the dynamic values array within the associated `RLookupRow`.
+   */
+  uint16_t dstidx;
+  /**
+   * If the source for this key is a sorting vector, this is the index
+   * into the `RSSortingVector` within the associated `RLookupRow`.
+   */
+  uint16_t svidx;
+  /**
+   * Various flags dictating the behavior of looking up the value of this key.
+   * Most notably, `Flags::SVSRC` means the source is an `RSSortingVector` and
+   * `Self::svidx` should be used to look up the value.
+   */
+  RLookupKeyFlags flags;
+  /**
+   * The path of this key.
+   *
+   * For fields *not* loaded from a [`FieldSpec`][ffi::FieldSpec], this points to the *same* string
+   * as `Self::path`.
+   */
+  const char *path;
+  /**
+   * The name of this key.
+   */
+  const char *name;
+  /**
+   * The length of this key in bytes, without the null-terminator.
+   * Should be used to avoid repeated `strlen` computations.
+   */
+  uintptr_t name_len;
+  /**
+   * Pointer to next field in the list
+   */
+  struct RLookupKey *next;
+  /**
+   * The actual "owning" strings, we need to hold onto these
+   * so the pointers above stay valid. Note that you
+   * MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
+   * YOU WANT TO POTENTIALLY RISK UB
+   */
+  Cow<CStr> anna;
+  struct Option_Cow_CStr bob;
+} RLookupKey;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+void RLookupRow_WriteKey(const struct RLookupKey *key, RLookupRow *row, RSValue *value);
+
+void RLookupRow_WriteOwnKey(const struct RLookupKey *key, RLookupRow *row, RSValue *value);
+
+/**
+ * Wipes a RLookupRow by decrementing all values and resetting the row.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ */
+void RLookupRow_Wipe(RLookupRow *vec);
+
+/**
+ * Cleanup a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ */
+void RLookupRow_Cleanup(RLookupRow *vec);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
