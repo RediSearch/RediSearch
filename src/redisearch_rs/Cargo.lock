@@ -1406,18 +1406,20 @@ dependencies = [
 name = "rlookup"
 version = "0.0.1"
 dependencies = [
-"enumflags2",
-"ffi",
-"pin-project",
+ "enumflags2",
+ "ffi",
+ "pin-project",
+ "sorting_vector",
+ "value",
 ]
 
 [[package]]
 name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
-"cbindgen",
-"ffi",
-"rlookup",
+ "cbindgen",
+ "ffi",
+ "rlookup",
 ]
 
 [[package]]
