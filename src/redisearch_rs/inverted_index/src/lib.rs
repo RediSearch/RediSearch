@@ -154,20 +154,15 @@ impl RSAggregateResult {
     }
 
     fn resize(&mut self, new_cap: c_int) {
-        if new_cap < self.num_children || new_cap == self.children_cap {
-            return;
-        }
-
         let new_children = Self::new_children(new_cap as _);
 
         // Copy existing items to new array
         if !self.children.is_null() && self.num_children > 0 {
             // SAFETY:
-            // 1. `self.children` is at least as big as `self.num_children` because of the previous
-            //    allocation
-            // 2. `new_children` has size `new_cap` which is at least as big as `self.num_children`
-            //    be of the check above
-            // 3. Both are properly aligned in `Self::new_children`
+            // 1. `self.children` is at least as big as `self.num_children` because we would grow
+            //    `self.children` otherwise
+            // 2. `new_children` has size `new_cap` which is always bigger than `self.num_children`
+            // 3. Both are properly aligned in `Self::new_children()`
             // 4. Both are also distinct memory regions
             unsafe {
                 ptr::copy_nonoverlapping(self.children, new_children, self.num_children as _);
