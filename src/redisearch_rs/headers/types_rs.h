@@ -263,3 +263,16 @@ typedef struct RSIndexResult {
    */
   double weight;
 } RSIndexResult;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+/**
+ * Append a child to an aggregate result
+ */
+void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
