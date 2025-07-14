@@ -62,6 +62,16 @@ fn benchmark_full(c: &mut Criterion) {
     bencher.decoding(c);
 }
 
+fn benchmark_fields_offsets(c: &mut Criterion) {
+    let bencher = benchers::fields_offsets::Bencher::default();
+    bencher.encoding(c);
+    bencher.decoding(c);
+
+    let bencher = benchers::fields_offsets::Bencher::wide();
+    bencher.encoding(c);
+    bencher.decoding(c);
+}
+
 criterion_group!(
     benches,
     benchmark_numeric,
@@ -70,6 +80,7 @@ criterion_group!(
     benchmark_fields_only,
     benchmark_doc_ids_only,
     benchmark_full,
+    benchmark_fields_offsets,
 );
 
 criterion_main!(benches);
