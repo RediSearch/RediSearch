@@ -17,6 +17,3 @@ typedef __uint128_t t_fieldMask;
 [parse]
 parse_deps = true
 include = ["enumflags2", "inverted_index"]
-
-[export]
-include = ["RSIndexResult"]

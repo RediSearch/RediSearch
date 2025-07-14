@@ -263,3 +263,41 @@ typedef struct RSIndexResult {
    */
   double weight;
 } RSIndexResult;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+/**
+ * Append a child to an aggregate result.
+ *
+ * Note, `parent` will not take ownership of the `child` and the caller is still responsible for
+ * freeing the `child` correctly.
+ *
+ * If the `parent` is also not an aggregate type, then this is a no-op.
+ *
+ * # Safety
+ * The following must be upheld by the caller when calling this function:
+ * - `parent` must be a valid `RSIndexResult` instance created from calling [`AggregateResult_New`].
+ * - `child` must be a valid `RSIndexResult` instance created from calling [`AggregateResult_New`].
+ */
+void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
+
+/**
+ * Create and allocate a new `RSAggregateResult` instance with the specified capacity.
+ *
+ * To free the aggregate, use [`AggregateResult_Free`].
+ */
+struct RSAggregateResult *AggregateResult_New(uintptr_t cap);
+
+/**
+ * Free the children array allocated for a `RSAggregateResult` which was previously created with [`AggregateResult_New`].
+ *
+ * # Safety
+ * `agg` should be a valid `RSAggregateResult` that was created with [`AggregateResult_New`].
+ */
+void AggregateResult_FreeChildren(struct RSAggregateResult *agg);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus

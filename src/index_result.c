@@ -26,10 +26,11 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
       .isCopy = 0,
       .weight = weight,
       .metrics = NULL,
-      .data.agg = (RSAggregateResult){.numChildren = 0,
-                                 .childrenCap = cap,
-                                 .typeMask = 0x0000,
-                                 .children = rm_calloc(cap, sizeof(RSIndexResult *))}};
+      // Copy the heap object to the stack. This means C is responsible for freeing any primitive
+      // data, but Rust should be called to free any complex heap data using `AggregateResult_FreeChildren`.
+      .data.agg = *AggregateResult_New(cap),
+  };
+
   return res;
 }
 
@@ -137,11 +138,10 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     case RSResultType_Union:
     case RSResultType_HybridMetric:
       // allocate a new child pointer array
-      ret->data.agg.children = rm_malloc(src->data.agg.numChildren * sizeof(RSIndexResult *));
-      ret->data.agg.childrenCap = src->data.agg.numChildren;
+      ret->data.agg = *AggregateResult_New(src->data.agg.numChildren);
       // deep copy recursively all children
       for (int i = 0; i < src->data.agg.numChildren; i++) {
-        ret->data.agg.children[i] = IndexResult_DeepCopy(src->data.agg.children[i]);
+        AggregateResult_AddChild(ret, IndexResult_DeepCopy(src->data.agg.children[i]));
       }
       break;
 
@@ -219,8 +219,8 @@ void IndexResult_Free(RSIndexResult *r) {
         IndexResult_Free(r->data.agg.children[i]);
       }
     }
-    rm_free(r->data.agg.children);
-    r->data.agg.children = NULL;
+
+    AggregateResult_FreeChildren(&r->data.agg);
   } else if (r->type == RSResultType_Term) {
     if (r->isCopy) {
       rm_free(r->data.term.offsets.data);
