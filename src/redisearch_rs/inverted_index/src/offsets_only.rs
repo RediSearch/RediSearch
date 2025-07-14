@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+use std::io::{Read, Seek, Write};
+
+use ffi::t_docId;
+use qint::{qint_decode, qint_encode};
+
+use crate::{
+    Decoder, DecoderResult, Encoder, RSIndexResult, RSResultType,
+    full::{decode_term_record_offsets, offsets},
+};
+
+/// Encode and decode the offsets of a term record.
+///
+/// The delta and offsets lengths are encoded using [qint encoding](qint).
+/// The offsets themselves are then written directly.
+///
+/// This encoder only supports delta values that fit in a `u32`.
+#[derive(Default)]
+pub struct OffsetsOnly;
+
+impl Encoder for OffsetsOnly {
+    type Delta = u32;
+
+    fn encode<W: Write + Seek>(
+        &mut self,
+        mut writer: W,
+        delta: Self::Delta,
+        record: &RSIndexResult,
+    ) -> std::io::Result<usize> {
+        assert!(matches!(record.result_type, RSResultType::Term));
+
+        let mut bytes_written = qint_encode(&mut writer, [delta, record.offsets_sz])?;
+
+        let offsets = offsets(record);
+        bytes_written += writer.write(offsets)?;
+
+        Ok(bytes_written)
+    }
+}
+
+impl Decoder for OffsetsOnly {
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult> {
+        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
+        let [delta, offsets_sz] = decoded_values;
+
+        let record = decode_term_record_offsets(reader, base, delta, 0, 1, offsets_sz)?;
+        Ok(DecoderResult::Record(record))
+    }
+}
