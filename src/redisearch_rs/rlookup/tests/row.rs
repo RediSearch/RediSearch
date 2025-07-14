@@ -150,3 +150,25 @@ fn test_insert_non_owned() {
         1
     );
 }
+
+#[test]
+fn test_wipe() {
+    let mut row = RLookupRow::new(0);
+
+    // create 10 entries in the row
+    for i in 0..10 {
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        key.dstidx = i as u16;
+        row.write_own_key(&key, MockRSValue::create_num(i as f64 * 2.5));
+    }
+
+    assert!(!row.is_empty());
+    assert_eq!(row.len(), 10);
+    assert_eq!(row.num(), 10);
+
+    // wipe the row, we expect all values to be cleared but memory to be retained
+    row.wipe();
+    assert_eq!(row.num(), 0);
+    assert_eq!(row.len(), 10);
+    assert!(row.values().iter().all(|v| v.is_none()));
+}
