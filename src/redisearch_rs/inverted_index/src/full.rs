@@ -39,7 +39,7 @@ pub struct Full;
 ///
 /// record must have `result_type` set to `RSResultType::Term`.
 #[inline(always)]
-fn offsets(record: &RSIndexResult) -> &[u8] {
+pub fn offsets(record: &RSIndexResult) -> &[u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = unsafe { &record.data.term };
     if term.offsets.data.is_null() {
@@ -84,7 +84,7 @@ impl Encoder for Full {
 
 /// Create a [`RSIndexResult`] from the given parameters and read its offsets fron the reader.
 #[inline(always)]
-fn decode_term_record_offsets<R: Read>(
+pub fn decode_term_record_offsets<R: Read>(
     reader: &mut R,
     base: t_docId,
     delta: u32,
