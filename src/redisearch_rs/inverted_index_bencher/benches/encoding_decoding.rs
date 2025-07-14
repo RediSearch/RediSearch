@@ -66,6 +66,12 @@ fn benchmark_fields_offsets(c: &mut Criterion) {
     bencher.decoding(c);
 }
 
+fn benchmark_offsets_only(c: &mut Criterion) {
+    let bencher = benchers::offsets_only::Bencher::default();
+    bencher.encoding(c);
+    bencher.decoding(c);
+}
+
 criterion_group!(
     benches,
     benchmark_numeric,
@@ -74,6 +80,7 @@ criterion_group!(
     benchmark_fields_only,
     benchmark_full,
     benchmark_fields_offsets,
+    benchmark_offsets_only,
 );
 
 criterion_main!(benches);
