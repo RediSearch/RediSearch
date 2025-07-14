@@ -14,3 +14,4 @@ cbindgen.workspace = true
 [dependencies]
 rlookup.workspace = true
 ffi.workspace = true
+value.workspace = true
