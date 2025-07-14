@@ -26,8 +26,6 @@ ffi.workspace = true
 inverted_index.workspace = true
 itertools.workspace = true
 redis_mock.workspace = true
-
-[dev-dependencies]
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
