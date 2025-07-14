@@ -752,6 +752,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
+ "varint",
 ]
 
 [[package]]
