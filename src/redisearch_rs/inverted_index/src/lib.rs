@@ -31,7 +31,7 @@ unsafe extern "C" {
     /// # Safety
     /// Both should be valid `RSIndexResult` instances.
     #[allow(improper_ctypes)]
-    unsafe fn IndexResult_ConcatMetrics(parent: *mut RSIndexResult, child: *mut RSIndexResult);
+    unsafe fn IndexResult_ConcatMetrics(parent: *mut RSIndexResult, child: *const RSIndexResult);
 }
 
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
@@ -126,7 +126,7 @@ impl RSAggregateResult {
     }
 
     /// Add a new child record to the aggregate result.
-    pub fn push(&mut self, result: &mut RSIndexResult) {
+    pub fn push(&mut self, result: &RSIndexResult) {
         if self.num_children >= self.children_cap {
             self.grow()
         }
@@ -137,7 +137,7 @@ impl RSAggregateResult {
 
         // SAFETY: we just used `add` to ensure `slot` is a valid pointer and is "aligned correctly"
         unsafe {
-            *slot = result;
+            *slot = result as *const _ as *mut _;
         }
 
         self.num_children += 1;
@@ -393,7 +393,7 @@ impl RSIndexResult {
     }
 
     /// Adds a result if this is an aggregate type. Else nothing happens to the added result.
-    pub fn push(&mut self, result: &mut RSIndexResult) {
+    pub fn push(&mut self, result: &RSIndexResult) {
         if self.is_aggregate() {
             // SAFETY: we know the data will be an aggregate because we just checked the type
             let agg = unsafe { &mut self.data.agg };
