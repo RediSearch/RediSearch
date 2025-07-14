@@ -84,6 +84,26 @@ RSIndexResult *NewHybridResult();
 /* Allocate a new token record result for a given term */
 RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
+/* Append a child to an aggregate result */
+static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
+
+  RSAggregateResult *agg = &parent->data.agg;
+
+  /* Increase capacity if needed */
+  if (agg->numChildren >= agg->childrenCap) {
+    agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
+    agg->children = (__typeof__(agg->children))rm_realloc(
+        agg->children, agg->childrenCap * sizeof(RSIndexResult *));
+  }
+  agg->children[agg->numChildren++] = child;
+  // update the parent's type mask
+  agg->typeMask |= child->type;
+  parent->freq += child->freq;
+  parent->docId = child->docId;
+  parent->fieldMask |= child->fieldMask;
+  ResultMetrics_Concat(parent, child);
+}
+
 /* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);

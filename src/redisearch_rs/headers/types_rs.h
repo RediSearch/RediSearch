@@ -263,26 +263,3 @@ typedef struct RSIndexResult {
    */
   double weight;
 } RSIndexResult;
-
-#ifdef __cplusplus
-extern "C" {
-#endif // __cplusplus
-
-/**
- * Append a child to an aggregate result.
- *
- * Note, `parent` will not take ownership of the `child` and the caller is still responsible for
- * freeing the `child` correctly.
- *
- * If the `parent` is also not an aggregate type, then this is a no-op.
- *
- * # Safety
- * The following must be upheld by the caller when calling this function:
- * - `parent` must be a valid `RSIndexResult` instance.
- * - `child` must be a valid `RSIndexResult` instance.
- */
-void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
-
-#ifdef __cplusplus
-}  // extern "C"
-#endif  // __cplusplus
