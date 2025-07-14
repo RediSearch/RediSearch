@@ -9,6 +9,7 @@
 #pragma once
 
 #include "value.h"
+#include "sorting_vector_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,21 +49,17 @@ void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str);
 void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val);
 
 /* Returns the value for a given index. Does not increment the refcount */
-static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t index) {
-  return v->len > index ? v->values[index] : NULL;
-}
+RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t index);
 
-static inline size_t RSSortingVector_Length(const RSSortingVector* vec) {
-    return vec->len;
-}
+size_t RSSortingVector_Length(const RSSortingVector* vec);
 
 size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector *NewSortingVector(size_t len);
+RSSortingVector *RSSortingVector_New(size_t len);
 
 /* Free a sorting vector */
-void SortingVector_Free(RSSortingVector *v);
+void RSSortingVector_Free(RSSortingVector *v);
 
 /* Load a sorting vector from RDB. Used by legacy RDB load only */
 RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb);
