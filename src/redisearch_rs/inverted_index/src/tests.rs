@@ -5,7 +5,10 @@ use ffi::t_docId;
 use crate::{RSAggregateResult, RSIndexResult, RSIndexResultData, RSResultType, RSResultTypeMask};
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Concat(_parent: *mut RSIndexResult, _child: *mut RSIndexResult) {
+pub extern "C" fn IndexResult_ConcatMetrics(
+    _parent: *mut RSIndexResult,
+    _child: *mut RSIndexResult,
+) {
     // Do nothing since the code will call this
 }
 

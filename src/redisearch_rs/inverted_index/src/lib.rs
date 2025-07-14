@@ -26,8 +26,12 @@ pub mod numeric;
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
 unsafe extern "C" {
+    /// Adds the metrics of a child [`RSIndexResult`] to the parent [`RSIndexResult`].
+    ///
+    /// # Safety
+    /// Both should be valid `RSIndexResult` instances.
     #[allow(improper_ctypes)]
-    unsafe fn ResultMetrics_Concat(parent: *mut RSIndexResult, child: *mut RSIndexResult);
+    unsafe fn IndexResult_ConcatMetrics(parent: *mut RSIndexResult, child: *mut RSIndexResult);
 }
 
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
@@ -357,8 +361,9 @@ impl RSIndexResult {
             self.freq += result.freq;
             self.field_mask |= result.field_mask;
 
+            // SAFETY: we know both arguments are valid `RSIndexResult` types
             unsafe {
-                ResultMetrics_Concat(self, result);
+                IndexResult_ConcatMetrics(self, result);
             }
         }
     }

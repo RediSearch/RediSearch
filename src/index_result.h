@@ -36,6 +36,9 @@ static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *ch
   }
 }
 
+/* Add the metrics of a child to a parent index result. */
+void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
+
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
   r->metrics = array_ensure_append_1(r->metrics, new_element);

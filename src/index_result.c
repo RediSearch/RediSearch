@@ -33,6 +33,14 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
   return res;
 }
 
+void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child) {
+  if (child->metrics) {
+    // Passing ownership over the RSValues in the child metrics, but not on the array itself
+    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
+    array_clear(child->metrics);
+  }
+}
+
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight) {
   return __newAggregateResult(cap, RSResultType_Intersection, weight);
