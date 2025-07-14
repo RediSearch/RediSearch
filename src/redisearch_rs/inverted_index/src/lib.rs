@@ -125,7 +125,8 @@ impl RSAggregateResult {
         }
     }
 
-    fn push(&mut self, result: &mut RSIndexResult) {
+    /// Add a new child record to the aggregate result.
+    pub fn push(&mut self, result: &mut RSIndexResult) {
         if self.num_children >= self.children_cap {
             self.grow()
         }
@@ -141,6 +142,22 @@ impl RSAggregateResult {
 
         self.num_children += 1;
         self.type_mask |= result.result_type;
+    }
+
+    /// Get a child record by index. Returns `None` if the index is out-of-bounds.
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if index > self.num_children as _ {
+            return None;
+        }
+
+        let child_ptr = unsafe { *self.children.add(index) };
+
+        if child_ptr.is_null() {
+            None
+        } else {
+            let child = unsafe { &*child_ptr };
+            Some(child)
+        }
     }
 
     fn grow(&mut self) {
@@ -301,6 +318,36 @@ impl RSIndexResult {
             is_copy: false,
             metrics: std::ptr::null_mut(),
             weight,
+        }
+    }
+
+    /// Create a new union index result with the given document ID, capacity, and weight
+    pub fn union(doc_id: t_docId, cap: usize, weight: f64) -> Self {
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                agg: ManuallyDrop::new(RSAggregateResult::new(cap)),
+            },
+            result_type: RSResultType::Union,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight,
+        }
+    }
+
+    /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
+    /// an aggregate record or if the index is out-of-bounds.
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if self.is_aggregate() {
+            let agg = unsafe { &self.data.agg };
+
+            agg.get(index)
+        } else {
+            None
         }
     }
 
