@@ -214,7 +214,12 @@ impl RSAggregateResult {
     }
 
     fn free_children(&mut self) {
-        if !self.children.is_null() && self.children_cap > 0 {
+        debug_assert!(
+            (self.children_cap > 0) == (!self.children.is_null()),
+            "children_cap should be greater than 0 if and only if children is not null"
+        );
+
+        if self.children_cap > 0 {
             let layout = Layout::array::<*mut RSIndexResult>(self.children_cap as usize)
                 .expect("Failed to create layout for deallocating children array");
 
