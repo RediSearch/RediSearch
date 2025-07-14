@@ -105,9 +105,78 @@ pub struct RSAggregateResult {
 impl RSAggregateResult {
     /// Create a new aggregate result with th given capacity
     pub fn new(cap: usize) -> Self {
-        let children = if cap > 0 {
+        Self {
+            num_children: 0,
+            children_cap: cap as c_int,
+            children: Self::new_children(cap),
+            type_mask: RSResultTypeMask::empty(),
+        }
+    }
+
+    fn push(&mut self, result: RSIndexResult) {
+        if self.num_children >= self.children_cap {
+            self.grow()
+        }
+
+        let child_type = result.result_type;
+        let boxed_child = Box::new(result);
+        let child_ptr = Box::into_raw(boxed_child);
+
+        // SAFETY: `num_children` is within the valid range of the `children` pointer, else we would
+        // have grown above to make it valid.
+        let slot = unsafe { self.children.add(self.num_children as _) };
+
+        // SAFETY: we just used `add` to ensure `slot` is a valid pointer and is "aligned correctly"
+        unsafe {
+            *slot = child_ptr;
+        }
+
+        self.num_children += 1;
+        self.type_mask |= child_type;
+    }
+
+    fn grow(&mut self) {
+        let new_cap = if self.children_cap == 0 {
+            1
+        } else {
+            self.children_cap * 2
+        };
+
+        self.resize(new_cap)
+    }
+
+    fn resize(&mut self, new_cap: c_int) {
+        if new_cap < self.num_children || new_cap == self.children_cap {
+            return;
+        }
+
+        let new_children = Self::new_children(new_cap as _);
+
+        // Copy existing items to new array
+        if !self.children.is_null() && self.num_children > 0 {
+            // SAFETY:
+            // 1. `self.children` is at least as big as `self.num_children` because of the previous
+            //    allocation
+            // 2. `new_children` has size `new_cap` which is at least as big as `self.num_children`
+            //    be of the check above
+            // 3. Both are properly aligned in `Self::new_children`
+            // 4. Both are also distinct memory regions
+            unsafe {
+                ptr::copy_nonoverlapping(self.children, new_children, self.num_children as _);
+            }
+        }
+
+        // Deallocate the old array
+        self.free_children();
+
+        self.children = new_children;
+        self.children_cap = new_cap;
+    }
+
+    fn new_children(cap: usize) -> *mut *mut RSIndexResult {
+        if cap > 0 {
             // Calculate the layout for an array of pointers
-            let layout = Layout::array::<*mut RSIndexResult>(cap as usize)
+            let layout = Layout::array::<*mut RSIndexResult>(cap)
                 .expect("Failed to create layout for children array");
 
             // Allocate zero-initialized memory (equivalent to calloc)
@@ -120,30 +189,27 @@ impl RSAggregateResult {
             ptr as *mut *mut RSIndexResult
         } else {
             ptr::null_mut()
-        };
+        }
+    }
 
-        Self {
-            num_children: 0,
-            children_cap: cap as c_int,
-            children,
-            type_mask: RSResultTypeMask::empty(),
+    fn free_children(&mut self) {
+        if !self.children.is_null() && self.children_cap > 0 {
+            let layout = Layout::array::<*mut RSIndexResult>(self.children_cap as usize)
+                .expect("Failed to create layout for deallocating children array");
+
+            // SAFETY:
+            // 1. We made `children` using the same allocator in `Self::new_children`.
+            // 2. We are deallocating the same number of elements as we allocated, therefore the layout is the same.
+            unsafe {
+                dealloc(self.children as *mut u8, layout);
+            }
         }
     }
 }
 
 impl Drop for RSAggregateResult {
     fn drop(&mut self) {
-        if !self.children.is_null() && self.children_cap > 0 {
-            let layout = Layout::array::<*mut RSIndexResult>(self.children_cap as usize)
-                .expect("Failed to create layout for deallocating children array");
-
-            // SAFETY:
-            // 1. We made `children` using the same allocator in `new`.
-            // 2. We are deallocating the same number of elements as we allocated, therefore the layout is the same.
-            unsafe {
-                dealloc(self.children as *mut u8, layout);
-            }
-        }
+        self.free_children();
     }
 }
 
@@ -414,3 +480,6 @@ pub trait Decoder {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
