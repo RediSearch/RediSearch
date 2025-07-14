@@ -115,7 +115,7 @@ pub struct RSAggregateResult {
 }
 
 impl RSAggregateResult {
-    /// Create a new aggregate result with th given capacity
+    /// Create a new aggregate result with the given capacity
     pub fn new(cap: usize) -> Self {
         Self {
             num_children: 0,
