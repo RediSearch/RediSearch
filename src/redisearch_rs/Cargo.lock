@@ -1428,6 +1428,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "rlookup",
+ "value",
 ]
 
 [[package]]
