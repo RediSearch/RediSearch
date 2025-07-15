@@ -321,12 +321,17 @@ static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
     return isWithinRadius(gf, cur->data.num.value, &distance);
   }
 
-  int numChildren = AggregateResult_NumChildren(&cur->data.agg);
+  RSAggregateResultIter *iter = AggregateResult_Iter(&cur->data.agg);
+  RSIndexResult *child = NULL;
 
-  for (size_t ii = 0; ii < numChildren; ++ii) {
-    if (checkResult(gf, cur->data.agg.children[ii])) {
+  while (AggregateResultIter_Next(iter, &child)) {
+    if (checkResult(gf, child)) {
+      AggregateResultIter_Free(iter);
       return 1;
     }
   }
+
+  AggregateResultIter_Free(iter);
+
   return 0;
 }

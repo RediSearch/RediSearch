@@ -115,6 +115,38 @@ impl RSAggregateResult {
     pub fn type_mask(&self) -> RSResultTypeMask {
         self.type_mask
     }
+
+    /// Get an iterator over the children of this aggregate result.
+    pub fn iter(&self) -> RSAggregateResultIter {
+        RSAggregateResultIter {
+            agg: self,
+            index: 0,
+        }
+    }
+}
+
+pub struct RSAggregateResultIter<'a> {
+    agg: &'a RSAggregateResult,
+    index: usize,
+}
+
+impl<'a> Iterator for RSAggregateResultIter<'a> {
+    type Item = &'a RSIndexResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.agg.num_children as usize {
+            // SAFETY: We are guaranteed that the index is within bounds because of the check above.
+            let result_ptr = unsafe { self.agg.children.add(self.index) };
+            let result_ptr = unsafe { *result_ptr };
+
+            let result = unsafe { &*result_ptr };
+
+            self.index += 1;
+            Some(result)
+        } else {
+            None
+        }
+    }
 }
 
 /// Represents a virtual result in an index record.

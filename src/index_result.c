@@ -134,10 +134,19 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
 
       ret->data.agg.children = rm_malloc(numChildren * sizeof(RSIndexResult *));
       ret->data.agg.childrenCap = numChildren;
+
       // deep copy recursively all children
-      for (int i = 0; i < numChildren; i++) {
-        ret->data.agg.children[i] = IndexResult_DeepCopy(src->data.agg.children[i]);
+      int i = 0;
+      RSAggregateResultIter *iter = AggregateResult_Iter(&src->data.agg);
+      RSIndexResult *child = NULL;
+
+      while (AggregateResultIter_Next(iter, &child)) {
+        ret->data.agg.children[i] = IndexResult_DeepCopy(child);
+        i++;
       }
+
+      AggregateResultIter_Free(iter);
+
       break;
 
     // copy term results
@@ -209,12 +218,15 @@ void IndexResult_Free(RSIndexResult *r) {
   ResultMetrics_Free(r);
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
     // for deep-copy results we also free the children
-    if (r->isCopy && r->data.agg.children) {
-      int numChildren = AggregateResult_NumChildren(&r->data.agg);
+    if (r->isCopy) {
+      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
+      RSIndexResult *child = NULL;
 
-      for (int i = 0; i < numChildren; i++) {
-        IndexResult_Free(r->data.agg.children[i]);
+      while (AggregateResultIter_Next(iter, &child)) {
+        IndexResult_Free(child);
       }
+
+      AggregateResultIter_Free(iter);
     }
     rm_free(r->data.agg.children);
     r->data.agg.children = NULL;
@@ -303,12 +315,15 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
   switch (r->type) {
     case RSResultType_Intersection:
     case RSResultType_Union:
+      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
+      RSIndexResult *child = NULL;
 
-      int numChildren = AggregateResult_NumChildren(&r->data.agg);
-
-      for (int i = 0; i < numChildren; i++) {
-        result_GetMatchedTerms(r->data.agg.children[i], arr, cap, len);
+      while (AggregateResultIter_Next(iter, &child)) {
+        result_GetMatchedTerms(child, arr, cap, len);
       }
+
+      AggregateResultIter_Free(iter);
+
       break;
     case RSResultType_Term:
       if (r->data.term.term) {
@@ -454,14 +469,20 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   RSOffsetIterator iters[num];
   uint32_t positions[num];
   int n = 0;
-  for (int i = 0; i < num; i++) {
+
+  RSAggregateResultIter *iter = AggregateResult_Iter(r);
+  RSIndexResult *child = NULL;
+
+  while (AggregateResultIter_Next(iter, &child)) {
     // collect only iterators for nodes that can have offsets
-    if (RSIndexResult_HasOffsets(r->children[i])) {
-      iters[n] = RSIndexResult_IterateOffsets(r->children[i]);
+    if (RSIndexResult_HasOffsets(child)) {
+      iters[n] = RSIndexResult_IterateOffsets(child);
       positions[n] = 0;
       n++;
     }
   }
+
+  AggregateResultIter_Free(iter);
 
   // No applicable offset children - just return 1
   if (n == 0) {

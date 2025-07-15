@@ -33,6 +33,8 @@ enum RSResultType
 typedef uint32_t RSResultType;
 #endif // __cplusplus
 
+typedef struct RSAggregateResultIter RSAggregateResultIter;
+
 /**
  * Represents a set of flags of some type `T`.
  * `T` must have the `#[bitflags]` attribute applied.
@@ -275,6 +277,12 @@ uintptr_t AggregateResult_NumChildren(const struct RSAggregateResult *agg);
 uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
 
 uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
+
+struct RSAggregateResultIter *AggregateResult_Iter(const struct RSAggregateResult *agg);
+
+bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndexResult **value);
+
+void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
 
 #ifdef __cplusplus
 }  // extern "C"

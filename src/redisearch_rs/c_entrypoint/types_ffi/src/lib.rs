@@ -9,7 +9,7 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
-use inverted_index::{RSAggregateResult, RSIndexResult};
+use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Dummy(_ir: *const RSIndexResult) {}
@@ -39,4 +39,44 @@ pub extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult) -> u32
     let agg = unsafe { &*agg };
 
     agg.type_mask().bits()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_Iter(
+    agg: *const RSAggregateResult,
+) -> *mut RSAggregateResultIter<'static> {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    let agg = unsafe { &*agg };
+    let iter = agg.iter();
+    let iter_boxed = Box::new(iter);
+
+    Box::into_raw(iter_boxed)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResultIter_Next(
+    iter: *mut RSAggregateResultIter<'static>,
+    value: *mut *mut RSIndexResult,
+) -> bool {
+    debug_assert!(!iter.is_null(), "iter must not be null");
+    debug_assert!(!value.is_null(), "value must not be null");
+
+    let iter = unsafe { &mut *iter };
+
+    if let Some(next) = iter.next() {
+        unsafe {
+            *value = next as *const _ as *mut _;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResultIter_Free(iter: *mut RSAggregateResultIter<'static>) {
+    debug_assert!(!iter.is_null(), "iter must not be null");
+
+    let _boxed_iter = unsafe { Box::from_raw(iter) };
 }
