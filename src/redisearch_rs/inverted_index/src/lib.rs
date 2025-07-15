@@ -186,8 +186,13 @@ impl RSAggregateResult {
     fn resize(&mut self, new_cap: c_int) {
         let new_children = Self::new_children(new_cap as _);
 
+        debug_assert!(
+            (self.num_children > 0) != self.children.is_null(),
+            "num_children should be greater than 0 if and only if children is not null"
+        );
+
         // Copy existing items to new array
-        if !self.children.is_null() && self.num_children > 0 {
+        if self.num_children > 0 {
             // SAFETY:
             // 1. `self.children` is at least as big as `self.num_children` because we would grow
             //    `self.children` otherwise
