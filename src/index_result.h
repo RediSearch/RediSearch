@@ -57,7 +57,7 @@ static inline void IndexResult_Clear(RSIndexResult *r) {
 }
 
 /* Reset the aggregate result's child vector */
-static inline void AggregateResult_Reset(RSIndexResult *r) {
+static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
   r->data.agg.numChildren = 0;

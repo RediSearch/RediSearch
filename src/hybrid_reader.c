@@ -94,7 +94,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
   AggregateResult_AddChild(res, vec_res);
   AggregateResult_AddChild(res, child_res);
   RSIndexResult *hit = IndexResult_DeepCopy(res);
-  AggregateResult_Reset(res); // Reset the current result.
+  IndexResult_ResetAggregate(res); // Reset the current result.
   ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->data.num.value));
 
   if (hr->topResults->count < hr->query.k) {

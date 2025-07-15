@@ -62,7 +62,7 @@ static IteratorStatus II_AgreeOnDocId(IntersectionIterator *it, t_docId *curTarg
     }
   }
   // All iterators agree on the docId, so we can set the current result
-  AggregateResult_Reset(it->base.current);
+  IndexResult_ResetAggregate(it->base.current);
   for (uint32_t i = 0; i < it->num_its; i++) {
     RS_ASSERT(docId == it->its[i]->current->docId);
     AggregateResult_AddChild(it->base.current, it->its[i]->current);
@@ -187,7 +187,7 @@ static void II_Rewind(QueryIterator *base) {
 
   base->atEOF = false;
   base->lastDocId = 0;
-  AggregateResult_Reset(base->current);
+  IndexResult_ResetAggregate(base->current);
 
   // rewind all child iterators
   for (uint32_t i = 0; i < ii->num_its; i++) {
