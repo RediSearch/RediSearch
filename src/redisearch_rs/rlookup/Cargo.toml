@@ -13,6 +13,7 @@ pin-project.workspace = true
 sorting_vector.workspace = true
 value.workspace = true
 strum.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
