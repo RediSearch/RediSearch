@@ -527,6 +527,8 @@ dependencies = [
  "bindgen 0.71.1",
  "cc",
  "enumflags2",
+ "libc",
+ "thiserror",
 ]
 
 [[package]]
