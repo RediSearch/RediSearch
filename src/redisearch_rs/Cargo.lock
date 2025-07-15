@@ -1455,6 +1455,7 @@ dependencies = [
  "redis-module",
  "sorting_vector",
  "strum",
+ "thiserror",
  "value",
 ]
 
