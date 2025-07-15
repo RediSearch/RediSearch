@@ -26,12 +26,12 @@ use std::{
 };
 
 use ffi::{
-    REDISMODULE_OK, RedisModule_CallReplyArrayElement, RedisModule_CallReplyLength,
-    RedisModule_CallReplyStringPtr, RedisModule_CallReplyType, RedisModule_CreateString,
-    RedisModule_FreeString, RedisModule_KeyType, RedisModule_ScanCursorCreate,
-    RedisModule_ScanCursorDestroy, RedisModule_ScanKey, RedisModule_StringPtrLen,
-    RedisModule_StringToDouble, RedisModule_StringToLongLong, RedisModuleCallReply, RedisModuleCtx,
-    RedisModuleKey, RedisModuleString,
+    QueryError, REDISMODULE_OK, RSDocumentMetadata, RedisModule_CallReplyArrayElement,
+    RedisModule_CallReplyLength, RedisModule_CallReplyStringPtr, RedisModule_CallReplyType,
+    RedisModule_CreateString, RedisModule_FreeString, RedisModule_KeyType,
+    RedisModule_ScanCursorCreate, RedisModule_ScanCursorDestroy, RedisModule_ScanKey,
+    RedisModule_StringPtrLen, RedisModule_StringToDouble, RedisModule_StringToLongLong,
+    RedisModuleCallReply, RedisModuleCtx, RedisModuleKey, RedisModuleString, RedisSearchCtx,
 };
 
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
@@ -66,73 +66,71 @@ pub enum FieldSpecType {
 }
 pub type FieldSpecTypes = BitFlags<FieldSpecType>;
 
-/// KeyMode is a set of flags that can be used when opening a key with `RedisModule_OpenKey`.
-/// See https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#RedisModule_OpenKey
-/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
-#[bitflags]
-#[repr(u32)] // should be c_unit
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum KeyMode {
-    /// Open the key for reading.
-    Read = 1 << 0,
-
-    /// Open the key for writing.
-    Write = 1 << 1,
-
-    /// Avoid touching the LRU/LFU of the key when opened.
-    NoTouch = 1 << 16,
-
-    /// Don't trigger keyspace event on key misses
-    NoNotify = 1 << 17,
-
-    /// Don't update keyspace hits/misses counters.
-    NoStats = 1 << 18,
-
-    /// Avoid deleting lazy expired keys.
-    NoExpire = 1 << 19,
-
-    /// Avoid any effects from fetching the key.
-    NoEffects = 1 << 20,
-
-    /// Allow access to expired keys that haven't been deleted yet.
-    AccessExpired = 1 << 21,
-}
-pub type KeyModes = BitFlags<KeyMode>;
-
-/// KeyTypes is a enum of types of a `RedisModuleKey`.
-/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
+/// Three Loading modes for RLookup
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
-pub enum KeyTypes {
-    Empty = 0,
-    String = 1,
-    List = 2,
-    Hash = 3,
-    Set = 4,
-    ZSet = 5,
-    Module = 6,
-    Stream = 7,
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RLookupLoadMode {
+    /// Use keylist to load a number of [RLookupLoadOptions::n_keys] from [RLookupLoadOptions::keys]
+    KeyList = 0,
+
+    /// Load only cached keys from the [sorting_vector::RSSortingVector] and do not load from [crate::row::RLookupRow]
+    SortingVectorKeys = 1,
+
+    /// Load all keys from both the [sorting_vector::RSSortingVector] and from the [crate::row::RLookupRow]
+    AllKeys = 2,
 }
 
-/// ReplyTypes is a enum of types that can be encapsulated with a `RedisModuleReply`.
-/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
-#[repr(u32)] // should be c_unit
-#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
-pub enum ReplyTypes {
-    Unknown = 0xFFFFFFFF,
-    String = 0,
-    Error = 1,
-    Integer = 2,
-    Array = 3,
-    Null = 4,
-    Map = 5,
-    Set = 6,
-    Bool = 7,
-    Double = 8,
-    BigNumber = 9,
-    VerbatimString = 10,
-    Attributes = 11,
-    Promise = 12,
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RLookupCoerceType {
+    Str = 0,
+    #[expect(unused, reason = "Don't used in RLookup but listed for completeness")]
+    Int = 1,
+    Dbl = 2,
+    #[expect(unused, reason = "Don't used in RLookup but listed for completeness")]
+    Bool = 3,
+}
+
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum DocumentType {
+    Hash = 0,
+    Json = 1,
+    Unsupported = 2,
+}
+
+/// The options data structure as used by the `RLookup_Load` function. Needed for interoperability with C code.
+/// cbindgen:field-names=[sctx, dmd, keyPtr, type, keys, nkeys, mode, forceLoad, forceString, status]
+#[repr(C)]
+pub struct RLookupLoadOptions {
+    pub sctx: *mut RedisSearchCtx,
+
+    /** Needed for the key name, and perhaps the sortable */
+    pub dmd: *mut RSDocumentMetadata,
+
+    /// Needed for rule filter where dmd does not exist
+    pub key_ptr: *const std::ffi::c_char,
+
+    /// Type of document to load, either Hash or JSON.
+    pub doc_type: DocumentType,
+
+    /// Keys to load. If present, then loadNonCached and loadAllFields is ignored
+    pub keys: *const *const ffi::RLookupKey,
+
+    /// Number of keys in keys array
+    pub n_keys: libc::size_t,
+
+    /// The following mode controls the loading behavior of fields
+    pub mode: RLookupLoadMode,
+
+    /// Don't use sortables when loading documents. This will enforce the loader to load
+    /// the fields from the document itself, even if they are sortables and un-normalized.
+    pub force_load: bool,
+
+    /// Force string return; don't coerce to native type    
+    pub force_string: bool,
+
+    pub status: *mut QueryError,
 }
 
 // TODO [MOD-10342] remove once IndexSpecCache is ported to Rust
@@ -225,6 +223,77 @@ impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
     }
 }
 
+// ===== RedisModule Wrapping ====
+
+/// KeyMode is a set of flags that can be used when opening a key with `RedisModule_OpenKey`.
+/// See https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#RedisModule_OpenKey
+/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
+#[bitflags]
+#[repr(u32)] // should be c_unit
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum KeyMode {
+    /// Open the key for reading.
+    Read = 1 << 0,
+
+    /// Open the key for writing.
+    Write = 1 << 1,
+
+    /// Avoid touching the LRU/LFU of the key when opened.
+    NoTouch = 1 << 16,
+
+    /// Don't trigger keyspace event on key misses
+    NoNotify = 1 << 17,
+
+    /// Don't update keyspace hits/misses counters.
+    NoStats = 1 << 18,
+
+    /// Avoid deleting lazy expired keys.
+    NoExpire = 1 << 19,
+
+    /// Avoid any effects from fetching the key.
+    NoEffects = 1 << 20,
+
+    /// Allow access to expired keys that haven't been deleted yet.
+    AccessExpired = 1 << 21,
+}
+pub type KeyModes = BitFlags<KeyMode>;
+
+/// KeyTypes is a enum of types of a `RedisModuleKey`.
+/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+pub enum KeyTypes {
+    Empty = 0,
+    String = 1,
+    List = 2,
+    Hash = 3,
+    Set = 4,
+    ZSet = 5,
+    Module = 6,
+    Stream = 7,
+}
+
+/// ReplyTypes is a enum of types that can be encapsulated with a `RedisModuleReply`.
+/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
+#[repr(u32)] // should be c_unit
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+pub enum ReplyTypes {
+    Unknown = 0xFFFFFFFF,
+    String = 0,
+    Error = 1,
+    Integer = 2,
+    Array = 3,
+    Null = 4,
+    Map = 5,
+    Set = 6,
+    Bool = 7,
+    Double = 8,
+    BigNumber = 9,
+    VerbatimString = 10,
+    Attributes = 11,
+    Promise = 12,
+}
+
 // ===== RedisString =====
 
 /// A new-type wrapper around `RedisModuleString` that ensures proper memory management.
@@ -265,7 +334,6 @@ impl Drop for RedisString {
 impl RedisString {
     /// Creates a new `RedisString` from raw parts, i.e. a context, a pointer to a memory buffer, and its length.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn from_raw_parts(ctx: *mut RedisModuleCtx, ptr: *const c_char, len: libc::size_t) -> Self {
         debug_assert!(
             !ptr.is_null(),
@@ -290,7 +358,6 @@ impl RedisString {
     ///
     /// Safety: The returned pointer is still managed by this object and should only be used with RedisModule functions.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn as_ptr(&mut self) -> *mut ffi::RedisModuleString {
         self.str.as_ptr()
     }
@@ -320,7 +387,6 @@ impl RedisString {
     ///
     /// It uses the `RedisModule_StringPtrLen` function from the C API to convert the string to a C-style string.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn try_raw_into_cstr(raw_str: *mut RedisModuleString) -> Option<&'static CStr> {
         let mut len = 0;
         if raw_str.is_null() {
@@ -451,7 +517,6 @@ impl RedisKey {
     /// Opens a key with the given context and name, using the specified [KeyModes] mode.
     /// Uses the `RedisModule_OpenKey` function from the C API.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn open(ctx: *mut RedisModuleCtx, name: *mut RedisModuleString, mode: KeyModes) -> Self {
         debug_assert!(!name.is_null(), "RedisKey::open called with null pointer");
 
@@ -466,7 +531,6 @@ impl RedisKey {
 
     /// Returns the type of the key, using the `RedisModule_KeyType` function from the C API.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn ty(&self) -> KeyTypes {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
@@ -510,7 +574,6 @@ impl Drop for RedisScanCursor {
 impl RedisScanCursor {
     /// Creates a new scan cursor for the given key.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn new_from_key(key: RedisKey) -> Self {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
@@ -531,7 +594,6 @@ impl RedisScanCursor {
     /// Safety:
     /// The callback provides by the callee must be safe to call and must not mutate the state of the cursor.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn scan_key_loop_unsafe_callback(&mut self, callback: ScanCursorCallbackType) {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
@@ -563,7 +625,6 @@ pub struct RedisCallReply(NonNull<ffi::RedisModuleCallReply>);
 
 /// Calls the `HGETALL` command on the given key and returns a `Option<RedisCallReplyHgetall>` instance.
 #[inline]
-#[expect(unused, reason = "Used by follow-up PRs")]
 pub fn call_hgetall(ctx: *mut RedisModuleCtx, krstr: &RedisString) -> Option<RedisCallReply> {
     // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
     // i.e. after module initialization the function pointers stay valid till the end of the program.
@@ -598,14 +659,12 @@ impl RedisCallReply {
     /// This is useful for passing the call reply to C functions that expect a `RedisModuleCallReply
     /// Safety: The returned pointer should only be used with RedisModule functions.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn get_ptr(&self) -> *mut ffi::RedisModuleCallReply {
         self.0.as_ptr()
     }
 
     /// Returns the type of the reply, using the `RedisModule_CallReplyType` function from the C API.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn ty(&self) -> ReplyTypes {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
@@ -620,7 +679,6 @@ impl RedisCallReply {
 
     /// Returns the length of the reply if it is an array, using the `RedisModule_CallReplyLength` function from the C API.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn length(&self) -> libc::size_t {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
@@ -633,7 +691,6 @@ impl RedisCallReply {
     /// Returns the array element at the given index, using the `RedisModule_CallReplyArrayElement` function from the C API.
     /// Returns none if the index is out of bounds, or the result is not an array.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn array_element(&self, idx: libc::size_t) -> Option<&RedisCallReply> {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
@@ -684,7 +741,6 @@ impl RedisCallReply {
     ///
     /// Uses the `RedisModule_CallReplyStringPtr` function from the C API.
     #[inline]
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn try_as_cstr(&self) -> Option<&CStr> {
         let mut len = 0;
 
