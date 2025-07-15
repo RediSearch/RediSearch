@@ -87,4 +87,7 @@ fn pushing_to_index_result() {
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 7);
     assert_eq!(ir.field_mask, 4);
+
+    let agg = unsafe { &mut ir.data.agg };
+    agg.free_children();
 }

@@ -231,7 +231,7 @@ impl RSAggregateResult {
         }
     }
 
-    fn free_children(&mut self) {
+    pub fn free_children(&mut self) {
         debug_assert!(
             (self.children_cap > 0) != self.children.is_null(),
             "children_cap should be greater than 0 if and only if children is not null"
@@ -291,7 +291,7 @@ pub struct RSIndexResult {
     /// directly into memory
     pub offsets_sz: u32,
 
-    data: RSIndexResultData,
+    pub data: RSIndexResultData,
 
     /// The type of data stored at ['Self::data']
     pub result_type: RSResultType,
