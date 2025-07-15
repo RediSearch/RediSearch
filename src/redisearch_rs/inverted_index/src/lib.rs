@@ -110,6 +110,11 @@ impl RSAggregateResult {
     pub fn capacity(&self) -> usize {
         self.children_cap as _
     }
+
+    /// The current type mask of the aggregate result.
+    pub fn type_mask(&self) -> RSResultTypeMask {
+        self.type_mask
+    }
 }
 
 /// Represents a virtual result in an index record.

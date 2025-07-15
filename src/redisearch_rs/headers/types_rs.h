@@ -274,6 +274,8 @@ uintptr_t AggregateResult_NumChildren(const struct RSAggregateResult *agg);
 
 uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
 
+uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

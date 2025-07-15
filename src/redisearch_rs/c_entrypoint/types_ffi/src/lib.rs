@@ -31,3 +31,12 @@ pub extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult) -> usi
 
     agg.capacity()
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult) -> u32 {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    let agg = unsafe { &*agg };
+
+    agg.type_mask().bits()
+}
