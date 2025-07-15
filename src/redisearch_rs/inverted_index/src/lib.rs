@@ -156,14 +156,19 @@ impl RSAggregateResult {
 
         // SAFETY: `index` is less than `self.num_children` because of the check above. This means
         // `index` will be within the valid range of the `children` pointer.
-        let child_ptr = unsafe { *self.children.add(index) };
+        let child_ptr = unsafe { self.children.add(index) };
+
+        // SAFETY: we just used `add` to ensure `child_ptr` is a valid pointer
+        let child_ptr = unsafe { *child_ptr };
 
         debug_assert!(
             !child_ptr.is_null(),
             "we should have checked correctly above"
         );
 
-        // SAFETY: we just used `add` to ensure `child_ptr` is a valid pointer
+        // SAFETY: we expect the pointer to still be valid because of the condition placed on
+        // `push()` where we require the pointer to be valid for the lifetime of this
+        // aggregate result.
         let child = unsafe { &*child_ptr };
         Some(child)
     }
@@ -223,7 +228,7 @@ impl RSAggregateResult {
 
     fn free_children(&mut self) {
         debug_assert!(
-            (self.children_cap > 0) == (!self.children.is_null()),
+            (self.children_cap > 0) != self.children.is_null(),
             "children_cap should be greater than 0 if and only if children is not null"
         );
 
