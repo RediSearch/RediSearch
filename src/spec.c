@@ -476,7 +476,12 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Sets weak and strong references to the spec, then pass it to the spec dictionary
 
-  dictAdd(specDict_g, (char *)specName, spec_ref.rm);
+  if (dictAdd(specDict_g, (char *)specName, spec_ref.rm) != DICT_OK) {
+    RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
+    StrongRef_Release(spec_ref);
+    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
+    return NULL;
+  }
 
   sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
