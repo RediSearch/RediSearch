@@ -101,22 +101,27 @@ pub struct RSAggregateResult {
 }
 
 impl RSAggregateResult {
-    /// The number of results in this aggregate result.
+    /// The number of results in this aggregate result
     pub fn len(&self) -> usize {
         self.num_children as _
     }
 
-    /// The capacity of the aggregate result.
+    /// Check whether this aggregate result is empty
+    pub fn is_empty(&self) -> bool {
+        self.num_children == 0
+    }
+
+    /// The capacity of the aggregate result
     pub fn capacity(&self) -> usize {
         self.children_cap as _
     }
 
-    /// The current type mask of the aggregate result.
+    /// The current type mask of the aggregate result
     pub fn type_mask(&self) -> RSResultTypeMask {
         self.type_mask
     }
 
-    /// Get an iterator over the children of this aggregate result.
+    /// Get an iterator over the children of this aggregate result
     pub fn iter(&self) -> RSAggregateResultIter {
         RSAggregateResultIter {
             agg: self,
@@ -124,20 +129,27 @@ impl RSAggregateResult {
         }
     }
 
-    /// Get the child at the given index, if it exists.
+    /// Get the child at the given index, if it exists
+    ///
+    /// # Safety
+    /// The caller must ensure that the memory at the given index is still valid
     pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
         if index < self.num_children as usize {
             // SAFETY: We are guaranteed that the index is within bounds because of the check above.
             let result_ptr = unsafe { self.children.add(index) };
-            let result_ptr = unsafe { *result_ptr };
 
-            Some(unsafe { &*result_ptr })
+            // SAFETY: It is safe to dereference the pointer because we correctly got it using
+            // `add` above.
+            let result_addr = unsafe { *result_ptr };
+
+            // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
+            Some(unsafe { &*result_addr })
         } else {
             None
         }
     }
 
-    /// Reset the aggregate result, clearing all children and resetting the type mask.
+    /// Reset the aggregate result, clearing all children and resetting the type mask
     pub fn reset(&mut self) {
         self.num_children = 0;
         self.type_mask = RSResultTypeMask::empty();
@@ -152,13 +164,21 @@ pub struct RSAggregateResultIter<'a> {
 impl<'a> Iterator for RSAggregateResultIter<'a> {
     type Item = &'a RSIndexResult;
 
+    /// Get the next item in the iterator
+    ///
+    /// # Safety
+    /// The caller must ensure that all memory pointers in the aggregate result are still valid.
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.agg.num_children as usize {
             // SAFETY: We are guaranteed that the index is within bounds because of the check above.
             let result_ptr = unsafe { self.agg.children.add(self.index) };
-            let result_ptr = unsafe { *result_ptr };
 
-            let result = unsafe { &*result_ptr };
+            // SAFETY: It is safe to dereference the pointer because we correctly got it using
+            // `add` above.
+            let result_addr = unsafe { *result_ptr };
+
+            // SAFETY: The caller is to guarantee that the memory at `result_ptr` is still valid.
+            let result = unsafe { &*result_addr };
 
             self.index += 1;
             Some(result)
