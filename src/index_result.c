@@ -182,18 +182,6 @@ void Term_Free(RSQueryTerm *t) {
   }
 }
 
-void IndexResult_Init(RSIndexResult *h) {
-
-  h->docId = 0;
-  h->fieldMask = 0;
-  h->freq = 0;
-  h->metrics = NULL;
-
-  if (h->type == RSResultType_Intersection || h->type == RSResultType_Union) {
-    h->data.agg.numChildren = 0;
-  }
-}
-
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
