@@ -65,7 +65,6 @@ pub type FieldSpecTypes = BitFlags<FieldSpecType>;
 /// Three Loading modes for RLookup
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[expect(unused, reason = "Used by Follow Up PRs")]
 pub enum RLookupLoadMode {
     /// Use keylist to load a number of [RLookupLoadOptions::n_keys] from [RLookupLoadOptions::keys]
     KeyList = 0,
@@ -79,17 +78,17 @@ pub enum RLookupLoadMode {
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[expect(unused, reason = "Used by Follow Up PRs")]
 pub enum RLookupCoerceType {
     Str = 0,
+    #[expect(unused, reason = "Don't used in RLookup but listed for completeness")]
     Int = 1,
     Dbl = 2,
+    #[expect(unused, reason = "Used by Follow Up PRs")]
     Bool = 3,
 }
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[expect(unused, reason = "Used by Follow Up PRs")]
 pub enum DocumentType {
     Hash = 0,
     Json = 1,
@@ -99,7 +98,6 @@ pub enum DocumentType {
 /// Comment
 /// cbindgen:field-names=[sctx, dmd, keyPtr, type, keys, nkeys, mode, forceLoad, forceString, status]
 #[repr(C)]
-#[expect(unused, reason = "Used by Follow Up PRs")]
 pub struct RLookupLoadOptions {
     pub sctx: RedisSearchCtxPtr,
 
@@ -231,7 +229,6 @@ impl Drop for RedisString {
 }
 
 impl RedisString {
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn from_raw_parts(ctx: *mut RedisModuleCtx, ptr: *const c_char, len: libc::size_t) -> Self {
         debug_assert!(
             !ptr.is_null(),
@@ -252,7 +249,6 @@ impl RedisString {
     /// Returns a pointer to the underlying `RedisModuleString` object.
     /// This is useful for passing the string to C functions that expect a `RedisModuleString
     /// Safety: The returned pointer is still managed by this object and should only be used with RedisModule functions.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn as_ptr(&mut self) -> *mut ffi::RedisModuleString {
         self.str.as_ptr()
     }
@@ -263,7 +259,6 @@ impl RedisString {
     /// If possible prefer [RedisString::as_c_str] which is safer and more idiomatic.
     ///
     /// It uses the `RedisModule_StringPtrLen` function from the C API to convert the string to a C-style string.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn raw_into_cstr(raw_str: *mut RedisModuleString) -> Option<&'static CStr> {
         let mut len = 0;
         if raw_str.is_null() {
@@ -364,7 +359,6 @@ impl Drop for RedisKey {
 impl RedisKey {
     /// Opens a key with the given context and name, using the specified [KeyModes] mode.
     /// Uses the `RedisModule_OpenKey` function from the C API.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn open(ctx: *mut RedisModuleCtx, name: *mut RedisModuleString, mode: KeyModes) -> Self {
         debug_assert!(!name.is_null(), "RedisKey::open called with null pointer");
 
@@ -377,7 +371,6 @@ impl RedisKey {
     }
 
     /// Returns the type of the key, using the `RedisModule_KeyType` function from the C API.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn ty(&self) -> KeyTypes {
         // Safety: Assumption: c-side initialized the function ptr it is is never changed.
         let gs = unsafe { RedisModule_KeyType.unwrap() };
@@ -418,7 +411,6 @@ impl Drop for RedisScanCursor {
 
 impl RedisScanCursor {
     /// Creates a new scan cursor for the given key.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn new_from_key(key: RedisKey) -> Self {
         // Safety: Assumption: c-side initialized the function ptr it is is never changed.
         let gs = unsafe { RedisModule_ScanCursorCreate.unwrap() };
@@ -437,7 +429,6 @@ impl RedisScanCursor {
     ///
     /// Safety:
     /// The callback provides by the callee must be safe to call and must not mutate the state of the cursor.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn scan_key_loop_unsafe_callback(&mut self, callback: ScanCursorCallbackType) {
         // Safety: Assumption: c-side initialized the function ptr it is is never changed.
         let gs = unsafe { RedisModule_ScanKey.unwrap() };
@@ -467,7 +458,6 @@ impl RedisScanCursor {
 pub struct RedisCallReply(NonNull<ffi::RedisModuleCallReply>);
 
 /// Calls the `HGETALL` command on the given key and returns a `Option<RedisCallReplyHgetall>` instance.
-#[expect(unused, reason = "Used by follow-up PRs")]
 pub fn call_hgetall(ctx: *mut RedisModuleCtx, krstr: &RedisString) -> Option<RedisCallReply> {
     // Safety: Assumption: c-side initialized the function ptr it is is never changed.
     let gs = unsafe { ffi::RedisModule_Call.unwrap() };
@@ -499,13 +489,11 @@ impl RedisCallReply {
     /// Returns a pointer to the underlying `RedisModuleCallReply` object.
     /// This is useful for passing the call reply to C functions that expect a `RedisModuleCallReply
     /// Safety: The returned pointer should only be used with RedisModule functions.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn get_ptr(&self) -> *mut ffi::RedisModuleCallReply {
         self.0.as_ptr()
     }
 
     /// Returns the type of the reply, using the `RedisModule_CallReplyType` function from the C API.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn ty(&self) -> ReplyTypes {
         // Safety: Assumption: c-side initialized the function ptr it is is never changed.
         let gs = unsafe { RedisModule_CallReplyType.unwrap() };
@@ -518,7 +506,6 @@ impl RedisCallReply {
     }
 
     /// Returns the length of the reply if it is an array, using the `RedisModule_CallReplyLength` function from the C API.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn length(&self) -> libc::size_t {
         // Safety: Assumption: c-side initialized the function ptr it is is never changed.
         let gs = unsafe { RedisModule_CallReplyLength.unwrap() };
@@ -529,7 +516,6 @@ impl RedisCallReply {
 
     /// Returns the array element at the given index, using the `RedisModule_CallReplyArrayElement` function from the C API.
     /// Returns none if the index is out of bounds, or the result is not an array.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn array_element(&self, idx: libc::size_t) -> Option<&RedisCallReply> {
         // Safety: Assumption: c-side initialized the function ptr it is is never changed.
         let gs = unsafe { RedisModule_CallReplyArrayElement.unwrap() };
@@ -556,7 +542,6 @@ impl RedisCallReply {
     /// and if it does not, it returns `None`.
     ///
     /// Uses the `RedisModule_CallReplyStringPtr` function from the C API.
-    #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn string_ptr(&self) -> Option<&CStr> {
         let mut len = 0;
 

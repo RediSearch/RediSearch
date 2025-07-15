@@ -1427,6 +1427,7 @@ dependencies = [
  "pin-project",
  "sorting_vector",
  "strum",
+ "thiserror",
  "value",
 ]
 
