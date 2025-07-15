@@ -146,18 +146,19 @@ impl RSAggregateResult {
 
     /// Get a child record by index. Returns `None` if the index is out-of-bounds.
     pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
-        if index > self.num_children as _ {
+        if index >= self.num_children as _ {
             return None;
         }
 
         let child_ptr = unsafe { *self.children.add(index) };
 
-        if child_ptr.is_null() {
-            None
-        } else {
-            let child = unsafe { &*child_ptr };
-            Some(child)
-        }
+        debug_assert!(
+            !child_ptr.is_null(),
+            "we should have checked correctly above"
+        );
+
+        let child = unsafe { &*child_ptr };
+        Some(child)
     }
 
     fn grow(&mut self) {
