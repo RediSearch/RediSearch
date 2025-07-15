@@ -376,7 +376,7 @@ impl<'a> RLookupKey<'a> {
     ///
     /// This is a lower-level constructor that allows you to pass in a `Cow` directly and thus
     /// let's you bypass the lifetime restrictions of the `name` parameter in [`RLookupKey::new`].
-    pub(crate) fn new_with_cow(name: Cow<'a, CStr>, flags: RLookupKeyFlags) -> Self {
+    pub(crate) fn new_with_cow(name: CBCow<'a, CStr>, flags: RLookupKeyFlags) -> Self {
         Self {
             dstidx: 0,
             svidx: 0,
