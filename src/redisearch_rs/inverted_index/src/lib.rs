@@ -564,6 +564,3 @@ pub trait Decoder {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;
