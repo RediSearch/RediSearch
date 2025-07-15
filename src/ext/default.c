@@ -14,6 +14,7 @@
 
 #include "redisearch.h"
 #include "spec.h"
+#include "types_rs.h"
 #include "query.h"
 #include "synonym_map.h"
 #include "snowball/include/libstemmer.h"
@@ -58,7 +59,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
   }
   if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     double ret = 0;
-    int numChildren = r->data.agg.numChildren;
+    int numChildren = AggregateResult_NumChildren(&r->data.agg);
     if (!scrExp) {
       for (int i = 0; i < numChildren; i++) {
         ret += tfidfRecursive(r->data.agg.children[i], dmd, NULL);
@@ -148,7 +149,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
             ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
 
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
-    int numChildren = r->data.agg.numChildren;
+    int numChildren = AggregateResult_NumChildren(&r->data.agg);
     if (!scrExp) {
       for (int i = 0; i < numChildren; i++) {
         ret += bm25Recursive(ctx, r->data.agg.children[i], dmd, NULL);
@@ -226,7 +227,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
                            r->data.term.term->str);
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
-    int numChildren = r->data.agg.numChildren;
+    int numChildren = AggregateResult_NumChildren(&r->data.agg);
     if (!scrExp) {
       for (int i = 0; i < numChildren; i++) {
         ret += bm25StdRecursive(ctx, r->data.agg.children[i], dmd, NULL);
@@ -343,37 +344,42 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
               r->freq);
       break;
     // for intersections - we sum up the term scores
-    case RSResultType_Intersection:
+    case RSResultType_Intersection: {
+      int numChildren = AggregateResult_NumChildren(&r->data.agg);
+
       if (!scrExp) {
-        for (int i = 0; i < r->data.agg.numChildren; i++) {
+        for (int i = 0; i < numChildren; i++) {
           ret += dismaxRecursive(ctx, r->data.agg.children[i], NULL);
         }
       } else {
-        scrExp->numChildren = r->data.agg.numChildren;
-        scrExp->children = rm_calloc(r->data.agg.numChildren, sizeof(RSScoreExplain));
-        for (int i = 0; i < r->data.agg.numChildren; i++) {
+        scrExp->numChildren = numChildren;
+        scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+        for (int i = 0; i < numChildren; i++) {
           ret += dismaxRecursive(ctx, r->data.agg.children[i], &scrExp->children[i]);
         }
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
       }
       break;
+    }
     // for unions - we take the max frequency
-    case RSResultType_Union:
+    case RSResultType_Union: {
+      int numChildren = AggregateResult_NumChildren(&r->data.agg);
       if (!scrExp) {
-        for (int i = 0; i < r->data.agg.numChildren; i++) {
+        for (int i = 0; i < numChildren; i++) {
           ret = MAX(ret, dismaxRecursive(ctx, r->data.agg.children[i], NULL));
         }
       } else {
-        scrExp->numChildren = r->data.agg.numChildren;
-        scrExp->children = rm_calloc(r->data.agg.numChildren, sizeof(RSScoreExplain));
-        for (int i = 0; i < r->data.agg.numChildren; i++) {
+        scrExp->numChildren = numChildren;
+        scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+        for (int i = 0; i < numChildren; i++) {
           ret = MAX(ret, dismaxRecursive(ctx, r->data.agg.children[i], &scrExp->children[i]));
         }
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
       }
       break;
+    }
     // for hybrid - just take the non-vector child score (the second one).
     case RSResultType_HybridMetric:
       return dismaxRecursive(ctx, r->data.agg.children[1], scrExp);

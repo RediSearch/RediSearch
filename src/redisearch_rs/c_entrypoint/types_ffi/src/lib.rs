@@ -9,4 +9,16 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
-pub use inverted_index::RSIndexResult;
+use inverted_index::{RSAggregateResult, RSIndexResult};
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Dummy(_ir: *const RSIndexResult) {}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_NumChildren(agg: *const RSAggregateResult) -> usize {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    let agg = unsafe { &*agg };
+
+    agg.len()
+}

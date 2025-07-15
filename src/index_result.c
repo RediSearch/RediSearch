@@ -8,6 +8,7 @@
 */
 #include "index_result.h"
 #include "varint.h"
+#include "types_rs.h"
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
@@ -129,10 +130,12 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     case RSResultType_Union:
     case RSResultType_HybridMetric:
       // allocate a new child pointer array
-      ret->data.agg.children = rm_malloc(src->data.agg.numChildren * sizeof(RSIndexResult *));
-      ret->data.agg.childrenCap = src->data.agg.numChildren;
+      int numChildren = AggregateResult_NumChildren(&src->data.agg);
+
+      ret->data.agg.children = rm_malloc(numChildren * sizeof(RSIndexResult *));
+      ret->data.agg.childrenCap = numChildren;
       // deep copy recursively all children
-      for (int i = 0; i < src->data.agg.numChildren; i++) {
+      for (int i = 0; i < numChildren; i++) {
         ret->data.agg.children[i] = IndexResult_DeepCopy(src->data.agg.children[i]);
       }
       break;
@@ -207,7 +210,9 @@ void IndexResult_Free(RSIndexResult *r) {
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
     // for deep-copy results we also free the children
     if (r->isCopy && r->data.agg.children) {
-      for (int i = 0; i < r->data.agg.numChildren; i++) {
+      int numChildren = AggregateResult_NumChildren(&r->data.agg);
+
+      for (int i = 0; i < numChildren; i++) {
         IndexResult_Free(r->data.agg.children[i]);
       }
     }
@@ -240,13 +245,13 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list
 */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
-  if (!RSIndexResult_IsAggregate(r) || r->data.agg.numChildren <= 1) {
+  if (!RSIndexResult_IsAggregate(r) || AggregateResult_NumChildren(&r->data.agg) <= 1) {
     return 1;
   }
 
   const RSAggregateResult *agg = &r->data.agg;
   int dist = 0;
-  int num = agg->numChildren;
+  int num = AggregateResult_NumChildren(agg);
 
   RSOffsetIterator v1, v2;
   int i = 0;
@@ -289,7 +294,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   }
 
   // we return 1 if distance could not be calculate, to avoid division by zero
-  return dist ? sqrt(dist) : agg->numChildren - 1;
+  return dist ? sqrt(dist) : AggregateResult_NumChildren(agg) - 1;
 }
 
 void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
@@ -299,7 +304,9 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
     case RSResultType_Intersection:
     case RSResultType_Union:
 
-      for (int i = 0; i < r->data.agg.numChildren; i++) {
+      int numChildren = AggregateResult_NumChildren(&r->data.agg);
+
+      for (int i = 0; i < numChildren; i++) {
         result_GetMatchedTerms(r->data.agg.children[i], arr, cap, len);
       }
       break;
@@ -437,11 +444,11 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
 
   // check if calculation is even relevant here...
   if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RS_RESULT_NUMERIC)) ||
-      ir->data.agg.numChildren <= 1) {
+      AggregateResult_NumChildren(&ir->data.agg) <= 1) {
     return 1;
   }
   RSAggregateResult *r = &ir->data.agg;
-  int num = r->numChildren;
+  int num = AggregateResult_NumChildren(r);
 
   // Fill a list of iterators and the last read positions
   RSOffsetIterator iters[num];

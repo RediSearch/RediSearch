@@ -85,9 +85,10 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 
   RSAggregateResult *agg = &parent->data.agg;
+  int numChildren = AggregateResult_NumChildren(agg);
 
   /* Increase capacity if needed */
-  if (agg->numChildren >= agg->childrenCap) {
+  if (numChildren >= agg->childrenCap) {
     agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
     agg->children = (__typeof__(agg->children))rm_realloc(
         agg->children, agg->childrenCap * sizeof(RSIndexResult *));

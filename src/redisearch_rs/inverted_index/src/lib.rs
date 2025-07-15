@@ -100,6 +100,13 @@ pub struct RSAggregateResult {
     pub type_mask: RSResultTypeMask,
 }
 
+impl RSAggregateResult {
+    /// The number of results in this aggregate result.
+    pub fn len(&self) -> usize {
+        self.num_children as _
+    }
+}
+
 /// Represents a virtual result in an index record.
 #[repr(C)]
 #[derive(Debug, PartialEq)]

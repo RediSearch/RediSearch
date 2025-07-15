@@ -420,7 +420,7 @@ TEST_F(IndexTest, testWeight) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
-    if (h->data.agg.numChildren == 2) {
+    if (AggregateResult_NumChildren(&h->data.agg) == 2) {
       ASSERT_EQ(h->data.agg.children[0]->weight, 0.5);
       ASSERT_EQ(h->data.agg.children[1]->weight, 1);
     } else {
@@ -934,7 +934,7 @@ TEST_F(IndexTest, testHybridVector) {
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->data.agg.numChildren, 2);
+    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
     ASSERT_EQ(h->data.agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
@@ -950,7 +950,7 @@ TEST_F(IndexTest, testHybridVector) {
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->data.agg.numChildren, 2);
+    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
     ASSERT_EQ(h->data.agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);

@@ -320,7 +320,10 @@ static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
   if (cur->type == RSResultType_Numeric) {
     return isWithinRadius(gf, cur->data.num.value, &distance);
   }
-  for (size_t ii = 0; ii < cur->data.agg.numChildren; ++ii) {
+
+  int numChildren = AggregateResult_NumChildren(&cur->data.agg);
+
+  for (size_t ii = 0; ii < numChildren; ++ii) {
     if (checkResult(gf, cur->data.agg.children[ii])) {
       return 1;
     }
