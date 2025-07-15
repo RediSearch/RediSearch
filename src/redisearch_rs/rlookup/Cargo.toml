@@ -12,6 +12,7 @@ libc.workspace = true
 enumflags2.workspace = true
 pin-project.workspace = true
 sorting_vector.workspace = true
+thiserror.workspace = true
 value.workspace = true
 
 [lints]

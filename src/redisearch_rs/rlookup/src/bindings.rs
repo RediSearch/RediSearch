@@ -51,7 +51,6 @@ pub type FieldSpecTypes = BitFlags<FieldSpecType>;
 /// Three Loading modes for RLookup
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[expect(unused, reason = "Used by Follow Up PRs")]
 pub enum RLookupLoadMode {
     /// Use keylist to load a number of [RLookupLoadOptions::n_keys] from [RLookupLoadOptions::keys]
     KeyList = 0,
@@ -65,17 +64,17 @@ pub enum RLookupLoadMode {
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[expect(unused, reason = "Used by Follow Up PRs")]
 pub enum RLookupCoerceType {
     Str = 0,
+    #[expect(unused, reason = "Don't used in RLookup but listed for completeness")]
     Int = 1,
     Dbl = 2,
+    #[expect(unused, reason = "Used by Follow Up PRs")]
     Bool = 3,
 }
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[expect(unused, reason = "Used by Follow Up PRs")]
 pub enum DocumentType {
     Hash = 0,
     Json = 1,
@@ -85,7 +84,6 @@ pub enum DocumentType {
 /// Comment
 /// cbindgen:field-names=[sctx, dmd, keyPtr, type, keys, nkeys, mode, forceLoad, forceString, status]
 #[repr(C)]
-#[expect(unused, reason = "Used by Follow Up PRs")]
 pub struct RLookupLoadOptions {
     pub sctx: RedisSearchCtxPtr,
 

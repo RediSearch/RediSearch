@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 mod bindings;
+mod load_document;
 mod lookup;
 mod row;
 
+pub use load_document::load_document;
 pub use lookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
 pub use row::RLookupRow;
