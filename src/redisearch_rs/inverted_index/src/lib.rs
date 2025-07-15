@@ -331,8 +331,10 @@ pub trait Encoder {
     /// allowing the inverted index to work around their limitations accordingly (i.e. by creating new blocks).
     type Delta: IdDelta;
 
-    /// Does this encoder allow the same document to appear in the index multiple times. Defaults
-    /// to `false`.
+    /// Does this encoder allow the same document to appear in the index multiple times. We need to
+    /// allow duplicates to support multi-value JSON fields.
+    ///
+    /// Defaults to `false`.
     const ALLOW_DUPLICATES: bool = false;
 
     /// The suggested number of entries that can be written in a single block. Defaults to 100.
