@@ -146,7 +146,7 @@ void testRangeIteratorHelper(bool isMulti) {
       }
       ASSERT_NE(found_mult, -1);
       if (res->type == RSResultType_Union) {
-        res = res->data.agg.children[0];
+        res = (RSIndexResult*)AggregateResult_Get(&res->data.agg, 0);
       }
 
       // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,

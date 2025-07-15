@@ -11,7 +11,7 @@
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 
-#define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : p->data.agg.children[0])
+#define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : AggregateResult_Get(&p->data.agg, 0))
 
 static VecSimQueryReply_Code prepareResults(HybridIterator *hr); // forward declaration
 
@@ -104,7 +104,8 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
-  *upper_bound = worst->data.agg.children[0]->data.num.value;
+  const RSIndexResult *first = AggregateResult_Get(&worst->data.agg, 0);
+  *upper_bound = first->data.num.value;
 }
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,

@@ -269,15 +269,15 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   int i = 0;
   while (i < num) {
     // if either
-    while (i < num && !RSIndexResult_HasOffsets(agg->children[i])) {
+    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_Get(agg, i))) {
       i++;
       continue;
     }
     if (i == num) break;
-    v1 = RSIndexResult_IterateOffsets(agg->children[i]);
+    v1 = RSIndexResult_IterateOffsets(AggregateResult_Get(agg, i));
     i++;
 
-    while (i < num && !RSIndexResult_HasOffsets(agg->children[i])) {
+    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_Get(agg, i))) {
       i++;
       continue;
     }
@@ -285,7 +285,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
       v1.Free(v1.ctx);
       break;
     }
-    v2 = RSIndexResult_IterateOffsets(agg->children[i]);
+    v2 = RSIndexResult_IterateOffsets(AggregateResult_Get(agg, i));
 
     uint32_t p1 = v1.Next(v1.ctx, NULL);
     uint32_t p2 = v2.Next(v2.ctx, NULL);

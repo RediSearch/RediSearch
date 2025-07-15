@@ -123,6 +123,19 @@ impl RSAggregateResult {
             index: 0,
         }
     }
+
+    /// Get the child at the given index, if it exists.
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if index < self.num_children as usize {
+            // SAFETY: We are guaranteed that the index is within bounds because of the check above.
+            let result_ptr = unsafe { self.children.add(index) };
+            let result_ptr = unsafe { *result_ptr };
+
+            Some(unsafe { &*result_ptr })
+        } else {
+            None
+        }
+    }
 }
 
 pub struct RSAggregateResultIter<'a> {

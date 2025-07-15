@@ -42,6 +42,22 @@ pub extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult) -> u32
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_Get(
+    agg: *const RSAggregateResult,
+    index: usize,
+) -> *const RSIndexResult {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    let agg = unsafe { &*agg };
+
+    if let Some(next) = agg.get(index) {
+        next
+    } else {
+        std::ptr::null()
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn AggregateResult_Iter(
     agg: *const RSAggregateResult,
 ) -> *mut RSAggregateResultIter<'static> {
