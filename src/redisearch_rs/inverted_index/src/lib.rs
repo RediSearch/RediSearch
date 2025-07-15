@@ -136,6 +136,12 @@ impl RSAggregateResult {
             None
         }
     }
+
+    /// Reset the aggregate result, clearing all children and resetting the type mask.
+    pub fn reset(&mut self) {
+        self.num_children = 0;
+        self.type_mask = RSResultTypeMask::empty();
+    }
 }
 
 pub struct RSAggregateResultIter<'a> {

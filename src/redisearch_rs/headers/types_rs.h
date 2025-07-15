@@ -281,6 +281,8 @@ uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
 const struct RSIndexResult *AggregateResult_Get(const struct RSAggregateResult *agg,
                                                 uintptr_t index);
 
+void AggregateResult_Reset(struct RSAggregateResult *agg);
+
 struct RSAggregateResultIter *AggregateResult_Iter(const struct RSAggregateResult *agg);
 
 bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndexResult **value);

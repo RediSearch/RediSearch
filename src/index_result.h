@@ -60,8 +60,7 @@ static inline void IndexResult_Clear(RSIndexResult *r) {
 static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
-  r->data.agg.numChildren = 0;
-  r->data.agg.typeMask = (RSResultType)0;
+  AggregateResult_Reset(&r->data.agg);
   IndexResult_Clear(r);
 }
 /* Allocate a new intersection result with a given capacity*/

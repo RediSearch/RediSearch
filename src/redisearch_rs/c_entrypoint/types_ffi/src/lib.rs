@@ -58,6 +58,15 @@ pub extern "C" fn AggregateResult_Get(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_Reset(agg: *mut RSAggregateResult) {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    let agg = unsafe { &mut *agg };
+
+    agg.reset();
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn AggregateResult_Iter(
     agg: *const RSAggregateResult,
 ) -> *mut RSAggregateResultIter<'static> {
