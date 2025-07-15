@@ -26,6 +26,10 @@ use std::{
     slice,
 };
 
+type QueryErrorPtr = *mut ffi::QueryError;
+type RedisSearchCtxPtr = *mut ffi::RedisSearchCtx;
+type RSDocumentMetadataPtr = *const ffi::RSDocumentMetadata;
+
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
 #[bitflags]
 #[repr(u32)] // should be c_unit
@@ -57,6 +61,75 @@ pub enum FieldSpecType {
     Geometry = 32,
 }
 pub type FieldSpecTypes = BitFlags<FieldSpecType>;
+
+/// Three Loading modes for RLookup
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[expect(unused, reason = "Used by Follow Up PRs")]
+pub enum RLookupLoadMode {
+    /// Use keylist to load a number of [RLookupLoadOptions::n_keys] from [RLookupLoadOptions::keys]
+    KeyList = 0,
+
+    /// Load only cached keys from the [sorting_vector::RSSortingVector] and do not load from [crate::row::RLookupRow]
+    SortingVectorKeys = 1,
+
+    /// Load all keys from both the [sorting_vector::RSSortingVector] and from the [crate::row::RLookupRow]
+    AllKeys = 2,
+}
+
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[expect(unused, reason = "Used by Follow Up PRs")]
+pub enum RLookupCoerceType {
+    Str = 0,
+    Int = 1,
+    Dbl = 2,
+    Bool = 3,
+}
+
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[expect(unused, reason = "Used by Follow Up PRs")]
+pub enum DocumentType {
+    Hash = 0,
+    Json = 1,
+    Unsupported = 2,
+}
+
+/// Comment
+/// cbindgen:field-names=[sctx, dmd, keyPtr, type, keys, nkeys, mode, forceLoad, forceString, status]
+#[repr(C)]
+#[expect(unused, reason = "Used by Follow Up PRs")]
+pub struct RLookupLoadOptions {
+    pub sctx: RedisSearchCtxPtr,
+
+    /** Needed for the key name, and perhaps the sortable */
+    pub dmd: RSDocumentMetadataPtr,
+
+    /// Needed for rule filter where dmd does not exist
+    pub key_ptr: *const std::ffi::c_char,
+
+    /// Type of document to load, either Hash or JSON.
+    pub doc_type: DocumentType,
+
+    /// Keys to load. If present, then loadNonCached and loadAllFields is ignored
+    pub keys: *const *const ffi::RLookupKey,
+
+    /// Number of keys in keys array
+    pub n_keys: libc::size_t,
+
+    /// The following mode controls the loading behavior of fields
+    pub mode: RLookupLoadMode,
+
+    /// Don't use sortables when loading documents. This will enforce the loader to load
+    /// the fields from the document itself, even if they are sortables and un-normalized.
+    pub force_load: bool,
+
+    /// Force string return; don't coerce to native type    
+    pub force_string: bool,
+
+    pub status: QueryErrorPtr,
+}
 
 /// KeyMode is a set of flags that can be used when opening a key with `RedisModule_OpenKey`.
 /// See https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#RedisModule_OpenKey
