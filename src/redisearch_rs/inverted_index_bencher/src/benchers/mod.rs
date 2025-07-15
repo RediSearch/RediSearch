@@ -9,4 +9,5 @@
 
 pub mod freqs_fields;
 pub mod freqs_only;
+pub mod full;
 pub mod numeric;
