@@ -150,6 +150,8 @@ impl RSAggregateResult {
             return None;
         }
 
+        // SAFETY: `index` is less than `self.num_children` because of the check above. This means
+        // `index` will be within the valid range of the `children` pointer.
         let child_ptr = unsafe { *self.children.add(index) };
 
         debug_assert!(
@@ -157,6 +159,7 @@ impl RSAggregateResult {
             "we should have checked correctly above"
         );
 
+        // SAFETY: we just used `add` to ensure `child_ptr` is a valid pointer
         let child = unsafe { &*child_ptr };
         Some(child)
     }
@@ -349,6 +352,7 @@ impl RSIndexResult {
     /// an aggregate record or if the index is out-of-bounds.
     pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
         if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
             let agg = unsafe { &self.data.agg };
 
             agg.get(index)
