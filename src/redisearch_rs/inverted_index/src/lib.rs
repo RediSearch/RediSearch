@@ -105,6 +105,11 @@ impl RSAggregateResult {
     pub fn len(&self) -> usize {
         self.num_children as _
     }
+
+    /// The capacity of the aggregate result.
+    pub fn capacity(&self) -> usize {
+        self.children_cap as _
+    }
 }
 
 /// Represents a virtual result in an index record.

@@ -86,12 +86,14 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
 
   RSAggregateResult *agg = &parent->data.agg;
   int numChildren = AggregateResult_NumChildren(agg);
+  int capacity = AggregateResult_Capacity(agg);
 
   /* Increase capacity if needed */
-  if (numChildren >= agg->childrenCap) {
-    agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
+  if (numChildren >= capacity) {
+    int newCapacity = capacity ? capacity * 2 : 1;
+    agg->childrenCap = newCapacity;
     agg->children = (__typeof__(agg->children))rm_realloc(
-        agg->children, agg->childrenCap * sizeof(RSIndexResult *));
+        agg->children, newCapacity * sizeof(RSIndexResult *));
   }
   agg->children[agg->numChildren++] = child;
   // update the parent's type mask

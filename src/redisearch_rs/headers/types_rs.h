@@ -272,6 +272,8 @@ void Dummy(const struct RSIndexResult *_ir);
 
 uintptr_t AggregateResult_NumChildren(const struct RSAggregateResult *agg);
 
+uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
