@@ -126,6 +126,10 @@ impl RSAggregateResult {
     }
 
     /// Add a new child record to the aggregate result.
+    ///
+    /// # Undefined behaviour
+    /// The given `result` has to stay valid for the lifetime of this aggregate result. Else reading
+    /// from this result will cause undefined behaviour.
     pub fn push(&mut self, result: &RSIndexResult) {
         if self.num_children >= self.children_cap {
             self.grow()
@@ -403,6 +407,10 @@ impl RSIndexResult {
     }
 
     /// Adds a result if this is an aggregate type. Else nothing happens to the added result.
+    ///
+    /// # Undefined behaviour
+    /// The given `result` has to stay valid for the lifetime of this index result. Else reading
+    /// from this result will cause undefined behaviour.
     pub fn push(&mut self, result: &RSIndexResult) {
         if self.is_aggregate() {
             // SAFETY: we know the data will be an aggregate because we just checked the type
