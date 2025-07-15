@@ -1441,6 +1441,7 @@ dependencies = [
  "proptest",
  "sorting_vector",
  "strum",
+ "thiserror",
  "value",
 ]
 
