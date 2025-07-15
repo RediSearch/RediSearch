@@ -326,9 +326,13 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
-  dictAdd(specDict_g, (char *)specName, sp);
+  if (dictAdd(specDict_g, (char *)specName, sp) != DICT_OK) {
+    RedisModule_Log(ctx, "warning", "Failed adding index to global dictionary");
+    RS_ABORT("dictAdd shouldn't fail here - index shouldn't exists in the dictionary");
+    return NULL;
+  }
+    sp->uniqueId = spec_unique_ids++;
 
-  sp->uniqueId = spec_unique_ids++;
   // Start the garbage collector
   IndexSpec_StartGC(ctx, sp, GC_DEFAULT_HZ);
 
