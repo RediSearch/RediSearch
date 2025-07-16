@@ -33,6 +33,9 @@ enum RSResultType
 typedef uint32_t RSResultType;
 #endif // __cplusplus
 
+/**
+ * An iterator over the results in an [`RSAggregateResult`].
+ */
 typedef struct RSAggregateResultIter RSAggregateResultIter;
 
 /**

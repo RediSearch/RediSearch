@@ -156,6 +156,7 @@ impl RSAggregateResult {
     }
 }
 
+/// An iterator over the results in an [`RSAggregateResult`].
 pub struct RSAggregateResultIter<'a> {
     agg: &'a RSAggregateResult,
     index: usize,
