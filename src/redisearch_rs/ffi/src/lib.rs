@@ -31,3 +31,9 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Rust implementation of `t_fieldMask` from `redisearch.h`
 pub type FieldMask = t_fieldMask;
+
+#[cfg(target_arch = "x86_64")]
+pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;
+
+#[cfg(not(target_arch = "x86_64"))]
+pub const RS_FIELDMASK_ALL: FieldMask = u64::MAX;
