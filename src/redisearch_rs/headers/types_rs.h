@@ -282,6 +282,16 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Check if the result is an aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+bool IndexResult_IsAggregate(const struct RSIndexResult *result);
+
+/**
  * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
  * if the index is out of bounds.
  *
