@@ -88,16 +88,16 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 #[derive(Debug, PartialEq)]
 pub struct RSAggregateResult {
     /// The number of child records
-    pub num_children: c_int,
+    num_children: c_int,
 
     /// The capacity of the records array. Has no use for extensions
-    pub children_cap: c_int,
+    children_cap: c_int,
 
     /// An array of records
-    pub children: *mut *mut RSIndexResult,
+    children: *mut *mut RSIndexResult,
 
     /// A map of the aggregate type of the underlying records
-    pub type_mask: RSResultTypeMask,
+    type_mask: RSResultTypeMask,
 }
 
 impl RSAggregateResult {
