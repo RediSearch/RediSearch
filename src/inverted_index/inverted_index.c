@@ -398,6 +398,13 @@ IndexDecoderCtx NewIndexDecoderCtx_NumericFilter() {
   return ctx;
 }
 
+// Create a new IndexDecoderCtx with a mask filter. Used only in benchmarks.
+IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask) {
+  IndexDecoderCtx ctx = {.mask = mask};
+
+  return ctx;
+}
+
 /* Get the appropriate encoder based on index flags */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
   switch (flags & INDEX_STORAGE_MASK) {
