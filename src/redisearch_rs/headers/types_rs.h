@@ -224,9 +224,6 @@ typedef struct RSNumericRecord {
   double value;
 } RSNumericRecord;
 
-/**
- * Represents a virtual result in an index record.
- */
 typedef struct RSVirtualResult {
 
 } RSVirtualResult;
