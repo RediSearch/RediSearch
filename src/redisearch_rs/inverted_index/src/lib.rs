@@ -479,8 +479,9 @@ impl<E: Encoder> InvertedIndex<E> {
         ) {
             (true, true) => true,
             (false, true) => {
-                // The encoder does not allow writing the same document to the same index twice. This
-                // can happen when the index is created with duplicate tags for example.
+                // Even though we might allow duplicate document IDs, this encoder does not allow
+                // it since it will contain redundant information. Therefore, we are skipping this
+                // record.
                 return Ok(0);
             }
             (_, false) => false,
