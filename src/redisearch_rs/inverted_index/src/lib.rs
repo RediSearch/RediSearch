@@ -169,17 +169,7 @@ impl<'a> Iterator for RSAggregateResultIter<'a> {
     /// # Safety
     /// The caller must ensure that all memory pointers in the aggregate result are still valid.
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.agg.num_children as usize {
-            // SAFETY: We are guaranteed that the index is within bounds because of the check above.
-            let result_ptr = unsafe { self.agg.children.add(self.index) };
-
-            // SAFETY: It is safe to dereference the pointer because we correctly got it using
-            // `add` above.
-            let result_addr = unsafe { *result_ptr };
-
-            // SAFETY: The caller is to guarantee that the memory at `result_ptr` is still valid.
-            let result = unsafe { &*result_addr };
-
+        if let Some(result) = self.agg.get(self.index) {
             self.index += 1;
             Some(result)
         } else {

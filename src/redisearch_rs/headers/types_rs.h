@@ -270,12 +270,24 @@ typedef struct RSIndexResult {
 extern "C" {
 #endif // __cplusplus
 
-void Dummy(const struct RSIndexResult *_ir);
+/**
+ * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
+ * if the index is out of bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * - The memory address at `index` should still be valid and not have been deallocated.
+ */
+const struct RSIndexResult *AggregateResult_Get(const struct RSAggregateResult *agg,
+                                                uintptr_t index);
 
 /**
  * Get the element count of the aggregate result.
  *
  * # Safety
+ *
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
@@ -285,6 +297,7 @@ uintptr_t AggregateResult_NumChildren(const struct RSAggregateResult *agg);
  * Get the capacity of the aggregate result.
  *
  * # Safety
+ *
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
@@ -294,27 +307,17 @@ uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
  * Get the type mask of the aggregate result.
  *
  * # Safety
+ *
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
 uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
 
 /**
- * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
- * if the index is out of bounds.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- * - The memory address at `index` should still be valid and not been deallocated.
- */
-const struct RSIndexResult *AggregateResult_Get(const struct RSAggregateResult *agg,
-                                                uintptr_t index);
-
-/**
  * Reset the aggregate result, clearing all children and resetting the type mask.
  *
  * # Safety
+ *
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
@@ -336,6 +339,7 @@ struct RSAggregateResultIter *AggregateResult_Iter(const struct RSAggregateResul
  * is exhausted.
  *
  * # Safety
+ *
  * The following invariants must be upheld when calling this function:
  * - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
  * - `value` must point to a valid pointer where the next item will be stored.
@@ -348,6 +352,7 @@ bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndex
  * Free the aggregate result iterator. This function will deallocate the memory used by the iterator.
  *
  * # Safety
+ *
  * The following invariants must be upheld when calling this function:
  * - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
  * - The iterator must have been created using [`AggregateResult_Iter`].

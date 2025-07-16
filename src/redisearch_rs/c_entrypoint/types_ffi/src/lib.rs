@@ -11,64 +11,14 @@
 
 use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult};
 
-#[unsafe(no_mangle)]
-pub extern "C" fn Dummy(_ir: *const RSIndexResult) {}
-
-/// Get the element count of the aggregate result.
-///
-/// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_NumChildren(agg: *const RSAggregateResult) -> usize {
-    debug_assert!(!agg.is_null(), "agg must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
-    // an `RSAggregateResult`.
-    let agg = unsafe { &*agg };
-
-    agg.len()
-}
-
-/// Get the capacity of the aggregate result.
-///
-/// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult) -> usize {
-    debug_assert!(!agg.is_null(), "agg must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
-    // an `RSAggregateResult`.
-    let agg = unsafe { &*agg };
-
-    agg.capacity()
-}
-
-/// Get the type mask of the aggregate result.
-///
-/// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult) -> u32 {
-    debug_assert!(!agg.is_null(), "agg must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
-    // an `RSAggregateResult`.
-    let agg = unsafe { &*agg };
-
-    agg.type_mask().bits()
-}
-
 /// Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
 /// if the index is out of bounds.
 ///
 /// # Safety
+///
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
-/// - The memory address at `index` should still be valid and not been deallocated.
+/// - The memory address at `index` should still be valid and not have been deallocated.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_Get(
     agg: *const RSAggregateResult,
@@ -87,9 +37,61 @@ pub unsafe extern "C" fn AggregateResult_Get(
     }
 }
 
+/// Get the element count of the aggregate result.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_NumChildren(agg: *const RSAggregateResult) -> usize {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // an `RSAggregateResult`.
+    let agg = unsafe { &*agg };
+
+    agg.len()
+}
+
+/// Get the capacity of the aggregate result.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult) -> usize {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // an `RSAggregateResult`.
+    let agg = unsafe { &*agg };
+
+    agg.capacity()
+}
+
+/// Get the type mask of the aggregate result.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult) -> u32 {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // an `RSAggregateResult`.
+    let agg = unsafe { &*agg };
+
+    agg.type_mask().bits()
+}
+
 /// Reset the aggregate result, clearing all children and resetting the type mask.
 ///
 /// # Safety
+///
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
@@ -129,6 +131,7 @@ pub unsafe extern "C" fn AggregateResult_Iter(
 /// is exhausted.
 ///
 /// # Safety
+///
 /// The following invariants must be upheld when calling this function:
 /// - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
 /// - `value` must point to a valid pointer where the next item will be stored.
@@ -160,6 +163,7 @@ pub unsafe extern "C" fn AggregateResultIter_Next(
 /// Free the aggregate result iterator. This function will deallocate the memory used by the iterator.
 ///
 /// # Safety
+///
 /// The following invariants must be upheld when calling this function:
 /// - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
 /// - The iterator must have been created using [`AggregateResult_Iter`].
