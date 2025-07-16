@@ -207,6 +207,8 @@ impl RSAggregateResult {
     /// the child with [`Self::get()`] will cause undefined behavior.
     pub fn push(&mut self, child: &RSIndexResult) {
         self.records.push(child as *const _ as *mut _);
+
+        self.type_mask |= child.result_type;
     }
 
     /// Clear all the children from the aggregate result
@@ -460,6 +462,19 @@ impl RSIndexResult {
             unsafe {
                 IndexResult_ConcatMetrics(self, result);
             }
+        }
+    }
+
+    /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
+    /// an aggregate record or if the index is out-of-bounds.
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &self.data.agg };
+
+            agg.get(index)
+        } else {
+            None
         }
     }
 }
