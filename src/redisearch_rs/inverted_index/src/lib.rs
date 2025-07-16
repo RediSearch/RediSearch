@@ -432,7 +432,7 @@ impl RSIndexResult {
     }
 
     /// True if this is an aggregate type
-    fn is_aggregate(&self) -> bool {
+    pub fn is_aggregate(&self) -> bool {
         matches!(
             self.result_type,
             RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
