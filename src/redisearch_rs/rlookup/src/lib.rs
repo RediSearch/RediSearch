@@ -9,8 +9,10 @@
 
 mod bindings;
 mod lookup;
+mod row;
 
 pub use bindings::IndexSpecCache;
 pub use lookup::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption, RLookupOptions,
 };
+pub use row::RLookupRow;

@@ -89,6 +89,9 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
 // Returns an iterator for a generic index, suitable for queries
 // The returned iterator will yield "virtual" records. For term/numeric indexes, it is best to use
 // the specific functions NewInvIndIterator_TermQuery/NewInvIndIterator_NumericQuery
+// It is assumed that the index will not be dropped while the iterator is in use
+// (for general inverted indexes like terms, tags, this is NOT guaranteed,
+// if all the documents are deleted, the index will be dropped by the garbage collector).
 QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                               enum FieldExpirationPredicate predicate, double weight);
 

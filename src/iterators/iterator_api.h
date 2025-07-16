@@ -23,10 +23,12 @@ typedef enum IteratorStatus {
   ITERATOR_TIMEOUT,
 } IteratorStatus;
 
-typedef enum VALIDATE_OK {
-  VALIDATE_OK, // The iterator is still valid and lastDocID did not change
-  VALIDATE_MOVED, // The iterator is still valid but lastDocID changed
-  VALIDATE_ABORTED,
+typedef enum ValidateStatus {
+  VALIDATE_OK,      // The iterator is still valid and at the same position - if wasn't at EOF,
+                    // the `current` result is still valid
+  VALIDATE_MOVED,   // The iterator is still valid but lastDocID changed, and `current` is a new valid result or
+                    // at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
+  VALIDATE_ABORTED, // The iterator is no longer valid, and should not be used or rewound. Should be freed.
 } ValidateStatus;
 
 enum IteratorType {
@@ -54,8 +56,6 @@ typedef struct QueryIterator {
   // Can the iterator yield more results? The Iterator must ensure that `atEOF` is set correctly when it is sure that the Next Read returns `ITERATOR_EOF`.
   // For instance, NotIterator needs to know if the ChildIterator finishes, otherwise it may not skip the last result correctly.
   bool atEOF;
-
-  bool isAborted;
 
   // the last docId read. Initially should be 0.
   t_docId lastDocId;
@@ -91,7 +91,7 @@ typedef struct QueryIterator {
    * The iterator should check if it is still valid.
    *
    * @return VALIDATE_OK if the iterator is still valid
-   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed
+   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
    * @return VALIDATE_ABORTED if the iterator is no longer valid
    */
   ValidateStatus (*Revalidate)(struct QueryIterator *self);

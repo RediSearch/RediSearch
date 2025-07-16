@@ -168,6 +168,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     case RSResultType_Intersection:
     case RSResultType_Union:
     default:
+    {
       // if we only have one sub result, just iterate that...
       size_t numChildren = AggregateResult_NumChildren(&res->data.agg);
 
@@ -176,6 +177,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
       }
       return _aggregateResult_iterate(&res->data.agg);
       break;
+    }
   }
 }
 

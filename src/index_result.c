@@ -27,11 +27,17 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
       .isCopy = 0,
       .weight = weight,
       .metrics = NULL,
-      .data.agg = (RSAggregateResult){.numChildren = 0,
-                                 .childrenCap = cap,
-                                 .typeMask = 0x0000,
-                                 .children = rm_calloc(cap, sizeof(RSIndexResult *))}};
+      .data.agg = AggregateResult_New(cap)
+  };
   return res;
+}
+
+void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child) {
+  if (child->metrics) {
+    // Passing ownership over the RSValues in the child metrics, but not on the array itself
+    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
+    array_clear(child->metrics);
+  }
 }
 
 /* Allocate a new intersection result with a given capacity*/
@@ -129,25 +135,23 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     case RSResultType_Intersection:
     case RSResultType_Union:
     case RSResultType_HybridMetric:
+    {
       // allocate a new child pointer array
       size_t numChildren = AggregateResult_NumChildren(&src->data.agg);
-
-      ret->data.agg.children = rm_malloc(numChildren * sizeof(RSIndexResult *));
-      ret->data.agg.childrenCap = numChildren;
+      ret->data.agg = AggregateResult_New(numChildren);
 
       // deep copy recursively all children
-      int i = 0;
       RSAggregateResultIter *iter = AggregateResult_Iter(&src->data.agg);
       RSIndexResult *child = NULL;
 
       while (AggregateResultIter_Next(iter, &child)) {
-        ret->data.agg.children[i] = IndexResult_DeepCopy(child);
-        i++;
+        AggregateResult_AddChild(ret, IndexResult_DeepCopy(child));
       }
 
       AggregateResultIter_Free(iter);
 
       break;
+    }
 
     // copy term results
     case RSResultType_Term:
@@ -216,8 +220,7 @@ void IndexResult_Free(RSIndexResult *r) {
 
       AggregateResultIter_Free(iter);
     }
-    rm_free(r->data.agg.children);
-    r->data.agg.children = NULL;
+    AggregateResult_Free(r->data.agg);
   } else if (r->type == RSResultType_Term) {
     if (r->isCopy) {
       rm_free(r->data.term.offsets.data);
@@ -234,9 +237,6 @@ void IndexResult_Free(RSIndexResult *r) {
   rm_free(r);
 }
 
-inline int RSIndexResult_IsAggregate(const RSIndexResult *r) {
-  return (r->type & RS_RESULT_AGGREGATE) != 0;
-}
 #define __absdelta(x, y) (x > y ? x - y : y - x)
 /**
 Find the minimal distance between members of the vectos.
@@ -245,7 +245,7 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list
 */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
-  if (!RSIndexResult_IsAggregate(r) || AggregateResult_NumChildren(&r->data.agg) <= 1) {
+  if (!IndexResult_IsAggregate(r) || AggregateResult_NumChildren(&r->data.agg) <= 1) {
     return 1;
   }
 
@@ -303,6 +303,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
   switch (r->type) {
     case RSResultType_Intersection:
     case RSResultType_Union:
+    {
       RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
       RSIndexResult *child = NULL;
 
@@ -313,6 +314,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
       AggregateResultIter_Free(iter);
 
       break;
+    }
     case RSResultType_Term:
       if (r->data.term.term) {
         const char *s = r->data.term.term->str;

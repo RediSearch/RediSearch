@@ -163,7 +163,7 @@ void testRangeIteratorHelper(bool isMulti) {
 
       ASSERT_EQ(res->type, RSResultType_Numeric);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
-      ASSERT_TRUE(!RSIndexResult_IsAggregate(res));
+      ASSERT_TRUE(!IndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);
       ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
     }

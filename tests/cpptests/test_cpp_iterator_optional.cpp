@@ -666,3 +666,359 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
   it->Free(it);
   InvertedIndex_Free(idx);
 }
+
+// Test class for Revalidate functionality of Optional Iterator (Non-optimized)
+class OptionalIteratorRevalidateTest : public ::testing::Test {
+protected:
+  QueryIterator *oi_base;
+  MockIterator* mockChild;
+  MockQueryEvalCtx* mockCtx;
+  const t_docId maxDocId = 100;
+  const size_t numDocs = 50;
+  const double weight = 2.0;
+
+  void SetUp() override {
+    // Create child iterator with specific docIds
+    mockChild = new MockIterator({10UL, 20UL, 30UL, 40UL, 50UL});
+    QueryIterator *child = reinterpret_cast<QueryIterator *>(mockChild);
+
+    // Create non-optimized optional iterator with child
+    mockCtx = new MockQueryEvalCtx(maxDocId, numDocs);
+    oi_base = IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
+  }
+
+  void TearDown() override {
+    if (oi_base) {
+      oi_base->Free(oi_base);
+    }
+    delete mockCtx;
+  }
+};
+
+TEST_F(OptionalIteratorRevalidateTest, RevalidateOK) {
+  // Child returns VALIDATE_OK
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a few documents first to establish position
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Revalidate should return VALIDATE_OK
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify child was revalidated
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+
+  // Should be able to continue reading
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+}
+
+TEST_F(OptionalIteratorRevalidateTest, RevalidateAborted) {
+  // Child returns VALIDATE_ABORTED
+  mockChild->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Optional iterator handles child abort gracefully by replacing with empty iterator
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_OK); // Optional iterator continues even when child is aborted
+
+  // Should be able to continue reading (now all virtual hits)
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+}
+
+TEST_F(OptionalIteratorRevalidateTest, RevalidateMoved) {
+  // Child returns VALIDATE_MOVED
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read to a real hit (document from child)
+  ASSERT_EQ(oi_base->SkipTo(oi_base, 10), ITERATOR_OK);
+  ASSERT_EQ(oi_base->lastDocId, 10);
+
+  // Revalidate should handle child movement
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  // Should either be OK (if virtual result) or MOVED (if real result was affected)
+  ASSERT_TRUE(status == VALIDATE_OK || status == VALIDATE_MOVED);
+
+  // Should be able to continue reading after revalidation
+  IteratorStatus read_status = oi_base->Read(oi_base);
+  ASSERT_TRUE(read_status == ITERATOR_OK || read_status == ITERATOR_EOF);
+}
+
+TEST_F(OptionalIteratorRevalidateTest, RevalidateMovedVirtualResult) {
+  // Child returns VALIDATE_MOVED
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read to a virtual hit (document not in child)
+  ASSERT_EQ(oi_base->SkipTo(oi_base, 15), ITERATOR_OK);
+  ASSERT_EQ(oi_base->lastDocId, 15);
+
+  // Since current result is virtual, revalidate should return OK
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Should be able to continue reading
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+}
+
+// Test class for Revalidate functionality of Optimized Optional Iterator
+class OptionalIteratorOptimizedRevalidateTest : public ::testing::Test {
+protected:
+  QueryIterator *oi_base;
+  MockIterator* mockChild;
+  MockIterator* mockWildcard;
+  std::unique_ptr<MockQueryEvalCtx> mockCtx;
+  const t_docId maxDocId = 100;
+  const double weight = 2.0;
+
+  void SetUp() override {
+    // Create child iterator with specific docIds
+    std::vector<t_docId> childDocIds = {15, 35, 55, 75}; // Sparse exclusions
+    mockChild = new MockIterator(childDocIds);
+    QueryIterator *child = reinterpret_cast<QueryIterator *>(mockChild);
+
+    // Create optimized optional iterator (will create wildcard internally)
+    std::vector<t_docId> wildcard = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95};
+    mockCtx = std::make_unique<MockQueryEvalCtx>(wildcard);
+    oi_base = IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
+
+    // Replace the wildcard iterator with a mock for testing
+    OptionalIterator *oi = (OptionalIterator *)oi_base;
+    QueryIterator *wcii = oi->wcii;
+    ASSERT_TRUE(wcii != nullptr);
+    wcii->Free(wcii); // Free the original wildcard iterator
+    mockWildcard = new MockIterator(wildcard);
+    oi->wcii = reinterpret_cast<QueryIterator *>(mockWildcard);
+  }
+
+  void TearDown() override {
+    if (oi_base) {
+      oi_base->Free(oi_base);
+    }
+  }
+};
+
+// Test combinations: Child OK, Wildcard OK
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildOK_WildcardOK) {
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a few documents first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Revalidate should return VALIDATE_OK
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify both child and wildcard were revalidated
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+
+  // Should be able to continue reading
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+}
+
+// Test combinations: Child OK, Wildcard ABORTED
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildOK_WildcardAborted) {
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Revalidate should propagate wildcard abort
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+
+  // Verify wildcard was checked (child might not be checked if wildcard aborts first)
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test combinations: Child OK, Wildcard MOVED
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildOK_WildcardMoved) {
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Revalidate should handle wildcard movement
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test combinations: Child ABORTED, Wildcard OK
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardOK) {
+  mockChild->SetRevalidateResult(VALIDATE_ABORTED);
+  mockWildcard->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Optimized optional iterator handles child abort gracefully
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  //////// Cannot access `mockChild` after it has been replaced
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(reinterpret_cast<OptionalIterator *>(oi_base)->child->type, EMPTY_ITERATOR);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+
+  // Should be able to continue reading (all wildcard docs now virtual)
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+}
+
+// Test combinations: Child ABORTED, Wildcard ABORTED
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardAborted) {
+  mockChild->SetRevalidateResult(VALIDATE_ABORTED);
+  mockWildcard->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Both iterators aborted - optimized optional should abort due to wildcard
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+
+  // Verify wildcard was checked (child might not be checked if wildcard aborts first)
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test combinations: Child ABORTED, Wildcard MOVED
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardMoved) {
+  mockChild->SetRevalidateResult(VALIDATE_ABORTED);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Child aborted but wildcard moved - should handle gracefully
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  //////// Cannot access `mockChild` after it has been replaced
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(reinterpret_cast<OptionalIterator *>(oi_base)->child->type, EMPTY_ITERATOR);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test combinations: Child MOVED, Wildcard OK
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardOK) {
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+  mockWildcard->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Child moved but wildcard OK
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  // Should return OK since wildcard didn't move and determines position
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+
+  // Should be able to continue reading
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+}
+
+// Test combinations: Child MOVED, Wildcard ABORTED
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardAborted) {
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+  mockWildcard->SetRevalidateResult(VALIDATE_ABORTED);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Child moved but wildcard aborted - optimized optional needs wildcard
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+
+  // Verify wildcard was checked (child might not be checked if wildcard aborts first)
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test combinations: Child MOVED, Wildcard MOVED
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardMoved) {
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
+  // Both iterators moved
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+
+  // Should be able to continue reading
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+}
+
+// Test specific scenario: wildcard not moved, child moved, current result is real
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMovedRealResult_WildcardOK) {
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+  mockWildcard->SetRevalidateResult(VALIDATE_OK);
+
+  // Position at a real hit from child (15 is in both child and wildcard)
+  ASSERT_EQ(oi_base->SkipTo(oi_base, 15), ITERATOR_OK);
+  ASSERT_EQ(oi_base->lastDocId, 15);
+
+  // Verify we have a real result from child before revalidation
+  OptionalIterator *oi = (OptionalIterator *)oi_base;
+  ASSERT_EQ(oi_base->current, oi->child->current); // Real result from child
+
+  // Revalidate: child moved but wildcard OK
+  // Since current result was real and child moved, should return OK
+  // (wildcard determines position in optimized mode)
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(oi_base->lastDocId, 20); // Should move to next valid position
+  ASSERT_EQ(oi_base->current, oi->virt); // Should now be virtual result
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test specific scenario: wildcard moved ahead to ID that child also has
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateWildcardMovedToChildId) {
+  // Configure child and wildcard movements
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Start at position 5 (first wildcard doc, not in child)
+  ASSERT_EQ(oi_base->SkipTo(oi_base, 10), ITERATOR_OK);
+  ASSERT_EQ(oi_base->lastDocId, 10);
+
+  // Verify we have a virtual result before revalidation
+  OptionalIterator *oi = (OptionalIterator *)oi_base;
+  ASSERT_EQ(oi_base->current, oi->virt); // Virtual result
+
+  // When revalidate is called:
+  // - mockWildcard will move from 5 to next in sequence (10)
+  // - mockChild will move from 15 (first in its sequence) to next (35)
+  // The optional iterator should handle both movements
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+
+  // After revalidation, iterator position should be updated
+  // The exact position depends on implementation but should be valid
+  ASSERT_EQ(oi_base->lastDocId, 15); // Should have moved forward
+  ASSERT_EQ(oi_base->current, oi->child->current); // Should now be a real result from child
+}
