@@ -433,8 +433,10 @@ pub struct IndexBlock {
 impl IndexBlock {
     const SIZE: usize = std::mem::size_of::<Self>();
 
-    /// Make a new index block with the given initial doc ID. This returns the block and how much
-    /// memory grew by.
+    /// Make a new index block with primed with the initial doc ID. The next entry written into
+    /// the block should be for this doc ID else the block will contain incoherent data.
+    ///
+    /// This returns the block and how much memory grew by.
     pub fn new(doc_id: t_docId) -> (Self, usize) {
         let this = Self {
             first_doc_id: doc_id,
