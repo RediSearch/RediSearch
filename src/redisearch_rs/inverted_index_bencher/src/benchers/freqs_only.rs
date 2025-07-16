@@ -14,7 +14,7 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{Decoder, Delta, Encoder, freqs_only::FreqsOnly};
+use inverted_index::{Decoder, Encoder, freqs_only::FreqsOnly};
 use itertools::Itertools;
 
 use crate::ffi::{TestBuffer, encode_freqs_only, read_freqs};
@@ -26,7 +26,7 @@ pub struct Bencher {
 #[derive(Debug)]
 struct TestValue {
     freq: u32,
-    delta: u64,
+    delta: u32,
     encoded: Vec<u8>,
 }
 
@@ -36,7 +36,7 @@ impl Bencher {
 
     pub fn new() -> Self {
         let freq_values = vec![0, 2, 256, u16::MAX as u32, u32::MAX];
-        let deltas = vec![0, 1, 256, 65536, u16::MAX as u64, u32::MAX as u64];
+        let deltas = vec![0, 1, 256, 65536, u16::MAX as u32, u32::MAX];
 
         let test_values = freq_values
             .into_iter()
@@ -45,7 +45,7 @@ impl Bencher {
                 let record = inverted_index::RSIndexResult::freqs_only(100, freq);
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = FreqsOnly::default()
-                    .encode(&mut buffer, Delta::new(delta as usize), &record)
+                    .encode(&mut buffer, delta, &record)
                     .unwrap();
                 let encoded = buffer.into_inner();
 
@@ -99,7 +99,8 @@ impl Bencher {
                 |mut buffer| {
                     for test in &self.test_values {
                         let mut record = inverted_index::RSIndexResult::freqs_only(100, test.freq);
-                        let grew_size = encode_freqs_only(&mut buffer, &mut record, test.delta);
+                        let grew_size =
+                            encode_freqs_only(&mut buffer, &mut record, test.delta as _);
 
                         black_box(grew_size);
                     }
@@ -121,7 +122,7 @@ impl Bencher {
                         let record = inverted_index::RSIndexResult::freqs_only(100, test.freq);
 
                         let grew_size = FreqsOnly::default()
-                            .encode(&mut buffer, Delta::new(test.delta as usize), &record)
+                            .encode(&mut buffer, test.delta, &record)
                             .unwrap();
 
                         black_box(grew_size);

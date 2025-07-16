@@ -527,6 +527,8 @@ dependencies = [
  "bindgen 0.71.1",
  "cc",
  "enumflags2",
+ "libc",
+ "thiserror",
 ]
 
 [[package]]
@@ -1569,6 +1571,17 @@ dependencies = [
  "ffi",
  "icu_casemap",
  "thiserror",
+ "value",
+]
+
+[[package]]
+name = "sorting_vector_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "ffi",
+ "libc",
+ "sorting_vector",
  "value",
 ]
 

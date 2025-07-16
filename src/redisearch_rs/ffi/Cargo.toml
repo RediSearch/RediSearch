@@ -8,6 +8,10 @@ publish.workspace = true
 [lib]
 doctest = false
 
+[dependencies]
+libc.workspace = true
+thiserror.workspace = true
+
 [build-dependencies]
 cc.workspace = true
 
