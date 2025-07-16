@@ -107,6 +107,63 @@ pub unsafe extern "C" fn AggregateResult_Reset(agg: *mut RSAggregateResult) {
     agg.reset();
 }
 
+/// Create a new aggregate result with the specified capacity. This function will allocate memory
+/// for the aggregate result and return a pointer to it. The caller is responsible for freeing
+/// the memory using [`AggregateResult_FreeChildren`].
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_New(cap: usize) -> *mut RSAggregateResult {
+    let agg = RSAggregateResult::with_capacity(cap);
+    let boxed_agg = Box::new(agg);
+
+    Box::into_raw(boxed_agg)
+}
+
+/// Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
+/// the `child` and will therefore not free it. Instead, the caller is responsible for managing
+/// the memory of the `child` pointer *after* the `parent` has been freed.
+///
+/// If the `parent` is not an aggregate type, then this is a no-op.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `child` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_AddChild(
+    parent: *mut RSIndexResult,
+    child: *mut RSIndexResult,
+) {
+    debug_assert!(!parent.is_null(), "parent must not be null");
+    debug_assert!(!child.is_null(), "child must not be null");
+
+    // SAFETY: Caller is to ensure that `parent` is a valid, non-null pointer to an `RSIndexResult`
+    let parent = unsafe { &mut *parent };
+
+    // SAFETY: Caller is to ensure that `child` is a valid, non-null pointer to an `RSIndexResult`
+    let child = unsafe { &*child };
+
+    parent.push(child);
+}
+
+/// Free the children pointers of the aggregate result. The instances at the pointers will, however,
+/// not be freed, and the caller is responsible for managing their memory.
+///
+/// This function will clear the children of the aggregate result, effectively resetting it.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `agg` must point to a valid `RSAggregateResult` created using [`AggregateResult_New`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_FreeChildren(agg: *mut RSAggregateResult) {
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // a `RSAggregateResult`.
+    let agg = unsafe { &mut *agg };
+
+    agg.clear();
+}
+
 /// Create an iterator over the aggregate result. This iterator should be freed
 /// using [`AggregateResultIter_Free`].
 ///
