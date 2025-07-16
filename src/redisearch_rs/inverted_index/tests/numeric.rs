@@ -15,6 +15,33 @@ use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use std::io::Cursor;
 
+#[unsafe(no_mangle)]
+pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
+    if result.is_null() {
+        panic!("did not expect `RSIndexResult` to be null");
+    }
+
+    let metrics = unsafe { (*result).metrics };
+    if metrics.is_null() {
+        return;
+    }
+
+    panic!(
+        "did not expect any test to set metrics, but got: {:?}",
+        unsafe { *metrics }
+    );
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Term_Offset_Data_Free(_tr: *mut ffi::RSTermRecord) {
+    panic!("Nothing should have copied the term record to require this call");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
+    panic!("No test created a term record");
+}
+
 /// Tests for integer values between 0 and 7 which should use the [TINY header](super#tiny-type) format.
 #[test]
 fn numeric_tiny_int() {

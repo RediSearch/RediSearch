@@ -11,6 +11,33 @@ use std::io::Cursor;
 
 use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
 
+#[unsafe(no_mangle)]
+pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
+    if result.is_null() {
+        panic!("did not expect `RSIndexResult` to be null");
+    }
+
+    let metrics = unsafe { (*result).metrics };
+    if metrics.is_null() {
+        return;
+    }
+
+    panic!(
+        "did not expect any test to set metrics, but got: {:?}",
+        unsafe { *metrics }
+    );
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Term_Offset_Data_Free(_tr: *mut ffi::RSTermRecord) {
+    panic!("Nothing should have copied the term record to require this call");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
+    panic!("No test created a term record");
+}
+
 #[test]
 fn test_encode_freqs_only() {
     // Test cases for the frequencies only encoder and decoder.

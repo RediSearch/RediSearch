@@ -15,6 +15,33 @@ use inverted_index::{
     fields_only::{FieldsOnly, FieldsOnlyWide},
 };
 
+#[unsafe(no_mangle)]
+pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
+    if result.is_null() {
+        panic!("did not expect `RSIndexResult` to be null");
+    }
+
+    let metrics = unsafe { (*result).metrics };
+    if metrics.is_null() {
+        return;
+    }
+
+    panic!(
+        "did not expect any test to set metrics, but got: {:?}",
+        unsafe { *metrics }
+    );
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Term_Offset_Data_Free(_tr: *mut ffi::RSTermRecord) {
+    panic!("Nothing should have copied the term record to require this call");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
+    // These tests create a term record, but we don't need to free it.
+}
+
 #[test]
 fn test_encode_fields_only() {
     // Test cases for the fields only encoder and decoder.
