@@ -15,6 +15,7 @@ use std::{
 };
 
 use enumflags2::{BitFlags, bitflags};
+use ffi::FieldMask;
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 use low_memory_thin_vec::LowMemoryThinVec;
 
@@ -163,6 +164,8 @@ impl RSAggregateResult {
     /// the child with [`Self::get()`] will cause undefined behavior.
     pub fn push(&mut self, child: &RSIndexResult) {
         self.records.push(child as *const _ as *mut _);
+
+        self.type_mask |= child.result_type;
     }
 
     /// Clear all the children from the aggregate result
@@ -270,11 +273,11 @@ impl RSIndexResult {
     }
 
     /// Create a new virtual index result
-    pub fn virt(doc_id: t_docId) -> Self {
+    pub fn virt(doc_id: t_docId, field_mask: FieldMask, weight: f64) -> Self {
         Self {
             doc_id,
             dmd: std::ptr::null(),
-            field_mask: 0,
+            field_mask,
             freq: 0,
             offsets_sz: 0,
             data: RSIndexResultData {
@@ -283,7 +286,25 @@ impl RSIndexResult {
             result_type: RSResultType::Virtual,
             is_copy: false,
             metrics: std::ptr::null_mut(),
-            weight: 0.0,
+            weight,
+        }
+    }
+
+    /// Create a new union index result with the given document ID, capacity, and weight
+    pub fn union(doc_id: t_docId, cap: usize, weight: f64) -> Self {
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
+            },
+            result_type: RSResultType::Union,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight,
         }
     }
 
@@ -349,6 +370,19 @@ impl RSIndexResult {
             unsafe {
                 IndexResult_ConcatMetrics(self, result);
             }
+        }
+    }
+
+    /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
+    /// an aggregate record or if the index is out-of-bounds.
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &self.data.agg };
+
+            agg.get(index)
+        } else {
+            None
         }
     }
 }
