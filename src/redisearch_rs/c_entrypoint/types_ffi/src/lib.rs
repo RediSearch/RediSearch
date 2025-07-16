@@ -11,6 +11,23 @@
 
 use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult};
 
+/// Check if the result is an aggregate result.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult) -> bool {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.is_aggregate()
+}
+
 /// Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
 /// if the index is out of bounds.
 ///
