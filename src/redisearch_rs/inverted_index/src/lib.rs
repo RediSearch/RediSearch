@@ -122,7 +122,7 @@ impl RSAggregateResult {
     }
 
     /// Get an iterator over the children of this aggregate result
-    pub fn iter(&self) -> RSAggregateResultIter {
+    pub fn iter(&self) -> RSAggregateResultIter<'_> {
         RSAggregateResultIter {
             agg: self,
             index: 0,
