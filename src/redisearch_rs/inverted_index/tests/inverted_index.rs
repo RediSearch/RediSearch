@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{RSAggregateResult, RSIndexResult, RSResultType, RSResultTypeMask};
 
 #[unsafe(no_mangle)]
@@ -78,5 +79,5 @@ fn pushing_to_index_result() {
     assert_eq!(ir.result_type, RSResultType::Union);
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 7);
-    assert_eq!(ir.field_mask, 4);
+    assert_eq!(ir.field_mask, RS_FIELDMASK_ALL);
 }
