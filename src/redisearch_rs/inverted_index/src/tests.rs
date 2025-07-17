@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Encoder, IdDelta, InvertedIndex, RSIndexResult};
+use crate::{
+    Decoder, DecoderResult, Encoder, IdDelta, IndexBlock, IndexReader, InvertedIndex, RSIndexResult,
+};
+use pretty_assertions::assert_eq;
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
 struct Dummy;
@@ -238,4 +241,35 @@ fn u32_delta_overflow() {
         delta, None,
         "Delta will overflow, so should request a new block for encoding"
     );
+}
+
+impl Decoder for Dummy {
+    fn decode<R: std::io::Read>(
+        &self,
+        reader: &mut R,
+        prev_doc_id: u64,
+    ) -> std::io::Result<DecoderResult> {
+        let mut buffer = [0; 4];
+        reader.read_exact(&mut buffer)?;
+
+        let delta = u32::from_be_bytes(buffer);
+        let doc_id = prev_doc_id + (delta as u64);
+
+        Ok(DecoderResult::Record(RSIndexResult::virt().doc_id(doc_id)))
+    }
+}
+
+#[test]
+fn reading_records() {
+    let blocks = vec![IndexBlock {
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+        num_entries: 2,
+        first_doc_id: 10,
+        last_doc_id: 11,
+    }];
+    let mut ir = IndexReader::new(&blocks, Dummy);
+
+    let record = ir.next().unwrap().unwrap();
+
+    assert_eq!(record, RSIndexResult::virt().doc_id(10));
 }

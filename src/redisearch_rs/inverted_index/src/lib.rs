@@ -761,5 +761,37 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 }
 
+pub struct IndexReader<'a, D> {
+    blocks: &'a Vec<IndexBlock>,
+
+    decoder: D,
+
+    current_buffer: Cursor<&'a [u8]>,
+}
+
+impl<'a, D: Decoder> IndexReader<'a, D> {
+    pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
+        Self {
+            blocks,
+            decoder,
+            current_buffer: Cursor::new(&[]),
+        }
+    }
+
+    pub fn next(&mut self) -> std::io::Result<Option<RSIndexResult>> {
+        let last_block = &self.blocks[0];
+        self.current_buffer = Cursor::new(&last_block.buffer);
+
+        let DecoderResult::Record(result) = self
+            .decoder
+            .decode(&mut self.current_buffer, last_block.first_doc_id)?
+        else {
+            todo!()
+        };
+
+        Ok(Some(result))
+    }
+}
+
 #[cfg(test)]
 mod tests;
