@@ -787,8 +787,9 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
     }
 
     pub fn next(&mut self) -> std::io::Result<Option<RSIndexResult>> {
-        // Check if the current buffer is empty
-        if self.current_buffer.fill_buf()?.is_empty() {
+        // Check if the current buffer is empty. The GC might clean out a block so we have to
+        // continue checking until we find a block with data.
+        while self.current_buffer.fill_buf()?.is_empty() {
             let Some(next_block) = self.blocks.get(self.current_block + 1) else {
                 // No more blocks to read from
                 return Ok(None);

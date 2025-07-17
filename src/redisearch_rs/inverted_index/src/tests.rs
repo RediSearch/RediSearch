@@ -299,3 +299,45 @@ fn reading_records() {
     let record = ir.next().expect("to be able to read from the buffer");
     assert_eq!(record, None);
 }
+
+#[test]
+fn reading_over_empty_blocks() {
+    // Make three blocks with the second one being empty and the other two containing one entries.
+    // The second should automatically continue from the third block
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 10,
+            last_doc_id: 10,
+        },
+        IndexBlock {
+            buffer: vec![],
+            num_entries: 0,
+            first_doc_id: 20,
+            last_doc_id: 20,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+    ];
+    let mut ir = IndexReader::new(&blocks, Dummy);
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(10));
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(30));
+
+    let record = ir.next().expect("to be able to read from the buffer");
+    assert!(record.is_none(), "should not return any more records");
+}
