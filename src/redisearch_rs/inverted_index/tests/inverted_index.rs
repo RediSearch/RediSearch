@@ -18,6 +18,22 @@ pub extern "C" fn IndexResult_ConcatMetrics(
     // Do nothing since the code will call this
 }
 
+#[unsafe(no_mangle)]
+extern "C" fn RSOffsetVector_Copy(
+    _src: *const ffi::RSOffsetVector,
+    _dest: *mut ffi::RSOffsetVector,
+) {
+    panic!("there are no term tests yet");
+}
+
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+unsafe fn RSYieldableMetrics_Clone(
+    _src: *mut ffi::RSYieldableMetric,
+) -> *mut ffi::RSYieldableMetric {
+    panic!("none of the tests should set any metrics");
+}
+
 #[test]
 fn pushing_to_aggregate_result() {
     let mut agg = RSAggregateResult::with_capacity(2);
@@ -83,4 +99,127 @@ fn pushing_to_index_result() {
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 7);
     assert_eq!(ir.field_mask, RS_FIELDMASK_ALL);
+}
+
+#[test]
+fn cloning_an_aggregate_index_result() {
+    let mut ir = RSIndexResult::intersect(5).doc_id(10).weight(3.0);
+
+    ir.push(&mut RSIndexResult::numeric(5.0).doc_id(10));
+
+    let ir_clone = ir.clone();
+
+    assert_eq!(ir.doc_id, ir_clone.doc_id);
+    assert_eq!(ir.dmd, ir_clone.dmd);
+    assert_eq!(ir.field_mask, ir_clone.field_mask);
+    assert_eq!(ir.freq, ir_clone.freq);
+    assert_eq!(ir.offsets_sz, ir_clone.offsets_sz);
+    unsafe {
+        assert_eq!(ir.data.agg.type_mask(), ir_clone.data.agg.type_mask());
+        assert_eq!(
+            ir_clone.data.agg.capacity(),
+            1,
+            "should use as minimal capacity as needed"
+        );
+    }
+    assert_eq!(ir.result_type, ir_clone.result_type);
+    assert_eq!(ir.metrics, ir_clone.metrics);
+    assert_eq!(ir.weight, ir_clone.weight);
+
+    // Make sure the inner value was cloned too
+    {
+        let ir_first = ir.get(0).unwrap();
+        let ir_clone_first = ir_clone.get(0).unwrap();
+
+        assert_eq!(ir_first.doc_id, ir_clone_first.doc_id);
+        assert_eq!(ir_first.dmd, ir_clone_first.dmd);
+        assert_eq!(ir_first.field_mask, ir_clone_first.field_mask);
+        assert_eq!(ir_first.freq, ir_clone_first.freq);
+        assert_eq!(ir_first.offsets_sz, ir_clone_first.offsets_sz);
+        unsafe {
+            assert_eq!(ir_first.data.num, ir_clone_first.data.num);
+        }
+        assert_eq!(ir_first.result_type, ir_clone_first.result_type);
+        assert_eq!(ir_first.metrics, ir_clone_first.metrics);
+        assert_eq!(ir_first.weight, ir_clone_first.weight);
+        assert!(ir_clone_first.is_copy);
+    }
+    assert!(ir_clone.is_copy);
+
+    // Make sure the inner types are different
+    ir.get_mut(0).unwrap().as_numeric_mut().unwrap().0 = 1.0;
+    assert_eq!(
+        ir_clone.get(0).unwrap().as_numeric().unwrap().0,
+        5.0,
+        "cloned value should not have changed"
+    )
+}
+
+#[test]
+fn cloning_a_numeric_index_result() {
+    let mut ir = RSIndexResult::numeric(8.0).doc_id(3);
+    let ir_clone = ir.clone();
+
+    assert_eq!(ir.doc_id, ir_clone.doc_id);
+    assert_eq!(ir.dmd, ir_clone.dmd);
+    assert_eq!(ir.field_mask, ir_clone.field_mask);
+    assert_eq!(ir.freq, ir_clone.freq);
+    assert_eq!(ir.offsets_sz, ir_clone.offsets_sz);
+    unsafe {
+        assert_eq!(ir.data.num, ir_clone.data.num);
+    }
+    assert_eq!(ir.result_type, ir_clone.result_type);
+    assert_eq!(ir.metrics, ir_clone.metrics);
+    assert_eq!(ir.weight, ir_clone.weight);
+    assert!(ir_clone.is_copy);
+
+    // Make sure the values are not linked
+    ir.as_numeric_mut().unwrap().0 = 1.0;
+
+    unsafe {
+        assert_eq!(
+            ir_clone.data.num.0, 8.0,
+            "cloned value should not have changed"
+        );
+    }
+}
+
+#[test]
+fn cloning_a_virtual_index_result() {
+    let ir = RSIndexResult::virt().doc_id(8).field_mask(4).weight(2.0);
+    let ir_clone = ir.clone();
+
+    assert_eq!(ir.doc_id, ir_clone.doc_id);
+    assert_eq!(ir.dmd, ir_clone.dmd);
+    assert_eq!(ir.field_mask, ir_clone.field_mask);
+    assert_eq!(ir.freq, ir_clone.freq);
+    assert_eq!(ir.offsets_sz, ir_clone.offsets_sz);
+    assert_eq!(ir.result_type, ir_clone.result_type);
+    assert_eq!(ir.metrics, ir_clone.metrics);
+    assert_eq!(ir.weight, ir_clone.weight);
+    assert!(ir_clone.is_copy);
+}
+
+#[test]
+fn cloning_a_term_index_result() {
+    let mut ir = RSIndexResult::term(todo!("how do i make a term"))
+        .doc_id(7)
+        .weight(8.0);
+    let ir_clone = ir.clone();
+
+    assert_eq!(ir.doc_id, ir_clone.doc_id);
+    assert_eq!(ir.dmd, ir_clone.dmd);
+    assert_eq!(ir.field_mask, ir_clone.field_mask);
+    assert_eq!(ir.freq, ir_clone.freq);
+    assert_eq!(ir.offsets_sz, ir_clone.offsets_sz);
+    unsafe {
+        assert_eq!(ir.data.num, ir_clone.data.num);
+    }
+    assert_eq!(ir.result_type, ir_clone.result_type);
+    assert_eq!(ir.metrics, ir_clone.metrics);
+    assert_eq!(ir.weight, ir_clone.weight);
+    assert!(ir_clone.is_copy);
+
+    // Make sure the values are not linked
+    todo!();
 }
