@@ -40,6 +40,16 @@ void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child) {
   }
 }
 
+/* Clear / free the metrics of a result */
+void ResultMetrics_Free(RSIndexResult *r) {
+  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
+  r->metrics = NULL;
+}
+
+void Term_Offset_Data_Free(RSTermRecord *tr) {
+  rm_free(tr->offsets.data);
+}
+
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight) {
   return __newAggregateResult(cap, RSResultType_Intersection, weight);
