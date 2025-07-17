@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod fields_only;
 pub mod freqs_fields;
 pub mod freqs_only;
 pub mod numeric;
