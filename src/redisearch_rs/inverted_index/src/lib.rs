@@ -8,17 +8,30 @@
 */
 
 use std::{
-    ffi::{c_char, c_int},
+    ffi::c_char,
     fmt::Debug,
     io::{Read, Seek, Write},
     mem::ManuallyDrop,
 };
 
 use enumflags2::{BitFlags, bitflags};
+use ffi::FieldMask;
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
+use low_memory_thin_vec::LowMemoryThinVec;
 
 pub mod freqs_only;
 pub mod numeric;
+
+// Manually define some C functions, because we'll create a circular dependency if we use the FFI
+// crate to make them automatically.
+unsafe extern "C" {
+    /// Adds the metrics of a child [`RSIndexResult`] to the parent [`RSIndexResult`].
+    ///
+    /// # Safety
+    /// Both should be valid `RSIndexResult` instances.
+    #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
+    unsafe fn IndexResult_ConcatMetrics(parent: *mut RSIndexResult, child: *const RSIndexResult);
+}
 
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
 /// because document IDs are usually sequential and the difference between them are small. With the
@@ -87,33 +100,39 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSAggregateResult {
-    /// The number of child records
-    num_children: c_int,
-
-    /// The capacity of the records array. Has no use for extensions
-    children_cap: c_int,
-
-    /// An array of records
-    children: *mut *mut RSIndexResult,
+    /// The records making up this aggregate result
+    ///
+    /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+    /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+    /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+    records: LowMemoryThinVec<*mut RSIndexResult>,
 
     /// A map of the aggregate type of the underlying records
     type_mask: RSResultTypeMask,
 }
 
 impl RSAggregateResult {
+    /// Create a new empty aggregate result with the given capacity
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            records: LowMemoryThinVec::with_capacity(cap),
+            type_mask: RSResultTypeMask::empty(),
+        }
+    }
+
     /// The number of results in this aggregate result
     pub fn len(&self) -> usize {
-        self.num_children as _
+        self.records.len()
     }
 
     /// Check whether this aggregate result is empty
     pub fn is_empty(&self) -> bool {
-        self.num_children == 0
+        self.records.is_empty()
     }
 
     /// The capacity of the aggregate result
     pub fn capacity(&self) -> usize {
-        self.children_cap as _
+        self.records.capacity()
     }
 
     /// The current type mask of the aggregate result
@@ -134,24 +153,33 @@ impl RSAggregateResult {
     /// # Safety
     /// The caller must ensure that the memory at the given index is still valid
     pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
-        if index < self.num_children as usize {
-            // SAFETY: We are guaranteed that the index is within bounds because of the check above.
-            let result_ptr = unsafe { self.children.add(index) };
-
-            // SAFETY: It is safe to dereference the pointer because we correctly got it using
-            // `add` above.
-            let result_addr = unsafe { *result_ptr };
-
+        if let Some(result_addr) = self.records.get(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
-            Some(unsafe { &*result_addr })
+            Some(unsafe { &**result_addr })
         } else {
             None
         }
     }
 
+    /// Add a child to the aggregate result and update the type mask
+    ///
+    /// # Safety
+    /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
+    /// the child with [`Self::get()`] will cause undefined behavior.
+    pub fn push(&mut self, child: &RSIndexResult) {
+        self.records.push(child as *const _ as *mut _);
+
+        self.type_mask |= child.result_type;
+    }
+
+    /// Clear all the children from the aggregate result
+    pub fn clear(&mut self) {
+        self.records.clear();
+    }
+
     /// Reset the aggregate result, clearing all children and resetting the type mask
     pub fn reset(&mut self) {
-        self.num_children = 0;
+        self.clear();
         self.type_mask = RSResultTypeMask::empty();
     }
 }
@@ -249,11 +277,11 @@ impl RSIndexResult {
     }
 
     /// Create a new virtual index result
-    pub fn virt(doc_id: t_docId) -> Self {
+    pub fn virt(doc_id: t_docId, field_mask: FieldMask, weight: f64) -> Self {
         Self {
             doc_id,
             dmd: std::ptr::null(),
-            field_mask: 0,
+            field_mask,
             freq: 0,
             offsets_sz: 0,
             data: RSIndexResultData {
@@ -262,7 +290,25 @@ impl RSIndexResult {
             result_type: RSResultType::Virtual,
             is_copy: false,
             metrics: std::ptr::null_mut(),
-            weight: 0.0,
+            weight,
+        }
+    }
+
+    /// Create a new union index result with the given document ID, capacity, and weight
+    pub fn union(doc_id: t_docId, cap: usize, weight: f64) -> Self {
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
+            },
+            result_type: RSResultType::Union,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight,
         }
     }
 
@@ -296,6 +342,58 @@ impl RSIndexResult {
             is_copy: false,
             metrics: std::ptr::null_mut(),
             weight: 0.0,
+        }
+    }
+
+    /// True if this is an aggregate type
+    pub fn is_aggregate(&self) -> bool {
+        matches!(
+            self.result_type,
+            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+        )
+    }
+
+    /// If this is an aggregate result, then add a child to it. Also updates the following of this
+    /// record:
+    /// - The document ID will inherit the new child added
+    /// - The child's frequency will contribute to this result
+    /// - The child's field mask will contribute to this result's field mask
+    /// - If the child has metrics, then they will be concatenated to this result's metrics
+    ///
+    /// If this is not an aggregate result, then nothing happens.
+    ///
+    /// # Safety
+    ///
+    /// The given `result` has to stay valid for the lifetime of this index result. Else reading
+    /// from this result will cause undefined behaviour.
+    pub fn push(&mut self, child: &RSIndexResult) {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &mut self.data.agg };
+
+            agg.push(child);
+
+            self.doc_id = child.doc_id;
+            self.freq += child.freq;
+            self.field_mask |= child.field_mask;
+
+            // SAFETY: we know both arguments are valid `RSIndexResult` types
+            unsafe {
+                IndexResult_ConcatMetrics(self, child);
+            }
+        }
+    }
+
+    /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
+    /// an aggregate record or if the index is out-of-bounds.
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &self.data.agg };
+
+            agg.get(index)
+        } else {
+            None
         }
     }
 }

@@ -15,6 +15,8 @@ typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
 typedef __uint128_t t_fieldMask;
 
+typedef struct Header Header;
+
 
 enum RSResultType
 #ifdef __cplusplus
@@ -37,6 +39,13 @@ typedef uint32_t RSResultType;
  * An iterator over the results in an [`RSAggregateResult`].
  */
 typedef struct RSAggregateResultIter RSAggregateResultIter;
+
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct LowMemoryThinVec_____RSIndexResult {
+  Header *ptr;
+} LowMemoryThinVec_____RSIndexResult;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -160,17 +169,9 @@ typedef BitFlags_RSResultType__u32 RSResultTypeMask;
  */
 typedef struct RSAggregateResult {
   /**
-   * The number of child records
+   * The records making up this aggregate result
    */
-  int numChildren;
-  /**
-   * The capacity of the records array. Has no use for extensions
-   */
-  int childrenCap;
-  /**
-   * An array of records
-   */
-  struct RSIndexResult **children;
+  struct LowMemoryThinVec_____RSIndexResult records;
   /**
    * A map of the aggregate type of the underlying records
    */
@@ -274,6 +275,16 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Check if the result is an aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+bool IndexResult_IsAggregate(const struct RSIndexResult *result);
+
+/**
  * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
  * if the index is out of bounds.
  *
@@ -325,6 +336,41 @@ uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
 void AggregateResult_Reset(struct RSAggregateResult *agg);
+
+/**
+ * Create a new aggregate result with the specified capacity. This function will allocate memory
+ * for the aggregate result and return a pointer to it. The caller is responsible for freeing
+ * the memory using [`AggregateResult_FreeChildren`].
+ */
+struct RSAggregateResult *AggregateResult_New(uintptr_t cap);
+
+/**
+ * Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
+ * the `child` and will therefore not free it. Instead, the caller is responsible for managing
+ * the memory of the `child` pointer *after* the `parent` has been freed.
+ *
+ * If the `parent` is not an aggregate type, then this is a no-op.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
+
+/**
+ * Free the children pointers of the aggregate result. The instances at the pointers will, however,
+ * not be freed, and the caller is responsible for managing their memory.
+ *
+ * This function will clear the children of the aggregate result, effectively resetting it.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` created using [`AggregateResult_New`].
+ */
+void AggregateResult_FreeChildren(struct RSAggregateResult *agg);
 
 /**
  * Create an iterator over the aggregate result. This iterator should be freed
