@@ -210,6 +210,9 @@ size_t encode_fields_offsets(BufferWriter *bw, t_docId delta, RSIndexResult *res
 /* Wrapper around the static  encodeFieldsOffsetsWide to be able to access it in the Rust benchmarks. */
 size_t encode_fields_offsets_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
+/* Wrapper around the static encodeOffsetsOnly to be able to access it in the Rust benchmarks. */
+size_t encode_offsets_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
 /* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
@@ -242,6 +245,9 @@ bool read_fields_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *c
 
 /* Wrapper around the static readFlagsOffsetsWide to be able to access it in the Rust benchmarks */
 bool read_fields_offsets_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readOffsets to be able to access it in the Rust benchmarks */
+bool read_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
