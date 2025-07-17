@@ -10,7 +10,7 @@
 use std::{
     ffi::{c_char, c_int},
     fmt::Debug,
-    io::{Read, Seek, Write},
+    io::{Cursor, Read, Seek, Write},
     mem::ManuallyDrop,
 };
 
@@ -20,22 +20,27 @@ pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fie
 pub mod freqs_only;
 pub mod numeric;
 
-/// A delta is the difference between document IDs. It is mostly used to save space in the index
-/// because document IDs are usually sequential and the difference between them are small. With the
-/// help of encoding, we can optionally store the difference (delta) efficiently instead of the full document
-/// ID.
-pub struct Delta(usize);
+/// Trait used to correctly derive the delta needed for different encoders
+pub trait IdDelta
+where
+    Self: Sized,
+{
+    /// Try to convert a `u64` into this delta type. If the `u64` will be too big for this delta
+    /// type, then `None` should be returned. Returning `None` will cause the [`InvertedIndex`]
+    /// to make a new block so that it can have a zero delta.
+    fn from_u64(delta: u64) -> Option<Self>;
 
-impl Delta {
-    /// Make a new delta value
-    pub fn new(delta: usize) -> Self {
-        Delta(delta)
-    }
+    /// The delta value when the [`InvertedIndex`] makes a new block and needs a delta equal to `0`.
+    fn zero() -> Self;
 }
 
-impl From<Delta> for usize {
-    fn from(delta: Delta) -> Self {
-        delta.0
+impl IdDelta for u32 {
+    fn from_u64(delta: u64) -> Option<Self> {
+        delta.try_into().ok()
+    }
+
+    fn zero() -> Self {
+        0
     }
 }
 
@@ -317,19 +322,37 @@ impl PartialEq for RSIndexResult {
 
 /// Encoder to write a record into an index
 pub trait Encoder {
+    /// Document ids are represented as `u64`s and stored using delta-encoding.
+    ///
+    /// Some encoders can't encode arbitrarily large id deltas—e.g. they might be limited to `u32::MAX` or
+    /// another subset of the `u64` value range.
+    ///
+    /// This associated type can be used by each encoder to specify which range they support, thus
+    /// allowing the inverted index to work around their limitations accordingly (i.e. by creating new blocks).
+    type Delta: IdDelta;
+
+    /// Does this encoder allow the same document to appear in the index multiple times. We need to
+    /// allow duplicates to support multi-value JSON fields.
+    ///
+    /// Defaults to `false`.
+    const ALLOW_DUPLICATES: bool = false;
+
+    /// The suggested number of entries that can be written in a single block. Defaults to 100.
+    const RECOMMENDED_BLOCK_ENTRIES: usize = 100;
+
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
-    ///
-    /// # Panics
-    /// Non-numeric encoders only accept deltas that fit in a `u32`, and so will panic if the delta
-    /// is larger than `u32::MAX`.
-    /// When using such encoders the inverted index should create new blocks if the delta exceeds `u32::MAX`.
     fn encode<W: Write + Seek>(
-        &self,
+        &mut self,
         writer: W,
-        delta: Delta,
+        delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize>;
+
+    /// Returns the base value that should be used for any delta calculations
+    fn delta_base(block: &IndexBlock) -> t_docId {
+        block.last_doc_id
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -367,3 +390,182 @@ pub trait Decoder {
         }
     }
 }
+
+/// An inverted index is a data structure that maps terms to their occurrences in documents. It is
+/// used to efficiently search for documents that contain specific terms.
+pub struct InvertedIndex<E> {
+    /// The blocks of the index. Each block contains a set of entries for a specific range of
+    /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
+    /// block contains entries for the lowest document IDs, and the last block contains entries for
+    /// the highest document IDs.
+    blocks: Vec<IndexBlock>,
+
+    /// Number of unique documents in the index. This is not the total number of entries, but rather the
+    /// number of unique documents that have been indexed.
+    n_unique_docs: usize,
+
+    /// The encoder to use when adding new entries to the index
+    encoder: E,
+}
+
+/// Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
+/// are ordered by document ID, so the first entry in the block has the lowest document ID, and the
+/// last entry has the highest document ID. The block also contains a buffer that is used to
+/// store the encoded entries. The buffer is dynamically resized as needed when new entries are
+/// added to the block.
+#[allow(dead_code)] // TODO: remove after the DocId encoder is implemented
+pub struct IndexBlock {
+    /// The first document ID in this block. This is used to determine the range of document IDs
+    /// that this block covers.
+    first_doc_id: t_docId,
+
+    /// The last document ID in this block. This is used to determine the range of document IDs
+    /// that this block covers.
+    last_doc_id: t_docId,
+
+    /// The total number of non-unique entries in this block
+    num_entries: usize,
+
+    /// The encoded entries in this block
+    buffer: Vec<u8>,
+}
+
+impl IndexBlock {
+    const SIZE: usize = std::mem::size_of::<Self>();
+
+    /// Make a new index block with primed with the initial doc ID. The next entry written into
+    /// the block should be for this doc ID else the block will contain incoherent data.
+    ///
+    /// This returns the block and how much memory grew by.
+    pub fn new(doc_id: t_docId) -> (Self, usize) {
+        let this = Self {
+            first_doc_id: doc_id,
+            last_doc_id: doc_id,
+            num_entries: 0,
+            buffer: Vec::new(),
+        };
+        let buf_cap = this.buffer.capacity();
+
+        (this, Self::SIZE + buf_cap)
+    }
+
+    fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
+        let pos = self.buffer.len();
+        let mut buffer = Cursor::new(&mut self.buffer);
+
+        buffer.set_position(pos as u64);
+
+        buffer
+    }
+}
+
+impl<E: Encoder> InvertedIndex<E> {
+    /// Create a new inverted index with the given encoder. The encoder is used to write new
+    /// entries to the index.
+    pub fn new(encoder: E) -> Self {
+        Self {
+            blocks: Vec::new(),
+            n_unique_docs: 0,
+            encoder,
+        }
+    }
+
+    /// Add a new record to the index and return by how much memory grew. It is expected that
+    /// the document ID of the record is greater than or equal the last document ID in the index.
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+        let doc_id = record.doc_id;
+
+        let same_doc = match (
+            E::ALLOW_DUPLICATES,
+            self.last_doc_id().map(|d| d == doc_id).unwrap_or_default(),
+        ) {
+            (true, true) => true,
+            (false, true) => {
+                // Even though we might allow duplicate document IDs, this encoder does not allow
+                // it since it will contain redundant information. Therefore, we are skipping this
+                // record.
+                return Ok(0);
+            }
+            (_, false) => false,
+        };
+
+        // We take ownership of the block since we are going to keep using self. So we can't have a
+        // mutable reference to the block we are working with at the same time.
+        let (mut block, mut mem_growth) = self.take_block(doc_id, same_doc);
+
+        let delta_base = E::delta_base(&block);
+        debug_assert!(
+            doc_id >= delta_base,
+            "documents should be encoded in the order of their IDs"
+        );
+        let delta = doc_id.wrapping_sub(delta_base);
+
+        let delta = match E::Delta::from_u64(delta) {
+            Some(delta) => delta,
+            None => {
+                // The delta is too large for this encoder. We need to create a new block.
+                // Since the new block is empty, we'll start with `delta` equal to 0.
+                let (new_block, block_size) = IndexBlock::new(doc_id);
+
+                // We won't use the block so make sure to put it back
+                self.blocks.push(block);
+                block = new_block;
+                mem_growth += block_size;
+
+                E::Delta::zero()
+            }
+        };
+
+        let buf_cap = block.buffer.capacity();
+        let writer = block.writer();
+        let _bytes_written = self.encoder.encode(writer, delta, record)?;
+
+        // We don't use `_bytes_written` returned by the encoder to determine by how much memory
+        // grew because the buffer might have had enough capacity for the bytes in the encoding.
+        // Instead we took the capacity of the buffer before the write and now check by how much it
+        // has increased (if any).
+        let buf_growth = block.buffer.capacity() - buf_cap;
+
+        block.num_entries += 1;
+        block.last_doc_id = doc_id;
+
+        // We took ownership of the block so put it back
+        self.blocks.push(block);
+
+        if !same_doc {
+            self.n_unique_docs += 1;
+        }
+
+        Ok(buf_growth + mem_growth)
+    }
+
+    fn last_doc_id(&self) -> Option<t_docId> {
+        self.blocks.last().map(|b| b.last_doc_id)
+    }
+
+    /// Take a block that can be written to and report by how much memory grew
+    fn take_block(&mut self, doc_id: t_docId, same_doc: bool) -> (IndexBlock, usize) {
+        if self.blocks.is_empty() ||
+            // If the block is full
+        (!same_doc
+            && self
+                .blocks
+                .last()
+                .expect("we just confirmed there are blocks")
+                .num_entries
+                >= E::RECOMMENDED_BLOCK_ENTRIES)
+        {
+            IndexBlock::new(doc_id)
+        } else {
+            (
+                self.blocks
+                    .pop()
+                    .expect("to get the last block since we know there is one"),
+                0,
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
