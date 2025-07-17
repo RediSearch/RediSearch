@@ -191,17 +191,17 @@ pub struct RSIndexResult {
 
 impl Default for RSIndexResult {
     fn default() -> Self {
-        Self::virt(0, 0, 0.0)
+        Self::virt()
     }
 }
 
 impl RSIndexResult {
     /// Create a new virtual index result
-    pub fn virt(doc_id: t_docId, field_mask: FieldMask, weight: f64) -> Self {
+    pub fn virt() -> Self {
         Self {
-            doc_id,
+            doc_id: 0,
             dmd: ptr::null(),
-            field_mask,
+            field_mask: 0,
             freq: 0,
             offsets_sz: 0,
             data: RSIndexResultData {
@@ -210,14 +210,13 @@ impl RSIndexResult {
             result_type: RSResultType::Virtual,
             is_copy: false,
             metrics: ptr::null_mut(),
-            weight,
+            weight: 0.0,
         }
     }
 
-    /// Create a new numeric index result with the given numeric value
-    pub fn numeric(doc_id: t_docId, num: f64) -> Self {
+    /// Create a new numeric index result with the given number
+    pub fn numeric(num: f64) -> Self {
         Self {
-            doc_id,
             field_mask: RS_FIELDMASK_ALL,
             freq: 1,
             data: RSIndexResultData {
@@ -229,10 +228,9 @@ impl RSIndexResult {
         }
     }
 
-    /// Create a new metric index result with the given document ID
-    pub fn metric(doc_id: t_docId) -> Self {
+    /// Create a new metric index result
+    pub fn metric() -> Self {
         Self {
-            doc_id,
             field_mask: RS_FIELDMASK_ALL,
             data: RSIndexResultData {
                 num: ManuallyDrop::new(RSNumericRecord(0.0)),
@@ -243,36 +241,31 @@ impl RSIndexResult {
         }
     }
 
-    /// Create a new intersection index result with the given document ID, capacity, and weight
-    pub fn intersect(doc_id: t_docId, cap: usize, weight: f64) -> Self {
+    /// Create a new intersection index result with the given capacity
+    pub fn intersect(cap: usize) -> Self {
         Self {
-            doc_id,
             data: RSIndexResultData {
                 agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
             },
             result_type: RSResultType::Intersection,
-            weight,
             ..Default::default()
         }
     }
 
-    /// Create a new union index result with the given document ID, capacity, and weight
-    pub fn union(doc_id: t_docId, cap: usize, weight: f64) -> Self {
+    /// Create a new union index result with the given capacity
+    pub fn union(cap: usize) -> Self {
         Self {
-            doc_id,
             data: RSIndexResultData {
                 agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
             },
             result_type: RSResultType::Union,
-            weight,
             ..Default::default()
         }
     }
 
-    /// Create a new hybrid metric index result with the given document ID
-    pub fn hybrid_metric(doc_id: t_docId) -> Self {
+    /// Create a new hybrid metric index result
+    pub fn hybrid_metric() -> Self {
         Self {
-            doc_id,
             data: RSIndexResultData {
                 agg: ManuallyDrop::new(RSAggregateResult::with_capacity(2)),
             },
@@ -282,17 +275,43 @@ impl RSIndexResult {
         }
     }
 
-    /// Create a new term index result with the given document ID, term pointer, and weight
-    pub fn term(doc_id: t_docId, term: *mut RSQueryTerm, weight: f64) -> Self {
+    /// Create a new term index result with the given term pointer
+    pub fn term(term: *mut RSQueryTerm) -> Self {
         Self {
-            doc_id,
             data: RSIndexResultData {
                 term: ManuallyDrop::new(RSTermRecord::new(term)),
             },
             result_type: RSResultType::Term,
-            weight,
             ..Default::default()
         }
+    }
+
+    /// Set the document ID of this record
+    pub fn doc_id(mut self, doc_id: t_docId) -> Self {
+        self.doc_id = doc_id;
+
+        self
+    }
+
+    /// Set the field mask of this record
+    pub fn field_mask(mut self, field_mask: FieldMask) -> Self {
+        self.field_mask = field_mask;
+
+        self
+    }
+
+    /// Set the weight of this record
+    pub fn weight(mut self, weight: f64) -> Self {
+        self.weight = weight;
+
+        self
+    }
+
+    /// Set the frequency of this record
+    pub fn frequency(mut self, frequency: u32) -> Self {
+        self.freq = frequency;
+
+        self
     }
 
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
@@ -307,24 +326,6 @@ impl RSIndexResult {
             Some(unsafe { &self.data.num })
         } else {
             None
-        }
-    }
-
-    /// Create a new freqs only index result with the given frequency.
-    pub fn freqs_only(doc_id: t_docId, freq: u32) -> Self {
-        Self {
-            doc_id,
-            dmd: std::ptr::null(),
-            field_mask: 0,
-            freq,
-            offsets_sz: 0,
-            data: RSIndexResultData {
-                virt: ManuallyDrop::new(RSVirtualResult),
-            },
-            result_type: RSResultType::Virtual,
-            is_copy: false,
-            metrics: std::ptr::null_mut(),
-            weight: 0.0,
         }
     }
 }
