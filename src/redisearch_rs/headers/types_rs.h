@@ -177,6 +177,10 @@ typedef BitFlags_RSResultType__u32 RSResultTypeMask;
 typedef struct RSAggregateResult {
   /**
    * The records making up this aggregate result
+   *
+   * The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+   * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
   struct LowMemoryThinVec_____RSIndexResult records;
   /**
