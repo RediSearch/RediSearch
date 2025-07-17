@@ -35,6 +35,12 @@ static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *ch
 /* Add the metrics of a child to a parent index result. */
 void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
 
+/* Make a copy of the offset vector into the destination. This assumes the destination is empty */
+void RSOffsetVector_Copy(RSOffsetVector *src, RSOffsetVector *dest);
+
+/* Make a complete clone of the metrics array and increment the reference count of each value  */
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src);
+
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
   r->metrics = array_ensure_append_1(r->metrics, new_element);

@@ -40,6 +40,21 @@ void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child) {
   }
 }
 
+void RSOffsetVector_Copy(RSOffsetVector *src, RSOffsetVector *dest) {
+  dest->data = rm_malloc(src->len);
+  memcpy(dest->data, src->data, src->len);
+}
+
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src) {
+   // Create a copy of the array and increase the refcount for each element's value
+    RSYieldableMetric* ret = NULL;
+    ret = array_ensure_append_n(ret, src, array_len(src));
+    for (size_t i = 0; i < array_len(ret); i++)
+      RSValue_IncrRef(ret[i].value);
+
+    return ret;
+}
+
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight) {
   return __newAggregateResult(cap, RSResultType_Intersection, weight);
