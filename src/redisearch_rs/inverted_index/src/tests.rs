@@ -261,6 +261,7 @@ impl Decoder for Dummy {
 
 #[test]
 fn reading_records() {
+    // Make a single block with two deltas
     let blocks = vec![IndexBlock {
         buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
         num_entries: 2,
@@ -269,7 +270,15 @@ fn reading_records() {
     }];
     let mut ir = IndexReader::new(&blocks, Dummy);
 
-    let record = ir.next().unwrap().unwrap();
-
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(11));
 }

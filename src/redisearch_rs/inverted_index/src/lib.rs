@@ -767,27 +767,32 @@ pub struct IndexReader<'a, D> {
     decoder: D,
 
     current_buffer: Cursor<&'a [u8]>,
+    last_doc_id: t_docId,
 }
 
 impl<'a, D: Decoder> IndexReader<'a, D> {
     pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
+        let first_block = blocks
+            .first()
+            .expect("IndexReader should not be created with an empty block list");
+
         Self {
             blocks,
             decoder,
-            current_buffer: Cursor::new(&[]),
+            current_buffer: Cursor::new(&first_block.buffer),
+            last_doc_id: first_block.first_doc_id,
         }
     }
 
     pub fn next(&mut self) -> std::io::Result<Option<RSIndexResult>> {
-        let last_block = &self.blocks[0];
-        self.current_buffer = Cursor::new(&last_block.buffer);
-
         let DecoderResult::Record(result) = self
             .decoder
-            .decode(&mut self.current_buffer, last_block.first_doc_id)?
+            .decode(&mut self.current_buffer, self.last_doc_id)?
         else {
             todo!()
         };
+
+        self.last_doc_id = result.doc_id;
 
         Ok(Some(result))
     }
