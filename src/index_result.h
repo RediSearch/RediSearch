@@ -32,6 +32,12 @@ void ResultMetrics_Free(RSIndexResult *r);
 
 void Term_Offset_Data_Free(RSTermRecord *tr);
 
+/* Make a copy of the offset vector into the destination. This assumes the destination is empty */
+void RSOffsetVector_Copy(RSOffsetVector *src, RSOffsetVector *dest);
+
+/* Make a complete clone of the metrics array and increment the reference count of each value  */
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src);
+
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
   r->metrics = array_ensure_append_1(r->metrics, new_element);
