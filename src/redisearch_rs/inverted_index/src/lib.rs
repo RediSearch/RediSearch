@@ -10,7 +10,7 @@
 use std::{
     ffi::{c_char, c_int},
     fmt::Debug,
-    io::{Cursor, Read, Seek, Write},
+    io::{BufRead, Cursor, Read, Seek, Write},
     mem::ManuallyDrop,
     ptr,
 };
@@ -767,6 +767,7 @@ pub struct IndexReader<'a, D> {
     decoder: D,
 
     current_buffer: Cursor<&'a [u8]>,
+    current_block: usize,
     last_doc_id: t_docId,
 }
 
@@ -780,11 +781,24 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
             blocks,
             decoder,
             current_buffer: Cursor::new(&first_block.buffer),
+            current_block: 0,
             last_doc_id: first_block.first_doc_id,
         }
     }
 
     pub fn next(&mut self) -> std::io::Result<Option<RSIndexResult>> {
+        // Check if the current buffer is empty
+        if self.current_buffer.fill_buf()?.is_empty() {
+            let Some(next_block) = self.blocks.get(self.current_block + 1) else {
+                // No more blocks to read from
+                return Ok(None);
+            };
+
+            self.current_block += 1;
+            self.last_doc_id = next_block.first_doc_id;
+            self.current_buffer = Cursor::new(&next_block.buffer);
+        }
+
         let DecoderResult::Record(result) = self
             .decoder
             .decode(&mut self.current_buffer, self.last_doc_id)?

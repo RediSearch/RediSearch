@@ -261,13 +261,21 @@ impl Decoder for Dummy {
 
 #[test]
 fn reading_records() {
-    // Make a single block with two deltas
-    let blocks = vec![IndexBlock {
-        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
-        num_entries: 2,
-        first_doc_id: 10,
-        last_doc_id: 11,
-    }];
+    // Make two blocks. The first with two records and the second with one record
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 0,
+            first_doc_id: 100,
+            last_doc_id: 100,
+        },
+    ];
     let mut ir = IndexReader::new(&blocks, Dummy);
 
     let record = ir
@@ -281,4 +289,13 @@ fn reading_records() {
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(11));
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(100));
+
+    let record = ir.next().expect("to be able to read from the buffer");
+    assert_eq!(record, None);
 }
