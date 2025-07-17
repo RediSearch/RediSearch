@@ -9,6 +9,7 @@ publish.workspace = true
 ffi.workspace = true
 enumflags2.workspace = true
 pin-project.workspace = true
+libc.workspace = true
 
 [lints]
 workspace = true
