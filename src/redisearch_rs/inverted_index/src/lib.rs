@@ -85,9 +85,9 @@ pub struct RSTermRecord {
 
 impl RSTermRecord {
     /// Create a new term record with the given term pointer
-    pub fn new(term: *mut RSQueryTerm) -> Self {
+    pub fn new() -> Self {
         Self {
-            term,
+            term: ptr::null_mut(),
             offsets: RSOffsetVector::empty(),
         }
     }
@@ -276,10 +276,10 @@ impl RSIndexResult {
     }
 
     /// Create a new term index result with the given term pointer
-    pub fn term(term: *mut RSQueryTerm) -> Self {
+    pub fn term() -> Self {
         Self {
             data: RSIndexResultData {
-                term: ManuallyDrop::new(RSTermRecord::new(term)),
+                term: ManuallyDrop::new(RSTermRecord::new()),
             },
             result_type: RSResultType::Term,
             ..Default::default()
