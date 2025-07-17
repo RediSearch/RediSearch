@@ -135,6 +135,10 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 #[derive(Debug, PartialEq)]
 pub struct RSAggregateResult {
     /// The records making up this aggregate result
+    ///
+    /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+    /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+    /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
     records: LowMemoryThinVec<*mut RSIndexResult>,
 
     /// A map of the aggregate type of the underlying records
@@ -200,7 +204,7 @@ impl RSAggregateResult {
         self.type_mask = RSResultTypeMask::empty();
     }
 
-    /// Add a child to the aggregate result
+    /// Add a child to the aggregate result and update the type mask
     ///
     /// # Safety
     /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
@@ -441,26 +445,33 @@ impl RSIndexResult {
         )
     }
 
-    /// Adds a result if this is an aggregate type. Else nothing happens to the added result.
+    /// If this is an aggregate result, then add a child to it. Also updates the following of this
+    /// record:
+    /// - The document ID will inherit the new child added
+    /// - The child's frequency will contribute to this result
+    /// - The child's field mask will contribute to this result's field mask
+    /// - If the child has metrics, then they will be concatenated to this result's metrics
+    ///
+    /// If this is not an aggregate result, then nothing happens.
     ///
     /// # Safety
     ///
     /// The given `result` has to stay valid for the lifetime of this index result. Else reading
     /// from this result will cause undefined behaviour.
-    pub fn push(&mut self, result: &RSIndexResult) {
+    pub fn push(&mut self, child: &RSIndexResult) {
         if self.is_aggregate() {
             // SAFETY: we know the data will be an aggregate because we just checked the type
             let agg = unsafe { &mut self.data.agg };
 
-            agg.push(result);
+            agg.push(child);
 
-            self.doc_id = result.doc_id;
-            self.freq += result.freq;
-            self.field_mask |= result.field_mask;
+            self.doc_id = child.doc_id;
+            self.freq += child.freq;
+            self.field_mask |= child.field_mask;
 
             // SAFETY: we know both arguments are valid `RSIndexResult` types
             unsafe {
-                IndexResult_ConcatMetrics(self, result);
+                IndexResult_ConcatMetrics(self, child);
             }
         }
     }
