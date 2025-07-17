@@ -73,7 +73,7 @@ pub fn read_numeric(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index:
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
-    let mut result = inverted_index::RSIndexResult::numeric(0, 0.0);
+    let mut result = inverted_index::RSIndexResult::numeric(0.0);
 
     let returned = unsafe { bindings::read_numeric(&mut block_reader, &mut ctx, &mut result) };
 
@@ -95,7 +95,7 @@ pub fn read_freqs(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::R
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
-    let mut result = inverted_index::RSIndexResult::freqs_only(base_id, 0);
+    let mut result = inverted_index::RSIndexResult::virt().doc_id(base_id);
 
     let returned = unsafe { bindings::read_freqs(&mut block_reader, &mut ctx, &mut result) };
 
@@ -160,7 +160,7 @@ mod tests {
         for (input, delta, expected_encoding) in tests {
             let mut buffer = TestBuffer::with_capacity(16);
 
-            let mut record = inverted_index::RSIndexResult::numeric(1_000, input);
+            let mut record = inverted_index::RSIndexResult::numeric(input).doc_id(1_000);
 
             let _buffer_grew_size = encode_numeric(&mut buffer, &mut record, delta);
 
@@ -212,7 +212,9 @@ mod tests {
 
         for (freq, delta, expected_encoding) in tests {
             let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
-            let mut record = inverted_index::RSIndexResult::freqs_only(doc_id, freq);
+            let mut record = inverted_index::RSIndexResult::virt()
+                .doc_id(doc_id)
+                .frequency(freq);
 
             let _buffer_grew_size = encode_freqs_only(&mut buffer, &mut record, delta);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
