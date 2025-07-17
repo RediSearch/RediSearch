@@ -769,6 +769,9 @@ pub struct IndexReader<'a, D> {
     current_buffer: Cursor<&'a [u8]>,
     current_block: usize,
     last_doc_id: t_docId,
+
+    skip_duplicates: bool,
+    last_read_doc_id: t_docId,
 }
 
 impl<'a, D: Decoder> IndexReader<'a, D> {
@@ -783,33 +786,52 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
             current_buffer: Cursor::new(&first_block.buffer),
             current_block: 0,
             last_doc_id: first_block.first_doc_id,
+            skip_duplicates: false,
+            last_read_doc_id: 0, // TODO: can a doc id be 0?
         }
     }
 
+    pub fn skip_duplicates(mut self) -> Self {
+        self.skip_duplicates = true;
+
+        self
+    }
+
     pub fn next(&mut self) -> std::io::Result<Option<RSIndexResult>> {
-        // Check if the current buffer is empty. The GC might clean out a block so we have to
-        // continue checking until we find a block with data.
-        while self.current_buffer.fill_buf()?.is_empty() {
-            let Some(next_block) = self.blocks.get(self.current_block + 1) else {
-                // No more blocks to read from
-                return Ok(None);
+        loop {
+            // Check if the current buffer is empty. The GC might clean out a block so we have to
+            // continue checking until we find a block with data.
+            while self.current_buffer.fill_buf()?.is_empty() {
+                let Some(next_block) = self.blocks.get(self.current_block + 1) else {
+                    // No more blocks to read from
+                    return Ok(None);
+                };
+
+                self.current_block += 1;
+                self.last_doc_id = next_block.first_doc_id;
+                self.current_buffer = Cursor::new(&next_block.buffer);
+            }
+
+            let DecoderResult::Record(result) = self
+                .decoder
+                .decode(&mut self.current_buffer, self.last_doc_id)?
+            else {
+                todo!()
             };
 
-            self.current_block += 1;
-            self.last_doc_id = next_block.first_doc_id;
-            self.current_buffer = Cursor::new(&next_block.buffer);
+            if self.skip_duplicates {
+                if result.doc_id == self.last_read_doc_id {
+                    // We are skipping duplicates, so we don't return this record
+                    continue;
+                }
+
+                self.last_read_doc_id = result.doc_id;
+            }
+
+            self.last_doc_id = result.doc_id;
+
+            return Ok(Some(result));
         }
-
-        let DecoderResult::Record(result) = self
-            .decoder
-            .decode(&mut self.current_buffer, self.last_doc_id)?
-        else {
-            todo!()
-        };
-
-        self.last_doc_id = result.doc_id;
-
-        Ok(Some(result))
     }
 }
 
