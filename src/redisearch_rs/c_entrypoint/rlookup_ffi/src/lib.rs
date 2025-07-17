@@ -7,11 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod bindings;
-mod lookup;
-
-pub use bindings::IndexSpecCache;
-pub use lookup::{
-    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupKeyHeader, RLookupOption,
-    RLookupOptions,
-};
+mod rlookup;
