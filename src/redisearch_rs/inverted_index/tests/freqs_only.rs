@@ -41,7 +41,7 @@ fn test_encode_freqs_only() {
 
     for (freq, delta, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::freqs_only(doc_id, freq);
+        let record = RSIndexResult::virt().doc_id(doc_id).frequency(freq);
 
         let bytes_written = FreqsOnly::default()
             .encode(&mut buf, Delta::new(delta), &record)
@@ -70,7 +70,7 @@ fn test_encode_freqs_only_output_too_small() {
     let buf = &mut buf[0..1];
     let mut cursor = Cursor::new(buf);
 
-    let record = RSIndexResult::freqs_only(10, 5);
+    let record = RSIndexResult::virt().doc_id(10).frequency(5);
     let res = FreqsOnly::default().encode(&mut cursor, Delta::new(0), &record);
 
     assert_eq!(res.is_err(), true);
@@ -108,6 +108,6 @@ fn test_encode_freqs_only_delta_overflow() {
     // Encoder only supports 32 bits delta and will panic if larger
     let mut buf = Cursor::new(vec![0; 3]);
 
-    let record = RSIndexResult::freqs_only(10, 5);
+    let record = RSIndexResult::virt().doc_id(10).frequency(5);
     let _res = FreqsOnly::default().encode(&mut buf, Delta::new(u32::MAX as usize + 1), &record);
 }

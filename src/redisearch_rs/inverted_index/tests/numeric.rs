@@ -365,7 +365,7 @@ fn test_numeric_encode_decode(
     expected_buffer: Vec<u8>,
 ) {
     let mut buf = Cursor::new(Vec::new());
-    let record = RSIndexResult::numeric(u64::MAX, value);
+    let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
     let numeric = Numeric::new();
     let bytes_written = numeric
@@ -400,7 +400,7 @@ fn test_numeric_encode_decode(
 #[test]
 fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
-    let record = RSIndexResult::numeric(0, 3.124);
+    let record = RSIndexResult::numeric(3.124);
 
     let numeric = Numeric::new().with_float_compression();
     let _bytes_written = numeric
@@ -448,7 +448,7 @@ fn test_empty_buffer() {
 #[should_panic(expected = "numeric encoder will only be called for numeric records")]
 fn encoding_non_numeric_record() {
     let mut buffer = Cursor::new(Vec::new());
-    let record = RSIndexResult::virt(10, 0, 0.0);
+    let record = RSIndexResult::virt().doc_id(10);
 
     let _result = Numeric::new().encode(&mut buffer, Delta::new(0), &record);
 }
@@ -456,7 +456,7 @@ fn encoding_non_numeric_record() {
 #[test]
 fn encoding_to_fixed_buffer() {
     let mut buffer = Cursor::new([0; 2]);
-    let record = RSIndexResult::numeric(1, 100.0);
+    let record = RSIndexResult::numeric(100.0).doc_id(1);
 
     let result = Numeric::new().encode(&mut buffer, Delta::new(1), &record);
 
@@ -524,7 +524,7 @@ fn encoding_to_slow_writer() {
     }
 
     let mut buffer = SlowWriter::new(Vec::new());
-    let record = RSIndexResult::numeric(10, 3.124);
+    let record = RSIndexResult::numeric(3.124).doc_id(10);
 
     let result = Numeric::new()
         .encode(&mut buffer, Delta::new(0), &record)
@@ -558,7 +558,7 @@ proptest! {
         value in u64::MIN..u64::MAX,
     ) {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(u64::MAX, value as _);
+        let record = RSIndexResult::numeric(value as _).doc_id(u64::MAX);
 
         let numeric = Numeric::new();
         let _bytes_written =
@@ -583,7 +583,7 @@ proptest! {
         value in f64::MIN..f64::MAX,
     ) {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(u64::MAX, value);
+        let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
         let numeric = Numeric::new();
         let _bytes_written =
