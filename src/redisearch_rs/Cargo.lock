@@ -752,6 +752,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
+ "varint",
 ]
 
 [[package]]
@@ -766,6 +767,7 @@ dependencies = [
  "itertools 0.14.0",
  "redis-module",
  "redis_mock",
+ "varint_ffi",
 ]
 
 [[package]]

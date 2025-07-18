@@ -19,6 +19,7 @@ use enumflags2::{BitFlags, bitflags};
 use ffi::{FieldMask, RS_FIELDMASK_ALL};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 
+pub mod freqs_fields;
 pub mod freqs_only;
 pub mod numeric;
 
