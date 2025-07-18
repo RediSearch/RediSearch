@@ -8,6 +8,7 @@
 */
 
 #include "inverted_index_iterator.h"
+#include "redis_index.h"
 
 // pointer to the current block while reading the index
 #define CURRENT_BLOCK(it) ((it)->idx->blocks[(it)->currentBlock])
@@ -47,6 +48,109 @@ size_t InvIndIterator_NumEstimated(QueryIterator *base) {
 }
 
 #define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
+
+static ValidateStatus EmptyCheckAbort(QueryIterator *base) {
+  return VALIDATE_OK;
+}
+
+static ValidateStatus NumericCheckAbort(QueryIterator *base) {
+  NumericInvIndIterator *nit = (NumericInvIndIterator *)base;
+  InvIndIterator *it = (InvIndIterator *)base;
+
+  // For numeric fields, we need to get the field name from the filter context
+  // We need to use the field spec directly from the numeric filter
+  const NumericFilter *filter = it->decoderCtx.filter;
+  if (!filter) {
+    // No filter means we can't check for revision changes
+    return VALIDATE_OK;
+  }
+
+  RedisModuleString *numField = IndexSpec_GetFormattedKey(it->sctx->spec, filter->fieldSpec, INDEXFLD_T_NUMERIC);
+  NumericRangeTree *rt = openNumericKeysDict(it->sctx->spec, numField, DONT_CREATE_INDEX);
+
+  if (!rt || rt->revisionId != nit->revisionId) {
+    // The numeric tree was either completely deleted or a node was split or removed.
+    // The cursor is invalidated.
+    base->isAborted = true;
+    return VALIDATE_ABORTED;
+  }
+
+  return VALIDATE_OK;
+}
+
+static ValidateStatus TermCheckAbort(QueryIterator *base) {
+  InvIndIterator *it = (InvIndIterator *)base;
+  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, base->current->data.term.term->str,
+      base->current->data.term.term->len, false, NULL);
+  if (!idx || idx == TRIEMAP_NOTFOUND || it->idx != idx) {
+    // The inverted index was collected entirely by GC.
+    // All the documents that were inside were deleted and new ones were added.
+    // We will not continue reading those new results and instead abort reading
+    // for this specific inverted index.
+    base->isAborted = true;
+    return VALIDATE_ABORTED;
+  }
+  return VALIDATE_OK;
+}
+
+static ValidateStatus TagCheckAbort(QueryIterator *base) {
+  TagInvIndIterator *it = (TagInvIndIterator *)base;
+  size_t sz;
+  // TODO(Joan): This is wrong, We may need to have another class for tag iterators where we include the TagIndex there
+  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, base->current->data.term.term->str,
+      base->current->data.term.term->len, false, &sz);
+  if (!idx || idx == TRIEMAP_NOTFOUND || it->base.idx != idx) {
+    // The inverted index was collected entirely by GC.
+    // All the documents that were inside were deleted and new ones were added.
+    // We will not continue reading those new results and instead abort reading
+    // for this specific inverted index.
+
+    base->isAborted = true;
+    return VALIDATE_ABORTED;
+  }
+  return VALIDATE_OK;
+}
+
+static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
+  // Here we should apply the specifics of Term, Tag and Numeric
+
+  InvIndIterator *it = (InvIndIterator *)base;
+  if (base->atEOF) {
+    // Save time and state if we are already at the end
+    return VALIDATE_OK;
+  }
+
+  ValidateStatus ret = it->CheckAbort(it);
+
+  if(ret != VALIDATE_OK) {
+    return ret;
+  }
+
+  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
+  if (it->gcMarker == it->idx->gcMarker) {
+    // no GC - we just go to the same offset we were at
+    size_t offset = it->blockReader.buffReader.pos;
+    SetCurrentBlockReader(it);
+    it->blockReader.buffReader.pos = offset;
+    ret = VALIDATE_OK;
+  } else {
+    // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
+    // anymore. This means that we need to seek to last docId we were at
+
+    // keep the last docId we were at
+    t_docId lastDocId = base->lastDocId;
+    // reset the state of the reader
+    base->Rewind(base);
+    IteratorStatus rc = base->SkipTo(base, lastDocId);
+    if (rc == ITERATOR_NOTFOUND) {
+      ret = VALIDATE_MOVED;
+    } else if (rc == ITERATOR_EOF) {
+      ret = VALIDATE_OK;
+    }
+  }
+
+  return ret;
+}
 
 // Used to determine if the field mask for the given doc id are valid based on their ttl:
 // it->filterCtx.predicate
@@ -266,10 +370,8 @@ eof:
   return ITERATOR_EOF;
 }
 
-static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
-                                        bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
-  RS_ASSERT(idx && idx->size > 0);
-  InvIndIterator *it = rm_calloc(1, sizeof(*it));
+static QueryIterator *InitInvIndIterator(InvIndIterator *it, InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+                                        bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   it->idx = idx;
   it->currentBlock = 0;
   it->gcMarker = idx->gcMarker;
@@ -279,9 +381,12 @@ static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, 
   it->sctx = sctx;
   it->filterCtx = *filterCtx;
   it->isWildcard = false;
+  it->CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))checkAbortFn;
+
   SetCurrentBlockReader(it);
 
   it->base.current = res;
+  it->base.isAborted = false;
   it->base.type = READ_ITERATOR;
   it->base.atEOF = false;
   it->base.lastDocId = 0;
@@ -290,7 +395,41 @@ static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, 
   it->base.SkipTo = it->decoders.seeker ? InvIndIterator_SkipTo_withSeeker : InvIndIterator_SkipTo_Default;
   it->base.Free = InvIndIterator_Free;
   it->base.Rewind = InvIndIterator_Rewind;
+  it->base.Revalidate = InvIndIterator_Revalidate;
   return &it->base;
+}
+
+static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+                                        bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
+  RS_ASSERT(idx && idx->size > 0);
+  InvIndIterator *it = rm_calloc(1, sizeof(*it));
+  return InitInvIndIterator(it, idx, res, filterCtx, skipMulti, sctx, decoderCtx, checkAbortFn);
+}
+
+static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+                bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
+  RS_ASSERT(idx && idx->size > 0);
+  NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
+
+  // Initialize the iterator first
+  InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
+
+  // Get the numeric field key and retrieve the NumericRangeTree
+  const NumericFilter *filter = decoderCtx->filter;
+  if (sctx && filter) {
+    RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, filter->fieldSpec, INDEXFLD_T_NUMERIC);
+    NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
+    if (rt) {
+      it->revisionId = rt->revisionId;
+    }
+  } else {
+    // TODO(Joan): Without Sctx (NumericFull should I check for Validation?)
+    it->revisionId = 0;
+    it->base.CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))EmptyCheckAbort;
+  }
+
+
+  return &it->base.base;
 }
 
 QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {
@@ -299,7 +438,7 @@ QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
   IndexDecoderCtx decoderCtx = {.filter = NULL};
-  return NewInvIndIterator(idx, NewNumericResult(), &fieldCtx, false, NULL, &decoderCtx);
+  return NewInvIndIterator_NumericRange(idx, NewNumericResult(), &fieldCtx, false, NULL, &decoderCtx);
 }
 
 QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx) {
@@ -311,13 +450,27 @@ QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx) {
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
-  return NewInvIndIterator(idx, res, &fieldCtx, false, NULL, &decoderCtx);
+  return NewInvIndIterator(idx, res, &fieldCtx, false, NULL, &decoderCtx, TermCheckAbort);
+}
+
+QueryIterator *NewInvIndIterator_TagFull(InvertedIndex *idx, TagIndex *tagIdx) {
+  FieldFilterContext fieldCtx = {
+    .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
+    .predicate = FIELD_EXPIRATION_DEFAULT,
+  };
+  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
+  TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
+  it->tagIdx = tagIdx;
+  return InitInvIndIterator(&it->base, idx, res, &fieldCtx, false, NULL, &decoderCtx, TagCheckAbort);
 }
 
 QueryIterator *NewInvIndIterator_NumericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, double rangeMin, double rangeMax) {
   IndexDecoderCtx decoderCtx = {.filter = flt};
-  QueryIterator *ret = NewInvIndIterator(idx, NewNumericResult(), fieldCtx, true, sctx, &decoderCtx);
+  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), fieldCtx, true, sctx, &decoderCtx);
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
   it->profileCtx.numeric.rangeMax = rangeMax;
@@ -358,8 +511,34 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
   else
     dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
 
-  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx);
+  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx, TermCheckAbort);
 }
+
+QueryIterator *NewInvIndIterator_TagQuery(InvertedIndex *idx, TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+                                           RSQueryTerm *term, double weight) {
+
+  FieldFilterContext fieldCtx = {
+    .field = fieldMaskOrIndex,
+    .predicate = FIELD_EXPIRATION_DEFAULT,
+  };
+
+  RSIndexResult *record = NewTokenRecord(term, weight);
+  record->fieldMask = RS_FIELDMASK_ALL;
+  record->freq = 1;
+
+  IndexDecoderCtx dctx = {0};
+  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
+    dctx.wideMask = fieldMaskOrIndex.value.mask;
+  else if (fieldMaskOrIndex.isFieldMask)
+    dctx.mask = fieldMaskOrIndex.value.mask;
+  else
+    dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+
+  TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
+  it->tagIdx = tagIdx;
+  return InitInvIndIterator(&it->base, idx, record, &fieldCtx, true, sctx, &dctx, TagCheckAbort);
+}
+
 
 QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                               enum FieldExpirationPredicate predicate, double weight) {
@@ -370,5 +549,5 @@ QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSea
   IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = (predicate == FIELD_EXPIRATION_MISSING) ? 0 : 1; // TODO: is this required?
-  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx);
+  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx, EmptyCheckAbort);
 }

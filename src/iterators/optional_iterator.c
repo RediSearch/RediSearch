@@ -214,6 +214,7 @@ QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, do
   oi->weight = weight;
 
   ret = &oi->base;
+  ret->isAborted = false;
   ret->type = OPTIONAL_ITERATOR;
   ret->atEOF = false;
   ret->lastDocId = 0;

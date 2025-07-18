@@ -38,6 +38,10 @@ protected:
   }
 };
 
+TEST_P(IDListIteratorCommonTest, Revalidate) {
+  ASSERT_EQ(iterator_base->Revalidate(iterator_base), VALIDATE_OK);
+}
+
 
 TEST_P(IDListIteratorCommonTest, Read) {
   IdListIterator *iterator = (IdListIterator *)iterator_base;

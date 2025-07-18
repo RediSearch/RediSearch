@@ -104,6 +104,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
     RedisSearchCtx_LockSpecRead(RP_SCTX(base));
+    //it->ReOpen(it->ctx);
     ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
   }
 

@@ -6,9 +6,28 @@
 
 #include "gtest/gtest.h"
 #include "iterator_util.h"
+#include "index_utils.h"  // For MockQueryEvalCtx
 
 #include "src/forward_index.h"
 #include "src/iterators/inverted_index_iterator.h"
+#include "src/tag_index.h"
+
+// If I add extern "C" to the original one, I get issues compiling Rust
+void FieldSpec_Cleanup(FieldSpec* fs) {
+  // if `AS` was not used, name and path are pointing at the same string
+  if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
+    HiddenString_Free(fs->fieldPath, true);
+  }
+  fs->fieldPath = NULL;
+  if (fs->fieldName) {
+    HiddenString_Free(fs->fieldName, true);
+    fs->fieldName = NULL;
+  }
+
+  if (fs->types & INDEXFLD_T_VECTOR) {
+    VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
+  }
+}
 
 typedef enum IndexType {
     INDEX_TYPE_TERM_FULL,
@@ -16,6 +35,8 @@ typedef enum IndexType {
     INDEX_TYPE_TERM,
     INDEX_TYPE_NUMERIC,
     INDEX_TYPE_GENERIC,
+    INDEX_TYPE_TAG_FULL,
+    INDEX_TYPE_TAG,
 } IndexType;
 
 class IndexIteratorTest : public ::testing::TestWithParam<IndexType> {
@@ -24,8 +45,17 @@ protected:
     std::array<t_docId, n_docs> resultSet;
     InvertedIndex *idx;
     QueryIterator *it_base;
+    TagIndex *tagIdx;
+    std::unique_ptr<MockQueryEvalCtx> mockEvalCtx;
+    FieldSpec *fs;
+    NumericFilter *flt;
 
     void SetUp() override {
+        // Initialize TagIndex to nullptr
+        tagIdx = nullptr;
+        fs = nullptr;
+        flt = nullptr;
+
         // Generate a set of document IDs for testing
         for (size_t i = 0; i < n_docs; ++i) {
             resultSet[i] = 2 * i + 1; // Document IDs start from 1
@@ -46,20 +76,76 @@ protected:
                 break;
             case INDEX_TYPE_NUMERIC: {
                 SetNumericInvIndex();
+                ASSERT_TRUE(idx != nullptr);
                 FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
                 FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-                it_base = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, -INFINITY, INFINITY);
+
+                // Create a field spec for the numeric filter
+                fs = (FieldSpec*)rm_calloc(1, sizeof(FieldSpec));
+                fs->fieldName = NewHiddenString("dummy_field", strlen("dummy_field"), true);
+                fs->fieldPath = fs->fieldName; // Use same string for path
+                fs->types = INDEXFLD_T_NUMERIC;
+                fs->index = 0;
+                fs->ftId = 1;
+
+                // Create a numeric filter with the field spec
+                flt = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, fs);
+
+                // Create a mock RedisSearchCtx with properly initialized spec
+                mockEvalCtx = std::make_unique<MockQueryEvalCtx>(resultSet.back(), n_docs);
+
+                // Make sure the spec name is initialized in the mock context
+                if (!mockEvalCtx->qctx.sctx->spec->specName) {
+                    mockEvalCtx->qctx.sctx->spec->specName = NewHiddenString("dummy_index", strlen("dummy_index"), true);
+                }
+
+                // Initialize keysDict if it doesn't exist
+                if (!mockEvalCtx->qctx.sctx->spec->keysDict) {
+                    // Initialize the keysDict in the spec
+                    IndexSpec_MakeKeyless(mockEvalCtx->qctx.sctx->spec);
+                }
+
+                it_base = NewInvIndIterator_NumericQuery(idx, mockEvalCtx->qctx.sctx, &fieldCtx, flt, -INFINITY, INFINITY);
+            }
+                break;
+            case INDEX_TYPE_TAG_FULL:
+                SetTagInvIndex();
+                it_base = NewInvIndIterator_TagFull(idx, tagIdx);
+                break;
+            case INDEX_TYPE_TAG: {
+                SetTagInvIndex();
+                RSToken tok = {.str = (char *)"tag", .len = 3};
+                RSQueryTerm *term = NewQueryTerm(&tok, 0);
+                FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+
+                mockEvalCtx = std::make_unique<MockQueryEvalCtx>(resultSet.back(), n_docs);
+
+                // Make sure the spec name is initialized
+                if (!mockEvalCtx->qctx.sctx->spec->specName) {
+                    mockEvalCtx->qctx.sctx->spec->specName = NewHiddenString("dummy_index", strlen("dummy_index"), true);
+                }
+                it_base = NewInvIndIterator_TagQuery(idx, tagIdx, mockEvalCtx->qctx.sctx, fieldMaskOrIndex, term, 1.0);
             }
                 break;
             case INDEX_TYPE_GENERIC:
                 SetGenericInvIndex();
-                it_base = NewInvIndIterator_GenericQuery(idx, nullptr, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
+                {
+                    MockQueryEvalCtx mockEvalCtx(resultSet.back(), n_docs);
+                    it_base = NewInvIndIterator_GenericQuery(idx, nullptr, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
+                }
                 break;
+
         }
     }
     void TearDown() override {
         it_base->Free(it_base);
-        InvertedIndex_Free(idx);
+        // TagIndex owns the inverted index
+        if (!tagIdx) {
+            InvertedIndex_Free(idx);
+        }
+        if (tagIdx) {
+            TagIndex_Free(tagIdx);
+        }
     }
 
 private:
@@ -102,6 +188,24 @@ private:
             InvertedIndex_WriteEntryGeneric(idx, encoder, resultSet[i], nullptr);
         }
     }
+
+    void SetTagInvIndex() {
+        // This function should populate the InvertedIndex with tag data using TagIndex API
+        tagIdx = NewTagIndex();
+        ASSERT_TRUE(tagIdx != nullptr);
+
+        // Index tags for each document
+        for (size_t i = 0; i < n_docs; ++i) {
+            std::vector<const char *> tags{"tag", "test"};
+            TagIndex_Index(tagIdx, &tags[0], tags.size(), resultSet[i]);
+        }
+
+        // Get the inverted index for the "tag" value from the TagIndex
+        size_t sz;
+        idx = TagIndex_OpenIndex(tagIdx, "tag", 3, false, &sz);
+        ASSERT_TRUE(idx != nullptr);
+        ASSERT_NE(idx, TRIEMAP_NOTFOUND);
+    }
 };
 
 
@@ -110,7 +214,9 @@ INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Values(
     INDEX_TYPE_NUMERIC_FULL,
     INDEX_TYPE_TERM,
     INDEX_TYPE_NUMERIC,
-    INDEX_TYPE_GENERIC
+    INDEX_TYPE_GENERIC,
+    INDEX_TYPE_TAG_FULL,
+    INDEX_TYPE_TAG
 ));
 
 
@@ -187,6 +293,8 @@ protected:
     InvertedIndex *idx;
     QueryIterator *iterator;
     NumericFilter *flt;
+    std::unique_ptr<MockQueryEvalCtx> mockEvalCtx;
+    FieldSpec *fs;
 
     void SetUp() override {
         size_t memsize;
@@ -194,12 +302,17 @@ protected:
         ASSERT_TRUE(idx != nullptr);
         iterator = nullptr;
         flt = nullptr;
+        fs = nullptr;
     }
 
     void TearDown() override {
         if (flt) NumericFilter_Free(flt);
         if (iterator) iterator->Free(iterator);
         InvertedIndex_Free(idx);
+        if (fs) {
+          FieldSpec_Cleanup(fs);
+          rm_free(fs);
+        }
     }
 
 public:
@@ -218,8 +331,33 @@ public:
         ASSERT_TRUE(idx != nullptr);
         FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-        flt = NewNumericFilter(min, max, 1, 1, 1, nullptr);
-        iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, flt, min, max);
+
+        // Create a field spec for the numeric filter
+        fs = (FieldSpec*)rm_calloc(1, sizeof(FieldSpec));
+        fs->fieldName = NewHiddenString("dummy_field", strlen("dummy_field"), true);
+        fs->fieldPath = fs->fieldName; // Use same string for path
+        fs->types = INDEXFLD_T_NUMERIC;
+        fs->index = 0;
+        fs->ftId = 1;
+
+        // Create a numeric filter with the field spec
+        flt = NewNumericFilter(min, max, 1, 1, 1, fs);
+
+        // Create a mock RedisSearchCtx with properly initialized spec
+        mockEvalCtx = std::make_unique<MockQueryEvalCtx>(1234, 1234);
+
+        // Make sure the spec name is initialized in the mock context
+        if (!mockEvalCtx->qctx.sctx->spec->specName) {
+            mockEvalCtx->qctx.sctx->spec->specName = NewHiddenString("dummy_index", strlen("dummy_index"), true);
+        }
+
+        // Initialize keysDict if it doesn't exist
+        if (!mockEvalCtx->qctx.sctx->spec->keysDict) {
+            // Initialize the keysDict in the spec
+            IndexSpec_MakeKeyless(mockEvalCtx->qctx.sctx->spec);
+        }
+
+        iterator = NewInvIndIterator_NumericQuery(idx, mockEvalCtx->qctx.sctx, &fieldCtx, flt, min, max);
         ASSERT_TRUE(iterator != nullptr);
     }
 };
