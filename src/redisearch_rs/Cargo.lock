@@ -928,6 +928,14 @@ name = "low_memory_thin_vec"
 version = "0.0.1"
 
 [[package]]
+name = "low_memory_thin_vec_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "low_memory_thin_vec",
+]
+
+[[package]]
 name = "macro_rules_attribute"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
