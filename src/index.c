@@ -250,7 +250,7 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   }
 
   int numActive = 0;
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+  IndexResult_ResetAggregate(CURRENT_RECORD(ui));
 
   do {
 
@@ -320,7 +320,7 @@ static inline int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit) {
     IITER_SET_EOF(&ui->base);
     return INDEXREAD_EOF;
   }
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+  IndexResult_ResetAggregate(CURRENT_RECORD(ui));
   t_docId nextValidId = ui->minDocId + 1;
 
   /*
@@ -392,7 +392,7 @@ static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   }
 
   // reset the current hitf
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+  IndexResult_ResetAggregate(CURRENT_RECORD(ui));
   CURRENT_RECORD(ui)->weight = ui->weight;
   int numActive = 0;
   int found = 0;
@@ -482,7 +482,7 @@ static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  AggregateResult_Reset(CURRENT_RECORD(ui));
+  IndexResult_ResetAggregate(CURRENT_RECORD(ui));
   CURRENT_RECORD(ui)->weight = ui->weight;
   int rc = INDEXREAD_EOF;
   IndexIterator *it = NULL;
@@ -772,7 +772,7 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     return II_ReadSorted(ctx, hit);
   }
   IntersectIterator *ic = ctx;
-  AggregateResult_Reset(ic->base.current);
+  IndexResult_ResetAggregate(ic->base.current);
   int nfound = 0;
 
   int rc = INDEXREAD_EOF;
@@ -851,7 +851,7 @@ static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
 
   do {
     nh = 0;
-    AggregateResult_Reset(ic->base.current);
+    IndexResult_ResetAggregate(ic->base.current);
 
     for (i = 0; i < ic->num; i++) {
       IndexIterator *it = ic->its[i];
