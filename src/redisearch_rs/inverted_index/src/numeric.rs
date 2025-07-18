@@ -464,7 +464,7 @@ impl Decoder for Numeric {
         };
 
         let doc_id = base + delta;
-        let record = RSIndexResult::numeric(doc_id, num);
+        let record = RSIndexResult::numeric(num).doc_id(doc_id);
 
         Ok(DecoderResult::Record(record))
     }

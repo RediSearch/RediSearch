@@ -38,7 +38,9 @@ impl Decoder for FreqsOnly {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
         let [delta, freq] = decoded_values;
 
-        let record = RSIndexResult::freqs_only(base + delta as u64, freq);
+        let record = RSIndexResult::virt()
+            .doc_id(base + delta as u64)
+            .frequency(freq);
         Ok(DecoderResult::Record(record))
     }
 }

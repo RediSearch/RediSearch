@@ -31,3 +31,9 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Rust implementation of `t_fieldMask` from `redisearch.h`
 pub type FieldMask = t_fieldMask;
+
+#[cfg(target_pointer_width = "64")]
+pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;
+
+#[cfg(target_pointer_width = "32")]
+pub const RS_FIELDMASK_ALL: FieldMask = u64::MAX;
