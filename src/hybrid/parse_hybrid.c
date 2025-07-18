@@ -192,66 +192,69 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
   req->requests = requests;
   req->nrequests = nrequests;
 
-  // Initialize error tracking for each individual request plus the tail pipeline
+  // Initialize error tracking for each individual request
   req->errors = array_new(QueryError, nrequests);
 
   // Initialize the tail pipeline that will merge results from all requests
-  AGPLN_Init(&req->tail.ap);
+  req->tailPipeline = rm_calloc(1, sizeof(Pipeline));
+  AGPLN_Init(&req->tailPipeline->ap);
   QueryError_Init(&req->tailError);
-  Pipeline_Initialize(&req->tail, requests[0]->pipeline.qctx.timeoutPolicy, &req->tailError);
+  Pipeline_Initialize(req->tailPipeline, requests[0]->pipeline->qctx.timeoutPolicy, &req->tailError);
 
   // Initialize pipelines for each individual request
   for (size_t i = 0; i < nrequests; i++) {
     QueryError_Init(&req->errors[i]);
-    Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
+    Pipeline_Initialize(requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
   }
   return req;
 }
 
 int HybridRequest_BuildPipeline(HybridRequest *req) { return REDISMODULE_OK; }
 
-void HybridRequest_Free(HybridRequest *req) {
-  if (!req) return;
+void HybridRequest_Free(HybridRequest *hybridRequest) {
+  if (!hybridRequest) return;
+
+  // Free the tail pipeline
+  if (hybridRequest->tailPipeline) {
+    Pipeline_Clean(hybridRequest->tailPipeline);
+    rm_free(hybridRequest->tailPipeline);
+    hybridRequest->tailPipeline = NULL;
+  }
 
   // Free all individual AREQ requests
-  for (size_t i = 0; i < req->nrequests; i++) {
+  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
     // Check if we need to manually free the thread-safe context
-    // if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx &&
-    //     !(req->requests[i]->reqflags & QEXEC_F_IS_CURSOR)) {
-    if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
+    if (hybridRequest->requests[i]->sctx && hybridRequest->requests[i]->sctx->redisCtx) {
 
       // Free the search context
-      RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
-      RedisSearchCtx *sctx = req->requests[i]->sctx;
+      RedisModuleCtx *thctx = hybridRequest->requests[i]->sctx->redisCtx;
+      RedisSearchCtx *sctx = hybridRequest->requests[i]->sctx;
       SearchCtx_Free(sctx);
       // Free the thread-safe context
       if (thctx) {
         RedisModule_FreeThreadSafeContext(thctx);
       }
-      req->requests[i]->sctx = NULL;
+      hybridRequest->requests[i]->sctx = NULL;
     }
 
-    AREQ_Free(req->requests[i]);
+    AREQ_Free(hybridRequest->requests[i]);
   }
 
   // Free the scoring context resources
-  HybridScoringContext_Free(req->hybridParams->scoringCtx);
+  HybridScoringContext_Free(hybridRequest->hybridParams->scoringCtx);
 
   // Free the aggregation search context
-  if(req->hybridParams->aggregation.common.sctx) {
-    SearchCtx_Free(req->hybridParams->aggregation.common.sctx);
+  if(hybridRequest->hybridParams->aggregation.common.sctx) {
+    SearchCtx_Free(hybridRequest->hybridParams->aggregation.common.sctx);
   }
   // Free the hybrid parameters
-  rm_free(req->hybridParams);
+  rm_free(hybridRequest->hybridParams);
 
   // Free the arrays and tail pipeline
-  array_free(req->requests);
-  array_free(req->errors);
+  array_free(hybridRequest->requests);
+  array_free(hybridRequest->errors);
 
-  // Clean up the tail pipeline
-  Pipeline_Clean(&req->tail);
-
-  rm_free(req);
+  rm_free(hybridRequest);
 }
 
 
@@ -360,15 +363,17 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
-    // Clean up the existing plan first to avoid memory leaks
-    AGPLN_FreeSteps(&hybridRequest->tail.ap);
+    // Now we can simply transfer the pointer
+    if (hybridRequest->tailPipeline) {
+      Pipeline_Clean(hybridRequest->tailPipeline);
+      rm_free(hybridRequest->tailPipeline);
+    }
 
-    // Use memcpy to create a deep copy of the aggregation plan
-    memcpy(&hybridRequest->tail.ap, &mergeAreq->pipeline.ap, sizeof(AGGPlan));
+    // Transfer ownership of the pipeline
+    hybridRequest->tailPipeline = mergeAreq->pipeline;
 
-    // Clear the source plan's pointers to avoid double free
-    // but keep the structure intact
-    memset(&mergeAreq->pipeline.ap, 0, sizeof(AGGPlan));
+    // Prevent double free
+    mergeAreq->pipeline = NULL;
   }
 
   if (mergeAreq) {

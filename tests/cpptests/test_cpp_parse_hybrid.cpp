@@ -361,5 +361,4 @@ TEST_F(ParseHybridTest, testMultiLineCommand) {
 
   // Clean up
   HybridRequest_Free(result);
-  ctx = NULL; // Set to NULL to prevent TearDown from trying to free it
 }

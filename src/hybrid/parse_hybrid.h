@@ -35,7 +35,7 @@ typedef struct {
   QueryError tailError;
   QueryError *errors;
   RequestConfig reqConfig;
-  Pipeline tail;
+  Pipeline *tailPipeline;  // Now a pointer
   HybridPipelineParams *hybridParams;
 } HybridRequest;
 

@@ -150,7 +150,7 @@ typedef struct AREQ {
   ConcurrentSearchCtx conc;
 
   /** The pipeline for this request */
-  Pipeline pipeline;
+  Pipeline *pipeline;
 
   /** Flags controlling query output */
   uint32_t reqflags;
@@ -276,7 +276,7 @@ static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
 }
 
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
-  return &req->pipeline.qctx;
+  return &req->pipeline->qctx;
 }
 
 static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
@@ -284,7 +284,7 @@ static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
 }
 
 static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
-  return &req->pipeline.ap;
+  return &req->pipeline->ap;
 }
 
 /******************************************************************************
