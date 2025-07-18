@@ -93,6 +93,12 @@ impl RSTermRecord {
     }
 }
 
+impl Default for RSTermRecord {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
