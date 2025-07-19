@@ -163,9 +163,7 @@ typedef struct {
 typedef enum {
   Index_StoreTermOffsets = 0x01,
   Index_StoreFieldFlags = 0x02,
-
-  // Was StoreScoreIndexes, but these are always stored, so this option is unused
-  Index__Reserved1 = 0x04,
+  Index_HasMultiValue = 0x04,
   Index_HasCustomStopwords = 0x08,
   Index_StoreFreqs = 0x010,
   Index_StoreNumeric = 0x020,
