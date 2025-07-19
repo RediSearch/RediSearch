@@ -101,6 +101,7 @@ setup_cc_options()
 # Sanitizer settings
 message(STATUS "SAN: ${SAN}")
 if(SAN)
+    add_compile_definitions(SAN=${SAN})
     if(SAN STREQUAL "address")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address -fsanitize-recover=all")
         set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
