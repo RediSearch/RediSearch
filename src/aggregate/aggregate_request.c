@@ -18,7 +18,6 @@
 #include "extension.h"
 #include "profile.h"
 #include "config.h"
-#include "query_parser/tokenizer.h"
 #include "util/timeout.h"
 #include "query_optimizer.h"
 #include "resp3.h"
@@ -29,7 +28,7 @@ extern RSConfig RSGlobalConfig;
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
- * @param areq the request
+ * @param req the request
  * @param name the name of the option that requires simple mode. Used for error
  *   formatting
  * @param status the error object
@@ -947,6 +946,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     goto error;
   }
 
+  int hasLoad = 0;
+
   // Now we have a 'compiled' plan. Let's get some more options..
 
   while (!AC_IsAtEnd(&ac)) {
@@ -1099,6 +1100,7 @@ static bool IsIndexCoherent(AREQ *req) {
   return true;
 }
 
+
 static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
 
   // Resolve field spec
@@ -1249,8 +1251,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-
-
   if (req->parsedVectorQuery) {
     // ParsedVectorQuery retains ownership of vector data
     // VectorQuery just references it, and VectorQuery_Free won't free it
@@ -1354,7 +1354,7 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
-  if (req->parsedVectorQuery) {
+    if (req->parsedVectorQuery) {
     ParsedVectorQuery_Free(req->parsedVectorQuery);
   }
   rm_free(req->args);
