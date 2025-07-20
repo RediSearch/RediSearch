@@ -299,7 +299,14 @@ benchmark:
 
 vecsim-bench:
 	@echo "Running VecSim micro-benchmarks..."
-	@$(MAKE) -C deps/VectorSimilarity benchmark DEBUG=$(DEBUG) COORD=$(COORD) BM_FILTER=$(BM_FILTER)
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) TESTS
+	@RSBENCH_PATH=$$(find $(ROOT)/bin -name "rsbench" | head -1); \
+	if [ -z "$$RSBENCH_PATH" ]; then \
+		echo "Error: rsbench executable not found after build"; \
+		exit 1; \
+	fi; \
+	echo "Running rsbench from $$RSBENCH_PATH"; \
+	$$RSBENCH_PATH
 
 callgrind:
 	@echo "Running callgrind profiling..."
