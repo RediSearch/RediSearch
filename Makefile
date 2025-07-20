@@ -149,10 +149,15 @@ Packaging:
     RAMP_VARIANT=name  Use specific RAMP variant (community|enterprise)
                        Default: community for oss, enterprise for rlec
   make docker        Build for specified platform
-endef
+
+Benchmarks:
+  make benchmark     Run performance benchmarks
+  make vecsim-bench  Run VecSim micro-benchmarks
+endef # HELPTEXT
 
 help:
-	@echo "$$HELPTEXT"
+	$(info $(HELPTEXT))
+	@:
 
 setup:
 	@echo "Setting up system..."
