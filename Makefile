@@ -280,7 +280,14 @@ benchmark:
 
 vecsim-bench: $(BUILD_SCRIPT)
 	@echo "Running VecSim micro-benchmarks..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_MICRO_BENCHMARKS
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) TESTS
+	@RSBENCH_PATH=$$(find $(ROOT)/bin -name "rsbench" | head -1); \
+	if [ -z "$$RSBENCH_PATH" ]; then \
+		echo "Error: rsbench executable not found after build"; \
+		exit 1; \
+	fi; \
+	echo "Running rsbench from $$RSBENCH_PATH"; \
+	$$RSBENCH_PATH
 
 callgrind:
 	@echo "Running callgrind profiling..."
