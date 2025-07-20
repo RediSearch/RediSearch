@@ -136,22 +136,6 @@ typedef struct SimpleVectorQuery {
   QueryAttribute *attributes; // Self-describing array (OWNED)
 } SimpleVectorQuery;
 
-
-
-typedef struct VectorQueryData {
-  const char *vectorField;
-  const void *vector;        // Actual vector data (parsed from vectorBlob)
-  size_t vectorLen;          // Length of vector data
-  VectorQueryType type;      // VECSIM_QT_KNN or VECSIM_QT_RANGE
-  union {
-    size_t k;                // For KNN queries
-    double radius;           // For RANGE queries
-  };
-  VectorQueryParams params;  // Parsed runtime parameters (EF_RUNTIME, EPSILON, etc.)
-  QueryAttribute *attributes; // Array of QueryAttribute (self-describing array)
-} VectorQueryData;
-
-void VectorQueryData_Free(VectorQueryData *vqData);
 void SimpleVectorQuery_Free(SimpleVectorQuery *svq);
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;

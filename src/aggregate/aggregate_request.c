@@ -1900,39 +1900,6 @@ const FieldSpec* GetVectorFieldSpec(const IndexSpec *spec, const char *fieldName
   return vectorField;
 }
 
-
-void VectorQueryData_Free(VectorQueryData *vqData) {
-  if (!vqData) return;
-
-  // Free vector data
-  if (vqData->vector) {
-    rm_free((void*)vqData->vector);
-  }
-
-  // Free VectorQueryParams arrays
-  if (vqData->params.params) {
-    for (size_t i = 0; i < array_len(vqData->params.params); i++) {
-      rm_free((char*)vqData->params.params[i].name);
-      rm_free((char*)vqData->params.params[i].value);
-    }
-    array_free(vqData->params.params);
-  }
-  if (vqData->params.needResolve) {
-    array_free(vqData->params.needResolve);
-  }
-
-  // Free QueryAttribute arrays with callback
-  if (vqData->attributes) {
-    array_free_ex(vqData->attributes, {
-      QueryAttribute *attr = (QueryAttribute*)ptr;
-      rm_free((char*)attr->value);
-      // Note: .name is not freed because it points to string literals like "yield_distance_as"
-    });
-  }
-
-  rm_free(vqData);
-}
-
 void SimpleVectorQuery_Free(SimpleVectorQuery *svq) {
   if (!svq) return;
 
