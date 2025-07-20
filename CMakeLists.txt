@@ -233,6 +233,18 @@ add_subdirectory(deps/libuv)
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
+# # Override glibc detection for VectorSimilarity on Ubuntu Focal
+# if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+#     execute_process(COMMAND lsb_release -rs
+#                 OUTPUT_VARIABLE UBUNTU_VERSION
+#                 OUTPUT_STRIP_TRAILING_WHITESPACE
+#                 ERROR_QUIET)
+#     if("${UBUNTU_VERSION}" STREQUAL "20.04")
+set(GLIBC_2_28_FOUND FALSE CACHE BOOL "Override glibc 2.28 detection")
+set(GLIBC_2_26_FOUND TRUE CACHE BOOL "Override glibc 2.26 detection")
+#     endif()
+# endif()
+
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 add_subdirectory(src/buffer)
