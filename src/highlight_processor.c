@@ -274,7 +274,7 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
 }
 
 static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
-  IndexIterator *it = QITR_GetRootFilter(rp->parent);
+  const IndexIterator *it = QITR_GetRootFilter(rp->parent);
   RSIndexResult *ir = NULL;
   if (!it) {
     return NULL;
@@ -361,10 +361,10 @@ static void hlpFree(ResultProcessor *p) {
   rm_free(p);
 }
 
-ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
                                    const RLookup *lookup) {
   HlpProcessor *hlp = rm_calloc(1, sizeof(*hlp));
-  if (searchopts->language == RS_LANG_CHINESE) {
+  if (language == RS_LANG_CHINESE) {
     hlp->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
   }
   hlp->base.Next = hlpNext;

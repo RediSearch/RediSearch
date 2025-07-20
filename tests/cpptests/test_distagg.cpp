@@ -47,6 +47,7 @@ static void testAverage() {
     abort();
   }
 
+  Pipeline *pipeline = &r->pipeline;
   // so far, so good, eh?
   AGGPlan *plan = AREQ_AGGPlan(r);
   rc = AGGPLN_Distribute(plan, &status);
@@ -130,7 +131,6 @@ static void testCountDistinct() {
   }
   AREQ_Free(r);
 }
-
 static void testSplit() {
   AREQ *r = AREQ_New();
   AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline

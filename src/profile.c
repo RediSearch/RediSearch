@@ -10,7 +10,7 @@
 #include "reply_macros.h"
 #include "util/units.h"
 
-void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
+void printReadIt(RedisModule_Reply *reply, const IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
@@ -165,7 +165,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
 
       // Print profile of iterators
       QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-      IndexIterator *root = QITR_GetRootFilter(qctx);
+      const IndexIterator *root = QITR_GetRootFilter(qctx);
       // Coordinator does not have iterators
       if (root) {
         RedisModule_Reply_SimpleString(reply, "Iterators profile");

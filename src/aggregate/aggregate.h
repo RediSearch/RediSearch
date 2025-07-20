@@ -15,6 +15,8 @@
 #include "result_processor.h"
 #include "expr/expression.h"
 #include "aggregate_plan.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_construction.h"
 #include "reply.h"
 #include "vector_index.h"
 
@@ -102,14 +104,12 @@ typedef enum {
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
-#define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
+#define HasScorer(opt) ((opt)->scorerType != SCORER_TYPE_NONE)
 #define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
-// Get the index search context from the result processor
-#define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
 // Indicates whether a query should run in the background. This
 // will also guarantee that there is a running thread pool with al least 1 thread.
@@ -140,9 +140,6 @@ void ParsedVectorQuery_Free(ParsedVectorQuery *pvq);
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct AREQ {
-  /* plan containing the logical sequence of steps */
-  AGGPlan ap;
-
   /* Arguments converted to sds. Received on input */
   sds *args;
   size_t nargs;
@@ -169,8 +166,8 @@ typedef struct AREQ {
   /** Resumable context */
   ConcurrentSearchCtx conc;
 
-  /** Context for iterating over the queries themselves */
-  QueryIterator qiter;
+  /** The pipeline for this request */
+  Pipeline pipeline;
 
   /** Flags controlling query output */
   uint32_t reqflags;
@@ -289,7 +286,7 @@ static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
 }
 
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
-  return &req->qiter;
+  return &req->pipeline.qctx;
 }
 
 static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
@@ -297,7 +294,7 @@ static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
 }
 
 static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
-  return &req->ap;
+  return &req->pipeline.ap;
 }
 
 /******************************************************************************
@@ -395,7 +392,7 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
 
 
-#define AREQ_RP(req) (req)->qiter.endProc
+#define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
 #ifdef __cplusplus
 }

@@ -1854,7 +1854,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
 }
 
 #define PRINT_PROFILE_FUNC(name) static void name(RedisModule_Reply *reply,   \
-                                                  IndexIterator *root,        \
+                                                  const IndexIterator *root,  \
                                                   size_t counter,             \
                                                   double cpuTime,             \
                                                   int depth,                  \
@@ -1962,7 +1962,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
   RedisModule_Reply_MapEnd(reply);
 }
 
-void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime,
+void PrintIteratorChildProfile(RedisModule_Reply *reply, const IndexIterator *root, size_t counter, double cpuTime,
                   int depth, int limited, PrintProfileConfig *config, IndexIterator *child, const char *text) {
   size_t nlen = 0;
   RedisModule_Reply_Map(reply);
@@ -2018,7 +2018,7 @@ PRINT_PROFILE_FUNC(printProfileIt) {
     (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
 }
 
-void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
+void printIteratorProfile(RedisModule_Reply *reply, const IndexIterator *root, size_t counter,
                           double cpuTime, int depth, int limited, PrintProfileConfig *config) {
   if (root == NULL) return;
 
