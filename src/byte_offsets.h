@@ -51,25 +51,20 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b);
 RSByteOffsets *LoadByteOffsets(Buffer *buf);
 
-typedef struct {
-  VarintVectorWriter *vw;
-} ByteOffsetWriter;
+typedef VarintVectorWriter ByteOffsetWriter;
 
 void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets);
 
 static inline void ByteOffsetWriter_Init(ByteOffsetWriter *w) {
-  w->vw = NewVarintVectorWriter(16);
+  VVW_Init(w, 16);
 }
 
 static inline void ByteOffsetWriter_Cleanup(ByteOffsetWriter *w) {
-  if (w->vw != NULL) {
-    VVW_Free(w->vw);
-    w->vw = NULL;
-  }
+  VVW_Cleanup(w);
 }
 
 static inline void ByteOffsetWriter_Write(ByteOffsetWriter *w, uint32_t offset) {
-  VVW_Write(w->vw, offset);
+  VVW_Write(w, offset);
 }
 
 /**

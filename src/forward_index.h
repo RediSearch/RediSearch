@@ -53,14 +53,14 @@ typedef struct ForwardIndex {
 
 typedef struct {
   const char *doc;
-  ByteOffsetWriter *allOffsets;
+  VarintVectorWriter *allOffsets;
   ForwardIndex *idx;
   t_fieldId fieldId;
   float fieldScore;
 } ForwardIndexTokenizerCtx;
 
 static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, ForwardIndex *idx,
-                                                 const char *doc, ByteOffsetWriter *vvw,
+                                                 const char *doc, VarintVectorWriter *vvw,
                                                  t_fieldId fieldId, float score) {
   ctx->idx = idx;
   ctx->fieldId = fieldId;

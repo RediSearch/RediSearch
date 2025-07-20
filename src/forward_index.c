@@ -234,8 +234,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);
 
-  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
-    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
+  if (tokCtx->allOffsets) {
+    VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
   }
 
   if (tokInfo->stem) {
@@ -279,7 +279,7 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
 
   rec.data.term.term = NULL;
   if (ent->vw) {
-    rec.data.term.offsets.data = (char *) VVW_GetByteData(ent->vw);
+    rec.data.term.offsets.data = VVW_GetByteData(ent->vw);
     rec.data.term.offsets.len = VVW_GetByteLength(ent->vw);
   }
   return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
