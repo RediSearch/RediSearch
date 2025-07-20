@@ -529,7 +529,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   array_append(tmparr, n_prefixes);
-  for (unsigned int i = 0; i < array_len(prefixes); i++) {
+  for (uint i = 0; i < array_len(prefixes); i++) {
     array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
   }
 

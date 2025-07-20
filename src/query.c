@@ -2162,7 +2162,7 @@ static int ValidateShardKRatio(const char *value, double *ratio, QueryError *sta
 
   if (*ratio <= MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
-      "Shard k ratio must be greater than %g and at most %g (got %g)",
+      "Invalid shard k ratio value: Shard k ratio must be greater than %g and at most %g (got %g)",
       MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, *ratio);
     return 0;
   }

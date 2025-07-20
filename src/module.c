@@ -1771,7 +1771,7 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
 // was found).
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, unsigned int dialectVersion,
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
                                         QueryError *status) {
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
@@ -3304,13 +3304,13 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
         KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
         double ratio = knn_query->shardWindowRatio;
 
-        // Validate ratio range: must be > MIN_SHARD_WINDOW_RATIO and <= MAX_SHARD_WINDOW_RATIO
-        if (ratio <= MIN_SHARD_WINDOW_RATIO || ratio > MAX_SHARD_WINDOW_RATIO) {
-          QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
-            "Shard k ratio must be greater than %g and at most %g (got %g)",
-            MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, ratio);
-          return REDISMODULE_ERR;
-        }
+        // // Validate ratio range: must be > MIN_SHARD_WINDOW_RATIO and <= MAX_SHARD_WINDOW_RATIO
+        // if (ratio <= MIN_SHARD_WINDOW_RATIO || ratio > MAX_SHARD_WINDOW_RATIO) {
+        //   QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+        //     "Invalid shard k ratio value: Shard k ratio must be greater than %g and at most %g (got %g)",
+        //     MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, ratio);
+        //   return REDISMODULE_ERR;
+        // }
 
         // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
         if (ratio < 1.0) {
@@ -3373,7 +3373,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   MRCommand_Insert(cmd, arg_pos++, n_prefixes, string_len);
   rm_free(n_prefixes);
 
-  for (unsigned int i = 0; i < array_len(prefixes); i++) {
+  for (uint i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
     MRCommand_Insert(cmd, arg_pos++, prefix, len);
