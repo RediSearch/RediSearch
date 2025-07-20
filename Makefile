@@ -86,8 +86,8 @@ ifneq ($(REDIS_STANDALONE),)
 endif
 
 # Package variables (used by pack target)
-PACKAGE_NAME := redisearch
 MODULE_NAME := search
+PACKAGE_NAME ?=
 RAMP_VARIANT ?=
 RAMP_ARGS ?=
 
@@ -95,8 +95,10 @@ RAMP_ARGS ?=
 ifeq ($(RAMP_VARIANT),)
 ifeq ($(COORD),rlec)
     override RAMP_VARIANT := enterprise
+	override PACKAGE_NAME := redisearch
 else
     override RAMP_VARIANT := community
+	override PACKAGE_NAME := redisearch-community
 endif
 endif
 
