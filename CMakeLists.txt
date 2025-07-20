@@ -249,7 +249,6 @@ file(GLOB SOURCES
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
-    "src/hybrid/*.h"
     "src/hybrid/*.c"
     "src/ext/*.c"
     "src/hll/*.c"

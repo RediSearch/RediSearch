@@ -1,6 +1,11 @@
-//
-// Created by Ofir Yanai on 03/07/2025.
-//
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "parse_hybrid.h"
 
@@ -10,22 +15,24 @@
 
 #include "aggregate/aggregate.h"
 #include "query_error.h"
-#include "query_node.h"
 #include "spec.h"
 #include "param.h"
 #include "resp3.h"
 #include "rmalloc.h"
-#include "hiredis/sds.h"
 
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
 #include "util/references.h"
 #include "info/info_redis/threads/current_thread.h"
 
-
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "No query string provided for SEARCH");
+    return REDISMODULE_ERR;
+  }
+
   searchRequest->query = AC_GetStringNC(ac, NULL);
-  AGPLN_Init(&searchRequest->ap);
+  AGPLN_Init(AREQ_AGGPlan(searchRequest));
 
   RSSearchOptions *searchOpts = &searchRequest->searchopts;
   RSSearchOptions_Init(searchOpts);
@@ -64,310 +71,66 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
   return REDISMODULE_OK;
 }
 
-static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *status) {
-  AC_Advance(ac);
-  // Try to get number of parameters
-  long long params;
-  if (AC_GetLongLong(ac, &params, 0) != AC_OK || params == 0 || params % 2 != 0) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for KNN");
-    return REDISMODULE_ERR;
-  }
-
-  bool hasK = false;
-  bool hasEF = false;
-  bool hasYieldDistanceAs = false;
-  const char *current;
-  for (int i=0; i<params; i+=2) {
-    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-    if (!strcasecmp(current, "K")){
-      if (hasK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate K parameter");
-        return REDISMODULE_ERR;
-      } else {
-        AC_Advance(ac);
-        long long kValue;
-        if (AC_GetLongLong(ac, &kValue, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
-          return REDISMODULE_ERR;
-        }
-        pvq->k = (size_t)kValue;
-        hasK = true;
-      }
-    } else if (!strcasecmp(current, "EF_RUNTIME")) {
-      if (hasEF) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate EF_RUNTIME parameter");
-        return REDISMODULE_ERR;
-      } else {
-        AC_Advance(ac);
-        const char *value;
-        if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
-          return REDISMODULE_ERR;
-        }
-        // Add as QueryAttribute (for query node processing)
-        QueryAttribute attr = {
-          .name = VECSIM_EFRUNTIME,
-          .namelen = strlen(VECSIM_EFRUNTIME),
-          .value = rm_strdup(value),
-          .vallen = strlen(value)
-        };
-        pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
-        hasEF = true;
-      }
-    } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
-      if (hasYieldDistanceAs) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate YIELD_DISTANCE_AS parameter");
-        return REDISMODULE_ERR;
-      } else {
-        AC_Advance(ac);
-        const char *value;
-        if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
-          return REDISMODULE_ERR;
-        }
-
-        // As QueryAttribute (for query node processing)
-        QueryAttribute attr = {
-          .name = YIELD_DISTANCE_ATTR,
-          .namelen = strlen(YIELD_DISTANCE_ATTR),
-          .value = rm_strdup(value),
-          .vallen = strlen(value)
-        };
-        pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
-        hasYieldDistanceAs = true;
-      }
-    } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in KNN", current);
-      return REDISMODULE_ERR;
-    }
-  }
-  if (!hasK) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing K parameter");
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
-}
-
-static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *status) {
-  AC_Advance(ac);
-  long long params;
-  if (AC_GetLongLong(ac, &params, 0) != AC_OK || params == 0 || params % 2 != 0) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for RANGE");
-    return REDISMODULE_ERR;
-  }
-  bool hasRadius = false;
-  bool hasEpsilon = false;
-  bool hasYieldDistanceAs = false;
-  const char *current;
-  for (int i=0; i<params; i+=2) {
-    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-    if (!strcasecmp(current, "RADIUS")) {
-      if (hasRadius) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate RADIUS parameter");
-        return REDISMODULE_ERR;
-      } else {
-        AC_Advance(ac);
-        double radiusValue;
-        if (AC_GetDouble(ac, &radiusValue, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid RADIUS value");
-          return REDISMODULE_ERR;
-        }
-        pvq->radius = radiusValue;
-        hasRadius = true;
-      }
-    } else if (!strcasecmp(current, "EPSILON")) {
-      if (hasEpsilon) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate EPSILON parameter");
-        return REDISMODULE_ERR;
-      } else {
-        AC_Advance(ac);
-        const char *value;
-        if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
-          return REDISMODULE_ERR;
-        }
-        // Add as QueryAttribute (for query node processing)
-        QueryAttribute attr = {
-          .name = VECSIM_EPSILON,
-          .namelen = strlen(VECSIM_EPSILON),
-          .value = rm_strdup(value),
-          .vallen = strlen(value)
-        };
-        pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
-        hasEpsilon = true;
-      }
-    } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
-      if (hasYieldDistanceAs) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate YIELD_DISTANCE_AS parameter");
-        return REDISMODULE_ERR;
-      } else {
-        AC_Advance(ac);
-        const char *value;
-        if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
-          return REDISMODULE_ERR;
-        }
-
-        // As QueryAttribute (for query node processing)
-        QueryAttribute attr = {
-          .name = YIELD_DISTANCE_ATTR,
-          .namelen = strlen(YIELD_DISTANCE_ATTR),
-          .value = rm_strdup(value),
-          .vallen = strlen(value)
-        };
-        pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
-        hasYieldDistanceAs = true;
-      }
-    } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RANGE", current);
-      return REDISMODULE_ERR;
-    }
-  }
-  if (!hasRadius) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing RADIUS parameter");
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
-}
-
-static int parseFilterClause(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
-  // FILTER is in our scope, advance and process it
-  AC_Advance(ac);
-  vectorRequest->query = AC_GetStringNC(ac, NULL);
-  return REDISMODULE_OK;
-}
-
-
-
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
-  const char *cur;
-  if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) != AC_OK || strcasecmp("VSIM", cur)) {
+  // Check if VSIM parameter is present
+  if (!AC_AdvanceIfMatch(ac, "VSIM")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
     return REDISMODULE_ERR;
   }
-  AC_Advance(ac);
 
-  // Allocate ParsedVectorQuery
-  ParsedVectorQuery *pvq = rm_calloc(1, sizeof(ParsedVectorQuery));
-
-  // Parse vector field and blob
-  if (AC_GetString(ac, &pvq->fieldName, NULL, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector field name");
-    ParsedVectorQuery_Free(pvq);
-    return REDISMODULE_ERR;
-  }
-
-  const char *vectorParam;
-  if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK ) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector blob");
-    ParsedVectorQuery_Free(pvq);
-    return REDISMODULE_ERR;
-  }
-  if (vectorParam[0] != '$') {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Vector blob must be a parameter");
-    ParsedVectorQuery_Free(pvq);
-    return REDISMODULE_ERR;
-  }
-  vectorParam++;
-
-  // Store reference to vector parameter (like regular flow - no copy)
-  pvq->vector = vectorParam;  // Just reference, no copy
-  pvq->vectorLen = strlen(vectorParam);
-
-  // Initialize QueryAttribute array for attributes like YIELD_DISTANCE_AS
-  pvq->attributes = array_new(QueryAttribute, 0);
-
-  const char *current;
-  if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Unknown parameter after VSIM");
-    ParsedVectorQuery_Free(pvq);
-    return REDISMODULE_ERR;
-  }
-
-  if (!strcasecmp(current, "KNN")) {
-    if (parseKNNClause(ac, pvq, status) != REDISMODULE_OK) {
-      ParsedVectorQuery_Free(pvq);
-      return REDISMODULE_ERR;
+  // Advance the cursor until we encounter one of the specified keywords or reach the end
+  while (!AC_IsAtEnd(ac)) {
+    const char *cur;
+    if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) != AC_OK) {
+      break;
     }
-    pvq->type = VECSIM_QT_KNN;
-    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-  } else if (!strcasecmp(current, "RANGE")) {
-    if (parseRangeClause(ac, pvq, status) != REDISMODULE_OK) {
-      ParsedVectorQuery_Free(pvq);
-      return REDISMODULE_ERR;
+
+    // Check if current argument is one of the keywords that should stop parsing
+    if (!strcasecmp(cur, "COMBINE") ||
+        !strcasecmp(cur, "LOAD") ||
+        !strcasecmp(cur, "GROUPBY") ||
+        !strcasecmp(cur, "APPLY") ||
+        !strcasecmp(cur, "SORTBY") ||
+        !strcasecmp(cur, "FILTER") ||
+        !strcasecmp(cur, "LIMIT") ||
+        !strcasecmp(cur, "PARAMS") ||
+        !strcasecmp(cur, "EXPLAINSCORE") ||
+        !strcasecmp(cur, "TIMEOUT")) {
+      // Found a keyword that should stop parsing, don't advance past it
+      break;
     }
-    pvq->type = VECSIM_QT_RANGE;
-    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+
+    // Not a stopping keyword, advance to next argument
+    AC_Advance(ac);
   }
 
-  // Check for optional FILTER clause - parameter may not be in our scope
-  if (!strcasecmp(current, "FILTER")) {
-    if (parseFilterClause(ac, vectorRequest, status) != REDISMODULE_OK) {
-      ParsedVectorQuery_Free(pvq);
-      return REDISMODULE_ERR;
-    }
-  } else {
-    vectorRequest->query = "*";
-  }
-  // If not FILTER, the parameter may be for the next parsing function (COMBINE, etc.)
-
-  vectorRequest->parsedVectorQuery = pvq;
-
+  // TODO: Parse additional vector parameters (method, FILTER, etc.)
   return REDISMODULE_OK;
 }
 
 static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
-  // Default to RRF if method not specified
-  HybridScoringType scoringType = HYBRID_SCORING_RRF;
-
   // Check if a specific method is provided
   if (AC_AdvanceIfMatch(ac, "LINEAR")) {
     combineCtx->scoringType = HYBRID_SCORING_LINEAR;
   } else if (AC_AdvanceIfMatch(ac, "RRF")) {
     combineCtx->scoringType = HYBRID_SCORING_RRF;
   } else {
-    // If no method specified, use default RRF
+    combineCtx->scoringType = HYBRID_SCORING_RRF;
   }
 
   // Parse parameters based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    // For LINEAR, we need weights
-    ArgsCursor params = {0};
-    int rv = AC_GetVarArgs(ac, &params);
-    if (rv != AC_OK) {
-      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count after LINEAR");
-      return REDISMODULE_ERR;
-    }
+    // For LINEAR, we expect exactly 2 weight values
+    combineCtx->linearCtx.linearWeights = rm_calloc(2, sizeof(double));
+    combineCtx->linearCtx.numWeights = 2;
 
-    // Each weight is a pair (name, value)
-    size_t numWeights = params.argc / 2;
-    if (params.argc % 2 != 0) {
-      QueryError_SetError(status, QUERY_ESYNTAX, "LINEAR parameters must be in name-value pairs");
-      return REDISMODULE_ERR;
-    }
-
-    // Allocate weights array
-    combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
-    combineCtx->linearCtx.numWeights = numWeights;
-
-    // Parse weights
-    for (size_t i = 0; i < numWeights; i++) {
-      // Skip the parameter name (we only care about values for now)
-      const char *paramName = AC_GetStringNC(&params, NULL);
-      if (!paramName) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter name in LINEAR weights");
-        rm_free(combineCtx->linearCtx.linearWeights);
-        return REDISMODULE_ERR;
-      }
-
-      // Get the weight value
+    // Parse the two weight values directly
+    for (size_t i = 0; i < 2; i++) {
       double weight;
-      if (AC_GetDouble(&params, &weight, 0) != AC_OK) {
+      if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
-        rm_free(combineCtx->linearCtx.linearWeights);
-        return REDISMODULE_ERR;
+        goto error;
       }
-
       combineCtx->linearCtx.linearWeights[i] = weight;
     }
   } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
@@ -383,7 +146,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
       // Parameters were provided
       if (params.argc % 2 != 0) {
         QueryError_SetError(status, QUERY_ESYNTAX, "RRF parameters must be in name-value pairs");
-        return REDISMODULE_ERR;
+        goto error;
       }
 
       // Parse the specified parameters
@@ -391,40 +154,133 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
         const char *paramName = AC_GetStringNC(&params, NULL);
         if (!paramName) {
           QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter name in RRF");
-          return REDISMODULE_ERR;
+          goto error;
         }
 
         if (strcasecmp(paramName, "K") == 0) {
           double k;
           if (AC_GetDouble(&params, &k, 0) != AC_OK) {
             QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value in RRF");
-            return REDISMODULE_ERR;
+            goto error;
           }
           combineCtx->rrfCtx.k = k;
         } else if (strcasecmp(paramName, "WINDOW") == 0) {
           long long window;
           if (AC_GetLongLong(&params, &window, 0) != AC_OK || window <= 0) {
             QueryError_SetError(status, QUERY_ESYNTAX, "Invalid WINDOW value in RRF");
-            return REDISMODULE_ERR;
+            goto error;
           }
           combineCtx->rrfCtx.window = window;
         } else {
           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RRF", paramName);
-          return REDISMODULE_ERR;
+          goto error;
         }
       }
     }
   }
 
   return REDISMODULE_OK;
+
+error:
+  HybridScoringContext_Free(combineCtx);
+  return REDISMODULE_ERR;
 }
 
+
+HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
+  HybridRequest *req = rm_calloc(1, sizeof(*req));
+  req->requests = requests;
+  req->nrequests = nrequests;
+
+  // Initialize error tracking for each individual request
+  req->errors = array_new(QueryError, nrequests);
+
+  // Initialize the tail pipeline that will merge results from all requests
+  req->tailPipeline = rm_calloc(1, sizeof(Pipeline));
+  AGPLN_Init(&req->tailPipeline->ap);
+  QueryError_Init(&req->tailError);
+  Pipeline_Initialize(req->tailPipeline, requests[0]->pipeline->qctx.timeoutPolicy, &req->tailError);
+
+  // Initialize pipelines for each individual request
+  for (size_t i = 0; i < nrequests; i++) {
+    QueryError_Init(&req->errors[i]);
+    Pipeline_Initialize(requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
+  }
+  return req;
+}
+
+int HybridRequest_BuildPipeline(HybridRequest *req) { return REDISMODULE_OK; }
+
+void HybridRequest_Free(HybridRequest *hybridRequest) {
+  if (!hybridRequest) return;
+
+  // Free the tail pipeline
+  if (hybridRequest->tailPipeline) {
+    Pipeline_Clean(hybridRequest->tailPipeline);
+    rm_free(hybridRequest->tailPipeline);
+    hybridRequest->tailPipeline = NULL;
+  }
+
+  // Free all individual AREQ requests
+  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
+    // Check if we need to manually free the thread-safe context
+    if (hybridRequest->requests[i]->sctx && hybridRequest->requests[i]->sctx->redisCtx) {
+
+      // Free the search context
+      RedisModuleCtx *thctx = hybridRequest->requests[i]->sctx->redisCtx;
+      RedisSearchCtx *sctx = hybridRequest->requests[i]->sctx;
+      SearchCtx_Free(sctx);
+      // Free the thread-safe context
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+      hybridRequest->requests[i]->sctx = NULL;
+    }
+
+    AREQ_Free(hybridRequest->requests[i]);
+  }
+
+  // Free the scoring context resources
+  HybridScoringContext_Free(hybridRequest->hybridParams->scoringCtx);
+
+  // Free the aggregation search context
+  if(hybridRequest->hybridParams->aggregation.common.sctx) {
+    SearchCtx_Free(hybridRequest->hybridParams->aggregation.common.sctx);
+  }
+  // Free the hybrid parameters
+  rm_free(hybridRequest->hybridParams);
+
+  // Free the arrays and tail pipeline
+  array_free(hybridRequest->requests);
+  array_free(hybridRequest->errors);
+
+  rm_free(hybridRequest);
+}
+
+
 HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 RedisSearchCtx *sctx, QueryError *status) {
+                                 RedisSearchCtx *sctx, const char *indexname,
+                                 QueryError *status) {
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
+
+  HybridPipelineParams *hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
+  hybridParams->scoringCtx = rm_calloc(1, sizeof(HybridScoringContext));
+  hybridParams->scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  hybridParams->scoringCtx->rrfCtx = (HybridRRFContext) {
+    .k = 1,
+    .window = 20
+  };
+
+  RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
+  searchRequest->sctx = NewSearchCtxC(ctx1, indexname, true);
+  RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
+  vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
+
   AREQ *mergeAreq = NULL;
-  arrayof(AREQ) requestsArray = NULL;
+  AREQ **requests = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
   vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
 
@@ -443,17 +299,9 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     goto error;
   }
 
-  HybridScoringContext combineCtx = {
-    .scoringType = HYBRID_SCORING_RRF,
-    .rrfCtx = {
-      .k = 1,
-      .window = 20
-    }
-  };
-
   // Look for optional COMBINE parameter
   if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
-    if (parseCombine(&ac, &combineCtx, status) != REDISMODULE_OK) {
+    if (parseCombine(&ac, hybridParams->scoringCtx, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -462,43 +310,71 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   const int remainingOffset = (int) ac.offset;
   const int remainingArgs = argc - 2 - remainingOffset;
 
-  AGGPlan* mergePlan = NULL;
-  // If there are remaining arguments, compile them into the request
+  // If there are remaining arguments, parse them into the aggregate plan
+  bool hasMerge = false;
   if (remainingArgs > 0) {
+    hasMerge = true;
     mergeAreq = AREQ_New();
-    if (AREQ_Compile(mergeAreq, argv + 2 + remainingOffset, remainingArgs, status) != REDISMODULE_OK) {
+
+    AGPLN_Init(AREQ_AGGPlan(mergeAreq));
+    RSSearchOptions_Init(&mergeAreq->searchopts);
+    if (parseAggPlan(mergeAreq, &ac, status) != REDISMODULE_OK) {
       goto error;
     }
-    mergePlan = &mergeAreq->ap;
 
     mergeAreq->protocol = is_resp3(ctx) ? 3 : 2;
 
     searchRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
     vectorRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
+
+    if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
+      goto error;
+    }
   }
 
-  // Apply context to the requests as part of parsing
-  if (AREQ_ApplyContext(searchRequest, sctx, status) != REDISMODULE_OK) {
-    goto error;
-  }
-
-  if (AREQ_ApplyContext(vectorRequest, sctx, status) != REDISMODULE_OK) {
+  // TODO: copy sctx to searchRequest->sctx ?
+  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
     goto error;
   }
 
   // Create the hybrid request with proper structure
-  requestsArray = array_new(AREQ, 2);
-  array_append(requestsArray, *searchRequest);
-  array_append(requestsArray, *vectorRequest);
+  requests = array_new(AREQ*, 2);
+  array_ensure_append_1(requests, searchRequest);
+  array_ensure_append_1(requests, vectorRequest);
 
-  AggregationPipeline mergePipeline = {0};
-  if (mergePlan) {
-    mergePipeline.ap = *mergePlan;
+  HybridRequest *hybridRequest = HybridRequest_New(requests, 2);
+  hybridRequest->hybridParams = hybridParams;
+
+  // thread safe context
+  const AggregationPipelineParams params = {
+      .common =
+          {
+              .pln = NULL,  // I think. should be copied in HybridRequest_BuildPipeline
+              .sctx = sctx,  // should be a separate context?
+              .reqflags = hasMerge ? mergeAreq->reqflags : 0,
+              .optimizer = NULL,  // is it?
+          },
+      .outFields = NULL,
+      .maxResultsLimit = hasMerge ? mergeAreq->maxAggregateResults : RSGlobalConfig.maxAggregateResults,
+      .language = searchRequest->searchopts.language,
+  };
+
+  hybridParams->aggregation = params;
+  hybridParams->synchronize_read_locks = true;
+
+  if (hasMerge) {
+    // Now we can simply transfer the pointer
+    if (hybridRequest->tailPipeline) {
+      Pipeline_Clean(hybridRequest->tailPipeline);
+      rm_free(hybridRequest->tailPipeline);
+    }
+
+    // Transfer ownership of the pipeline
+    hybridRequest->tailPipeline = mergeAreq->pipeline;
+
+    // Prevent double free
+    mergeAreq->pipeline = NULL;
   }
-  mergePipeline.sctx = sctx;
-
-  HybridRequest *hybridRequest = rm_malloc(sizeof(HybridRequest));
-  *hybridRequest = (HybridRequest){requestsArray, 2, mergePipeline, combineCtx};
 
   if (mergeAreq) {
     AREQ_Free(mergeAreq);
@@ -507,47 +383,43 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   return hybridRequest;
 
 error:
-  AREQ_Free(searchRequest);
-  AREQ_Free(vectorRequest);
+  if (searchRequest) {
+    if (searchRequest->sctx) {
+      RedisModuleCtx *thctx = searchRequest->sctx->redisCtx;
+      SearchCtx_Free(searchRequest->sctx);
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+      searchRequest->sctx = NULL;
+    }
+    AREQ_Free(searchRequest);
+  }
+
+  if (vectorRequest) {
+    if (vectorRequest->sctx) {
+      RedisModuleCtx *thctx = vectorRequest->sctx->redisCtx;
+      SearchCtx_Free(vectorRequest->sctx);
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+      vectorRequest->sctx = NULL;
+    }
+    AREQ_Free(vectorRequest);
+  }
+
   if (mergeAreq) {
     AREQ_Free(mergeAreq);
   }
-  array_free(requestsArray);
+  if (requests) {
+    array_free(requests);
+  }
 
-  if (combineCtx.scoringType == HYBRID_SCORING_LINEAR && combineCtx.linearCtx.linearWeights) {
-    rm_free(combineCtx.linearCtx.linearWeights);
+  if (hybridParams) {
+    HybridScoringContext_Free(hybridParams->scoringCtx);
+    rm_free(hybridParams);
   }
 
   return NULL;
-}
-
-void HybridRequest_Free(HybridRequest *hybridRequest) {
-  if (!hybridRequest) return;
-
-  // Free the merge pipeline's result processors
-  QueryProcessingCtx *qctx = &hybridRequest->merge.qctx;
-  ResultProcessor *rp = qctx->endProc;
-  while (rp) {
-    ResultProcessor *next = rp->upstream;
-    rp->Free(rp);
-    rp = next;
-  }
-
-  // Free the merge pipeline's AGGPlan steps
-  AGPLN_FreeSteps(&hybridRequest->merge.ap);
-
-  // Free the merge pipeline's output fields
-  FieldList_Free(&hybridRequest->merge.outFields);
-
-  if (hybridRequest->combineCtx.scoringType == HYBRID_SCORING_LINEAR &&
-      hybridRequest->combineCtx.linearCtx.linearWeights) {
-    rm_free(hybridRequest->combineCtx.linearCtx.linearWeights);
-  }
-  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
-    AREQ_Free(&hybridRequest->requests[i]);
-  }
-  array_free(hybridRequest->requests);
-  rm_free(hybridRequest);
 }
 
 int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -569,13 +441,16 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   QueryError status = {0};
 
-  // Parse the hybrid request parameters (includes context application)
-  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, &status);
+  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, indexname, &status);
   if (!hybridRequest) {
     goto error;
   }
 
-  // TODO: Add build pipeline and execute command here
+  if (HybridRequest_BuildPipeline(hybridRequest) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  // TODO: Add execute command here
 
   StrongRef_Release(spec_ref);
   HybridRequest_Free(hybridRequest);

@@ -1,6 +1,11 @@
-//
-// Created by Ofir Yanai on 03/07/2025.
-//
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #ifndef PARSE_HYBRID_H
 #define PARSE_HYBRID_H
@@ -10,46 +15,29 @@
 #include "redismodule.h"
 
 #include "aggregate/aggregate.h"
-#include "aggregate/aggregate_plan.h"
-#include "result_processor.h"
+#include "pipeline/pipeline.h"
 #include "search_ctx.h"
-#include "search_options.h"
 #include "hybrid_scoring.h"
-#include "util/arr.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct AggregationPipeline {
-  /* plan containing the logical sequence of steps */
-  AGGPlan ap;
-
-  /** Context for iterating over the queries themselves */
-  QueryProcessingCtx qctx;
-
-  /** Context, owned by request */
-  RedisSearchCtx *sctx;
-
-  /** Flags indicating current execution state */
-  uint32_t stateflags;
-
-  /** Flags controlling query output */
-  uint32_t reqflags;
-
-  /** Fields to be output and otherwise processed */
-  FieldList outFields;
-
-} AggregationPipeline;
-
+typedef struct HybridPipelineParams {
+    AggregationPipelineParams aggregation;
+    bool synchronize_read_locks;
+    HybridScoringContext *scoringCtx;
+} HybridPipelineParams;
 
 typedef struct {
-  arrayof(AREQ) requests;
+  arrayof(AREQ*) requests;
   size_t nrequests;
-  AggregationPipeline merge;
-  HybridScoringContext combineCtx;
+  QueryError tailError;
+  QueryError *errors;
+  RequestConfig reqConfig;
+  Pipeline *tailPipeline;  // Now a pointer
+  HybridPipelineParams *hybridParams;
 } HybridRequest;
-
 
 void HybridRequest_Free(HybridRequest *hybridRequest);
 
@@ -57,7 +45,8 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Function for parsing hybrid request parameters - exposed for testing
 HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 RedisSearchCtx *sctx, QueryError *status);
+                                  RedisSearchCtx *sctx, const char* indexname,
+                                  QueryError *status);
 
 #ifdef __cplusplus
 }

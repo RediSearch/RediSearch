@@ -167,7 +167,7 @@ typedef struct AREQ {
   ConcurrentSearchCtx conc;
 
   /** The pipeline for this request */
-  Pipeline pipeline;
+  Pipeline *pipeline;
 
   /** Flags controlling query output */
   uint32_t reqflags;
@@ -257,6 +257,13 @@ AREQ *AREQ_New(void);
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status);
 
 /**
+ * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.
+ * This function extracts the aggregate-specific parsing logic that was previously
+ * part of AREQ_Compile, allowing it to be reused for merge plans in hybrid queries.
+ */
+int parseAggPlan(AREQ *req, ArgsCursor *ac, QueryError *status);
+
+/**
  * This stage will apply the context to the request. During this phase, the
  * query will be parsed (and matched according to the schema), and the reducers
  * will be loaded and analyzed.
@@ -286,7 +293,7 @@ static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
 }
 
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
-  return &req->pipeline.qctx;
+  return &req->pipeline->qctx;
 }
 
 static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
@@ -294,7 +301,7 @@ static inline RedisSearchCtx *AREQ_SearchCtx(AREQ *req) {
 }
 
 static inline AGGPlan *AREQ_AGGPlan(AREQ *req) {
-  return &req->pipeline.ap;
+  return &req->pipeline->ap;
 }
 
 /******************************************************************************
