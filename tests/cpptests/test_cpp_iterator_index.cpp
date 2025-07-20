@@ -33,7 +33,7 @@ protected:
             resultSet[i] = 2 * i + 1; // Document IDs start from 1
         }
 
-        auto [IndexIteratorType, withExpiration] = GetParam();
+        auto [indexIteratorType, withExpiration] = GetParam();
 
         if (withExpiration) {
             // Initialize the TTL table with some expiration data. Results should not be expired so the test passes as expected.
@@ -42,7 +42,7 @@ protected:
             }
         }
 
-        switch (IndexIteratorType) {
+        switch (indexIteratorType) {
             case TYPE_TERM_FULL:
                 SetTermsInvIndex();
                 it_base = NewInvIndIterator_TermFull(idx);
