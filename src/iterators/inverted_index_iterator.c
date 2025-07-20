@@ -393,6 +393,20 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker_CheckExpiration(QueryIterator *b
   return rc;
 }
 
+// Returns true if the iterator should check for expiration of the field/s
+static inline bool HasExpiration(const InvIndIterator *it) {
+  // TODO: better estimation
+  // check if the specific field/fieldMask has expiration, according to the `filterCtx`
+  return it->sctx && it->sctx->spec->docs.ttl && it->sctx->spec->monitorFieldExpiration &&                // Has TTL info
+         (it->filterCtx.field.isFieldMask || it->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX);  // Context is a field mask or a valid index
+}
+
+// Returns true if the iterator should skip multi-values from the same document
+static inline bool ShouldSkipMulti(const InvIndIterator *it) {
+  return it->skipMulti &&                       // Skip multi-values is requested
+        (it->idx->flags & Index_HasMultiValue); // The index holds multi-values (if not, no need to check)
+}
+
 static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
   RS_ASSERT(idx && idx->size > 0);
@@ -418,12 +432,9 @@ static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, 
   base->Rewind = InvIndIterator_Rewind;
 
   // Choose the Read and SkipTo methods for best performance
-  skipMulti = skipMulti && (idx->flags & Index_HasMultiValue);
+  skipMulti = ShouldSkipMulti(it);
   bool hasSeeker = it->decoders.seeker != NULL;
-  // TODO: better estimation
-  // check if the specific field/fieldMask has expiration, according to the `filterCtx`
-  bool hasExpiration = sctx && sctx->spec->docs.ttl && sctx->spec->monitorFieldExpiration &&
-                       (filterCtx->field.isFieldMask || filterCtx->field.value.index != RS_INVALID_FIELD_INDEX);
+  bool hasExpiration = HasExpiration(it);
 
   // Read function choice:
   // skip multi     |  no                   |  yes

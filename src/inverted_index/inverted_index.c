@@ -462,16 +462,15 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry) {
   size_t sz = 0;
-  bool same_doc = false;
   RS_ASSERT(docId > 0);
-  if (idx->lastId == docId) {
+  const bool same_doc = idx->lastId == docId;
+  if (same_doc) {
     if (encoder != encodeNumeric) {
       // do not allow the same document to be written to the same index twice.
       // this can happen with duplicate tags for example
       return 0;
     } else {
       // for numeric it is allowed (to support multi values)
-      same_doc = true;
       // TODO: Implement turning off this flag on GC collection
       idx->flags |= Index_HasMultiValue;
     }

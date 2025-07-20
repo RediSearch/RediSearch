@@ -155,13 +155,17 @@ bool TimeToLiveTable_VerifyDocAndField(TimeToLiveTable *table, t_docId docId, t_
       // the field has an expiration time
       const bool expired = DidExpire(&fieldExpiration->point, expirationPoint);
       if (expired) {
+        // the document is invalid (should return `false`), unless we look for missing fields
         return (predicate == FIELD_EXPIRATION_MISSING);
       } else {
-        return (predicate == FIELD_EXPIRATION_DEFAULT);
+        // the document is valid (should return `true`), unless we look for missing fields
+        return (predicate != FIELD_EXPIRATION_MISSING);
       }
     }
   }
-  return (predicate == FIELD_EXPIRATION_DEFAULT); // the field was not found in the document's field expirations
+  // the field was not found in the document's field expirations,
+  // which means it is valid unless the predicate is FIELD_EXPIRATION_MISSING
+  return (predicate != FIELD_EXPIRATION_MISSING);
 }
 
 bool TimeToLiveTable_VerifyDocAndFieldMask(TimeToLiveTable *table, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
@@ -226,6 +230,7 @@ bool TimeToLiveTable_VerifyDocAndFieldMask(TimeToLiveTable *table, t_docId docId
 }
 
 
+// TODO: Rust - unify with the implementation above using generic field mask
 bool TimeToLiveTable_VerifyDocAndWideFieldMask(TimeToLiveTable *table, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
   dictEntry *entry = dictFind(table, (void*)docId);
   if (!entry) {

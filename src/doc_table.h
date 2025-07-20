@@ -147,14 +147,17 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
 bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 
+// Same as above, but for a single field
 static inline bool DocTable_CheckFieldExpirationPredicate(const DocTable *t, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   if (!t->ttl) return true;
   return TimeToLiveTable_VerifyDocAndField(t->ttl, docId, field, predicate, expirationPoint);
 }
+// Same as above, but for a field mask (non-wide schema)
 static inline bool DocTable_CheckFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, uint32_t fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
   if (!t->ttl) return true;
   return TimeToLiveTable_VerifyDocAndFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
 }
+// Same as above, but for a wide field mask
 static inline bool DocTable_CheckWideFieldMaskExpirationPredicate(const DocTable *t, t_docId docId, t_fieldMask fieldMask, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint, const t_fieldIndex* ftIdToFieldIndex) {
   if (!t->ttl) return true;
   return TimeToLiveTable_VerifyDocAndWideFieldMask(t->ttl, docId, fieldMask, predicate, expirationPoint, ftIdToFieldIndex);
