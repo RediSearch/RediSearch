@@ -586,6 +586,18 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);
 
+  // PARAMS was already validated at AREQ_Compile
+  int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
+  if (loc != -1) {
+    long long nargs;
+    int rc = RedisModule_StringToLongLong(argv[loc + 3 + 1 + profileArgs], &nargs);
+
+    // append params string including PARAMS keyword and nargs
+    for (int i = 0; i < nargs + 2; ++i) {
+      MRCommand_AppendRstr(xcmd, argv[loc + 3 + i + profileArgs]);
+    }
+  }
+
   // Handle KNN with shard ratio optimization for both multi-shard and standalone
   if (knnCtx) {
     KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
@@ -599,18 +611,6 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
       // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
       modifyKNNCommand(xcmd, knn_query->k, effectiveK, &knnCtx->knn);
-    }
-  }
-
-  // PARAMS was already validated at AREQ_Compile
-  int loc = RMUtil_ArgIndex("PARAMS", argv + 3 + profileArgs, argc - 3 - profileArgs);
-  if (loc != -1) {
-    long long nargs;
-    int rc = RedisModule_StringToLongLong(argv[loc + 3 + 1 + profileArgs], &nargs);
-
-    // append params string including PARAMS keyword and nargs
-    for (int i = 0; i < nargs + 2; ++i) {
-      MRCommand_AppendRstr(xcmd, argv[loc + 3 + i + profileArgs]);
     }
   }
 
