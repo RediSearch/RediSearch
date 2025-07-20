@@ -7,6 +7,14 @@
 # all actual build operations.
 #-----------------------------------------------------------------------------
 
+#-----------------------------------------------------------------------------
+# RediSearch Makefile
+#
+# This Makefile acts as a thin wrapper around the build.sh script, providing
+# backward compatibility for existing make targets while using build.sh for
+# all actual build operations.
+#-----------------------------------------------------------------------------
+
 .NOTPARALLEL:
 
 MAKEFLAGS += --no-print-directory
@@ -182,21 +190,48 @@ verify-deps:
 			echo -e "\033[0;33mIGNORE_MISSING_DEPS is set. Ignoring dependency check failure.\033[0m"; \
 		else \
 			echo ""; \
+			echo ""; \
 			echo -e "\033[0;31mDependency check failed. You can bypass this check by running:\033[0m"; \
 			echo -e "\033[0;31m\033[1mmake IGNORE_MISSING_DEPS=1 ...\033[0m"; \
 			exit 1; \
 		fi; \
 	fi
+			exit 1; \
+		fi; \
+	fi
 
 clean:
+clean:
 ifeq ($(ALL),1)
+	@echo "Cleaning all build artifacts..."
+	@rm -rf $(ROOT)/bin
 	@echo "Cleaning all build artifacts..."
 	@rm -rf $(ROOT)/bin
 else
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(ROOT)/bin/*/search-*
+	@echo "Cleaning build artifacts..."
+	@rm -rf $(ROOT)/bin/*/search-*
 endif
 
+test: $(BUILD_SCRIPT)
+	@echo "Running all tests..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_TESTS
+
+unit-tests: $(BUILD_SCRIPT)
+	@echo "Running unit tests..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_UNIT_TESTS
+
+rust-tests: $(BUILD_SCRIPT)
+	@echo "Running Rust tests..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_RUST_TESTS
+
+pytest: $(BUILD_SCRIPT)
+	@echo "Running Python tests..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_PYTEST
+
+c-tests: unit-tests
+cpp-tests: unit-tests
 test: $(BUILD_SCRIPT)
 	@echo "Running all tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_TESTS
@@ -221,11 +256,34 @@ ifeq ($(FORCE),1)
 	@cd src/aggregate/expr && rm -f lexer.c parser.c
 	@$(MAKE) -C src/query_parser/v1 clean
 	@$(MAKE) -C src/query_parser/v2 clean
+	@cd src/aggregate/expr && rm -f lexer.c parser.c
+	@$(MAKE) -C src/query_parser/v1 clean
+	@$(MAKE) -C src/query_parser/v2 clean
 endif
 	@$(MAKE) -C src/aggregate/expr
 	@$(MAKE) -C src/query_parser/v1
 	@$(MAKE) -C src/query_parser/v2
+	@$(MAKE) -C src/aggregate/expr
+	@$(MAKE) -C src/query_parser/v1
+	@$(MAKE) -C src/query_parser/v2
 
+run:
+	@echo "Starting Redis with RediSearch..."
+	@if [ "$(COORD)" = "rlec" ]; then \
+		MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
+	else \
+		MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+	fi; \
+	if [ -z "$$MODULE_PATH" ]; then \
+		echo "Error: No $(COORD) module found. Please build first with 'make build COORD=$(COORD)'"; \
+		exit 1; \
+	fi; \
+	if [ "$(GDB)" = "1" ]; then \
+		echo "Starting with GDB..."; \
+		gdb -ex r --args redis-server --loadmodule $$MODULE_PATH; \
+	else \
+		redis-server --loadmodule $$MODULE_PATH; \
+	fi
 run:
 	@echo "Starting Redis with RediSearch..."
 	@if [ "$(COORD)" = "rlec" ]; then \
@@ -248,17 +306,27 @@ lint:
 	@echo "Running linters..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
 	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
+	@echo "Running linters..."
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
 
 fmt:
+fmt:
 ifeq ($(CHECK),1)
+	@echo "Checking code formatting..."
+	@cd $(ROOT)/src/redisearch_rs && cargo fmt -- --check
 	@echo "Checking code formatting..."
 	@cd $(ROOT)/src/redisearch_rs && cargo fmt -- --check
 else
 	@echo "Formatting code..."
 	@cd $(ROOT)/src/redisearch_rs && cargo fmt
+	@echo "Formatting code..."
+	@cd $(ROOT)/src/redisearch_rs && cargo fmt
 endif
 
 license-check:
+	@echo "Checking license headers..."
+	@cd $(ROOT)/src/redisearch_rs && cargo license-check
 	@echo "Checking license headers..."
 	@cd $(ROOT)/src/redisearch_rs && cargo license-check
 
@@ -286,6 +354,8 @@ pack: $(BUILD_SCRIPT)
 	fi
 
 upload-artifacts:
+	@echo "Uploading artifacts..."
+	@$(ROOT)/sbin/upload-artifacts
 	@echo "Uploading artifacts..."
 	@$(ROOT)/sbin/upload-artifacts
 
@@ -320,7 +390,13 @@ sanbox:
 	@echo "Starting development container..."
 	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE \
 		--security-opt seccomp=unconfined redisfab/clang:16-x64-bullseye bash
+	@echo "Starting development container..."
+	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE \
+		--security-opt seccomp=unconfined redisfab/clang:16-x64-bullseye bash
 
+.PHONY: help setup fetch build clean test unit-tests rust-tests pytest
+.PHONY: c-tests cpp-tests run lint fmt license-check pack upload-artifacts
+.PHONY: docker benchmark vecsim-bench callgrind sanbox parsers verify-deps
 .PHONY: help setup fetch build clean test unit-tests rust-tests pytest
 .PHONY: c-tests cpp-tests run lint fmt license-check pack upload-artifacts
 .PHONY: docker benchmark vecsim-bench callgrind sanbox parsers verify-deps
