@@ -1152,25 +1152,42 @@ static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, 
   vecNode->vn.vq = vq;
   vecNode->opts.flags |= QueryNode_YieldsDistance;
 
-  QueryToken vecToken = {
-    .type = QT_PARAM_VEC,
-    .s = pvq->vector,
-    .len = strlen(pvq->vector),
-    .pos = 0,
-    .numval = 0,
-    .sign = 0
-  };
+  if (pvq->isParameter) {
+    // PARAMETER CASE: Set up parameter for evalnode to resolve later
+    QueryToken vecToken = {
+      .type = QT_PARAM_VEC,
+      .s = pvq->vector,  // Parameter name
+      .len = strlen(pvq->vector),
+      .pos = 0,
+      .numval = 0,
+      .sign = 0
+    };
 
-  QueryParseCtx q = {0};
-
-  QueryNode_InitParams(vecNode, 1);
-  switch (vq->type) {
-    case VECSIM_QT_KNN:
-      QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
-      break;
-    case VECSIM_QT_RANGE:
-      QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
-      break;
+    QueryParseCtx q = {0};
+    QueryNode_InitParams(vecNode, 1);
+    switch (vq->type) {
+      case VECSIM_QT_KNN:
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
+        break;
+      case VECSIM_QT_RANGE:
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
+        break;
+    }
+    // Update AST's numParams since we used a local QueryParseCtx
+    ast->numParams += q.numParams;
+  } else {
+    // DIRECT VECTOR CASE: Set vector data directly, no parameters needed
+    switch (vq->type) {
+      case VECSIM_QT_KNN:
+        vq->knn.vector = (void*)pvq->vector;
+        vq->knn.vecLen = pvq->vectorLen;
+        break;
+      case VECSIM_QT_RANGE:
+        vq->range.vector = (void*)pvq->vector;
+        vq->range.vecLen = pvq->vectorLen;
+        break;
+    }
+    // No QueryNode_InitParams needed - no parameters to resolve
   }
 
   // Apply attributes if any (this will transfer ownership of attribute values)

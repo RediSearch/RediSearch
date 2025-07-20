@@ -88,7 +88,10 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
   bool hasYieldDistanceAs = false;
   const char *current;
   for (int i=0; i<params; i+=2) {
-    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+    if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing parameter");
+      return REDISMODULE_ERR;
+    }
     if (!strcasecmp(current, "K")){
       if (hasK) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Duplicate K parameter");
@@ -174,7 +177,10 @@ static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *
   bool hasYieldDistanceAs = false;
   const char *current;
   for (int i=0; i<params; i+=2) {
-    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+    if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
+      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter name");
+      return REDISMODULE_ERR;
+    }
     if (!strcasecmp(current, "RADIUS")) {
       if (hasRadius) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Duplicate RADIUS parameter");
@@ -265,67 +271,74 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   // Parse vector field and blob
   if (AC_GetString(ac, &pvq->fieldName, NULL, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector field name");
-    ParsedVectorQuery_Free(pvq);
-    return REDISMODULE_ERR;
+    goto error;
   }
 
   const char *vectorParam;
   if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK ) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector blob");
-    ParsedVectorQuery_Free(pvq);
-    return REDISMODULE_ERR;
+    goto error;
   }
-  if (vectorParam[0] != '$') {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Vector blob must be a parameter");
-    ParsedVectorQuery_Free(pvq);
-    return REDISMODULE_ERR;
-  }
-  vectorParam++;
 
-  // Store reference to vector parameter (like regular flow - no copy)
-  pvq->vector = vectorParam;  // Just reference, no copy
-  pvq->vectorLen = strlen(vectorParam);
+  if (vectorParam[0] == '$') {
+    // PARAMETER CASE: store parameter name for later resolution
+    vectorParam++;  // Skip '$'
+    pvq->vector = vectorParam;  // Parameter name
+    pvq->vectorLen = strlen(vectorParam);
+    pvq->isParameter = true;
+  } else {
+    // DIRECT VECTOR CASE: store the actual vector data
+    pvq->vector = vectorParam;  // Actual vector data
+    pvq->vectorLen = strlen(vectorParam);
+    pvq->isParameter = false;
+  }
+  if (AC_IsAtEnd(ac)) goto final;
 
   // Initialize QueryAttribute array for attributes like YIELD_DISTANCE_AS
   pvq->attributes = array_new(QueryAttribute, 0);
 
   const char *current;
-  if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
+  if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK && !AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Unknown parameter after VSIM");
-    ParsedVectorQuery_Free(pvq);
-    return REDISMODULE_ERR;
+    goto error;
   }
 
   if (!strcasecmp(current, "KNN")) {
     if (parseKNNClause(ac, pvq, status) != REDISMODULE_OK) {
-      ParsedVectorQuery_Free(pvq);
-      return REDISMODULE_ERR;
+      goto error;
     }
     pvq->type = VECSIM_QT_KNN;
+    if (AC_IsAtEnd(ac)) goto final;
     AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
   } else if (!strcasecmp(current, "RANGE")) {
     if (parseRangeClause(ac, pvq, status) != REDISMODULE_OK) {
-      ParsedVectorQuery_Free(pvq);
-      return REDISMODULE_ERR;
+      goto error;
     }
     pvq->type = VECSIM_QT_RANGE;
+    if (AC_IsAtEnd(ac)) goto final;
     AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
   }
 
   // Check for optional FILTER clause - parameter may not be in our scope
   if (!strcasecmp(current, "FILTER")) {
     if (parseFilterClause(ac, vectorRequest, status) != REDISMODULE_OK) {
-      ParsedVectorQuery_Free(pvq);
-      return REDISMODULE_ERR;
+      goto error;
     }
-  } else {
-    vectorRequest->query = "*";
   }
   // If not FILTER, the parameter may be for the next parsing function (COMBINE, etc.)
 
-  vectorRequest->parsedVectorQuery = pvq;
+  goto final;
 
+final:
+  if (!vectorRequest->query) {  // meaning there is no filter clause
+    vectorRequest->query = "*";
+  }
+  vectorRequest->parsedVectorQuery = pvq;
   return REDISMODULE_OK;
+
+error:
+  ParsedVectorQuery_Free(pvq);
+  return REDISMODULE_ERR;
 }
 
 
