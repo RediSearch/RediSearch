@@ -75,8 +75,11 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
   AC_Advance(ac);
   // Try to get number of parameters
   long long params;
-  if (AC_GetLongLong(ac, &params, 0) != AC_OK || params == 0 || params % 2 != 0) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for KNN");
+  if (AC_GetLongLong(ac, &params, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
+    return REDISMODULE_ERR;
+  } else if (params == 0 || params % 2 != 0) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter coun");
     return REDISMODULE_ERR;
   }
 
@@ -88,7 +91,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
     AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
     if (!strcasecmp(current, "K")){
       if (hasK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate K parameter");
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Duplicate K parameter");
         return REDISMODULE_ERR;
       } else {
         AC_Advance(ac);
@@ -102,7 +105,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
       }
     } else if (!strcasecmp(current, "EF_RUNTIME")) {
       if (hasEF) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate EF_RUNTIME parameter");
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Duplicate EF_RUNTIME parameter");
         return REDISMODULE_ERR;
       } else {
         AC_Advance(ac);
@@ -123,7 +126,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
       }
     } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
       if (hasYieldDistanceAs) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate YIELD_DISTANCE_AS parameter");
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
       } else {
         AC_Advance(ac);
@@ -149,7 +152,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
     }
   }
   if (!hasK) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing K parameter");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing K parameter");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -159,8 +162,11 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
 static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *status) {
   AC_Advance(ac);
   long long params;
-  if (AC_GetLongLong(ac, &params, 0) != AC_OK || params == 0 || params % 2 != 0) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count for RANGE");
+  if (AC_GetLongLong(ac, &params, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
+    return REDISMODULE_ERR;
+  } else if (params == 0 || params % 2 != 0) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter coun");
     return REDISMODULE_ERR;
   }
   bool hasRadius = false;
@@ -171,7 +177,7 @@ static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *
     AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
     if (!strcasecmp(current, "RADIUS")) {
       if (hasRadius) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate RADIUS parameter");
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Duplicate RADIUS parameter");
         return REDISMODULE_ERR;
       } else {
         AC_Advance(ac);
@@ -185,7 +191,7 @@ static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *
       }
     } else if (!strcasecmp(current, "EPSILON")) {
       if (hasEpsilon) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Duplicate EPSILON parameter");
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Duplicate EPSILON parameter");
         return REDISMODULE_ERR;
       } else {
         AC_Advance(ac);
@@ -232,7 +238,7 @@ static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *
     }
   }
   if (!hasRadius) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing RADIUS parameter");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing RADIUS parameter");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -547,15 +553,18 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     }
   }
 
-  // TODO: copy sctx to searchRequest->sctx ?
-  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
-    goto error;
-  }
-
   // Create the hybrid request with proper structure
   requests = array_new(AREQ*, 2);
   array_ensure_append_1(requests, searchRequest);
   array_ensure_append_1(requests, vectorRequest);
+
+  // Apply context to each request
+  AREQ *req = NULL;
+  array_foreach(requests, req, {
+    if (AREQ_ApplyContext(req, req->sctx, status) != REDISMODULE_OK) {
+      goto error;
+    }
+  });
 
   HybridRequest *hybridRequest = HybridRequest_New(requests, 2);
   hybridRequest->hybridParams = hybridParams;
