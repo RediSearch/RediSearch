@@ -115,6 +115,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   long long cursorId = MRReply_Integer(MRReply_ArrayElement(rep, 1));
 
   // Assert that the reply is in the expected format.
+#ifdef ENABLE_ASSERT
   if (cmd->protocol == 3) {
     // RESP3 reply structure:
     // [map, cursor] - map contains the results, cursor is the next cursor id
@@ -122,27 +123,29 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     RS_ASSERT(MRReply_Length(rep) == 2);
     RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 0)) == MR_REPLY_MAP);
     RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
+    MRReply *map = MRReply_ArrayElement(rep, 0);
+    MRReply *Results = MRReply_MapElement(map, "Results");
 
     if (cmd->forProfiling) {
       // If the command is for profiling, the map at index 0 contains 2 elements:
       // 1. "results" - the results of the command
-      // 2. "profile" - the profile reply, if this is the last reply from this shard
+      // 2. "Profile" - the profile reply, if this is the last reply from this shard
       // If this is the last reply from this shard, the profile reply should set, otherwise it should be NULL
-      RS_ASSERT(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results") != NULL); // Query reply, nested
-      RS_ASSERT(MRReply_Type(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results")) == MR_REPLY_MAP);
-      RS_ASSERT(MRReply_MapElement(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results"), "results") != NULL); // Actual reply results
+      RS_ASSERT(Results != NULL); // Query reply, nested
+      RS_ASSERT(MRReply_Type(Results) == MR_REPLY_MAP);
+      RS_ASSERT(MRReply_MapElement(Results, "results") != NULL); // Actual reply results
       if (cursorId == CURSOR_EOF) {
-        RS_ASSERT(MRReply_Length(MRReply_ArrayElement(rep, 0)) == 4); // 2 elements in the map, key and value
-        RS_ASSERT(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile") != NULL);
-        RS_ASSERT(MRReply_Type(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile")) == MR_REPLY_MAP);
+        RS_ASSERT(MRReply_Length(map) == 4); // 2 elements in the map, key and value
+        RS_ASSERT(MRReply_MapElement(map, "Profile") != NULL);
+        RS_ASSERT(MRReply_Type(MRReply_MapElement(map, "Profile")) == MR_REPLY_MAP);
       } else {
-        RS_ASSERT(MRReply_Length(MRReply_ArrayElement(rep, 0)) == 2); // 1 elements in the map, key and value
-        RS_ASSERT(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "profile") == NULL);
+        RS_ASSERT(MRReply_Length(map) == 2); // 1 element in the map, key and value
+        RS_ASSERT(MRReply_MapElement(map, "Profile") == NULL); // No profile reply, as this is not the last reply from this shard
       }
     } else {
       // If the command is not for profiling, the map at index 0 is the query reply
       // and contains the results of the command, and additional metadata.
-      RS_ASSERT(MRReply_MapElement(MRReply_ArrayElement(rep, 0), "results") != NULL);
+      RS_ASSERT(Results != NULL);
     }
   } else {
     // RESP2 reply structure:
@@ -169,6 +172,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       RS_ASSERT(MRReply_Type(MRReply_ArrayElement(rep, 1)) == MR_REPLY_INTEGER);
     }
   }
+#endif // Reply structure assertions
 
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
