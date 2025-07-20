@@ -124,7 +124,7 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct SimpleVectorQuery {
+typedef struct ParsedVectorQuery {
   const char *fieldName;      // Field name string (NOT owned - points to args)
   const void *vector;         // Vector data (NOT owned - points to args)
   size_t vectorLen;           // Vector length
@@ -134,9 +134,9 @@ typedef struct SimpleVectorQuery {
     double radius;            // For RANGE
   };
   QueryAttribute *attributes; // Self-describing array (OWNED)
-} SimpleVectorQuery;
+} ParsedVectorQuery;
 
-void SimpleVectorQuery_Free(SimpleVectorQuery *svq);
+void ParsedVectorQuery_Free(ParsedVectorQuery *pvq);
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct AREQ {
@@ -150,7 +150,7 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
-  SimpleVectorQuery *simpleVectorQuery;
+  ParsedVectorQuery *parsedVectorQuery;
   /** Fields to be output and otherwise processed */
   FieldList outFields;
 

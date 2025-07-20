@@ -28,6 +28,7 @@ extern RSConfig RSGlobalConfig;
 
 // Forward declarations for vector query functions
 const FieldSpec* GetVectorFieldSpec(const IndexSpec *spec, const char *fieldName, size_t fieldNameLen);
+static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status);
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
@@ -1101,6 +1102,85 @@ static bool IsIndexCoherent(AREQ *req) {
   return true;
 }
 
+static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
+
+  // Resolve field spec
+  const FieldSpec *vectorField = GetVectorFieldSpec(sctx->spec, pvq->fieldName, strlen(pvq->fieldName));
+  if (!vectorField) {
+    QueryError_SetError(status, QUERY_ENOOPTION, "Vector field not found");
+    return REDISMODULE_ERR;
+  }
+
+  // Create VectorQuery from ParsedVectorQuery data
+  VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
+  vq->field = vectorField;
+  vq->type = pvq->type;
+
+  // Set default scoreField using vector field name
+  int n_written = rm_asprintf(&vq->scoreField, "__%s_score", pvq->fieldName);
+  RS_ASSERT(n_written != -1);
+
+  // Initialize empty params (will be populated by attributes)
+  vq->params.params = array_new(VecSimRawParam, 0);
+  vq->params.needResolve = array_new(bool, 0);
+
+  // Set vector data and parameters based on type
+  switch (pvq->type) {
+    case VECSIM_QT_KNN:
+      vq->knn.vector = (void*)pvq->vector;  // Cast away const - VectorQuery expects non-const
+      vq->knn.vecLen = pvq->vectorLen;
+      vq->knn.k = pvq->k;  // Directly assign size_t to size_t
+      vq->knn.order = BY_SCORE;
+      break;
+    case VECSIM_QT_RANGE:
+      vq->range.vector = (void*)pvq->vector;  // Cast away const - VectorQuery expects non-const
+      vq->range.vecLen = pvq->vectorLen;
+      vq->range.radius = pvq->radius;  // Directly assign double to double
+      vq->range.order = BY_SCORE;
+      break;
+  }
+
+  // Create the vector node
+  QueryNode *vecNode = NewQueryNode(QN_VECTOR);
+  vecNode->vn.vq = vq;
+  vecNode->opts.flags |= QueryNode_YieldsDistance;
+
+  QueryToken vecToken = {
+    .type = QT_PARAM_VEC,
+    .s = pvq->vector,
+    .len = strlen(pvq->vector),
+    .pos = 0,
+    .numval = 0,
+    .sign = 0
+  };
+
+  QueryParseCtx q = {0};
+
+  QueryNode_InitParams(vecNode, 1);
+  switch (vq->type) {
+    case VECSIM_QT_KNN:
+      QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
+      break;
+    case VECSIM_QT_RANGE:
+      QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
+      break;
+  }
+
+  // Apply attributes if any (this will transfer ownership of attribute values)
+  if (pvq->attributes && array_len(pvq->attributes) > 0) {
+    QueryNode_ApplyAttributes(vecNode, pvq->attributes, array_len(pvq->attributes), status);
+  }
+
+  QueryNode_AddChild(vecNode, ast->root);
+  ast->root = vecNode;
+
+  // ParsedVectorQuery retains ownership of vector data
+  // VectorQuery just references it, and VectorQuery_Free won't free it
+  // ParsedVectorQuery will be cleaned up in AREQ_Free
+
+  return REDISMODULE_OK;
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1172,82 +1252,16 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (req->simpleVectorQuery) {
-    SimpleVectorQuery *svq = req->simpleVectorQuery;
 
-    // Resolve field spec
-    const FieldSpec *vectorField = GetVectorFieldSpec(sctx->spec, svq->fieldName, strlen(svq->fieldName));
-    if (!vectorField) {
-      QueryError_SetError(status, QUERY_ENOOPTION, "Vector field not found");
+
+  if (req->parsedVectorQuery) {
+    // ParsedVectorQuery retains ownership of vector data
+    // VectorQuery just references it, and VectorQuery_Free won't free it
+    // ParsedVectorQuery will be cleaned up in AREQ_Free
+    int rv = ApplyParsedVectorQuery(req->parsedVectorQuery, sctx, ast, status);
+    if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-
-    // Create VectorQuery from SimpleVectorQuery data
-    VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
-    vq->field = vectorField;
-    vq->type = svq->type;
-
-    // Set default scoreField using vector field name
-    int n_written = rm_asprintf(&vq->scoreField, "__%s_score", svq->fieldName);
-    RS_ASSERT(n_written != -1);
-
-    // Initialize empty params (will be populated by attributes)
-    vq->params.params = array_new(VecSimRawParam, 0);
-    vq->params.needResolve = array_new(bool, 0);
-
-    // Set vector data and parameters based on type
-    switch (svq->type) {
-      case VECSIM_QT_KNN:
-        vq->knn.vector = (void*)svq->vector;  // Cast away const - VectorQuery expects non-const
-        vq->knn.vecLen = svq->vectorLen;
-        vq->knn.k = svq->k;  // Directly assign size_t to size_t
-        vq->knn.order = BY_SCORE;
-        break;
-      case VECSIM_QT_RANGE:
-        vq->range.vector = (void*)svq->vector;  // Cast away const - VectorQuery expects non-const
-        vq->range.vecLen = svq->vectorLen;
-        vq->range.radius = svq->radius;  // Directly assign double to double
-        vq->range.order = BY_SCORE;
-        break;
-    }
-
-    // Create the vector node
-    QueryNode *vecNode = NewQueryNode(QN_VECTOR);
-    vecNode->vn.vq = vq;
-    vecNode->opts.flags |= QueryNode_YieldsDistance;
-
-    QueryToken vecToken = {
-      .type = QT_PARAM_VEC,
-      .s = svq->vector,
-      .len = strlen(svq->vector),
-      .pos = 0,
-      .numval = 0,
-      .sign = 0
-    };
-
-    QueryParseCtx q = {0};
-
-    QueryNode_InitParams(vecNode, 1);
-    switch (vq->type) {
-      case VECSIM_QT_KNN:
-        QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
-        break;
-      case VECSIM_QT_RANGE:
-        QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
-        break;
-    }
-
-    // Apply attributes if any (this will transfer ownership of attribute values)
-    if (svq->attributes && array_len(svq->attributes) > 0) {
-      QueryNode_ApplyAttributes(vecNode, svq->attributes, array_len(svq->attributes), status);
-    }
-
-    QueryNode_AddChild(vecNode, ast->root);
-    ast->root = vecNode;
-
-    // SimpleVectorQuery retains ownership of vector data
-    // VectorQuery just references it, and VectorQuery_Free won't free it
-    // SimpleVectorQuery will be cleaned up in AREQ_Free
   }
 
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
@@ -1879,8 +1893,8 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
-  if (req->simpleVectorQuery) {
-    SimpleVectorQuery_Free(req->simpleVectorQuery);
+  if (req->parsedVectorQuery) {
+    ParsedVectorQuery_Free(req->parsedVectorQuery);
   }
   rm_free(req->args);
   rm_free(req);
@@ -1900,14 +1914,14 @@ const FieldSpec* GetVectorFieldSpec(const IndexSpec *spec, const char *fieldName
   return vectorField;
 }
 
-void SimpleVectorQuery_Free(SimpleVectorQuery *svq) {
-  if (!svq) return;
+void ParsedVectorQuery_Free(ParsedVectorQuery *pvq) {
+  if (!pvq) return;
 
   // Vector data is NOT owned (just a reference to args) - don't free it
 
   // Free QueryAttribute arrays with callback
-  if (svq->attributes) {
-    array_free_ex(svq->attributes, {
+  if (pvq->attributes) {
+    array_free_ex(pvq->attributes, {
       QueryAttribute *attr = (QueryAttribute*)ptr;
       // Only free values that weren't transferred (still non-NULL)
       if (attr->value) {
@@ -1917,6 +1931,6 @@ void SimpleVectorQuery_Free(SimpleVectorQuery *svq) {
     });
   }
 
-  rm_free(svq);
+  rm_free(pvq);
 }
 

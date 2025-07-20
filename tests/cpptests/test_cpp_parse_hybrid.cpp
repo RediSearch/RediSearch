@@ -374,11 +374,12 @@ TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
   freeStringArray(argv, argc);
 }
 
-TEST_F(ParseHybridTest, testVsimSubqueryMissingRadius) {
+TEST_F(ParseHybridTest, testVsimKNNOddParamCount) {
   QueryError status = {QueryErrorCode(0)};
 
+  // Test KNN with count=1 (odd count, missing K value)
   std::vector<const char*> args = {
-    "FT.HYBRID" ,"idx" ,"SEARCH" ,"\"hello\"" ,"VSIM" ,"vector" ,"$BLOB" ,"RANGE", "0", "FILTER" ,"@text:hello",
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "1", "K"
   };
 
   RedisModuleString** argv = createStringArray(args);
@@ -386,10 +387,151 @@ TEST_F(ParseHybridTest, testVsimSubqueryMissingRadius) {
 
   HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
 
-  // Verify the request was parsed unsuccessfully
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-  // Clean up
-//   HybridRequest_Free(result);
-//   freeStringArray(argv, argc);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimRangeOddParamCount) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test RANGE with count=3 (odd count, missing EPSILON value)
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "3", "RADIUS", "0.5", "EPSILON"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimSubqueryMissingK) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test KNN without K parameter
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "EF_RUNTIME", "100"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test KNN with duplicate K parameters
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "K", "20"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test RANGE with duplicate RADIUS parameters
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "RADIUS", "0.8"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test KNN with EPSILON (should be RANGE-only)
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "EPSILON", "0.01"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test RANGE with EF_RUNTIME (should be KNN-only)
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "EF_RUNTIME", "100"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test KNN with duplicate EF_RUNTIME parameters
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "6", "K", "10", "EF_RUNTIME", "100", "EF_RUNTIME", "200"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  freeStringArray(argv, argc);
+}
+
+TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test RANGE with duplicate EPSILON parameters
+  std::vector<const char*> args = {
+    "FT.HYBRID", "testidx", "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "EPSILON", "0.01", "EPSILON", "0.02"
+  };
+
+  RedisModuleString** argv = createStringArray(args);
+  int argc = args.size();
+
+  HybridRequest* result = parseHybridRequest(ctx, argv, argc, sctx, &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  freeStringArray(argv, argc);
 }
