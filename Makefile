@@ -226,13 +226,18 @@ run:
 	@echo "Starting Redis with RediSearch..."
 	@if [ "$(COORD)" = "rlec" ]; then \
 		MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
+		if [ -z "$$MODULE_PATH" ]; then \
+			echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
+			exit 1; \
+		fi; \
 	else \
 		MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+		if [ -z "$$MODULE_PATH" ]; then \
+			echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
+			exit 1; \
+		fi; \
 	fi; \
-	if [ -z "$$MODULE_PATH" ]; then \
-		echo "Error: No $(COORD) module found. Please build first with 'make build COORD=$(COORD)'"; \
-		exit 1; \
-	fi; \
+	echo "Using module: $$MODULE_PATH"; \
 	if [ "$(GDB)" = "1" ]; then \
 		echo "Starting with GDB..."; \
 		gdb -ex r --args redis-server --loadmodule $$MODULE_PATH; \
@@ -261,13 +266,23 @@ license-check:
 pack: $(BUILD_SCRIPT)
 	@echo "Creating installation packages..."
 	@if [ -z "$(MODULE_PATH)" ]; then \
-		MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1); \
-		if [ -z "$$MODULE_PATH" ]; then \
-			echo "Error: No module found. Please build first with 'make build'"; \
-			exit 1; \
+		if [ "$(COORD)" = "rlec" ]; then \
+			MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
+				exit 1; \
+			fi; \
+		else \
+			MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
+				exit 1; \
+			fi; \
 		fi; \
+		echo "Using module: $$MODULE_PATH"; \
 	else \
 		MODULE_PATH="$(MODULE_PATH)"; \
+		echo "Using specified module: $$MODULE_PATH"; \
 	fi; \
 	if command -v python3 >/dev/null 2>&1 && python3 -c "import RAMP.ramp" >/dev/null 2>&1; then \
 		echo "RAMP is available, creating RAMP packages..."; \
