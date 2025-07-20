@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use encode_decode::varint::VectorWriter;
 use std::ptr::NonNull;
-use varint::VectorWriter;
 
 /// Create a new [`VectorWriter`] with the given capacity.
 ///

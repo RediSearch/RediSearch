@@ -24,7 +24,8 @@ harness = false
 
 [dependencies]
 criterion.workspace = true
-varint = { workspace = true }
+encode_decode = { workspace = true }
+ffi = { workspace = true }
 
 [lints]
 workspace = true

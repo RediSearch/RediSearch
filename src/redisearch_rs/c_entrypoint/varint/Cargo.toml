@@ -1,5 +1,5 @@
 [package]
-name = "varint_ffi"
+name = "varint"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -14,4 +14,5 @@ cbindgen.workspace = true
 [dependencies]
 ffi = { workspace = true }
 buffer = { workspace = true }
-varint = { workspace = true }
+encode_decode = { workspace = true }
+

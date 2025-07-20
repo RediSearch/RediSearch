@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use encode_decode::varint;
+use ffi::FieldMask;
 use std::hint::black_box;
-use varint::*;
 
 fn main() {
     compute_and_report_memory_usage();
@@ -21,19 +22,19 @@ fn compute_and_report_memory_usage() {
     let raw_size = test_data.len() * 4; // u32 = 4 bytes each.
 
     // Encode with Rust implementation.
-    let mut rust_writer = VectorWriter::new(test_data.len());
+    let mut rust_writer = varint::VectorWriter::new(test_data.len());
     for &value in &test_data {
         let _ = rust_writer.write(black_box(value));
     }
     let rust_encoded_size = rust_writer.bytes_len();
 
     // Field mask encoding.
-    let field_masks: Vec<u128> = test_data.iter().map(|&v| v as u128).collect();
+    let field_masks: Vec<FieldMask> = test_data.iter().map(|&v| v as FieldMask).collect();
 
     let mut rust_field_size = 0;
     for &mask in &field_masks {
         let mut buf = Vec::new();
-        mask.write_as_varint(&mut buf).unwrap();
+        varint::write_field_mask(black_box(mask), &mut buf).unwrap();
         rust_field_size += buf.len();
     }
 
@@ -70,7 +71,7 @@ fn analyze_encoding_efficiency(test_data: &[u32]) {
 
     for &value in test_data {
         let mut buf = Vec::new();
-        value.write_as_varint(&mut buf).unwrap();
+        varint::write(value, &mut buf).unwrap();
         match buf.len() {
             1 => single_byte += 1,
             2 => two_byte += 1,

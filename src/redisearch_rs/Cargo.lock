@@ -416,6 +416,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
+name = "encode_decode"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+]
+
+[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1191,10 +1199,11 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "encode_decode",
  "redis-module",
  "triemap_ffi",
  "types_ffi",
- "varint_ffi",
+ "varint",
 ]
 
 [[package]]
@@ -1681,8 +1690,10 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "varint"
 version = "0.0.1"
 dependencies = [
- "proptest",
- "proptest-derive",
+ "buffer",
+ "cbindgen",
+ "encode_decode",
+ "ffi",
 ]
 
 [[package]]
@@ -1690,17 +1701,8 @@ name = "varint_bencher"
 version = "0.0.1"
 dependencies = [
  "criterion",
- "varint",
-]
-
-[[package]]
-name = "varint_ffi"
-version = "0.0.1"
-dependencies = [
- "buffer",
- "cbindgen",
+ "encode_decode",
  "ffi",
- "varint",
 ]
 
 [[package]]
