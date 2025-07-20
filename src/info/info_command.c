@@ -14,6 +14,7 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
+#include "module.h"
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
@@ -120,8 +121,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attributes
   size_t geom_idx_sz = 0;
-  
-  
+
+
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
@@ -194,15 +195,15 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("data_type", VecSimType_ToString(svs_params.type));
           REPLY_KVINT("dim", svs_params.dim);
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(svs_params.metric));
-          REPLY_KVINT("num_threads", svs_params.num_threads);
           REPLY_KVINT("graph_max_degree", svs_params.graph_max_degree);
           REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
-          REPLY_KVINT("search_window_size", svs_params.search_window_size);
           REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
-          REPLY_KVSTR("use_search_history", VecSimSearchHistory_ToString(svs_params.use_search_history));
-          REPLY_KVNUM("alpha", svs_params.alpha);
-          REPLY_KVNUM("epsilon", algo_params.svsParams.epsilon);
-          REPLY_KVNUM("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
+          if (svs_params.quantBits != VecSimSvsQuant_NONE) {
+            REPLY_KVINT("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
+            if (VecSim_IsLeanVecCompressionType(svs_params.quantBits)) {
+              REPLY_KVINT("leanvec_dim", svs_params.leanvec_dim);
+            }
+          }
         }
       } else if (field_algo == VecSimAlgo_BF) {
         REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));

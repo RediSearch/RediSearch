@@ -164,7 +164,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   res->indexResult = r;
   res->score = 0;
   res->dmd = dmd;
-  res->rowdata.sv = dmd->sortVector;
+  RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
   return RS_RESULT_OK;
 }
 
@@ -539,17 +539,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
   return RPSorter_NewByFields(maxresults, NULL, 0, 0);
-}
-
-void SortAscMap_Dump(uint64_t tt, size_t n) {
-  for (size_t ii = 0; ii < n; ++ii) {
-    if (SORTASCMAP_GETASC(tt, ii)) {
-      printf("%lu=(A), ", ii);
-    } else {
-      printf("%lu=(D)", ii);
-    }
-  }
-  printf("\n");
 }
 
 /*******************************************************************************************************************
@@ -1082,13 +1071,6 @@ static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader"
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
   return RPTypeLookup[type];
-}
-
-void RP_DumpChain(const ResultProcessor *rp) {
-  for (; rp; rp = rp->upstream) {
-    printf("RP(%s) @%p\n", RPTypeToString(rp->type), rp);
-    RS_LOG_ASSERT(rp->upstream != rp, "ResultProcessor should be different then upstream");
-  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

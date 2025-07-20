@@ -10,66 +10,70 @@
 #include "iterator_util.h"
 
 #include "src/iterators/union_iterator.h"
+#include "src/iterators/empty_iterator.h"
+#include "src/iterators/wildcard_iterator.h"
+#include "src/iterators/inverted_index_iterator.h"
+#include "src/inverted_index/inverted_index.h"
 
 class UnionIteratorCommonTest : public ::testing::TestWithParam<std::tuple<unsigned, bool, std::vector<t_docId>>> {
 protected:
-    std::vector<std::vector<t_docId>> docIds;
-    std::vector<t_docId> resultSet;
-    QueryIterator *ui_base;
+  std::vector<std::vector<t_docId>> docIds;
+  std::vector<t_docId> resultSet;
+  QueryIterator *ui_base;
 
-    void SetUp() override {
-        ASSERT_EQ(RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap, 20) <<
-            "If we ever change the default threshold for using heaps, we need to modify the tests "
-            "here so they still check both flat and heap alternatives.";
+  void SetUp() override {
+    ASSERT_EQ(RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap, 20) <<
+        "If we ever change the default threshold for using heaps, we need to modify the tests "
+        "here so they still check both flat and heap alternatives.";
 
-        auto [numChildren, quickExit, union_res] = GetParam();
-        // Set resultSet to the expected union result
-        resultSet = union_res;
-        // Set docIds so the union of all children is union_res.
-        // Make sure that some ids are repeated in some children
-        docIds.resize(numChildren);
-        for (size_t i = 0; i < union_res.size(); i++) {
-            for (unsigned j = 0; j < numChildren; j++) {
-                if (j % (i + 1) == 0) {
-                    docIds[j].push_back(union_res[i]);
-                }
-            }
+    auto [numChildren, quickExit, union_res] = GetParam();
+    // Set resultSet to the expected union result
+    resultSet = union_res;
+    // Set docIds so the union of all children is union_res.
+    // Make sure that some ids are repeated in some children
+    docIds.resize(numChildren);
+    for (size_t i = 0; i < union_res.size(); i++) {
+      for (unsigned j = 0; j < numChildren; j++) {
+        if (j % (i + 1) == 0) {
+          docIds[j].push_back(union_res[i]);
         }
-        // Create children iterators
-        auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * numChildren);
-        for (unsigned i = 0; i < numChildren; i++) {
-            children[i] = (QueryIterator *) new MockIterator(docIds[i]);
-        }
-        // Create a union iterator
-        ui_base = IT_V2(NewUnionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+      }
     }
-    void TearDown() override {
-        ui_base->Free(ui_base);
+    // Create children iterators
+    auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * numChildren);
+    for (unsigned i = 0; i < numChildren; i++) {
+      children[i] = (QueryIterator *) new MockIterator(docIds[i]);
     }
+    // Create a union iterator
+    ui_base = IT_V2(NewUnionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  }
+  void TearDown() override {
+    ui_base->Free(ui_base);
+  }
 };
 
 TEST_P(UnionIteratorCommonTest, Read) {
-    UnionIterator *ui = (UnionIterator *)ui_base;
-    IteratorStatus rc;
+  UnionIterator *ui = (UnionIterator *)ui_base;
+  IteratorStatus rc;
 
-    // Test reading until EOF
-    size_t i = 0;
-    while ((rc = ui_base->Read(ui_base)) == ITERATOR_OK) {
-        ASSERT_EQ(ui->base.current->docId, resultSet[i]);
-        ASSERT_EQ(ui->base.lastDocId, resultSet[i]);
-        ASSERT_FALSE(ui->base.atEOF);
-        i++;
-    }
-    ASSERT_EQ(rc, ITERATOR_EOF);
-    ASSERT_TRUE(ui->base.atEOF);
-    ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF); // Reading after EOF should return EOF
-    ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
+  // Test reading until EOF
+  size_t i = 0;
+  while ((rc = ui_base->Read(ui_base)) == ITERATOR_OK) {
+    ASSERT_EQ(ui->base.current->docId, resultSet[i]);
+    ASSERT_EQ(ui->base.lastDocId, resultSet[i]);
+    ASSERT_FALSE(ui->base.atEOF);
+    i++;
+  }
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_TRUE(ui->base.atEOF);
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF); // Reading after EOF should return EOF
+  ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
 
-    size_t expected = 0;
-    for (auto &child : docIds) {
-        expected += child.size();
-    }
-    ASSERT_EQ(ui_base->NumEstimated(ui_base), expected);
+  size_t expected = 0;
+  for (auto &child : docIds) {
+    expected += child.size();
+  }
+  ASSERT_EQ(ui_base->NumEstimated(ui_base), expected);
 }
 
 TEST_P(UnionIteratorCommonTest, SkipTo) {
@@ -120,18 +124,18 @@ TEST_P(UnionIteratorCommonTest, SkipTo) {
 }
 
 TEST_P(UnionIteratorCommonTest, Rewind) {
-    UnionIterator *ui = (UnionIterator *)ui_base;
-    IteratorStatus rc;
-    for (int i = 0; i < 5; i++) {
-        for (int j = 0; j <= i; j++) {
-            ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
-            ASSERT_EQ(ui->base.current->docId, resultSet[j]);
-            ASSERT_EQ(ui->base.lastDocId, resultSet[j]);
-        }
-        ui_base->Rewind(ui_base);
-        ASSERT_EQ(ui->base.lastDocId, 0);
-        ASSERT_FALSE(ui->base.atEOF);
+  UnionIterator *ui = (UnionIterator *)ui_base;
+  IteratorStatus rc;
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j <= i; j++) {
+      ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+      ASSERT_EQ(ui->base.current->docId, resultSet[j]);
+      ASSERT_EQ(ui->base.lastDocId, resultSet[j]);
     }
+    ui_base->Rewind(ui_base);
+    ASSERT_EQ(ui->base.lastDocId, 0);
+    ASSERT_FALSE(ui->base.atEOF);
+  }
 }
 
 // Parameters for the tests above. We run all the combinations of:
@@ -139,78 +143,78 @@ TEST_P(UnionIteratorCommonTest, Rewind) {
 // 2. quick mode (true/false)
 // 3. expected result set, one of the 3 given lists below
 INSTANTIATE_TEST_SUITE_P(UnionIteratorP, UnionIteratorCommonTest, ::testing::Combine(
-    ::testing::Values(2, 5, 25),
-    ::testing::Bool(),
-    ::testing::Values(
-        std::vector<t_docId>{1, 2, 3, 40, 50},
-        std::vector<t_docId>{5, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345, 3456, 4567, 5678, 6789, 7890, 8901, 9012, 12345, 23456, 34567, 45678, 56789},
-        std::vector<t_docId>{9, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250}
-    )
+  ::testing::Values(2, 5, 25),
+  ::testing::Bool(),
+  ::testing::Values(
+    std::vector<t_docId>{1, 2, 3, 40, 50},
+    std::vector<t_docId>{5, 6, 7, 24, 25, 46, 47, 48, 49, 50, 51, 234, 2345, 3456, 4567, 5678, 6789, 7890, 8901, 9012, 12345, 23456, 34567, 45678, 56789},
+    std::vector<t_docId>{9, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250}
+  )
 ));
 
 class UnionIteratorEdgesTest : public ::testing::TestWithParam<std::tuple<unsigned, bool, bool>> {
 protected:
-    QueryIterator *ui_base;
+  QueryIterator *ui_base;
 
-    void SetUp() override {
-        auto [numChildren, quickExit, sparse_ids] = GetParam();
-        auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * numChildren);
-        for (unsigned i = 0; i < numChildren; i++) {
-            MockIterator *it;
-            if (sparse_ids) {
-                it = new MockIterator(10UL, 20UL, 30UL, 40UL, 50UL);
-            } else {
-                it = new MockIterator(1UL, 2UL, 3UL, 4UL, 5UL);
-            }
-            children[i] = (QueryIterator *) it;
-        }
-        // Create a union iterator
-        ui_base = IT_V2(NewUnionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  void SetUp() override {
+    auto [numChildren, quickExit, sparse_ids] = GetParam();
+    auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * numChildren);
+    for (unsigned i = 0; i < numChildren; i++) {
+      MockIterator *it;
+      if (sparse_ids) {
+        it = new MockIterator(10UL, 20UL, 30UL, 40UL, 50UL);
+      } else {
+        it = new MockIterator(1UL, 2UL, 3UL, 4UL, 5UL);
+      }
+      children[i] = (QueryIterator *) it;
     }
-    void TearDown() override {
-        ui_base->Free(ui_base);
+    // Create a union iterator
+    ui_base = IT_V2(NewUnionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  }
+  void TearDown() override {
+    ui_base->Free(ui_base);
+  }
+
+  void TimeoutChildTest(int childIdx) {
+    UnionIterator *ui = (UnionIterator *)ui_base;
+    auto [numChildren, quickExit, sparse_ids] = GetParam();
+
+    auto child = reinterpret_cast<MockIterator *>(ui->its[childIdx]);
+    child->whenDone = ITERATOR_TIMEOUT;
+    child->docIds.clear();
+
+    auto rc = ui_base->Read(ui_base);
+    if (!quickExit || sparse_ids) {
+      // Usually, the first read will detect the timeout
+      ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+    } else {
+      // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
+      ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
+      // We still expect the first non-ok status to be TIMEOUT
+      while (rc == ITERATOR_OK) {
+        rc = ui_base->Read(ui_base);
+      }
+      ASSERT_EQ(rc, ITERATOR_TIMEOUT);
     }
 
-    void TimeoutChildTest(int childIdx) {
-        UnionIterator *ui = (UnionIterator *)ui_base;
-        auto [numChildren, quickExit, sparse_ids] = GetParam();
+    ui_base->Rewind(ui_base);
 
-        auto child = reinterpret_cast<MockIterator *>(ui->its[childIdx]);
-        child->whenDone = ITERATOR_TIMEOUT;
-        child->docIds.clear();
-
-        auto rc = ui_base->Read(ui_base);
-        if (!quickExit || sparse_ids) {
-            // Usually, the first read will detect the timeout
-            ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-        } else {
-            // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
-            ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
-            // We still expect the first non-ok status to be TIMEOUT
-            while (rc == ITERATOR_OK) {
-                rc = ui_base->Read(ui_base);
-            }
-            ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-        }
-
-        ui_base->Rewind(ui_base);
-
-        // Test skipping with a timeout child
-        t_docId next = 1;
-        rc = ui_base->SkipTo(ui_base, next);
-        if (!quickExit || sparse_ids) {
-            // Usually, the first read will detect the timeout
-            ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-        } else {
-            // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
-            ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
-            // We still expect the first non-ok status to be TIMEOUT
-            while (rc == ITERATOR_OK) {
-                rc = ui_base->SkipTo(ui_base, ++next);
-            }
-            ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-        }
+    // Test skipping with a timeout child
+    t_docId next = 1;
+    rc = ui_base->SkipTo(ui_base, next);
+    if (!quickExit || sparse_ids) {
+      // Usually, the first read will detect the timeout
+      ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+    } else {
+      // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
+      ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
+      // We still expect the first non-ok status to be TIMEOUT
+      while (rc == ITERATOR_OK) {
+        rc = ui_base->SkipTo(ui_base, ++next);
+      }
+      ASSERT_EQ(rc, ITERATOR_TIMEOUT);
     }
+  }
 };
 
 // Run the test in the case where the first child times out
@@ -241,38 +245,118 @@ INSTANTIATE_TEST_SUITE_P(UnionIteratorEdgesP, UnionIteratorEdgesTest, ::testing:
 class UnionIteratorSingleTest : public ::testing::Test {};
 
 TEST_F(UnionIteratorSingleTest, ReuseResults) {
-    QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 2);
-    MockIterator *it1 = new MockIterator(3UL);
-    MockIterator *it2 = new MockIterator(2UL);
-    children[0] = (QueryIterator *)it1;
-    children[1] = (QueryIterator *)it2;
-    // Create a union iterator
-    IteratorsConfig config = RSGlobalConfig.iteratorsConfigParams;
-    config.minUnionIterHeap = INT64_MAX; // Ensure we don't use the heap
-    QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 2, true, 1.0, QN_UNION, NULL, &config);
-    ASSERT_EQ(ui_base->NumEstimated(ui_base), it1->docIds.size() + it2->docIds.size());
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 2);
+  MockIterator *it1 = new MockIterator(3UL);
+  MockIterator *it2 = new MockIterator(2UL);
+  children[0] = (QueryIterator *)it1;
+  children[1] = (QueryIterator *)it2;
+  // Create a union iterator
+  IteratorsConfig config = RSGlobalConfig.iteratorsConfigParams;
+  config.minUnionIterHeap = INT64_MAX; // Ensure we don't use the heap
+  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 2, true, 1.0, QN_UNION, NULL, &config);
+  ASSERT_EQ(ui_base->NumEstimated(ui_base), it1->docIds.size() + it2->docIds.size());
 
-    ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
-    ASSERT_EQ(ui_base->lastDocId, 2);
-    ASSERT_EQ(it1->base.lastDocId, 3);
-    ASSERT_EQ(it2->base.lastDocId, 2);
-    ASSERT_EQ(it1->readCount, 1);
-    ASSERT_EQ(it2->readCount, 1);
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 2);
+  ASSERT_EQ(it1->base.lastDocId, 3);
+  ASSERT_EQ(it2->base.lastDocId, 2);
+  ASSERT_EQ(it1->readCount, 1);
+  ASSERT_EQ(it2->readCount, 1);
 
-    ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
-    ASSERT_EQ(ui_base->lastDocId, 3);
-    ASSERT_EQ(it1->base.lastDocId, 3);
-    ASSERT_EQ(it2->base.lastDocId, 2);
-    ASSERT_EQ(it1->readCount, 1) << "it1 should not be read again";
-    ASSERT_FALSE(it1->base.atEOF);
-    ASSERT_EQ(it2->readCount, 1) << "it2 should not be read again";
-    ASSERT_FALSE(it2->base.atEOF);
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 3);
+  ASSERT_EQ(it1->base.lastDocId, 3);
+  ASSERT_EQ(it2->base.lastDocId, 2);
+  ASSERT_EQ(it1->readCount, 1) << "it1 should not be read again";
+  ASSERT_FALSE(it1->base.atEOF);
+  ASSERT_EQ(it2->readCount, 1) << "it2 should not be read again";
+  ASSERT_FALSE(it2->base.atEOF);
 
-    ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
-    ASSERT_EQ(it1->readCount, 2) << "it1 should be read again";
-    ASSERT_TRUE(it1->base.atEOF);
-    ASSERT_EQ(it2->readCount, 2) << "it2 should be read again";
-    ASSERT_TRUE(it2->base.atEOF);
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
+  ASSERT_EQ(it1->readCount, 2) << "it1 should be read again";
+  ASSERT_TRUE(it1->base.atEOF);
+  ASSERT_EQ(it2->readCount, 2) << "it2 should be read again";
+  ASSERT_TRUE(it2->base.atEOF);
 
-    ui_base->Free(ui_base);
+  ui_base->Free(ui_base);
+}
+
+
+class UnionIteratorReducerTest : public ::testing::Test {};
+
+TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildren) {
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
+  children[0] = nullptr;
+  children[1] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
+  children[2] = IT_V2(NewEmptyIterator)();
+  children[3] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
+  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  ASSERT_EQ(ui_base->type, UNION_ITERATOR);
+  UnionIterator *ui = (UnionIterator *)ui_base;
+  ASSERT_EQ(ui->num, 2);
+  ui_base->Free(ui_base);
+}
+
+TEST_F(UnionIteratorReducerTest, TestUnionRemovesAllEmptyChildren) {
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
+  children[0] = nullptr;
+  children[1] = IT_V2(NewEmptyIterator)();
+  children[2] = IT_V2(NewEmptyIterator)();
+  children[3] = nullptr;
+  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  ASSERT_EQ(ui_base->type, EMPTY_ITERATOR);
+  ui_base->Free(ui_base);
+}
+
+TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildrenOnlyOneLeft) {
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
+  children[0] = nullptr;
+  children[1] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
+  children[2] = IT_V2(NewEmptyIterator)();
+  children[3] = nullptr;
+  QueryIterator* expected_iter = children[1];
+  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  ASSERT_EQ(ui_base, expected_iter);
+  ui_base->Free(ui_base);
+}
+
+TEST_F(UnionIteratorReducerTest, TestUnionQuickWithWildcard) {
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
+  children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
+  children[1] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[2] = nullptr;
+  children[3] = IT_V2(NewEmptyIterator)();
+  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  ASSERT_EQ(ui_base->type, WILDCARD_ITERATOR);
+  ui_base->Free(ui_base);
+}
+
+TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
+  size_t memsize;
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  ASSERT_TRUE(idx != nullptr);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
+  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  for (t_docId i = 1; i < 1000; ++i) {
+    auto res = (RSIndexResult) {
+      .docId = i,
+      .fieldMask = 1,
+      .freq = 1,
+      .type = RSResultType::RSResultType_Term,
+    };
+    InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+  }
+  // Create an iterator that reads only entries with field mask 2
+  QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+  InvIndIterator* invIdxIt = (InvIndIterator *)iterator;
+  invIdxIt->isWildcard = true;
+  children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
+  children[1] = iterator;
+  children[2] = nullptr;
+  children[3] = IT_V2(NewEmptyIterator)();
+  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  ASSERT_EQ(ui_base->type, READ_ITERATOR);
+  ui_base->Free(ui_base);
+  InvertedIndex_Free(idx);
 }

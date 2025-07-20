@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_redis.h"
+#include "module.h"
 #include "version.h"
 #include "info/global_stats.h"
 #include "cursor.h"

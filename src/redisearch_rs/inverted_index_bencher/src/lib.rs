@@ -9,7 +9,7 @@
 
 use std::ffi::c_void;
 
-pub mod bencher;
+pub mod benchers;
 pub mod ffi;
 
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
