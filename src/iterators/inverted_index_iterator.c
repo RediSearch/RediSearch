@@ -383,7 +383,7 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker_CheckExpiration(QueryIterator *b
     rc = (base->current->docId == docId) ? ITERATOR_OK : ITERATOR_NOTFOUND;
   } else {
     // The seeker did not find a doc id that is greater or equal to the requested doc id
-    // in the current block, or the doc id i>s not valid (expired).
+    // in the current block, or the doc id is not valid (expired).
     // We need to read the next valid result
     rc = InvIndIterator_Read_CheckExpiration(base);
     if (rc == ITERATOR_OK) {
