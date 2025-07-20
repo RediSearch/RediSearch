@@ -26,10 +26,6 @@
 
 extern RSConfig RSGlobalConfig;
 
-// Forward declarations for vector query functions
-const FieldSpec* GetVectorFieldSpec(const IndexSpec *spec, const char *fieldName, size_t fieldNameLen);
-static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status);
-
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
@@ -1105,8 +1101,8 @@ static bool IsIndexCoherent(AREQ *req) {
 static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
 
   // Resolve field spec
-  const FieldSpec *vectorField = GetVectorFieldSpec(sctx->spec, pvq->fieldName, strlen(pvq->fieldName));
-  if (!vectorField) {
+  const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(sctx->spec, pvq->fieldName, strlen(pvq->fieldName));
+  if (!vectorField || !FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
     QueryError_SetError(status, QUERY_ENOOPTION, "Vector field not found");
     return REDISMODULE_ERR;
   }
@@ -1900,20 +1896,6 @@ void AREQ_Free(AREQ *req) {
   rm_free(req);
 }
 
-const FieldSpec* GetVectorFieldSpec(const IndexSpec *spec, const char *fieldName, size_t fieldNameLen) {
-  const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(spec, fieldName, fieldNameLen);
-  if (!vectorField) {
-    // Field not found - same error as parser
-    return NULL;
-  }
-
-  if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
-    // Field exists but is not a vector field - same validation as parser
-    return NULL;
-  }
-  return vectorField;
-}
-
 void ParsedVectorQuery_Free(ParsedVectorQuery *pvq) {
   if (!pvq) return;
 
@@ -1933,4 +1915,3 @@ void ParsedVectorQuery_Free(ParsedVectorQuery *pvq) {
 
   rm_free(pvq);
 }
-
