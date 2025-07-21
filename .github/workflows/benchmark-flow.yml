@@ -57,13 +57,18 @@ jobs:
         run: ./install_boost.sh
 
       - name: Build RediSearch
-        run: ./build.sh ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
-      - name: Prepare automation
+        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+      - name: install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.10
+      - name: Install Python dependencies
         run: |
-          ./deps/readies/bin/getpy3
-          pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
-          VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
+      - name: install terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.11.1
       - name: Prepare ReJSON Module
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 

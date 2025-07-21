@@ -49,6 +49,9 @@ parse_arguments() {
       DEBUG|debug)
         DEBUG=1
         ;;
+      PROFILE|profile)
+        PROFILE=1
+        ;;
       TESTS|tests)
         BUILD_TESTS=1
         ;;

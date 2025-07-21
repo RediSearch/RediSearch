@@ -40,6 +40,10 @@ ifeq ($(DEBUG),1)
 	BUILD_ARGS += DEBUG
 endif
 
+ifeq ($(PROFILE),1)
+	BUILD_ARGS += PROFILE
+endif
+
 ifeq ($(TESTS),1)
 	BUILD_ARGS += TESTS
 endif
@@ -116,6 +120,7 @@ Build:
   make build         Compile and link
     COORD=oss|rlec     Build coordinator (default: oss)
     DEBUG=1            Build for debugging
+    PROFILE=1          Build with profiling support
     TESTS=1            Build unit tests
     FORCE=1            Force clean build
     SAN=type           Build with sanitizer (address|memory|leak|thread)
@@ -140,7 +145,9 @@ Testing:
 Development:
   make run           Run Redis with RediSearch
     COORD=oss|rlec     Run with coordinator type (default: oss)
+    WITH_RLTEST=1      Run using RLTest framework
     GDB=1              Invoke using gdb
+    CLANG=1            Use lldb instead of gdb (when GDB=1)
   make lint          Run linters
   make fmt           Format source files
     CHECK=1            Check formatting without modifying files
@@ -151,8 +158,9 @@ Packaging:
                        Default: community for oss, enterprise for rlec
 
 Benchmarks:
-  make benchmark     Run performance benchmarks
-  make vecsim-bench  Run VecSim micro-benchmarks
+  make benchmark        Run performance benchmarks
+  make micro-benchmarks Run micro-benchmarks
+  make vecsim-bench     Run VecSim micro-benchmarks
 endef # HELPTEXT
 
 help:
@@ -216,26 +224,41 @@ endif
 	@$(MAKE) -C src/query_parser/v2
 
 run:
-	@echo "Starting Redis with RediSearch..."
-	@if [ "$(COORD)" = "rlec" ]; then \
-		MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
-		if [ -z "$$MODULE_PATH" ]; then \
-			echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
-			exit 1; \
+	@find_module() { \
+		if [ "$(COORD)" = "rlec" ]; then \
+			MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
+				exit 1; \
+			fi; \
+		else \
+			MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
+				exit 1; \
+			fi; \
 		fi; \
+		echo "Using module: $$MODULE_PATH"; \
+	}; \
+	if [ "$(WITH_RLTEST)" = "1" ]; then \
+		echo "Starting Redis with RediSearch using RLTest..."; \
+		find_module; \
+		REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_ARGS=$(REJSON_ARGS) \
+		FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
+		$(ROOT)/tests/pytests/runtests.sh "$$MODULE_PATH"; \
 	else \
-		MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
-		if [ -z "$$MODULE_PATH" ]; then \
-			echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
-			exit 1; \
+		echo "Starting Redis with RediSearch..."; \
+		find_module; \
+		if [ "$(GDB)" = "1" ]; then \
+			echo "Starting with GDB..."; \
+			if [ "$(CLANG)" = "1" ]; then \
+				lldb -o run -- redis-server --loadmodule "$$MODULE_PATH"; \
+			else \
+				gdb -ex r --args redis-server --loadmodule "$$MODULE_PATH"; \
+			fi; \
+		else \
+			redis-server --loadmodule "$$MODULE_PATH"; \
 		fi; \
-	fi; \
-	echo "Using module: $$MODULE_PATH"; \
-	if [ "$(GDB)" = "1" ]; then \
-		echo "Starting with GDB..."; \
-		gdb -ex r --args redis-server --loadmodule $$MODULE_PATH; \
-	else \
-		redis-server --loadmodule $$MODULE_PATH; \
 	fi
 
 lint:
@@ -295,6 +318,10 @@ benchmark:
 	@echo "Running benchmarks..."
 	@cd tests/benchmarks && redisbench-admin run-local
 
+micro-benchmarks: $(BUILD_SCRIPT)
+	@echo "Running micro-benchmarks..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_MICRO_BENCHMARKS
+
 vecsim-bench: $(BUILD_SCRIPT)
 	@echo "Running VecSim micro-benchmarks..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) TESTS
@@ -321,4 +348,4 @@ sanbox:
 
 .PHONY: help setup fetch build clean test unit-tests rust-tests pytest
 .PHONY: c-tests cpp-tests run lint fmt license-check pack upload-artifacts
-.PHONY: docker benchmark vecsim-bench callgrind sanbox parsers verify-deps
+.PHONY: docker benchmark micro-benchmarks vecsim-bench callgrind sanbox parsers verify-deps
