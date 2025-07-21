@@ -12,6 +12,7 @@ libc.workspace = true
 pin-project.workspace = true
 sorting_vector.workspace = true
 value.workspace = true
+strum.workspace = true
 
 [lints]
 workspace = true
