@@ -22,6 +22,7 @@
 extern RedisModuleCtx *RSDummyContext;
 
 #define CEIL_DIV(a, b) ((a + b - 1) / b)
+#define MAX_SEARCH_IO_THREADS (1 << 8)
 #define CONFIG_FROM_RSCONFIG(c) ((SearchClusterConfig *)(c)->chainedConfig)
 
 static SearchClusterConfig* getOrCreateRealConfig(RSConfig *config){
@@ -322,7 +323,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-io-threads", COORDINATOR_IO_THREADS_DEFAULT_SIZE,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_search_io_threads, set_search_io_threads, NULL,
+      MAX_SEARCH_IO_THREADS, get_search_io_threads, set_search_io_threads, NULL,
       (void*)&RSGlobalConfig
     )
   )

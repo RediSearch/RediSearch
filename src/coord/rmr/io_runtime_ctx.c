@@ -28,7 +28,7 @@ static inline bool CheckAndSetIoRuntimeNotStarted(IORuntimeCtx *io_runtime_ctx) 
 }
 
 static inline bool CheckIoRuntimeStarted(IORuntimeCtx *io_runtime_ctx) {
-  return __builtin_expect((__atomic_load_n(&io_runtime_ctx->uv_runtime.io_runtime_started_or_starting, __ATOMIC_ACQUIRE) == true), true);
+  return io_runtime_ctx->uv_runtime.io_runtime_started_or_starting;
 }
 
 static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
