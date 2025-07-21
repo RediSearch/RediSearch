@@ -1429,7 +1429,7 @@ void RediSearch_CleanupModule(void) {
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
   // free thread pools
-  RS_ASSERT(MR_GetPendingCount() == 0);
+  RS_ASSERT(MR_GetPendingCount() != 0);
   GC_ThreadPoolDestroy();
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
