@@ -10,6 +10,7 @@ workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
 
 [dependencies]
 low_memory_thin_vec.workspace = true
