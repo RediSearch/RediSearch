@@ -69,8 +69,10 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
 
-//TODO(Joan): Have it return int status (return error if thread not created)
+//TODO: Have it return int status (return error if thread not created)
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
+
+void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);
 
 // Clears the pendingTopology request that may be queued to be updated, and return the topology that was pending.
 void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);

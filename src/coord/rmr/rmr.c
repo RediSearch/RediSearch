@@ -121,6 +121,10 @@ int MRCtx_GetNumReplied(struct MRCtx *ctx) {
   return ctx->numReplied;
 }
 
+void MRCtx_RequestCompleted(struct MRCtx *ctx) {
+  IORuntimeCtx_RequestCompleted(ctx->ioRuntime);
+}
+
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx) {
   return ctx->replies;
 }
@@ -140,6 +144,7 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   if (p) {
     MRCtx *mc = p;
+    IORuntimeCtx_RequestCompleted(mc->ioRuntime);
     MRCtx_Free(mc);
   }
 }
@@ -287,6 +292,7 @@ static void uvUpdateConnPoolSize(void *p) {
   IORuntimeCtx_UpdateConnPoolSize(ioRuntime, ctx->conn_pool_size);
   size_t max_pending = ioRuntime->conn_mgr.nodeConns * PENDING_FACTOR;
   RQ_UpdateMaxPending(ioRuntime->queue, max_pending);
+  IORuntimeCtx_RequestCompleted(ioRuntime);
   rm_free(ctx);
 }
 
@@ -323,6 +329,7 @@ static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MRConnManager_ReplyState(&ioRuntime->conn_mgr, ctx);
+  IORuntimeCtx_RequestCompleted(ioRuntime);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -345,6 +352,7 @@ static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, ioRuntime->topo);
+  IORuntimeCtx_RequestCompleted(ioRuntime);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -518,7 +526,9 @@ void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
   if (!inProcess) {
     MRChannel_Unblock(ctx->it->ctx.chan);
     RS_DEBUG_LOG("MRIteratorCallback_ProcessDone: calling MRIterator_Release");
+    IORuntimeCtx *ioRuntime = ctx->it->ctx.ioRuntime;  // Save before potential free
     MRIterator_Release(ctx->it);
+    IORuntimeCtx_RequestCompleted(ioRuntime);
   }
 }
 
