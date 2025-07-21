@@ -372,3 +372,55 @@ fn read_skipping_over_duplicates() {
     let record = ir.next().expect("to be able to read from the buffer");
     assert!(record.is_none(), "should not return any more records");
 }
+
+#[test]
+fn read_using_the_first_block_id_as_the_base() {
+    struct FirstBlockIdDummy;
+
+    impl Decoder for FirstBlockIdDummy {
+        fn decode<R: std::io::Read>(
+            &self,
+            reader: &mut R,
+            prev_doc_id: u64,
+        ) -> std::io::Result<DecoderResult> {
+            let mut buffer = [0; 4];
+            reader.read_exact(&mut buffer)?;
+
+            let delta = u32::from_be_bytes(buffer);
+            let doc_id = prev_doc_id + (delta as u64);
+
+            Ok(DecoderResult::Record(RSIndexResult::virt().doc_id(doc_id)))
+        }
+
+        fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
+            block.first_doc_id
+        }
+    }
+
+    // Make a block with three different doc IDs
+    let blocks = vec![IndexBlock {
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
+        num_entries: 3,
+        first_doc_id: 10,
+        last_doc_id: 12,
+    }];
+    let mut ir = IndexReader::new(&blocks, FirstBlockIdDummy);
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(10));
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(11));
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(12));
+}

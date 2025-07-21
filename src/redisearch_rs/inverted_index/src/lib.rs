@@ -583,6 +583,11 @@ pub trait Decoder {
             }
         }
     }
+
+    /// Returns the base value to use for any delta calculations
+    fn base_id(_block: &IndexBlock, last_doc_id: t_docId) -> t_docId {
+        last_doc_id
+    }
 }
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
@@ -767,7 +772,8 @@ pub struct IndexReader<'a, D> {
     decoder: D,
 
     current_buffer: Cursor<&'a [u8]>,
-    current_block: usize,
+    current_block: &'a IndexBlock,
+    current_block_idx: usize,
     last_doc_id: t_docId,
 
     skip_duplicates: bool,
@@ -784,7 +790,8 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
             blocks,
             decoder,
             current_buffer: Cursor::new(&first_block.buffer),
-            current_block: 0,
+            current_block: first_block,
+            current_block_idx: 0,
             last_doc_id: first_block.first_doc_id,
             skip_duplicates: false,
             last_read_doc_id: 0, // TODO: can a doc id be 0?
@@ -802,19 +809,21 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
             // Check if the current buffer is empty. The GC might clean out a block so we have to
             // continue checking until we find a block with data.
             while self.current_buffer.fill_buf()?.is_empty() {
-                let Some(next_block) = self.blocks.get(self.current_block + 1) else {
+                let Some(next_block) = self.blocks.get(self.current_block_idx + 1) else {
                     // No more blocks to read from
                     return Ok(None);
                 };
 
-                self.current_block += 1;
+                self.current_block_idx += 1;
+                self.current_block = next_block;
                 self.last_doc_id = next_block.first_doc_id;
                 self.current_buffer = Cursor::new(&next_block.buffer);
             }
 
-            let DecoderResult::Record(result) = self
-                .decoder
-                .decode(&mut self.current_buffer, self.last_doc_id)?
+            let base = D::base_id(self.current_block, self.last_doc_id);
+
+            let DecoderResult::Record(result) =
+                self.decoder.decode(&mut self.current_buffer, base)?
             else {
                 todo!()
             };
