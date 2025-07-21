@@ -8,8 +8,9 @@
 */
 
 use std::env;
-use std::fs::read_dir;
 use std::path::{Path, PathBuf};
+
+use build_utils::{git_root, rerun_if_c_changes};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Always link the static libraries, independent of bindgen
@@ -50,7 +51,7 @@ fn link_static_libraries() {
 }
 
 fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
-    let root = git_root()?;
+    let root = git_root().expect("Could not find git root for static library linking");
 
     let includes = [
         root.join("deps").join("RedisModulesSDK"),
@@ -73,7 +74,7 @@ fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
         bindings = bindings.clang_arg(format!("-I{}", include.display()));
         // Re-run the build script if any of the C files in the included
         // directory changes
-        let _ = rerun_if_c_changes(&include)?;
+        let _ = rerun_if_c_changes(&include);
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
@@ -103,37 +104,4 @@ fn link_static_lib(
     } else {
         Err(format!("Static library not found: {}", lib.display()).into())
     }
-}
-
-fn git_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
-    let mut path = std::env::current_dir()?;
-    while !path.join(".git").exists() {
-        path = path
-            .parent()
-            .ok_or("Could not find git root")?
-            .to_path_buf();
-    }
-    Ok(path)
-}
-
-/// Walk the specified directory and emit granular `rerun-if-changed` statements,
-/// scoped to `*.c` and `*.h` files.
-/// It'd be nice if `cargo` supported globbing syntax natively, but that's not the
-/// case today.
-fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
-    for entry in read_dir(dir)? {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        let path = entry.path();
-        if path.is_dir() {
-            return rerun_if_c_changes(&path);
-        } else if let Some(extension) = path.extension() {
-            if extension == "c" || extension == "h" {
-                println!("cargo:rerun-if-changed={}", path.display());
-            }
-        }
-    }
-
-    Ok(())
 }

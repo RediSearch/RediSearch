@@ -17,7 +17,7 @@ members = [
     "inverted_index_bencher",
     "value",
     "varint",
-    "rlookup",
+    "rlookup", "build_utils",
 ]
 default-members = [
     "low_memory_thin_vec",

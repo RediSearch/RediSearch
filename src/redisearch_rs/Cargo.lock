@@ -169,6 +169,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "build_utils"
+version = "0.0.1"
+
+[[package]]
 name = "bumpalo"
 version = "3.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -525,6 +529,7 @@ name = "ffi"
 version = "0.0.1"
 dependencies = [
  "bindgen 0.71.1",
+ "build_utils",
  "cc",
  "enumflags2",
 ]
@@ -760,6 +765,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.71.1",
  "buffer",
+ "build_utils",
  "criterion",
  "ffi",
  "inverted_index",
