@@ -210,6 +210,39 @@ run_coordinator_tests() {
 }
 
 #------------------------------------------------------------------------------
+# Run C++ coordinator unit tests
+#------------------------------------------------------------------------------
+run_cpp_coord_tests() {
+    print_separator
+    echo "# Running C++ coordinator unit tests"
+    CPP_COORD_TESTS_DIR="$(cd $BINDIR/tests/cpptests/coord_tests; pwd)"
+    cd $ROOT_DIR/tests/cpptests/coord_tests
+    TEST_NAME=rstest_coord setup_sanitizer
+
+    if [[ -z $TEST ]]; then
+        # Run all C++ coordinator tests
+        LOG_FILE="${LOGS_DIR}/rstest_coord.log"
+        echo "Running all C++ coordinator tests (log: $LOG_FILE)"
+        { $CPP_COORD_TESTS_DIR/rstest_coord > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+        # Parse and display individual test results
+        parse_cpp_test_results "$LOG_FILE"
+    else
+        # Run single C++ coordinator test if requested
+        if [[ -f $CPP_COORD_TESTS_DIR/rstest_coord ]]; then
+            LOG_FILE="${LOGS_DIR}/rstest_coord_${TEST}.log"
+            echo "Running C++ coordinator test: $TEST (log: $LOG_FILE)"
+            { $CPP_COORD_TESTS_DIR/rstest_coord --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+            # Parse and display results
+            parse_cpp_test_results "$LOG_FILE"
+        else
+            echo "C++ coordinator test binary not found: $CPP_COORD_TESTS_DIR/rstest_coord"
+        fi
+    fi
+}
+
+#------------------------------------------------------------------------------
 # Run all unit tests
 #------------------------------------------------------------------------------
 run_all_tests() {
@@ -219,8 +252,11 @@ run_all_tests() {
     # Run C++ tests
     run_cpp_tests
 
-    # Run coordinator tests
+    # Run C coordinator tests
     run_coordinator_tests
+
+    # Run C++ coordinator tests
+    run_cpp_coord_tests
 }
 
 #------------------------------------------------------------------------------
