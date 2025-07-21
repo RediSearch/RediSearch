@@ -64,7 +64,6 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
-#include "hybrid/parse_hybrid.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1202,10 +1201,6 @@ cleanup:
   return rc;
 }
 
-int RSHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execHybrid(ctx, argv, argc);
-}
-
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
@@ -1290,9 +1285,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
          INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS, "", true))
-
-  RM_TRY(RMCreateSearchCommand(ctx, RS_HYBRID_CMD, RSHybridCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,

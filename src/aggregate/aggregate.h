@@ -9,6 +9,7 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
+#include <stdbool.h>
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
@@ -18,6 +19,7 @@
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "reply.h"
+#include "vector_index.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -123,6 +125,12 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
+// Forward declaration - full definition in hybrid/vector_query_types.h
+typedef struct ParsedVectorQuery ParsedVectorQuery;
+
+void ParsedVectorQuery_Free(ParsedVectorQuery *pvq);
+
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -131,6 +139,7 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
+  ParsedVectorQuery *parsedVectorQuery;
   /** Fields to be output and otherwise processed */
   FieldList outFields;
 
@@ -379,6 +388,8 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
+int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
+
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 

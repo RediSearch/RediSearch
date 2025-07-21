@@ -14,6 +14,7 @@
 #include <ctype.h>
 
 #include "aggregate/aggregate.h"
+#include "vector_query_utils.h"
 #include "query_error.h"
 #include "spec.h"
 #include "param.h"
@@ -71,42 +72,284 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *
   return REDISMODULE_OK;
 }
 
-static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
-  // Check if VSIM parameter is present
-  if (!AC_AdvanceIfMatch(ac, "VSIM")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
+static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *status) {
+  AC_Advance(ac);
+  // Try to get number of parameters
+  long long params;
+  if (AC_GetLongLong(ac, &params, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
+    return REDISMODULE_ERR;
+  } else if (params == 0 || params % 2 != 0) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter coun");
     return REDISMODULE_ERR;
   }
 
-  // Advance the cursor until we encounter one of the specified keywords or reach the end
-  while (!AC_IsAtEnd(ac)) {
-    const char *cur;
-    if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) != AC_OK) {
-      break;
+  bool hasK = false;
+  bool hasEF = false;
+  bool hasYieldDistanceAs = false;
+  const char *current;
+  for (int i=0; i<params; i+=2) {
+    if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Missing parameter");
+        return REDISMODULE_ERR;
+      } else {
+        QueryError_SetError(status, QUERY_EGENERIC, "Generic Error");
+        return REDISMODULE_ERR;
+      }
     }
+    if (!strcasecmp(current, "K")){
+      if (hasK) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate K parameter");
+        return REDISMODULE_ERR;
+      } else {
+        AC_Advance(ac);
+        long long kValue;
+        if (AC_GetLongLong(ac, &kValue, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
+          return REDISMODULE_ERR;
+        }
+        pvq->k = (size_t)kValue;
+        hasK = true;
+      }
+    } else if (!strcasecmp(current, "EF_RUNTIME")) {
+      if (hasEF) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate EF_RUNTIME parameter");
+        return REDISMODULE_ERR;
+      } else {
+        AC_Advance(ac);
+        const char *value;
+        if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
+          return REDISMODULE_ERR;
+        }
+        // Add as QueryAttribute (for query node processing)
+        QueryAttribute attr = {
+          .name = VECSIM_EFRUNTIME,
+          .namelen = strlen(VECSIM_EFRUNTIME),
+          .value = rm_strdup(value),
+          .vallen = strlen(value)
+        };
+        pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
+        hasEF = true;
+      }
+    } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
+      if (hasYieldDistanceAs) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
+        return REDISMODULE_ERR;
+      } else {
+        AC_Advance(ac);
+        const char *value;
+        if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+          return REDISMODULE_ERR;
+        }
 
-    // Check if current argument is one of the keywords that should stop parsing
-    if (!strcasecmp(cur, "COMBINE") ||
-        !strcasecmp(cur, "LOAD") ||
-        !strcasecmp(cur, "GROUPBY") ||
-        !strcasecmp(cur, "APPLY") ||
-        !strcasecmp(cur, "SORTBY") ||
-        !strcasecmp(cur, "FILTER") ||
-        !strcasecmp(cur, "LIMIT") ||
-        !strcasecmp(cur, "PARAMS") ||
-        !strcasecmp(cur, "EXPLAINSCORE") ||
-        !strcasecmp(cur, "TIMEOUT")) {
-      // Found a keyword that should stop parsing, don't advance past it
-      break;
+        // As QueryAttribute (for query node processing)
+        QueryAttribute attr = {
+          .name = YIELD_DISTANCE_ATTR,
+          .namelen = strlen(YIELD_DISTANCE_ATTR),
+          .value = rm_strdup(value),
+          .vallen = strlen(value)
+        };
+        pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
+        hasYieldDistanceAs = true;
+      }
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in KNN", current);
+      return REDISMODULE_ERR;
     }
-
-    // Not a stopping keyword, advance to next argument
-    AC_Advance(ac);
   }
-
-  // TODO: Parse additional vector parameters (method, FILTER, etc.)
+  if (!hasK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing K parameter");
+    return REDISMODULE_ERR;
+  }
   return REDISMODULE_OK;
 }
+
+
+static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *status) {
+  AC_Advance(ac);
+  long long params;
+  if (AC_GetLongLong(ac, &params, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
+    return REDISMODULE_ERR;
+  } else if (params == 0 || params % 2 != 0) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter coun");
+    return REDISMODULE_ERR;
+  }
+  bool hasRadius = false;
+  bool hasEpsilon = false;
+  bool hasYieldDistanceAs = false;
+  const char *current;
+  for (int i=0; i<params; i+=2) {
+    if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "Missing parameter");
+        return REDISMODULE_ERR;
+      } else {
+        QueryError_SetError(status, QUERY_EGENERIC, "Generic Error");
+        return REDISMODULE_ERR;
+      }
+    }
+    if (!strcasecmp(current, "RADIUS")) {
+      if (hasRadius) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate RADIUS parameter");
+        return REDISMODULE_ERR;
+      } else {
+        AC_Advance(ac);
+        double radiusValue;
+        if (AC_GetDouble(ac, &radiusValue, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid RADIUS value");
+          return REDISMODULE_ERR;
+        }
+        pvq->radius = radiusValue;
+        hasRadius = true;
+      }
+    } else if (!strcasecmp(current, "EPSILON")) {
+      if (hasEpsilon) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate EPSILON parameter");
+        return REDISMODULE_ERR;
+      } else {
+        AC_Advance(ac);
+        const char *value;
+        if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
+          return REDISMODULE_ERR;
+        }
+        // Add as QueryAttribute (for query node processing)
+        QueryAttribute attr = {
+          .name = VECSIM_EPSILON,
+          .namelen = strlen(VECSIM_EPSILON),
+          .value = rm_strdup(value),
+          .vallen = strlen(value)
+        };
+        pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
+        hasEpsilon = true;
+      }
+    } else if (!strcasecmp(current, "YIELD_DISTANCE_AS")) {
+      if (hasYieldDistanceAs) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
+        return REDISMODULE_ERR;
+      } else {
+        AC_Advance(ac);
+        const char *value;
+        if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+          return REDISMODULE_ERR;
+        }
+
+        // As QueryAttribute (for query node processing)
+        QueryAttribute attr = {
+          .name = YIELD_DISTANCE_ATTR,
+          .namelen = strlen(YIELD_DISTANCE_ATTR),
+          .value = rm_strdup(value),
+          .vallen = strlen(value)
+        };
+        pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
+        hasYieldDistanceAs = true;
+      }
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RANGE", current);
+      return REDISMODULE_ERR;
+    }
+  }
+  if (!hasRadius) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing RADIUS parameter");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+static int parseFilterClause(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
+  // FILTER is in our scope, advance and process it
+  AC_Advance(ac);
+  vectorRequest->query = AC_GetStringNC(ac, NULL);
+  return REDISMODULE_OK;
+}
+
+static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *status) {
+  const char *current;
+  if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK || strcasecmp("VSIM", current)) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
+    return REDISMODULE_ERR;
+  }
+  AC_Advance(ac);
+
+  // Allocate ParsedVectorQuery
+  ParsedVectorQuery *pvq = rm_calloc(1, sizeof(ParsedVectorQuery));
+
+  // Parse vector field and blob
+  if (AC_GetString(ac, &pvq->fieldName, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector field name");
+    goto error;
+  }
+
+  const char *vectorParam;
+  if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector blob");
+    goto error;
+  }
+
+  if (vectorParam[0] == '$') {
+    // PARAMETER CASE: store parameter name for later resolution
+    vectorParam++;  // Skip '$'
+    pvq->vector = vectorParam;  // Parameter name
+    pvq->vectorLen = strlen(vectorParam);
+    pvq->isParameter = true;
+  } else {
+    // DIRECT VECTOR CASE: store the actual vector data
+    pvq->vector = vectorParam;  // Actual vector data
+    pvq->vectorLen = strlen(vectorParam);
+    pvq->isParameter = false;
+  }
+  if (AC_IsAtEnd(ac)) goto final;
+
+  // Initialize QueryAttribute array for attributes like YIELD_DISTANCE_AS
+  pvq->attributes = array_new(QueryAttribute, 0);
+
+  if (AC_GetString(ac, &current, NULL, AC_F_NOADVANCE) != AC_OK && !AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Unknown parameter after VSIM");
+    goto error;
+  }
+
+  if (!strcasecmp(current, "KNN")) {
+    if (parseKNNClause(ac, pvq, status) != REDISMODULE_OK) {
+      goto error;
+    }
+    pvq->type = VECSIM_QT_KNN;
+    if (AC_IsAtEnd(ac)) goto final;
+    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+  } else if (!strcasecmp(current, "RANGE")) {
+    if (parseRangeClause(ac, pvq, status) != REDISMODULE_OK) {
+      goto error;
+    }
+    pvq->type = VECSIM_QT_RANGE;
+    if (AC_IsAtEnd(ac)) goto final;
+    AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+  }
+
+  // Check for optional FILTER clause - parameter may not be in our scope
+  if (!strcasecmp(current, "FILTER")) {
+    if (parseFilterClause(ac, vectorRequest, status) != REDISMODULE_OK) {
+      goto error;
+    }
+  }
+  // If not FILTER, the parameter may be for the next parsing function (COMBINE, etc.)
+
+  goto final;
+
+final:
+  if (!vectorRequest->query) {  // meaning there is no filter clause
+    vectorRequest->query = "*";
+  }
+  vectorRequest->parsedVectorQuery = pvq;
+  return REDISMODULE_OK;
+
+error:
+  ParsedVectorQuery_Free(pvq);
+  return REDISMODULE_ERR;
+}
+
 
 static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
   // Check if a specific method is provided
@@ -332,15 +575,18 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     }
   }
 
-  // TODO: copy sctx to searchRequest->sctx ?
-  if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
-    goto error;
-  }
-
   // Create the hybrid request with proper structure
   requests = array_new(AREQ*, 2);
   array_ensure_append_1(requests, searchRequest);
   array_ensure_append_1(requests, vectorRequest);
+
+  // Apply context to each request
+  AREQ *req = NULL;
+  array_foreach(requests, req, {
+    if (AREQ_ApplyContext(req, req->sctx, status) != REDISMODULE_OK) {
+      goto error;
+    }
+  });
 
   HybridRequest *hybridRequest = HybridRequest_New(requests, 2);
   hybridRequest->hybridParams = hybridParams;
