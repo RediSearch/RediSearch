@@ -63,6 +63,22 @@ class ParseHybridTest : public ::testing::Test {
 
 };
 
+
+#define assertLinearScoringCtx(Weight0, Weight1) { \
+  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
+  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, 2); \
+  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL); \
+  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], Weight0); \
+  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], Weight1); \
+}
+
+#define assertRRFScoringCtx(K, Window) { \
+  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
+  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, K); \
+  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, Window); \
+}
+
+
 TEST_F(ParseHybridTest, testBasicValidInput) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -83,9 +99,7 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, 1);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, 20);
+  assertRRFScoringCtx(1, 20);
 
   // parseHybridRequest calls AREQ_ApplyContext which takes ownership of test_sctx
   // No need to free test_sctx as it's now owned by the result
@@ -181,11 +195,7 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify LINEAR scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
-  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, 2);
-  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], 0.7);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], 0.3);
+  assertLinearScoringCtx(0.7, 0.3);
 
   // Clean up
   HybridRequest_Free(result);
@@ -209,9 +219,7 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify RRF scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, 1);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, 20);
+  assertRRFScoringCtx(1, 20);
 
   // Clean up
   HybridRequest_Free(result);
@@ -255,9 +263,7 @@ TEST_F(ParseHybridTest, testVectorParameterAdvancing) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify RRF scoring type was set (meaning COMBINE was found and parsed)
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, 1);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, 20);
+  assertRRFScoringCtx(1, 20);
 
   // Clean up
   HybridRequest_Free(result);
@@ -280,9 +286,7 @@ TEST_F(ParseHybridTest, testVectorParameterAdvancingToLimit) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify default RRF scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, 1);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, 20);
+  assertRRFScoringCtx(1, 20);
 
   // Clean up
   HybridRequest_Free(result);
@@ -293,7 +297,7 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
 
   // Example of a complex command in a single line
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector_field", "method", "HNSW", "k", "10",
-                            "COMBINE", "LINEAR", "0.7", "0.3", "SORTBY", "1", "@score", "LIMIT", "0", "20");
+                            "COMBINE", "LINEAR", "0.65", "0.35", "SORTBY", "1", "@score", "LIMIT", "0", "20");
 
   // Create a fresh sctx for this test
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -312,11 +316,7 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify LINEAR scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
-  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, 2);
-  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], 0.7);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], 0.3);
+  assertLinearScoringCtx(0.65, 0.35);
 
   // Clean up
   HybridRequest_Free(result);
@@ -330,7 +330,7 @@ TEST_F(ParseHybridTest, testMultiLineCommand) {
     "FT.HYBRID " + index_name + " "
     "SEARCH hello "
     "VSIM @vector_field method HNSW k 10 "
-    "COMBINE LINEAR 0.7 0.3 "
+    "COMBINE LINEAR 0.6 0.4 "
     "SORTBY 1 @score "
     "LIMIT 0 20";
 
@@ -353,11 +353,7 @@ TEST_F(ParseHybridTest, testMultiLineCommand) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify LINEAR scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
-  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, 2);
-  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], 0.7);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], 0.3);
+  assertLinearScoringCtx(0.6, 0.4);
 
   // Clean up
   HybridRequest_Free(result);

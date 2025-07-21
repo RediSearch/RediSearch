@@ -332,8 +332,11 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     }
   }
 
-  // TODO: copy sctx to searchRequest->sctx ?
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
     goto error;
   }
 
