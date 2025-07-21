@@ -177,7 +177,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
 
     REPLY_WITH_LONG_LONG("firstId", IndexBlock_FirstId(block), blockBulkLen);
     REPLY_WITH_LONG_LONG("lastId", IndexBlock_LastId(block), blockBulkLen);
-    REPLY_WITH_LONG_LONG("numEntries", block->numEntries, blockBulkLen);
+    REPLY_WITH_LONG_LONG("numEntries", IndexBlock_NumEntries(block), blockBulkLen);
 
     RedisModule_ReplySetArrayLength(ctx, blockBulkLen);
   }
