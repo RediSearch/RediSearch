@@ -76,7 +76,9 @@ queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async) {
 
 // To be called from the event loop thread, after the request is done, no need to protect the pending
 void RQ_Done(MRWorkQueue *q) {
+  uv_mutex_lock(&q->lock);
   --q->pending;
+  uv_mutex_unlock(&q->lock);
 }
 
 MRWorkQueue *RQ_New(int maxPending, size_t id) {

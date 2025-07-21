@@ -31,26 +31,26 @@ static inline bool CheckIoRuntimeStarted(IORuntimeCtx *io_runtime_ctx) {
   return io_runtime_ctx->uv_runtime.io_runtime_started_or_starting;
 }
 
-static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
-  array_foreach(io_runtime_ctx->pendingQueues, async, uv_async_send(async));
-  array_free(io_runtime_ctx->pendingQueues);
-  io_runtime_ctx->pendingQueues = NULL;
+static void triggerPendingItems(IORuntimeCtx *io_runtime_ctx) {
+  if (io_runtime_ctx->pendingItems) {
+    uv_async_send(&io_runtime_ctx->uv_runtime.async);
+  }
+  io_runtime_ctx->pendingItems = false;
 }
 
 static void rqAsyncCb(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = async->data;
-  // EDGE CASE: If loop_th_ready is false when a shutdown is fired, it could happen that the shutdown comes before the pendingQueues that are here being
+  // EDGE CASE: If loop_th_ready is false when a shutdown is fired, it could happen that the shutdown comes before the pendingItems that are here being
   // "reescheduled".
   if (!io_runtime_ctx->uv_runtime.loop_th_ready) {
-    // Topology is scheduled to change, add to the list of pending queues after topology is properly applied
-    array_ensure_append_1(io_runtime_ctx->pendingQueues, async); // try again later
+    // Topology is scheduled to change, note that there are pending items to pop
+    io_runtime_ctx->pendingItems = true;
     return;
   }
   queueItem *req;
   while (NULL != (req = RQ_Pop(io_runtime_ctx->queue, &io_runtime_ctx->uv_runtime.async))) {
     req->cb(req->privdata);
     rm_free(req);
-    RQ_Done(io_runtime_ctx->queue);
   }
 }
 
@@ -63,7 +63,7 @@ static void topologyFailureCB(uv_timer_t *timer) {
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)
   io_runtime_ctx->uv_runtime.loop_th_ready = true;
-  triggerPendingQueues(io_runtime_ctx);
+  triggerPendingItems(io_runtime_ctx);
 }
 
 static int CheckTopologyConnections(const MRClusterTopology *topo,
@@ -93,7 +93,7 @@ static void topologyTimerCB(uv_timer_t *timer) {
     RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: All nodes connected: IO thread is ready to handle requests", io_runtime_ctx->queue->id);
     uv_timer_stop(&io_runtime_ctx->uv_runtime.topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&io_runtime_ctx->uv_runtime.topologyFailureTimer);    // stop failure timer (as we are connected)
-    triggerPendingQueues(io_runtime_ctx);
+    triggerPendingItems(io_runtime_ctx);
   } else {
     RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Waiting for all nodes to connect", io_runtime_ctx->queue->id);
   }
@@ -256,7 +256,7 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
   MRConnManager_Init(&io_runtime_ctx->conn_mgr, conn_pool_size);
   io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr.nodeConns * PENDING_FACTOR, id);
   io_runtime_ctx->pendingTopo = NULL;
-  io_runtime_ctx->pendingQueues = NULL;
+  io_runtime_ctx->pendingItems = false;
 
   if (take_topo_ownership) {
     io_runtime_ctx->topo = initialTopology;
@@ -290,7 +290,6 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   } else {
     UV_Close(io_runtime_ctx);
   }
-  array_free(io_runtime_ctx->pendingQueues);
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(&io_runtime_ctx->conn_mgr);
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);

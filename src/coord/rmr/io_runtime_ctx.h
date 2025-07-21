@@ -52,7 +52,7 @@ typedef struct {
   // Request queue and topology requests
   MRWorkQueue *queue;
   struct queueItem *pendingTopo; // The pending topology to be applied
-  arrayof(uv_async_t *) pendingQueues;
+  bool pendingItems; // Are there any pending items waiting for Topology to be applied
 
   //UV runtime
   UVRuntime uv_runtime;

@@ -67,7 +67,7 @@ TEST_F(IORuntimeCtxCommonTest, InitialState) {
   ASSERT_EQ(ctx->pendingTopo, nullptr);
   ASSERT_FALSE(ctx->uv_runtime.loop_th_ready);
   ASSERT_FALSE(ctx->uv_runtime.io_runtime_started_or_starting);
-  ASSERT_EQ(ctx->pendingQueues, nullptr);
+  ASSERT_FALSE(ctx->pendingItems);
   ASSERT_FALSE(ctx->uv_runtime.loop_th_created);
   ASSERT_FALSE(ctx->uv_runtime.loop_th_creation_failed);
 }
