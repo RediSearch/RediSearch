@@ -205,7 +205,9 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     params->bytesAfterFix = 0;
     params->entriesCollected = 0;
     IndexBlock *blk = idx->blocks + i;
-    if (blk->lastId - blk->firstId > UINT32_MAX) {
+    t_docId firstId = IndexBlock_FirstId(blk);
+
+    if (blk->lastId - firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       // todo: is it ok??
@@ -810,7 +812,7 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
   RSIndexResult *cur;
   IndexReader *ir = NewMinimalNumericReader(range->entries, false);
   size_t startIdx = range->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
-  t_docId startId = range->entries->blocks[startIdx].firstId;
+  t_docId startId = IndexBlock_FirstId(&range->entries->blocks[startIdx]);
   int rc = IR_SkipTo(ir, startId, &cur);
   while (INDEXREAD_OK == rc) {
     hll_add(&range->hll, &cur->data.num.value, sizeof(cur->data.num.value));

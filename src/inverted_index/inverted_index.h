@@ -107,6 +107,10 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 
+static inline t_docId IndexBlock_FirstId(const IndexBlock *b) {
+  return b->firstId;
+}
+
 #define IndexBlock_DataBuf(b) (b)->buf.data
 #define IndexBlock_DataLen(b) (b)->buf.offset
 #define IndexBlock_DataCap(b) (b)->buf.cap

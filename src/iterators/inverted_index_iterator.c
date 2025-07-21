@@ -22,7 +22,7 @@ void InvIndIterator_Free(QueryIterator *it) {
 static inline void SetCurrentBlockReader(InvIndIterator *it) {
   it->blockReader = (IndexBlockReader) {
     NewBufferReader(&CURRENT_BLOCK(it).buf),
-    CURRENT_BLOCK(it).firstId,
+    IndexBlock_FirstId(&CURRENT_BLOCK(it)),
   };
 }
 
@@ -124,7 +124,7 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
   return ITERATOR_EOF;
 }
 
-#define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
+#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(&blk) <= docId && docId <= (blk).lastId)
 
 // Assumes there is a valid block to skip to (matching or past the requested docId)
 static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
@@ -146,7 +146,8 @@ static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
       goto new_block;
     }
 
-    if (docId < idx->blocks[i].firstId) {
+    t_docId firstId = IndexBlock_FirstId(&idx->blocks[i]);
+    if (docId < firstId) {
       top = i - 1;
     } else {
       bottom = i + 1;
