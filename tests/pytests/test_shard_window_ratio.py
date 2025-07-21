@@ -30,7 +30,7 @@ def ValidateError(env, res: Query, expected_error_message, message="", depth=1):
     env.assertTrue(res.errorRaised, message=message, depth=depth)
     env.assertContains(expected_error_message, res.res, message=message, depth=depth)
 
-def _validate_individual_shard_results(env, profile_dict, k, ratio):
+def _validate_individual_shard_results(env, profile_dict, k, ratio, scenario_description):
 
     shards_section = profile_dict['Shards']
 
@@ -46,9 +46,8 @@ def _validate_individual_shard_results(env, profile_dict, k, ratio):
 
             # Look for Counter which represents the number of results processed
         shard_result_count = index_rp_profile['Counter']
-
         env.assertEqual(shard_result_count, effective_k,
-        message=f"With k={k}, ratio: {ratio}, Shard {i} expected {effective_k} results, got {shard_result_count}", depth=1)
+        message=f"In scenario {scenario_description}: With k={k}, ratio: {ratio}, Shard {i} expected {effective_k} results, got {shard_result_count}", depth=1)
 
 def set_up_database_with_vectors(env, dim, num_docs, index_name='idx', datatype='FLOAT32', additional_schema_args=None):
     if additional_schema_args is None:
@@ -125,21 +124,29 @@ def test_ft_profile_shard_result_validation_scenarios():
     min_shard_ratio = 1 / float(env.shardsCount)
     ratios = [min_shard_ratio, 0.01, 0.9, 1.0]  # Valid ratios
 
+
     for ratio in ratios:
-        for cmd in ['SEARCH', 'AGGREGATE']:
-            # Determine expected results based on deployment mode
-            profile_res = env.cmd('FT.PROFILE', 'idx', f'{cmd}', 'QUERY',
-                                f'*=>[KNN {k} @v $query_vec]=>{{$shard_k_ratio: {ratio}}}',
-                                'PARAMS', 2, 'query_vec', query_vec.tobytes(),
-                                'nocontent', "LIMIT", 0, k + 1)
+        k_param_style_command_args = {
+            "k_as_literal": [f'*=>[KNN {k} @v $query_vec]=>{{$shard_k_ratio: {ratio}}}',
+                                        'PARAMS', 2, 'query_vec', query_vec.tobytes(),],
 
-            _validate_individual_shard_results(env, profile_res['Profile'], k, ratio)
+            "k_in_param": [f'*=>[KNN $k @v $query_vec]=>{{$shard_k_ratio: {ratio}}}',
+                                        'PARAMS', 4, 'query_vec', query_vec.tobytes(), 'k', k,]
+        }
+        for k_style, command_args in k_param_style_command_args.items():
+            for cmd in ['SEARCH', 'AGGREGATE']:
+                # Determine expected results based on deployment mode
+                profile_res = env.cmd('FT.PROFILE', 'idx', f'{cmd}', 'QUERY',
+                                    *command_args,
+                                    'nocontent', "LIMIT", 0, k + 1)
 
-            # Validate final result count
-            actual_result_count = len(profile_res['Results']['results'])
+                _validate_individual_shard_results(env, profile_res['Profile'], k, ratio, scenario_description=f"{cmd} {k_style}")
 
-            env.assertEqual(actual_result_count, k,
-                        message=f"{cmd} With K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
+                # Validate final result count
+                actual_result_count = len(profile_res['Results']['results'])
+
+                env.assertEqual(actual_result_count, k,
+                            message=f"{cmd} With K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
 
 def test_query():
     """Test FT.AGGREGATE with shard k ratio and profile metrics"""

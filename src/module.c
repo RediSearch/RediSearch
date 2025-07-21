@@ -3304,14 +3304,6 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
         KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
         double ratio = knn_query->shardWindowRatio;
 
-        // // Validate ratio range: must be > MIN_SHARD_WINDOW_RATIO and <= MAX_SHARD_WINDOW_RATIO
-        // if (ratio <= MIN_SHARD_WINDOW_RATIO || ratio > MAX_SHARD_WINDOW_RATIO) {
-        //   QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
-        //     "Invalid shard k ratio value: Shard k ratio must be greater than %g and at most %g (got %g)",
-        //     MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, ratio);
-        //   return REDISMODULE_ERR;
-        // }
-
         // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
         if (ratio < 1.0) {
           // Calculate effective K based on deployment mode
