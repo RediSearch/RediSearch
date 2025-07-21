@@ -263,6 +263,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
 }
 
 int MR_GetPendingCount() {
+  if (!rq_g) return 0;
   return RQ_GetPendingCount(rq_g);
 }
 
