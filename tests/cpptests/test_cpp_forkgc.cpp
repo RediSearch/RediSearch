@@ -749,7 +749,8 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   // Delete the entire second block
   IndexBlock *block = &rt->root->range->entries->blocks[1];
   t_docId firstId = IndexBlock_FirstId(block);
-  for (size_t i = firstId; i <= rt->root->range->entries->blocks[1].lastId; i++) {
+  t_docId lastId = IndexBlock_LastId(block);
+  for (size_t i = firstId; i <= lastId; i++) {
     RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
   }
   EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);

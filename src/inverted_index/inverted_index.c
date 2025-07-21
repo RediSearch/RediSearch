@@ -492,7 +492,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   }
 
   if (encoder != encodeRawDocIdsOnly) {
-    delta = docId - blk->lastId;
+    delta = docId - IndexBlock_LastId(blk);
   } else {
     delta = docId - IndexBlock_FirstId(blk);
   }
@@ -1000,7 +1000,7 @@ eof:
   return INDEXREAD_EOF;
 }
 
-#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(&blk) <= docId && docId <= (blk).lastId)
+#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(&blk) <= docId && docId <= IndexBlock_LastId(&blk))
 
 // Will use the seeker to reach a valid doc id that is greater or equal to the requested doc id
 // returns true if a valid doc id was found, false if eof was reached
@@ -1057,7 +1057,8 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   uint32_t top = idx->size - 1;
   uint32_t bottom = ir->currentBlock + 1;
 
-  if (docId <= idx->blocks[bottom].lastId) {
+  t_docId lastId = IndexBlock_LastId(&idx->blocks[bottom]);
+  if (docId <= lastId) {
     // the next block is the one we're looking for, although it might not contain the docId
     ir->currentBlock = bottom;
     goto new_block;
@@ -1083,7 +1084,8 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   // We didn't find a matching block. According to the assumptions, there must be a block past the
   // requested docId, and the binary search brought us to it or the one before it.
   ir->currentBlock = i;
-  if (IR_CURRENT_BLOCK(ir).lastId < docId) {
+  t_docId currentLastId = IndexBlock_LastId(&IR_CURRENT_BLOCK(ir));
+  if (currentLastId < docId) {
     ir->currentBlock++; // It's not the current block. Advance
   }
 
@@ -1107,7 +1109,8 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     goto eof;
   }
 
-  if (IR_CURRENT_BLOCK(ir).lastId < docId) {
+  t_docId lastId = IndexBlock_LastId(&IR_CURRENT_BLOCK(ir));
+  if (lastId < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     IndexReader_SkipToBlock(ir, docId);
@@ -1378,7 +1381,7 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
             // if the last was valid, the order of the entries didn't change. We can just copy the entry, as it already contains the correct delta.
             Buffer_Write(&bw, bufBegin, sz);
           } else { // we need to calculate the delta
-            encoder(&bw, res->docId - blk->lastId, res);
+            encoder(&bw, res->docId - IndexBlock_LastId(blk), res);
           }
         } else { // encoder == encodeRawDocIdsOnly
           t_docId firstId = IndexBlock_FirstId(blk);

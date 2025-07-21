@@ -206,8 +206,9 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     params->entriesCollected = 0;
     IndexBlock *blk = idx->blocks + i;
     t_docId firstId = IndexBlock_FirstId(blk);
+    t_docId lastId = IndexBlock_LastId(blk);
 
-    if (blk->lastId - firstId > UINT32_MAX) {
+    if (lastId - firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       // todo: is it ok??
@@ -757,7 +758,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   idx->numDocs -= info->ndocsCollected;
   idx->gcMarker++;
   RS_LOG_ASSERT(idx->size, "Index should have at least one block");
-  idx->lastId = idx->blocks[idx->size - 1].lastId; // Update lastId
+  idx->lastId = IndexBlock_LastId(&idx->blocks[idx->size - 1]); // Update lastId
 }
 
 typedef struct {
