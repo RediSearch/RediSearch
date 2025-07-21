@@ -66,6 +66,20 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
 
 void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx);
 
+/* Structure to hold connection state data for merging */
+typedef struct {
+  char **connection_states;
+  size_t num_connections;
+  char *host;
+  int port;
+} MRConnectionStateData;
+
+/* Collect connection state data from a connection manager */
+MRConnectionStateData *MRConnManager_CollectStateData(MRConnManager *mgr);
+
+/* Free connection state data */
+void MRConnectionStateData_Free(MRConnectionStateData *data);
+
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id);
 

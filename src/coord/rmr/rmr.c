@@ -323,6 +323,97 @@ struct ReplyClusterInfoCtx {
   RedisModuleBlockedClient *bc;
 };
 
+// Structure to collect connection states from all IORuntimes
+struct MergedConnectionStateCtx {
+  RedisModuleBlockedClient *bc;
+  size_t num_io_threads;
+  size_t completed_threads;
+  MRConnectionStateData **runtime_data; // Array of connection data, one per IORuntime
+};
+
+struct SingleRuntimeStateCtx {
+  struct MergedConnectionStateCtx *merged_ctx;
+  size_t runtime_idx;
+};
+
+// Helper function to collect connection state data from a single IORuntime
+static void uvCollectConnectionState(void *p) {
+  struct SingleRuntimeStateCtx *singleCtx = p;
+  struct MergedConnectionStateCtx *mergedCtx = singleCtx->merged_ctx;
+  size_t runtime_idx = singleCtx->runtime_idx;
+  IORuntimeCtx *ioRuntime = cluster_g->io_runtimes_pool[runtime_idx];
+
+  // Collect connection state data from this runtime using the public API
+  MRConnManager *mgr = &ioRuntime->conn_mgr;
+  MRConnectionStateData *data = MRConnManager_CollectStateData(mgr);
+
+  // Store the collected data
+  mergedCtx->runtime_data[runtime_idx] = data;
+
+  // Increment completed counter atomically
+  size_t completed = __atomic_add_fetch(&mergedCtx->completed_threads, 1, __ATOMIC_ACQ_REL);
+
+  IORuntimeCtx_RequestCompleted(ioRuntime);
+  rm_free(singleCtx);
+
+  // If all runtimes completed, merge and reply
+  if (completed == mergedCtx->num_io_threads) {
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(mergedCtx->bc);
+
+    // Count total connections across all runtimes
+    size_t total_connections = 0;
+    char *first_host = NULL;
+    int first_port = 0;
+
+    for (size_t i = 0; i < mergedCtx->num_io_threads; i++) {
+      MRConnectionStateData *runtime_data = mergedCtx->runtime_data[i];
+      if (runtime_data && runtime_data->num_connections > 0) {
+        total_connections += runtime_data->num_connections;
+        if (!first_host) {
+          first_host = runtime_data->host;
+          first_port = runtime_data->port;
+        }
+      }
+    }
+
+    if (total_connections > 0 && first_host) {
+      // Reply with merged connection states in the expected format
+      RedisModule_ReplyWithMap(ctx, 1); // One shard entry
+
+      // Create the key using host:port format
+      RedisModuleString *key = RedisModule_CreateStringPrintf(ctx, "%s:%d", first_host, first_port);
+      RedisModule_ReplyWithString(ctx, key);
+      RedisModule_FreeString(ctx, key);
+
+      // Reply with array of all connection states from all runtimes
+      RedisModule_ReplyWithArray(ctx, total_connections);
+
+      for (size_t i = 0; i < mergedCtx->num_io_threads; i++) {
+        MRConnectionStateData *runtime_data = mergedCtx->runtime_data[i];
+        if (runtime_data && runtime_data->num_connections > 0) {
+          for (size_t j = 0; j < runtime_data->num_connections; j++) {
+            RedisModule_ReplyWithCString(ctx, runtime_data->connection_states[j]);
+          }
+        }
+      }
+    } else {
+      // No connections found, reply with empty map
+      RedisModule_ReplyWithMap(ctx, 0);
+    }
+
+    // Clean up using the public API
+    for (size_t i = 0; i < mergedCtx->num_io_threads; i++) {
+      MRConnectionStateData_Free(mergedCtx->runtime_data[i]);
+    }
+    rm_free(mergedCtx->runtime_data);
+    rm_free(mergedCtx);
+
+    RedisModule_FreeThreadSafeContext(ctx);
+    RedisModule_BlockedClientMeasureTimeEnd(mergedCtx->bc);
+    RedisModule_UnblockClient(mergedCtx->bc, NULL);
+  }
+}
+
 static void uvGetConnectionPoolState(void *p) {
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
   IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
@@ -339,11 +430,21 @@ static void uvGetConnectionPoolState(void *p) {
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
-  size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
-  replyClusterInfoCtx->bc = bc;
-  replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
-  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvGetConnectionPoolState, replyClusterInfoCtx);
+
+  // Create merged context to collect from all IORuntimes
+  struct MergedConnectionStateCtx *mergedCtx = rm_malloc(sizeof(struct MergedConnectionStateCtx));
+  mergedCtx->bc = bc;
+  mergedCtx->num_io_threads = cluster_g->num_io_threads;
+  mergedCtx->completed_threads = 0;
+  mergedCtx->runtime_data = rm_calloc(cluster_g->num_io_threads, sizeof(MRConnectionStateData *));
+
+  // Schedule collection from each IORuntime
+  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
+    struct SingleRuntimeStateCtx *singleCtx = rm_malloc(sizeof(struct SingleRuntimeStateCtx));
+    singleCtx->merged_ctx = mergedCtx;
+    singleCtx->runtime_idx = i;
+    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvCollectConnectionState, singleCtx);
+  }
 }
 
 static void uvReplyClusterInfo(void *p) {

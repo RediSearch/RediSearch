@@ -418,7 +418,7 @@ def test_switch_loader_modes():
 
 @skip(cluster=False)
 def test_change_num_connections():
-    # TODO(Joan): This test is changed because it seems hard to accumulate all the Status from all the I/O threads. To be revisited
+    # Test updated to work with the new implementation that merges connections from all I/O threads
     env = initEnv('SEARCH_IO_THREADS 20')
     # Validate the default values
     env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
@@ -435,37 +435,40 @@ def test_change_num_connections():
     #  '127.0.0.1:6381', ['Connected', 'Connecting'],
     #  '127.0.0.1:6383', ['Connected', 'Connected']]
     num_io_threads = 20
-    def compute_number_of_connections_in_each_ioruntime(num_connections):
-        return max(1, num_connections // num_io_threads)
+    def compute_total_connections_from_all_ioruntimes(num_connections_per_ioruntime):
+        # With the new implementation, we get connections from ALL IORuntimes merged together
+        # So the total connections = num_connections_per_ioruntime * num_io_threads
+        return max(1, num_connections_per_ioruntime) * num_io_threads
 
-    def expected(conns):
+    def expected(total_conns):
         return [
-            ANY,          # The shard id (host:port)
-            [ANY] * conns # The connections states
+            ANY,                # The shard id (host:port)
+            [ANY] * total_conns # The connections states from all IORuntimes merged
         ] * env.shardsCount
 
-    # By default, the number of connections is 1
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(1)))
+    # By default, the number of connections per IORuntime is 1
+    # Total connections = 1 * 20 = 20
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_connections_from_all_ioruntimes(1)))
 
     # Increase the number of worker threads to 6
     env.expect(config_cmd(), 'SET', 'WORKERS', '6').ok()
-    # The number of connections should be 7
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(7)))
+    # The number of connections per IORuntime should be 7, total = 7 * 20 = 140
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_connections_from_all_ioruntimes(7)))
 
     # Set the number of connections to 4
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '4').ok()
-    # The number of connections should be 4
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(4)))
+    # The number of connections per IORuntime should be 4, total = 4 * 20 = 80
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_connections_from_all_ioruntimes(4)))
 
     # Decrease the number of worker threads to 5
     env.expect(config_cmd(), 'SET', 'WORKERS', '5').ok()
-    # The number of connections should remain 4
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(4)))
+    # The number of connections per IORuntime should remain 4, total = 4 * 20 = 80
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_connections_from_all_ioruntimes(4)))
 
     # Set the number of connections to 0
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '0').ok()
-    # The number of connections should be 6 (5 worker threads + 1)
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(6)))
+    # The number of connections per IORuntime should be 6 (5 worker threads + 1), total = 6 * 20 = 120
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_connections_from_all_ioruntimes(6)))
 
     # Set back the number of worker threads to 0
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()

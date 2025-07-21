@@ -158,6 +158,68 @@ void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {
   dictReleaseIterator(it);
 }
 
+MRConnectionStateData *MRConnManager_CollectStateData(MRConnManager *mgr) {
+  if (!mgr || !mgr->map || dictSize(mgr->map) == 0) {
+    return NULL;
+  }
+
+  // Count total connections across all pools
+  size_t total_connections = 0;
+  dictIterator *it = dictGetIterator(mgr->map);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+    total_connections += pool->num;
+  }
+  dictReleaseIterator(it);
+
+  if (total_connections == 0) {
+    return NULL;
+  }
+
+  // Allocate the data structure
+  MRConnectionStateData *data = rm_malloc(sizeof(MRConnectionStateData));
+  data->connection_states = rm_malloc(total_connections * sizeof(char*));
+  data->num_connections = total_connections;
+  data->host = NULL;
+  data->port = 0;
+
+  // Collect connection states from all pools
+  size_t conn_idx = 0;
+  it = dictGetIterator(mgr->map);
+  while ((entry = dictNext(it))) {
+    MRConnPool *pool = dictGetVal(entry);
+
+    // Store host/port info from the first pool we encounter
+    if (conn_idx == 0 && pool->num > 0) {
+      data->host = rm_strdup(pool->conns[0]->ep.host);
+      data->port = pool->conns[0]->ep.port;
+    }
+
+    // Copy all connection states from this pool
+    for (size_t i = 0; i < pool->num; i++) {
+      data->connection_states[conn_idx] = rm_strdup(MRConnState_Str(pool->conns[i]->state));
+      conn_idx++;
+    }
+  }
+  dictReleaseIterator(it);
+
+  return data;
+}
+
+void MRConnectionStateData_Free(MRConnectionStateData *data) {
+  if (!data) return;
+
+  if (data->connection_states) {
+    for (size_t i = 0; i < data->num_connections; i++) {
+      rm_free(data->connection_states[i]);
+    }
+    rm_free(data->connection_states);
+  }
+  rm_free(data->host);
+  rm_free(data);
+}
+
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
 
