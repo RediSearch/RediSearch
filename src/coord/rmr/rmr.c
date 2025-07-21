@@ -323,27 +323,53 @@ struct ReplyClusterInfoCtx {
   RedisModuleBlockedClient *bc;
 };
 
+struct MultiThreadedRedisBlockedCtx {
+  RedisModuleBlockedClient *bc;
+  size_t pending_replies;
+  size_t num_io_threads;
+  // Accumulate partial replies
+};
+
+struct ReducedConnPoolStateCtx {
+  IORuntimeCtx *ioRuntime;
+  struct MultiThreadedRedisBlockedCtx *mt_ctx;
+};
+
 static void uvGetConnectionPoolState(void *p) {
-  struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
-  IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
-  RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
+  struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = p;
+  IORuntimeCtx *ioRuntime = reducedConnPoolStateCtx->ioRuntime;
+  struct MultiThreadedRedisBlockedCtx *mt_bc = reducedConnPoolStateCtx->mt_ctx;
+  RedisModuleBlockedClient *bc = mt_bc->bc;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  MRConnManager_ReplyState(&ioRuntime->conn_mgr, ctx);
-  IORuntimeCtx_RequestCompleted(ioRuntime);
-  RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
-  rm_free(replyClusterInfoCtx);
+  //TODO(Joan): Get all the partial replies from this runtime (Some API on MRConnManager should obtain this info)
+  size_t remaining = __atomic_sub_fetch(&mt_bc->pending_replies, 1, __ATOMIC_RELAXED);
+
+  if (remaining == 0) {
+    // We are the last ones to reply, so we can now send the response
+    MRConnManager_ReplyState(&ioRuntime->conn_mgr, ctx);
+    RedisModule_FreeThreadSafeContext(ctx);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, NULL);
+    IORuntimeCtx_RequestCompleted(ioRuntime);
+    rm_free(mt_bc);
+  }
+
+  rm_free(reducedConnPoolStateCtx);
 }
 
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
-  size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
-  replyClusterInfoCtx->bc = bc;
-  replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
-  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvGetConnectionPoolState, replyClusterInfoCtx);
+  struct MultiThreadedRedisBlockedCtx *mt_bc = rm_new(struct MultiThreadedRedisBlockedCtx);
+  mt_bc->pending_replies = cluster_g->num_io_threads;
+  mt_bc->num_io_threads = cluster_g->num_io_threads;
+  mt_bc->bc = bc;
+  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
+    struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = rm_new(struct ReducedConnPoolStateCtx);
+    reducedConnPoolStateCtx->ioRuntime = cluster_g->io_runtimes_pool[i];
+    reducedConnPoolStateCtx->mt_ctx = mt_bc;
+    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, reducedConnPoolStateCtx);
+  }
 }
 
 static void uvReplyClusterInfo(void *p) {
