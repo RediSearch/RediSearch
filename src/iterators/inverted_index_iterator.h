@@ -60,13 +60,11 @@ typedef struct InvIndIterator {
 
 } InvIndIterator;
 
-//TODO(Joan): Maybe we need another one for TagIndex with the TagIdx as member
 typedef struct {
   InvIndIterator base;
   uint32_t revisionId;
 } NumericInvIndIterator;
 
-//TODO(Joan): Maybe we need another one for TagIndex with the TagIdx as member
 typedef struct {
   InvIndIterator base;
   TagIndex *tagIdx; // not const, may reopen on revalidation

@@ -96,7 +96,6 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
 static ValidateStatus TagCheckAbort(QueryIterator *base) {
   TagInvIndIterator *it = (TagInvIndIterator *)base;
   size_t sz;
-  // TODO(Joan): This is wrong, We may need to have another class for tag iterators where we include the TagIndex there
   InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, base->current->data.term.term->str,
       base->current->data.term.term->len, false, &sz);
   if (!idx || idx == TRIEMAP_NOTFOUND || it->base.idx != idx) {
@@ -423,7 +422,6 @@ static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndex
       it->revisionId = rt->revisionId;
     }
   } else {
-    // TODO(Joan): Without Sctx (NumericFull should I check for Validation?)
     it->revisionId = 0;
     it->base.CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))EmptyCheckAbort;
   }
