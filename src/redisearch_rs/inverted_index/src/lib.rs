@@ -782,9 +782,12 @@ pub struct IndexReader<'a, D> {
 
 impl<'a, D: Decoder> IndexReader<'a, D> {
     pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
-        let first_block = blocks
-            .first()
-            .expect("IndexReader should not be created with an empty block list");
+        debug_assert!(
+            blocks.len() > 0,
+            "IndexReader should not be created with an empty block list"
+        );
+
+        let first_block = blocks.first().expect("to have at least one block");
 
         Self {
             blocks,

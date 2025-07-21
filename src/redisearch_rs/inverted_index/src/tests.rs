@@ -471,3 +471,10 @@ fn read_a_filtered_record() {
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(11));
 }
+
+#[test]
+#[should_panic(expected = "IndexReader should not be created with an empty block list")]
+fn index_reader_construction_with_no_blocks() {
+    let blocks: Vec<IndexBlock> = vec![];
+    let _ir = IndexReader::new(&blocks, Dummy);
+}
