@@ -1277,6 +1277,13 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   if (req->parsedVectorQuery) {
+    QAST_ValidationFlags prevFlags = ast->validationFlags;
+    ast->validationFlags |= QAST_HYBRID_VSIM_FILTER_CLAUSE;
+    if (QAST_CheckIsValid(ast, AREQ_SearchCtx(req)->spec, opts, status) != REDISMODULE_OK) {
+      ast->validationFlags = prevFlags;
+      return REDISMODULE_ERR;
+    }
+    ast->validationFlags = prevFlags;
     // ParsedVectorQuery retains ownership of vector data
     // VectorQuery just references it, and VectorQuery_Free won't free it
     // ParsedVectorQuery will be cleaned up in AREQ_Free
