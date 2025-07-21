@@ -52,13 +52,6 @@ class ParseHybridTest : public ::testing::Test {
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
-
-    // Add a test document for vector tests
-    RSDoc* d = RediSearch_CreateDocument("doc:1", strlen("doc:1"), 1.0, NULL);
-    RediSearch_DocumentAddFieldCString(d, "title", "another indexing testing",
-                                     RSFLDTYPE_FULLTEXT);
-    RediSearch_DocumentAddFieldCString(d, "vector", "ABCDEFG==", RSFLDTYPE_VECTOR);
-    RediSearch_SpecAddDocument(spec->own_ref.rm, d);
   }
 
   void TearDown() override {
@@ -80,7 +73,7 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   QueryError status = {QueryErrorCode(0)};
 
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "AQIDBAUGBwgJCg==");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -112,7 +105,6 @@ TEST_F(ParseHybridTest, testMissingSearchParameter) {
 
   // Missing SEARCH parameter: FT.HYBRID <index> VSIM @vector_field
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "VSIM", "vector_field");
-  // RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "VSIM", "vector", "$BLOB", "PARAMS", "2", "$BLOB", "ABCDEFG==");
   // Create a fresh sctx for this test
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
@@ -729,7 +721,7 @@ TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
   HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_EQ(status.code, QUERY_EDUPPARAM);
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -749,7 +741,7 @@ TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
   HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_EQ(status.code, QUERY_EDUPPARAM);
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -809,7 +801,7 @@ TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
   HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_EQ(status.code, QUERY_EDUPPARAM);
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -829,7 +821,7 @@ TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
   HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_EQ(status.code, QUERY_EDUPPARAM);
 
   // Clean up
   SearchCtx_Free(test_sctx);
