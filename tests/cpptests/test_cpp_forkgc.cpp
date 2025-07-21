@@ -478,9 +478,9 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   // We are left with the first + last block.
   ASSERT_EQ(2, iv->size);
   // The first entry was deleted. first block starts from docId = 2.
-  ASSERT_EQ(2, iv->blocks[0].firstId);
+  ASSERT_EQ(2, IndexBlock_FirstId(&iv->blocks[0]));
   // Last block was moved.
-  ASSERT_EQ(lastBlockFirstId, iv->blocks[1].firstId);
+  ASSERT_EQ(lastBlockFirstId, IndexBlock_FirstId(&iv->blocks[1]));
   ASSERT_EQ(3, iv->blocks[1].numEntries);
 }
 
@@ -747,7 +747,9 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   FGC_WaitBeforeFork(fgc);
 
   // Delete the entire second block
-  for (size_t i = rt->root->range->entries->blocks[1].firstId; i <= rt->root->range->entries->blocks[1].lastId; i++) {
+  IndexBlock *block = &rt->root->range->entries->blocks[1];
+  t_docId firstId = IndexBlock_FirstId(block);
+  for (size_t i = firstId; i <= rt->root->range->entries->blocks[1].lastId; i++) {
     RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
   }
   EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);

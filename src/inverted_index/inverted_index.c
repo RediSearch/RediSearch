@@ -523,7 +523,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   if (encoder != encodeRawDocIdsOnly) {
     delta = docId - blk->lastId;
   } else {
-    delta = docId - blk->firstId;
+    delta = docId - IndexBlock_FirstId(blk);
   }
 
   // For non-numeric encoders the maximal delta is UINT32_MAX (since it is encoded with 4 bytes)
@@ -565,7 +565,7 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->currentBlock++;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
-  ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
+  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
 }
 
 /******************************************************************************
@@ -1011,7 +1011,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     IndexBlockReader reader = (IndexBlockReader){
       .buffReader = ir->br,
-      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IR_CURRENT_BLOCK(ir).firstId,
+      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir)),
     };
     int rv = ir->decoders.decoder(&reader, &ir->decoderCtx, ir->record);
     RSIndexResult *record = ir->record;
@@ -1049,7 +1049,7 @@ eof:
   return INDEXREAD_EOF;
 }
 
-#define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
+#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(&blk) <= docId && docId <= (blk).lastId)
 
 // Will use the seeker to reach a valid doc id that is greater or equal to the requested doc id
 // returns true if a valid doc id was found, false if eof was reached
@@ -1061,7 +1061,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
     // try and find docId using seeker
     IndexBlockReader reader = (IndexBlockReader){
       .buffReader = ir->br,
-      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IR_CURRENT_BLOCK(ir).firstId,
+      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir)),
     };
     found = ir->decoders.seeker(&reader, &ir->decoderCtx, docId, ir->record);
     ir->br = reader.buffReader;
@@ -1121,7 +1121,8 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
       goto new_block;
     }
 
-    if (docId < blk->firstId) {
+    t_docId firstId = IndexBlock_FirstId(blk);
+    if (docId < firstId) {
       top = i - 1;
     } else {
       bottom = i + 1;
@@ -1137,7 +1138,7 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
 
 new_block:
   RS_LOG_ASSERT(ir->currentBlock < idx->size, "Invalid block index");
-  ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
+  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
 }
 
@@ -1228,7 +1229,7 @@ static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, Inver
   ret->gcMarker = idx->gcMarker;
   ret->record = record;
   ret->len = 0;
-  ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
+  ret->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ret));
   ret->sameId = 0;
   ret->skipMulti = skipMulti;
   ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
@@ -1331,7 +1332,7 @@ void IR_Rewind(void *ctx) {
   ir->currentBlock = 0;
   ir->gcMarker = ir->idx->gcMarker;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
-  ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
+  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
   ir->sameId = 0;
 }
 
@@ -1363,7 +1364,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
   static const IndexDecoderCtx empty = {0};
 
-  IndexBlockReader reader = { .buffReader = NewBufferReader(&blk->buf), .curBaseId = blk->firstId };
+  IndexBlockReader reader = { .buffReader = NewBufferReader(&blk->buf), .curBaseId = IndexBlock_FirstId(blk) };
   BufferReader *br = &reader.buffReader;
   Buffer repair = {0};
   BufferWriter bw = NewBufferWriter(&repair);
@@ -1414,7 +1415,7 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
       if (params->RepairCallback) {
         params->RepairCallback(res, blk, params->arg);
       }
-      if (blk->firstId == 0) { // this is the first valid doc
+      if (IndexBlock_FirstId(blk) == 0) { // this is the first valid doc
         blk->firstId = res->docId;
         blk->lastId = res->docId; // first diff should be 0
       }
@@ -1429,7 +1430,8 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
             encoder(&bw, res->docId - blk->lastId, res);
           }
         } else { // encoder == encodeRawDocIdsOnly
-          encoder(&bw, res->docId - blk->firstId, res);
+          t_docId firstId = IndexBlock_FirstId(blk);
+          encoder(&bw, res->docId - firstId, res);
         }
       }
       // Update the last seen valid doc id, even if we didn't write it (yet)
