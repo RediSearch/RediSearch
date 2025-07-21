@@ -22,6 +22,7 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "obfuscation/hidden.h"
+#include "hybrid/vector_query_utils.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -1392,30 +1393,14 @@ void AREQ_Free(AREQ *req) {
   }
   if (req->parsedVectorQuery) {
     ParsedVectorQuery_Free(req->parsedVectorQuery);
+    req->parsedVectorQuery = NULL;
   }
+
   rm_free(req->args);
   rm_free(req);
 }
 
-void ParsedVectorQuery_Free(ParsedVectorQuery *pvq) {
-  if (!pvq) return;
 
-  // Vector data is NOT owned (just a reference to args) - don't free it
-
-  // Free QueryAttribute arrays with callback
-  if (pvq->attributes) {
-    array_free_ex(pvq->attributes, {
-      QueryAttribute *attr = (QueryAttribute*)ptr;
-      // Only free values that weren't transferred (still non-NULL)
-      if (attr->value) {
-        rm_free((char*)attr->value);
-      }
-      // Note: .name is not freed because it points to string literals like "yield_distance_as"
-    });
-  }
-
-  rm_free(pvq);
-}
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   Pipeline_Initialize(req->pipeline, req->reqConfig.timeoutPolicy, status);

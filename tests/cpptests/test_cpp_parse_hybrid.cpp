@@ -12,6 +12,7 @@
 #include "redismock/util.h"
 #include "common.h"
 #include "src/hybrid/parse_hybrid.h"
+#include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"
 #include "src/query_error.h"

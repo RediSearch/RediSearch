@@ -14,6 +14,7 @@
 #include <ctype.h>
 
 #include "aggregate/aggregate.h"
+#include "vector_query_utils.h"
 #include "query_error.h"
 #include "spec.h"
 #include "param.h"

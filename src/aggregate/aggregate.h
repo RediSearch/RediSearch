@@ -125,18 +125,8 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct ParsedVectorQuery {
-  const char *fieldName;      // Field name string (NOT owned - points to args)
-  const void *vector;         // Vector data OR parameter name (NOT owned - points to args)
-  size_t vectorLen;           // Vector length
-  bool isParameter;           // true if vector is parameter name, false if direct data
-  VectorQueryType type;       // KNN or RANGE
-  union {
-    size_t k;                 // For KNN
-    double radius;            // For RANGE
-  };
-  QueryAttribute *attributes; // Self-describing array (OWNED)
-} ParsedVectorQuery;
+// Forward declaration - full definition in hybrid/vector_query_types.h
+typedef struct ParsedVectorQuery ParsedVectorQuery;
 
 void ParsedVectorQuery_Free(ParsedVectorQuery *pvq);
 
