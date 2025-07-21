@@ -111,6 +111,10 @@ static inline t_docId IndexBlock_FirstId(const IndexBlock *b) {
   return b->firstId;
 }
 
+static inline t_docId IndexBlock_LastId(const IndexBlock *b) {
+  return b->lastId;
+}
+
 #define IndexBlock_DataBuf(b) (b)->buf.data
 #define IndexBlock_DataLen(b) (b)->buf.offset
 #define IndexBlock_DataCap(b) (b)->buf.cap
