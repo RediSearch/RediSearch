@@ -58,6 +58,7 @@ MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 void MR_requestCompleted();
+int MR_GetPendingCount();
 
 
 /* Free the MapReduce context */

@@ -274,3 +274,10 @@ void RQ_Debug_ClearPendingTopo() {
     rm_free(topo);
   }
 }
+
+int RQ_GetPendingCount(MRWorkQueue *q) {
+  uv_mutex_lock(&q->lock);
+  int ret = q->pending;
+  uv_mutex_unlock(&q->lock);
+  return ret;
+}

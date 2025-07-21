@@ -26,4 +26,5 @@ struct MRClusterTopology;
 void RQ_Push_Topology(MRQueueCallback cb, struct MRClusterTopology *topo);
 
 void RQ_Debug_ClearPendingTopo();
+int RQ_GetPendingCount(MRWorkQueue *q);
 #endif // RQ_C__

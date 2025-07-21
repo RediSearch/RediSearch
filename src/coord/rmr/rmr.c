@@ -262,6 +262,10 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   return REDIS_OK;
 }
 
+int MR_GetPendingCount() {
+  return RQ_GetPendingCount(rq_g);
+}
+
 /* on-loop update topology request. This can't be done from the main thread */
 static void uvUpdateTopologyRequest(void *p) {
   MRCLuster_UpdateTopology(cluster_g, p);
