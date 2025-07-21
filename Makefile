@@ -91,13 +91,13 @@ PACKAGE_NAME ?=
 RAMP_VARIANT ?=
 RAMP_ARGS ?=
 
-# Set RAMP_VARIANT based on COORD if not explicitly set
+# Set RAMP_VARIANT and PACKAGE_NAME based on COORD if not explicitly set
 ifeq ($(RAMP_VARIANT),)
 ifeq ($(COORD),rlec)
-    override RAMP_VARIANT := enterprise
+	override RAMP_VARIANT := enterprise
 	override PACKAGE_NAME := redisearch
 else
-    override RAMP_VARIANT := community
+	override RAMP_VARIANT := community
 	override PACKAGE_NAME := redisearch-community
 endif
 endif
@@ -110,7 +110,6 @@ define HELPTEXT
 RediSearch Build System
 
 Setup:
-  make setup         Install prerequisites (CAUTION: modifies system)
   make fetch         Download and prepare dependent modules
 
 Build:
@@ -150,7 +149,6 @@ Packaging:
   make pack          Create installation packages
     RAMP_VARIANT=name  Use specific RAMP variant (community|enterprise)
                        Default: community for oss, enterprise for rlec
-  make docker        Build for specified platform
 
 Benchmarks:
   make benchmark     Run performance benchmarks
@@ -160,10 +158,6 @@ endef # HELPTEXT
 help:
 	$(info $(HELPTEXT))
 	@:
-
-setup:
-	@echo "Setting up system..."
-	@$(ROOT)/sbin/setup
 
 fetch:
 	@echo "Fetching dependencies..."
@@ -210,9 +204,6 @@ rust-tests: $(BUILD_SCRIPT)
 pytest: $(BUILD_SCRIPT)
 	@echo "Running Python tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_PYTEST
-
-c-tests: unit-tests
-cpp-tests: unit-tests
 
 parsers:
 ifeq ($(FORCE),1)
@@ -299,10 +290,6 @@ pack: $(BUILD_SCRIPT)
 upload-artifacts:
 	@echo "Uploading artifacts..."
 	@$(ROOT)/sbin/upload-artifacts
-
-docker:
-	@echo "Building Docker image..."
-	@$(MAKE) -C build/docker
 
 benchmark:
 	@echo "Running benchmarks..."
