@@ -825,7 +825,7 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
             let DecoderResult::Record(result) =
                 self.decoder.decode(&mut self.current_buffer, base)?
             else {
-                todo!()
+                continue;
             };
 
             if self.skip_duplicates {

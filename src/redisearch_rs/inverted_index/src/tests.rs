@@ -424,3 +424,50 @@ fn read_using_the_first_block_id_as_the_base() {
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(12));
 }
+
+#[test]
+fn read_a_filtered_record() {
+    struct FilteredDummy;
+
+    impl Decoder for FilteredDummy {
+        fn decode<R: std::io::Read>(
+            &self,
+            reader: &mut R,
+            prev_doc_id: u64,
+        ) -> std::io::Result<DecoderResult> {
+            let mut buffer = [0; 4];
+            reader.read_exact(&mut buffer)?;
+
+            let delta = u32::from_be_bytes(buffer);
+            let doc_id = prev_doc_id + (delta as u64);
+
+            // Filter out records with even doc IDs
+            if doc_id % 2 == 0 {
+                Ok(DecoderResult::FilteredOut)
+            } else {
+                Ok(DecoderResult::Record(RSIndexResult::virt().doc_id(doc_id)))
+            }
+        }
+    }
+
+    // Make a block with three different doc IDs. The second doc ID should be even
+    let blocks = vec![IndexBlock {
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
+        num_entries: 3,
+        first_doc_id: 9,
+        last_doc_id: 11,
+    }];
+    let mut ir = IndexReader::new(&blocks, FilteredDummy);
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(9));
+
+    let record = ir
+        .next()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(11));
+}
