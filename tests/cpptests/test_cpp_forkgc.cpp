@@ -460,7 +460,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   size_t valid_docs = curId - 1 - total_deletions;
   ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
 
-  size_t lastBlockEntries = iv->blocks[2].numEntries;
+  size_t lastBlockEntries = IndexBlock_NumEntries(&iv->blocks[2]);
   FGC_ForkAndWaitBeforeApply(fgc);
 
   // Add a document -- this one is to keep
@@ -481,7 +481,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   ASSERT_EQ(2, IndexBlock_FirstId(&iv->blocks[0]));
   // Last block was moved.
   ASSERT_EQ(lastBlockFirstId, IndexBlock_FirstId(&iv->blocks[1]));
-  ASSERT_EQ(3, iv->blocks[1].numEntries);
+  ASSERT_EQ(3, IndexBlock_NumEntries(&iv->blocks[1]));
 }
 
 /**

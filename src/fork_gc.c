@@ -230,7 +230,8 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
 
     uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
 
-    if (blk->numEntries == 0) {
+    uint16_t numEntries = IndexBlock_NumEntries(blk);
+    if (numEntries == 0) {
       // this block should be removed
       MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
       *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
@@ -257,7 +258,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       // were added during the fork process was running. If there were, the main process will discard the last block
       // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
       // or it will get to its maximum capacity and will no longer be the last block.
-      ixmsg.lastblkNumEntries = blk->numEntries + params->entriesCollected;
+      ixmsg.lastblkNumEntries = IndexBlock_NumEntries(blk) + params->entriesCollected;
     }
   }
 
@@ -633,7 +634,7 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
     // didn't touch last block in child
     return;
   }
-  if (info->lastblkNumEntries == lastOld->numEntries) {
+  if (info->lastblkNumEntries == IndexBlock_NumEntries(lastOld)) {
     // didn't touch last block in parent
     return;
   }
