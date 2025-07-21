@@ -66,6 +66,13 @@ impl<'a> BufferWriter<'a> {
     pub fn buffer(&mut self) -> &mut Buffer {
         self.buffer
     }
+
+    /// Cast to a raw pointer on [`ffi::BufferWriter`].
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::BufferWriter {
+        // Safety: `BufferWriter` has the same memory layout as [`ffi::BufferWriter`]
+        // so we can safely cast one into the other.
+        self as *const _ as *mut _
+    }
 }
 
 impl<'a> std::io::Write for BufferWriter<'a> {

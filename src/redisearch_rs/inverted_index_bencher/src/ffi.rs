@@ -65,13 +65,13 @@ pub fn encode_numeric(
 ) -> usize {
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
 
-    unsafe { bindings::encode_numeric(&mut buffer_writer as *const _ as *mut _, delta, record) }
+    unsafe { bindings::encode_numeric(buffer_writer.as_mut_ptr() as _, delta, record) }
 }
 
 pub fn read_numeric(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::RSIndexResult) {
-    let buffer_reader = BufferReader::new(buffer);
+    let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
-        unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
+        unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
     let mut result = inverted_index::RSIndexResult::numeric(0.0);
 
@@ -87,13 +87,13 @@ pub fn encode_freqs_only(
 ) -> usize {
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
 
-    unsafe { bindings::encode_freqs_only(&mut buffer_writer as *const _ as *mut _, delta, record) }
+    unsafe { bindings::encode_freqs_only(buffer_writer.as_mut_ptr() as _, delta, record) }
 }
 
 pub fn read_freqs(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::RSIndexResult) {
-    let buffer_reader = BufferReader::new(buffer);
+    let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
-        unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
+        unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
     let mut result = inverted_index::RSIndexResult::virt().doc_id(base_id);
 
@@ -112,16 +112,10 @@ pub fn encode_freqs_fields(
 
     if wide {
         unsafe {
-            bindings::encode_freqs_fields_wide(
-                &mut buffer_writer as *const _ as *mut _,
-                delta,
-                record,
-            )
+            bindings::encode_freqs_fields_wide(buffer_writer.as_mut_ptr() as _, delta, record)
         }
     } else {
-        unsafe {
-            bindings::encode_freqs_fields(&mut buffer_writer as *const _ as *mut _, delta, record)
-        }
+        unsafe { bindings::encode_freqs_fields(buffer_writer.as_mut_ptr() as _, delta, record) }
     }
 }
 
@@ -130,9 +124,9 @@ pub fn read_freqs_flags(
     base_id: u64,
     wide: bool,
 ) -> (bool, inverted_index::RSIndexResult) {
-    let buffer_reader = BufferReader::new(buffer);
+    let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
-        unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, base_id) };
+        unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
