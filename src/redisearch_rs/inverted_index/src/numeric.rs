@@ -144,7 +144,7 @@ use std::io::{IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{Decoder, DecoderResult, Encoder, IdDelta, RSIndexResult};
+use crate::{Decoder, Encoder, IdDelta, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -401,7 +401,7 @@ impl Encoder for Numeric {
 }
 
 impl Decoder for Numeric {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult> {
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
         let mut header = [0; 1];
         reader.read_exact(&mut header)?;
 
@@ -464,9 +464,9 @@ impl Decoder for Numeric {
         };
 
         let doc_id = base + delta;
-        let record = RSIndexResult::numeric(doc_id, num);
+        let record = RSIndexResult::numeric(num).doc_id(doc_id);
 
-        Ok(DecoderResult::Record(record))
+        Ok(record)
     }
 }
 

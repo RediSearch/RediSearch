@@ -10,6 +10,7 @@ workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
 
 [dependencies]
 inverted_index.workspace = true

@@ -274,7 +274,6 @@ static void uvUpdateTopologyRequest(void *p) {
 
 /* Set a new topology for the cluster.*/
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
-  // TODO(Joan): Most likely we need to make sure we wait for the topology to properly be applied to every runtime context before returning.
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == 0);
   }
@@ -323,27 +322,63 @@ struct ReplyClusterInfoCtx {
   RedisModuleBlockedClient *bc;
 };
 
+struct MultiThreadedRedisBlockedCtx {
+  RedisModuleBlockedClient *bc;
+  size_t pending_threads;
+  size_t num_io_threads;
+  pthread_mutex_t lock;
+  // Accumulate partial replies
+  dict *replyDict;
+};
+
+struct ReducedConnPoolStateCtx {
+  IORuntimeCtx *ioRuntime;
+  struct MultiThreadedRedisBlockedCtx *mt_ctx;
+};
+
 static void uvGetConnectionPoolState(void *p) {
-  struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
-  IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
-  RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
+  struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = p;
+  IORuntimeCtx *ioRuntime = reducedConnPoolStateCtx->ioRuntime;
+  struct MultiThreadedRedisBlockedCtx *mt_bc = reducedConnPoolStateCtx->mt_ctx;
+  RedisModuleBlockedClient *bc = mt_bc->bc;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  MRConnManager_ReplyState(&ioRuntime->conn_mgr, ctx);
-  IORuntimeCtx_RequestCompleted(ioRuntime);
-  RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
-  rm_free(replyClusterInfoCtx);
+  pthread_mutex_lock(&mt_bc->lock);
+  MRConnManager_FillStateDict(&ioRuntime->conn_mgr, mt_bc->replyDict);
+  mt_bc->pending_threads--;
+  if (mt_bc->pending_threads == 0) {
+    // We are the last ones to reply, so we can now send the response
+    MRConnManager_ReplyState(mt_bc->replyDict, ctx);
+    pthread_mutex_unlock(&mt_bc->lock);
+    RedisModule_FreeThreadSafeContext(ctx);
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, NULL);
+    IORuntimeCtx_RequestCompleted(ioRuntime);
+    pthread_mutex_destroy(&mt_bc->lock);
+    dictRelease(mt_bc->replyDict);
+    rm_free(mt_bc);
+  } else {
+    pthread_mutex_unlock(&mt_bc->lock);
+    RedisModule_FreeThreadSafeContext(ctx);
+  }
+
+  rm_free(reducedConnPoolStateCtx);
 }
 
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
-  size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
-  replyClusterInfoCtx->bc = bc;
-  replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
-  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvGetConnectionPoolState, replyClusterInfoCtx);
+  struct MultiThreadedRedisBlockedCtx *mt_bc = rm_new(struct MultiThreadedRedisBlockedCtx);
+  mt_bc->num_io_threads = cluster_g->num_io_threads;
+  mt_bc->pending_threads = cluster_g->num_io_threads;
+  mt_bc->replyDict = dictCreate(&dictTypeHeapStringsListVal, NULL);
+  mt_bc->bc = bc;
+  pthread_mutex_init(&mt_bc->lock, NULL);
+  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
+    struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = rm_new(struct ReducedConnPoolStateCtx);
+    reducedConnPoolStateCtx->ioRuntime = cluster_g->io_runtimes_pool[i];
+    reducedConnPoolStateCtx->mt_ctx = mt_bc;
+    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, reducedConnPoolStateCtx);
+  }
 }
 
 static void uvReplyClusterInfo(void *p) {

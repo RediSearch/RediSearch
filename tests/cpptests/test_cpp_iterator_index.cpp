@@ -6,60 +6,88 @@
 
 #include "gtest/gtest.h"
 #include "iterator_util.h"
+#include <vector>
+#include "index_utils.h"
 
+extern "C" {
 #include "src/forward_index.h"
 #include "src/iterators/inverted_index_iterator.h"
+#include "src/redis_index.h"
+#include "src/spec.h"
+#include "src/index_result.h"
+#include "src/util/dict.h"
+#include "src/tag_index.h"
+#include "src/numeric_index.h"
+#include "redisearch_rs/headers/triemap.h"
+}
 
-typedef enum IndexType {
-    INDEX_TYPE_TERM_FULL,
-    INDEX_TYPE_NUMERIC_FULL,
-    INDEX_TYPE_TERM,
-    INDEX_TYPE_NUMERIC,
-    INDEX_TYPE_GENERIC,
-} IndexType;
+typedef enum IndexIteratorType {
+  TYPE_TERM_FULL,
+  TYPE_NUMERIC_FULL,
+  TYPE_TERM,
+  TYPE_NUMERIC,
+  TYPE_GENERIC,
+} IndexIteratorType;
 
-class IndexIteratorTest : public ::testing::TestWithParam<IndexType> {
+class IndexIteratorTest : public ::testing::TestWithParam<std::tuple<IndexIteratorType, bool>> {
 protected:
     static constexpr size_t n_docs = 2.45 * std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
     std::array<t_docId, n_docs> resultSet;
     InvertedIndex *idx;
     QueryIterator *it_base;
+    MockQueryEvalCtx q_mock;
+    NumericFilter *numericFilter;
 
     void SetUp() override {
+        numericFilter = nullptr;
+
         // Generate a set of document IDs for testing
         for (size_t i = 0; i < n_docs; ++i) {
             resultSet[i] = 2 * i + 1; // Document IDs start from 1
         }
 
-        switch (GetParam()) {
-            case INDEX_TYPE_TERM_FULL:
+        auto [indexIteratorType, withExpiration] = GetParam();
+
+        if (withExpiration) {
+            // Initialize the TTL table with some expiration data. Results should not be expired so the test passes as expected.
+            for (size_t i = 0; i < n_docs; ++i) {
+                q_mock.TTL_Add(resultSet[i]);
+            }
+        }
+
+        switch (indexIteratorType) {
+            case TYPE_TERM_FULL:
                 SetTermsInvIndex();
                 it_base = NewInvIndIterator_TermFull(idx);
                 break;
-            case INDEX_TYPE_NUMERIC_FULL:
+            case TYPE_NUMERIC_FULL:
                 SetNumericInvIndex();
                 it_base = NewInvIndIterator_NumericFull(idx);
                 break;
-            case INDEX_TYPE_TERM:
+            case TYPE_TERM:
                 SetTermsInvIndex();
-                it_base = NewInvIndIterator_TermQuery(idx, nullptr, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
+                it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
                 break;
-            case INDEX_TYPE_NUMERIC: {
+            case TYPE_NUMERIC: {
                 SetNumericInvIndex();
                 FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
                 FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-                it_base = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, -INFINITY, INFINITY);
+                numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+                it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
             }
                 break;
-            case INDEX_TYPE_GENERIC:
+            case TYPE_GENERIC:
                 SetGenericInvIndex();
-                it_base = NewInvIndIterator_GenericQuery(idx, nullptr, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
+                it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
                 break;
         }
     }
     void TearDown() override {
         it_base->Free(it_base);
         InvertedIndex_Free(idx);
+        if (numericFilter) {
+            NumericFilter_Free(numericFilter);
+        }
     }
 
 private:
@@ -99,18 +127,22 @@ private:
         idx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
         IndexEncoder encoder = InvertedIndex_GetEncoder(idx->flags);
         for (size_t i = 0; i < n_docs; ++i) {
-            InvertedIndex_WriteEntryGeneric(idx, encoder, resultSet[i], nullptr);
+            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
         }
     }
 };
 
 
-INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Values(
-    INDEX_TYPE_TERM_FULL,
-    INDEX_TYPE_NUMERIC_FULL,
-    INDEX_TYPE_TERM,
-    INDEX_TYPE_NUMERIC,
-    INDEX_TYPE_GENERIC
+INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Combine(
+  ::testing::Values(
+      TYPE_TERM_FULL,
+      TYPE_NUMERIC_FULL,
+      TYPE_TERM,
+      TYPE_NUMERIC,
+      TYPE_GENERIC
+  ),
+  ::testing::Bool()
 ));
 
 
@@ -275,13 +307,13 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
     auto encoder = InvertedIndex_GetEncoder(idx->flags);
     for (t_docId i = 1; i < 1000; ++i) {
-      auto res = (RSIndexResult) {
-        .docId = i,
-        .fieldMask = 1,
-        .freq = 1,
-        .type = RSResultType::RSResultType_Term,
-      };
-      InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+        auto res = (RSIndexResult) {
+            .docId = i,
+            .fieldMask = 1,
+            .freq = 1,
+            .type = RSResultType::RSResultType_Term,
+        };
+        InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
     }
     // Create an iterator that reads only entries with field mask 2
     QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
@@ -292,4 +324,746 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     // Cleanup
     iterator->Free(iterator);
     InvertedIndex_Free(idx);
+}
+
+class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> {
+  protected:
+      static constexpr size_t n_docs = std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
+      InvertedIndex *idx;
+      QueryIterator *it_base;
+      MockQueryEvalCtx q_mock;
+      NumericFilter *numericFilter;
+
+      void SetUp() override {
+          numericFilter = nullptr;
+          IndexFlags flags = GetParam();
+
+          size_t dummy;
+          idx = NewInvertedIndex(flags, 1, &dummy);
+
+          t_fieldIndex fieldIndex = 0b101010; // 42
+          t_fieldMask fieldMask = fieldIndex;
+          if (flags & Index_WideSchema) {
+              fieldMask |= fieldMask << 64; // Wide field mask for wide schema
+          }
+
+          // Add docs to the index
+          IndexEncoder encoder = InvertedIndex_GetEncoder(flags);
+          RSIndexResult res = {
+              .fieldMask = fieldMask,
+          };
+          for (size_t i = 1; i <= n_docs; ++i) {
+              res.docId = i;
+              InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
+              InvertedIndex_WriteEntryGeneric(idx, encoder, &res); // Second write will fail if multi-value is not supported
+          }
+
+          // Make every even document ID field expired
+          for (size_t i = 2; i <= n_docs; i += 2) {
+              if (flags & Index_StoreNumeric || flags == Index_DocIdsOnly) {
+                  q_mock.TTL_Add(i, fieldIndex, {1, 1}); // Already expired
+              } else {
+                  q_mock.TTL_Add(i, fieldMask, {1, 1}); // Already expired
+              }
+          }
+          // Set up the mock current time
+          q_mock.sctx.time.current = {100, 100};
+
+          // Create the iterator based on the flags
+          if (flags & Index_StoreNumeric) {
+              FieldFilterContext fieldCtx = {.field = {false, fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
+              numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+              it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
+          } else if (flags == Index_DocIdsOnly) {
+              it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, fieldIndex, FIELD_EXPIRATION_DEFAULT, 1.0);
+          } else {
+              it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {true, fieldMask}, nullptr, 1.0);
+          }
+      }
+
+      void TearDown() override {
+          it_base->Free(it_base);
+          InvertedIndex_Free(idx);
+          if (numericFilter) {
+              NumericFilter_Free(numericFilter);
+          }
+      }
+  };
+  INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTestExpiration, ::testing::Values(
+      Index_DocIdsOnly,                                                                       // Single field
+      Index_StoreNumeric,                                                                     // Single field, multi-value
+      Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets,                      // field-mask, with seeker
+      Index_StoreFreqs | Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema    // wide field-mask
+  ));
+
+  TEST_P(IndexIteratorTestExpiration, Read) {
+      InvIndIterator *it = (InvIndIterator *)it_base;
+      IteratorStatus rc;
+
+      // Test reading until EOF - expect only odd document IDs
+      size_t i = 0;
+      while ((rc = it_base->Read(it_base)) == ITERATOR_OK) {
+          ASSERT_EQ(it->base.current->docId, 2*i + 1);
+          ASSERT_EQ(it->base.lastDocId, 2*i + 1);
+          ASSERT_FALSE(it->base.atEOF);
+          i++;
+      }
+      ASSERT_EQ(rc, ITERATOR_EOF);
+      ASSERT_TRUE(it->base.atEOF);
+      ASSERT_EQ(it_base->Read(it_base), ITERATOR_EOF); // Reading after EOF should return EOF
+      ASSERT_EQ(i, n_docs / 2 + (n_docs % 2)) << "Expected to read half of the documents (odd IDs only)";
+  }
+
+  TEST_P(IndexIteratorTestExpiration, SkipTo) {
+      InvIndIterator *it = (InvIndIterator *)it_base;
+      IteratorStatus rc;
+
+      // Test skipping to various document IDs
+      it_base->Rewind(it_base);
+
+      // Skip to odd IDs should work
+      for (t_docId id = 1; id <= n_docs; id += 2) {
+          rc = it_base->SkipTo(it_base, id);
+          ASSERT_EQ(rc, ITERATOR_OK);
+          ASSERT_EQ(it->base.current->docId, id);
+          ASSERT_EQ(it->base.lastDocId, id);
+      }
+
+      // Test skipping to even IDs - should skip to next odd ID
+      it_base->Rewind(it_base);
+      for (t_docId id = 2; id <= n_docs; id += 2) {
+          rc = it_base->SkipTo(it_base, id);
+          if (id + 1 <= n_docs) {
+              ASSERT_EQ(rc, ITERATOR_NOTFOUND);
+              ASSERT_EQ(it->base.current->docId, id + 1);
+              ASSERT_EQ(it->base.lastDocId, id + 1);
+          } else {
+              ASSERT_EQ(rc, ITERATOR_EOF);
+              ASSERT_TRUE(it->base.atEOF);
+          }
+      }
+
+      // Test skipping to ID beyond range
+      it_base->Rewind(it_base);
+      rc = it_base->SkipTo(it_base, n_docs + 1);
+      ASSERT_EQ(rc, ITERATOR_EOF);
+      ASSERT_TRUE(it->base.atEOF);
+  }
+
+typedef enum RevalidateIndexType {
+    REVALIDATE_INDEX_TYPE_NUMERIC_QUERY = 0,
+    REVALIDATE_INDEX_TYPE_NUMERIC_FULL = 1,
+    REVALIDATE_INDEX_TYPE_TERM_QUERY = 2,
+    REVALIDATE_INDEX_TYPE_TERM_FULL = 3,
+    REVALIDATE_INDEX_TYPE_TAG_QUERY = 4,
+    REVALIDATE_INDEX_TYPE_TAG_FULL = 5,
+} RevalidateIndexType;
+
+/**
+ * Test class for testing the Revalidate feature of InvIndIterator with different index types.
+ *
+ * This test class creates indices for NUMERIC, TERM, and TAG field types and tests the
+ * Revalidate functionality of their corresponding iterators. The Revalidate feature is
+ * used to check if an iterator's underlying index is still valid (e.g., hasn't been
+ * garbage collected or modified).
+ *
+ * Current implementation status:
+ * - NUMERIC iterators: Fully functional Revalidate tests
+ * - TERM iterators: Basic functionality works, but Revalidate tests require proper
+ *   RedisSearchCtx setup for TermCheckAbort to work correctly
+ * - TAG iterators: Basic functionality works, but Revalidate tests require proper
+ *   RedisSearchCtx setup for TagCheckAbort to work correctly
+ *
+ * For complete TERM and TAG Revalidate testing, the following would be needed:
+ * 1. Proper RedisSearchCtx initialization with the created IndexSpec
+ * 2. Integration with the Redis key-value store for index lookup
+ * 3. Proper cleanup of Redis state between tests
+ *
+ * The test framework demonstrates how to:
+ * - Create different types of indices using IndexSpec_ParseC
+ * - Populate indices with test data
+ * - Create appropriate iterators for each index type
+ * - Test basic iterator functionality (Read, Rewind, SkipTo)
+ * - Test Revalidate functionality where possible
+ */
+class InvIndIteratorRevalidateTest : public ::testing::TestWithParam<RevalidateIndexType> {
+protected:
+    static constexpr size_t n_docs = 10;
+    std::array<t_docId, n_docs> resultSet;
+    IndexSpec *spec;
+    RedisModuleCtx *ctx;
+    RedisSearchCtx *sctx;
+    QueryIterator *iterator;
+
+    // For different index types
+    InvertedIndex *numericIdx;
+    NumericRangeTree *numericRangeTree;
+    InvertedIndex *termIdx;
+    TagIndex *tagIdx;
+    InvertedIndex *tagInvIdx;
+
+    // Flag to track if numericIdx was created standalone (needs manual freeing)
+    bool numericIdxNeedsFreeing;
+
+    // Query terms for Query-type iterators
+    RSQueryTerm *queryTerm;
+    RSQueryTerm *tagQueryTerm;
+    NumericFilter *numericFilter;
+
+    void SetUp() override {
+        // Initialize Redis context
+        ctx = RedisModule_GetThreadSafeContext(NULL);
+
+        // Initialize pointers
+        spec = nullptr;
+        sctx = nullptr;
+        iterator = nullptr;
+        numericIdx = nullptr;
+        numericRangeTree = nullptr;
+        termIdx = nullptr;
+        tagIdx = nullptr;
+        tagInvIdx = nullptr;
+        numericIdxNeedsFreeing = false;
+        queryTerm = nullptr;
+        tagQueryTerm = nullptr;
+        numericFilter = nullptr;
+
+        // Generate a set of document IDs for testing
+        for (size_t i = 0; i < n_docs; ++i) {
+            resultSet[i] = i + 1; // Document IDs start from 1
+        }
+
+        // Create the appropriate index based on the parameter
+        switch (GetParam()) {
+            case REVALIDATE_INDEX_TYPE_NUMERIC_QUERY:
+                SetupNumericIndex(true);  // Query version
+                break;
+            case REVALIDATE_INDEX_TYPE_NUMERIC_FULL:
+                SetupNumericIndex(false); // Full version
+                break;
+            case REVALIDATE_INDEX_TYPE_TERM_QUERY:
+                SetupTermIndex(true);     // Query version
+                break;
+            case REVALIDATE_INDEX_TYPE_TERM_FULL:
+                SetupTermIndex(false);    // Full version
+                break;
+            case REVALIDATE_INDEX_TYPE_TAG_QUERY:
+                SetupTagIndex(true);      // Query version
+                break;
+            case REVALIDATE_INDEX_TYPE_TAG_FULL:
+                SetupTagIndex(false);     // Full version
+                break;
+            default:
+                FAIL() << "Unknown index type: " << GetParam();
+                break;
+        }
+    }
+
+    void TearDown() override {
+        // Free iterator first (this will free the IndexResult and associated terms)
+        if (iterator) {
+            iterator->Free(iterator);
+            iterator = nullptr;
+        }
+
+        // Clear query term pointers (they were freed by the iterator)
+        queryTerm = nullptr;
+        tagQueryTerm = nullptr;
+
+        // Free numeric filter if it was created
+        if (numericFilter) {
+            NumericFilter_Free(numericFilter);
+            numericFilter = nullptr;
+        }
+
+        // Free search context
+        if (sctx) {
+            SearchCtx_Free(sctx);
+            sctx = nullptr;
+        }
+
+        // Note: tagIdx is now owned by the IndexSpec's keysDict and will be freed
+        // automatically when the spec is removed from globals
+
+        // Free standalone numeric index if it was created directly (not managed by spec)
+        if (numericIdxNeedsFreeing && numericIdx) {
+            InvertedIndex_Free(numericIdx);
+            numericIdx = nullptr;
+        }
+
+        // Remove spec from globals (this may free associated indices)
+        if (spec) {
+            IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+            spec = nullptr;
+        }
+
+        // Clear pointers (don't free directly as they may have been freed by iterator or spec)
+        numericIdx = nullptr;
+        termIdx = nullptr;
+        tagIdx = nullptr;
+        tagInvIdx = nullptr;
+
+        RedisModule_FreeThreadSafeContext(ctx);
+    }
+
+private:
+    void SetupNumericIndex(bool useQuery) {
+        // Create IndexSpec for NUMERIC field
+        const char *args[] = {"SCHEMA", "num_field", "NUMERIC"};
+        QueryError err = {QUERY_OK};
+        StrongRef ref = IndexSpec_ParseC("numeric_idx", args, sizeof(args) / sizeof(const char *), &err);
+        spec = (IndexSpec *)StrongRef_Get(ref);
+        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+        ASSERT_TRUE(spec);
+
+        // Add the spec to the global dictionary so it can be found by name
+        Spec_AddToDict(spec->own_ref.rm);
+
+        // Create RedisSearchCtx
+        sctx = NewSearchCtxC(ctx, "numeric_idx", false);
+        ASSERT_TRUE(sctx != nullptr);
+
+        if (useQuery) {
+            // For query version, we need to properly set up the numeric range tree
+            // so that NumericCheckAbort can find it and check revision IDs
+            const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "num_field", strlen("num_field"));
+            ASSERT_TRUE(fs != nullptr);
+
+            // Create the numeric range tree through the proper API
+            RedisModuleString *numField = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_NUMERIC);
+            numericRangeTree = openNumericKeysDict(spec, numField, CREATE_INDEX);
+            ASSERT_TRUE(numericRangeTree != nullptr);
+
+            // Add numeric data to the range tree
+            for (size_t i = 0; i < n_docs; ++i) {
+                NumericRangeTree_Add(numericRangeTree, resultSet[i], static_cast<double>(i * 10), false);
+            }
+
+            // Create a numeric filter to find ranges
+            NumericFilter tempFilter = {
+                .fieldSpec = fs,
+                .min = -INFINITY,
+                .max = INFINITY,
+                .geoFilter = nullptr,
+                .inclusiveMin = 1,
+                .inclusiveMax = 1,
+                .asc = false,
+                .limit = 0,
+                .offset = 0
+            };
+
+            // Find a range that covers our data to get the inverted index
+            Vector *ranges = NumericRangeTree_Find(numericRangeTree, &tempFilter);
+            ASSERT_TRUE(ranges != nullptr && Vector_Size(ranges) > 0);
+            NumericRange *range;
+            Vector_Get(ranges, 0, &range);
+            numericIdx = range->entries;
+
+            // Create the numeric filter with the field spec
+            numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, fs);
+
+            // Create the iterator with proper sctx so NumericCheckAbort can work
+            FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = fs->index}};
+            FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+            iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
+
+            Vector_Free(ranges);
+            RedisModule_FreeString(ctx, numField);
+            numericIdxNeedsFreeing = false; // Managed by IndexSpec
+        } else {
+            // Full version (simpler, no context needed)
+            size_t memsize;
+            numericIdx = NewInvertedIndex(Index_StoreNumeric, 1, &memsize);
+
+            // Populate with numeric data
+            for (size_t i = 0; i < n_docs; ++i) {
+                InvertedIndex_WriteNumericEntry(numericIdx, resultSet[i], static_cast<double>(i * 10));
+            }
+
+            iterator = NewInvIndIterator_NumericFull(numericIdx);
+            numericIdxNeedsFreeing = true; // Created standalone, needs manual freeing
+        }
+    }
+
+    void SetupTermIndex(bool useQuery) {
+        // Create IndexSpec for TEXT field
+        const char *args[] = {"SCHEMA", "text_field", "TEXT"};
+        QueryError err = {QUERY_OK};
+        StrongRef ref = IndexSpec_ParseC("term_idx", args, sizeof(args) / sizeof(const char *), &err);
+        spec = (IndexSpec *)StrongRef_Get(ref);
+        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+        ASSERT_TRUE(spec);
+
+        // Add the spec to the global dictionary so it can be found by name
+        Spec_AddToDict(spec->own_ref.rm);
+
+        // Create RedisSearchCtx
+        sctx = NewSearchCtxC(ctx, "term_idx", false);
+        ASSERT_TRUE(sctx != nullptr);
+
+        // Get the term inverted index from the spec using Redis_OpenInvertedIndex
+        // This will create the index and add it to the spec's keysDict properly
+        bool isNew;
+        termIdx = Redis_OpenInvertedIndex(sctx, "term", strlen("term"), 1, &isNew);
+        ASSERT_TRUE(termIdx != nullptr);
+        IndexEncoder encoder = InvertedIndex_GetEncoder(termIdx->flags);
+
+        // Populate with term data
+        for (size_t i = 0; i < n_docs; ++i) {
+            ForwardIndexEntry h = {0};
+            h.docId = resultSet[i];
+            h.fieldMask = i + 1;
+            h.freq = i + 1;
+            h.term = "term";
+            h.len = 4; // Length of "term"
+
+            h.vw = NewVarintVectorWriter(8);
+            VVW_Write(h.vw, i); // Just writing the index as a value
+            InvertedIndex_WriteForwardIndexEntry(termIdx, encoder, &h);
+            VVW_Free(h.vw);
+        }
+
+        // Create iterator based on type
+        if (useQuery) {
+            // Query version with proper context and term data
+            RSToken tok = {.str = const_cast<char*>("term"), .len = 4, .flags = 0};
+            queryTerm = NewQueryTerm(&tok, 1);
+            FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+            iterator = NewInvIndIterator_TermQuery(termIdx, sctx, fieldMaskOrIndex, queryTerm, 1.0);
+        } else {
+            // Full version (simpler, no context needed)
+            iterator = NewInvIndIterator_TermFull(termIdx);
+        }
+    }
+
+    void SetupTagIndex(bool useQuery) {
+        // Create IndexSpec for TAG field
+        const char *args[] = {"SCHEMA", "tag_field", "TAG"};
+        QueryError err = {QUERY_OK};
+        StrongRef ref = IndexSpec_ParseC("tag_idx", args, sizeof(args) / sizeof(const char *), &err);
+        spec = (IndexSpec *)StrongRef_Get(ref);
+        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+        ASSERT_TRUE(spec);
+
+        // Add the spec to the global dictionary so it can be found by name
+        Spec_AddToDict(spec->own_ref.rm);
+
+        // Create RedisSearchCtx
+        sctx = NewSearchCtxC(ctx, "tag_idx", false);
+        ASSERT_TRUE(sctx != nullptr);
+
+        // Get the tag index from the spec using TagIndex_Open
+        // This will create the index and add it to the spec's keysDict properly
+        const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "tag_field", strlen("tag_field"));
+        ASSERT_TRUE(fs != nullptr);
+        RedisModuleString *tagKeyName = TagIndex_FormatName(spec, fs->fieldName);
+        tagIdx = TagIndex_Open(spec, tagKeyName, CREATE_INDEX);
+        ASSERT_TRUE(tagIdx != nullptr);
+        RedisModule_FreeString(ctx, tagKeyName);
+
+        // Create tag inverted index for a specific tag value
+        size_t sz;
+        tagInvIdx = TagIndex_OpenIndex(tagIdx, "test_tag", 8, CREATE_INDEX, &sz);
+
+        // Populate with tag data using the simpler approach
+        IndexEncoder encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
+        for (size_t i = 0; i < n_docs; ++i) {
+            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            InvertedIndex_WriteEntryGeneric(tagInvIdx, encoder, &rec);
+        }
+
+        // Create iterator based on type
+        if (useQuery) {
+            // Query version with proper context and term data
+            RSToken tagTok = {.str = const_cast<char*>("test_tag"), .len = 8, .flags = 0};
+            tagQueryTerm = NewQueryTerm(&tagTok, 1);
+            FieldMaskOrIndex tagFieldMaskOrIndex = {.isFieldMask = true, .value = {.mask = RS_FIELDMASK_ALL}};
+            iterator = NewInvIndIterator_TagQuery(tagInvIdx, tagIdx, sctx, tagFieldMaskOrIndex, tagQueryTerm, 1.0);
+        } else {
+            // Full version (simpler, no context needed)
+            iterator = NewInvIndIterator_TagFull(tagInvIdx, tagIdx);
+        }
+    }
+
+public:
+    // Helper functions to determine iterator type
+    bool IsNumericIterator() const {
+        return GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_QUERY ||
+               GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_FULL;
+    }
+
+    bool IsTermIterator() const {
+        return GetParam() == REVALIDATE_INDEX_TYPE_TERM_QUERY ||
+               GetParam() == REVALIDATE_INDEX_TYPE_TERM_FULL;
+    }
+
+    bool IsTagIterator() const {
+        return GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY ||
+               GetParam() == REVALIDATE_INDEX_TYPE_TAG_FULL;
+    }
+
+    bool IsQueryIterator() const {
+        return GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_QUERY ||
+               GetParam() == REVALIDATE_INDEX_TYPE_TERM_QUERY ||
+               GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY;
+    }
+
+    bool IsFullIterator() const {
+        return GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_FULL ||
+               GetParam() == REVALIDATE_INDEX_TYPE_TERM_FULL ||
+               GetParam() == REVALIDATE_INDEX_TYPE_TAG_FULL;
+    }
+};
+
+INSTANTIATE_TEST_SUITE_P(InvIndIteratorRevalidate, InvIndIteratorRevalidateTest, ::testing::Values(
+    REVALIDATE_INDEX_TYPE_NUMERIC_QUERY,
+    REVALIDATE_INDEX_TYPE_NUMERIC_FULL,
+    REVALIDATE_INDEX_TYPE_TERM_QUERY,
+    REVALIDATE_INDEX_TYPE_TERM_FULL,
+    REVALIDATE_INDEX_TYPE_TAG_QUERY,
+    REVALIDATE_INDEX_TYPE_TAG_FULL
+));
+
+// Basic test to ensure the iterator setup works correctly
+TEST_P(InvIndIteratorRevalidateTest, BasicIteratorFunctionality) {
+    ASSERT_TRUE(iterator != nullptr);
+
+    // Test that we can read all documents
+    size_t count = 0;
+    IteratorStatus rc;
+    while ((rc = iterator->Read(iterator)) == ITERATOR_OK) {
+        ASSERT_EQ(iterator->current->docId, resultSet[count]);
+        count++;
+    }
+    ASSERT_EQ(rc, ITERATOR_EOF);
+    ASSERT_EQ(count, n_docs);
+
+    // Test rewind functionality
+    iterator->Rewind(iterator);
+    ASSERT_EQ(iterator->lastDocId, 0);
+    ASSERT_FALSE(iterator->atEOF);
+}
+
+// Test basic Revalidate functionality - should return VALIDATE_OK when index is valid
+TEST_P(InvIndIteratorRevalidateTest, RevalidateBasic) {
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+}
+
+// Test Revalidate when iterator is at EOF
+TEST_P(InvIndIteratorRevalidateTest, RevalidateAtEOF) {
+    // Read all documents to reach EOF
+    IteratorStatus rc;
+    while ((rc = iterator->Read(iterator)) == ITERATOR_OK) {
+        // Continue reading
+    }
+    ASSERT_EQ(rc, ITERATOR_EOF);
+    ASSERT_TRUE(iterator->atEOF);
+
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+}
+
+// Test Revalidate returns VALIDATE_ABORTED when the underlying index disappears
+TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
+    // First, verify the iterator works normally and read at least one document
+    // This is important because CheckAbort functions need current->data.term.term to be set
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+
+    // Only Query iterators have sctx and can detect index disappearance
+    if (IsQueryIterator()) {
+        // For this test, we'll simulate index disappearance by directly manipulating
+        // the iterator's stored index pointer to make it different from what would
+        // be returned by the lookup functions. This simulates the case where the
+        // index was garbage collected and recreated.
+
+        if (IsNumericIterator()) {
+            // For numeric iterators, we can simulate index disappearance by
+            // manipulating the revision ID. NumericCheckAbort compares the stored
+            // revision ID with the current one from the NumericRangeTree.
+            NumericInvIndIterator *numIt = (NumericInvIndIterator *)iterator;
+            uint32_t originalRevisionId = numIt->revisionId;
+
+            // Simulate the range tree being modified by incrementing its revision ID
+            // This simulates a scenario where the tree was modified (e.g., node split, removal)
+            // while the iterator was suspended
+            numericRangeTree->revisionId++;
+
+            // Now Revalidate should return VALIDATE_ABORTED because the revision IDs don't match
+            ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
+
+            // Restore the original revision ID for proper cleanup
+            numericRangeTree->revisionId--;
+        } else if (IsTermIterator() || IsTagIterator()) {
+            // For term and tag iterators, we can simulate index disappearance by
+            // setting the iterator's idx pointer to a different value than what
+            // the lookup would return. This simulates the GC scenario.
+            InvIndIterator *invIt = (InvIndIterator *)iterator;
+            const InvertedIndex *originalIdx = invIt->idx;
+
+            // Create a dummy index to simulate the "new" index that would be returned
+            // by the lookup after GC
+            size_t memsize;
+            InvertedIndex *dummyIdx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
+
+            // Temporarily replace the iterator's index pointer (need to cast away const)
+            *((InvertedIndex **)&invIt->idx) = dummyIdx;
+
+            // Now Revalidate should return VALIDATE_ABORTED because the stored index
+            // doesn't match what the lookup returns
+            ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
+
+            // Clean up the dummy index
+            InvertedIndex_Free(dummyIdx);
+
+            // Restore the original index pointer for proper cleanup
+            *((const InvertedIndex **)&invIt->idx) = originalIdx;
+        }
+    } else {
+        // Full iterators don't have sctx, so they can't detect disappearance
+        // They will always return VALIDATE_OK regardless of index state
+        ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+    }
+}
+
+// Test Revalidate returns VALIDATE_MOVED when the lastDocId was deleted from the index
+TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
+    // First, read a few documents to establish a position
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    t_docId firstDocId = iterator->current->docId;
+
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    t_docId secondDocId = iterator->current->docId;
+
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    t_docId thirdDocId = iterator->current->docId;
+
+    // Verify we're at the third document
+    ASSERT_EQ(iterator->lastDocId, thirdDocId);
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+
+    // The key insight: to get VALIDATE_MOVED, we need SkipTo to return ITERATOR_NOTFOUND
+    // This happens when the document at lastDocId is no longer in the index
+    //
+    // To properly test this, we need to:
+    // 1. Mark the document as deleted in the DocTable
+    // 2. Use IndexBlock_Repair to remove the deleted document from the inverted index
+    // 3. Increment the GC marker to trigger the SkipTo path
+    // 4. This should cause SkipTo(thirdDocId) to return ITERATOR_NOTFOUND
+
+    InvIndIterator *invIt = (InvIndIterator *)iterator;
+    InvertedIndex *idx = const_cast<InvertedIndex *>(invIt->idx);
+    uint32_t originalGcMarker = invIt->gcMarker;
+    uint32_t originalIndexGcMarker = idx->gcMarker;
+
+    // We need access to the DocTable to mark documents as deleted
+    // For this test, we'll create a temporary DocTable and mark thirdDocId as deleted
+    DocTable tempDocTable = DocTable_New(100);
+
+    // Add all documents to the temp DocTable first
+    // Store the returned metadata to properly free the references
+    std::vector<RSDocumentMetadata*> tempDocs;
+    for (size_t i = 0; i < n_docs; ++i) {
+        char docKey[32];
+        size_t len = snprintf(docKey, sizeof(docKey), "doc%zu", i);
+        RSDocumentMetadata* dmd = DocTable_Put(&tempDocTable, docKey, len, 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+        if (dmd) {
+            tempDocs.push_back(dmd);
+        }
+    }
+
+    // Now mark the third document as deleted
+    char thirdDocKey[32];
+    size_t len = snprintf(thirdDocKey, sizeof(thirdDocKey), "doc2"); // thirdDocId corresponds to doc2 (0-indexed)
+    RSDocumentMetadata *deletedDoc = DocTable_Pop(&tempDocTable, thirdDocKey, len);
+
+    // Use IndexBlock_Repair to remove deleted documents from the index
+    // This will actually remove the thirdDocId from the inverted index blocks
+    IndexRepairParams repairParams = {0};
+    repairParams.limit = SIZE_MAX; // Process all blocks
+
+    for (uint32_t blockIdx = 0; blockIdx < idx->size; ++blockIdx) {
+        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, idx->flags, &repairParams);
+    }
+
+    // Update index metadata after repair
+    idx->numDocs -= repairParams.entriesCollected;
+
+    // Increment gcMarker to trigger the SkipTo path in revalidation
+    idx->gcMarker = originalGcMarker + 1;
+    idx->lastId = idx->blocks[idx->size - 1].lastId;
+
+    // Now Revalidate should trigger the SkipTo path because gcMarkers differ
+    // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
+    ValidateStatus result = iterator->Revalidate(iterator);
+
+    // Test expectations: Now that we're actually removing documents from the index,
+    // we should get VALIDATE_MOVED when the iterator tries to SkipTo a deleted document
+    //
+    // The test validates:
+    // 1. CheckAbort functions work correctly (no pointer mismatch issues)
+    // 2. GC marker comparison logic works
+    // 3. IndexBlock_Repair successfully removes deleted documents
+    // 4. SkipTo returns ITERATOR_NOTFOUND for deleted documents, triggering VALIDATE_MOVED
+    ASSERT_EQ(result, VALIDATE_MOVED);
+
+    // Clean up the temporary DocTable
+    if (deletedDoc) {
+        DMD_Return(deletedDoc);
+    }
+
+    // Edge case: iterator revalidated after GC and before it was read
+    iterator->Rewind(iterator);
+    ASSERT_FALSE(iterator->atEOF); // Should not be at EOF yet
+    idx->gcMarker++; // Increment gcMarker to simulate a new GC cycle
+    result = iterator->Revalidate(iterator);
+    ASSERT_EQ(result, VALIDATE_OK);
+    ASSERT_FALSE(iterator->atEOF); // Should not be at EOF after revalidation
+    ASSERT_EQ(iterator->lastDocId, 0); // Should be at the beginning
+
+    // Edge case: iterator at the last document, and it's deleted.
+    // We expect the revalidation to still return VALIDATE_MOVED (and set atEOF)
+    ASSERT_EQ(iterator->SkipTo(iterator, n_docs), ITERATOR_OK);
+
+    len = snprintf(thirdDocKey, sizeof(thirdDocKey), "doc%zu", n_docs - 1);
+    deletedDoc = DocTable_Pop(&tempDocTable, thirdDocKey, len);
+
+    for (uint32_t blockIdx = 0; blockIdx < idx->size; ++blockIdx) {
+        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, idx->flags, &repairParams);
+    }
+
+    // Update index metadata after repair
+    idx->numDocs -= repairParams.entriesCollected;
+
+    // Increment gcMarker to trigger the SkipTo path in revalidation
+    idx->gcMarker++;
+    idx->lastId = idx->blocks[idx->size - 1].lastId;
+
+    // Now Revalidate should trigger the SkipTo path because gcMarkers differ
+    // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
+    ASSERT_FALSE(iterator->atEOF); // Should not be at EOF yet
+    result = iterator->Revalidate(iterator);
+    ASSERT_EQ(result, VALIDATE_MOVED);
+    ASSERT_TRUE(iterator->atEOF); // Should be at EOF after revalidation
+
+    // Clean up the temporary DocTable
+    if (deletedDoc) {
+        DMD_Return(deletedDoc);
+    }
+
+    // Free the references from DocTable_Put calls
+    for (RSDocumentMetadata* dmd : tempDocs) {
+        if (dmd) {
+            DMD_Return(dmd);
+        }
+    }
+
+    DocTable_Free(&tempDocTable);
+
+    // Restore the original index state
+    idx->numDocs += repairParams.entriesCollected; // Restore original numDocs
+    idx->gcMarker = originalIndexGcMarker;
 }

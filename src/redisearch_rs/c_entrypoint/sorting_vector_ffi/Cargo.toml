@@ -13,6 +13,7 @@ value.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
 
 [lints]
 workspace = true

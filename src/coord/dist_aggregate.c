@@ -17,7 +17,9 @@
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/config.h"
+#include "config.h"
 #include "dist_profile.h"
+#include "shard_window_ratio.h"
 #include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
@@ -529,7 +531,7 @@ static RPNet *RPNet_New(const MRCommand *cmd) {
 }
 
 static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
-                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp) {
+                           AREQDIST_UpstreamInfo *us, MRCommand *xcmd, IndexSpec *sp, specialCaseCtx *knnCtx) {
   // We need to prepend the array with the command, index, and query that
   // we want to use.
   const char **tmparr = array_new(const char *, us->nserialized);
@@ -605,6 +607,22 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     // append params string including PARAMS keyword and nargs
     for (int i = 0; i < nargs + 2; ++i) {
       MRCommand_AppendRstr(xcmd, argv[loc + 3 + i + profileArgs]);
+    }
+  }
+
+  // Handle KNN with shard ratio optimization for both multi-shard and standalone
+  if (knnCtx) {
+    KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+    double ratio = knn_query->shardWindowRatio;
+
+    if (ratio < MAX_SHARD_WINDOW_RATIO) {
+      // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+      // Calculate effective K based on deployment mode
+      size_t numShards = GetNumShards_UnSafe();
+      size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, numShards);
+
+      // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
+      modifyKNNCommand(xcmd, 2 + profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
     }
   }
 
@@ -713,11 +731,14 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
+  specialCaseCtx *knnCtx = NULL;
+
   if(dialect >= 2) {
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     if(strcasestr(r->query, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
+      // For distributed aggregation, command type detection is automatic
+      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
@@ -739,7 +760,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   // Construct the command string
   MRCommand xcmd;
-  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp);
+  buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
   xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);

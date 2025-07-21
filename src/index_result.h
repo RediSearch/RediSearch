@@ -24,17 +24,8 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-/** Reset the state of an existing index hit. This can be used to
-recycle index hits during reads */
-void IndexResult_Init(RSIndexResult *h);
-
-static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
-  if (child->metrics) {
-    // Passing ownership over the RSValues in the child metrics, but not on the array itself
-    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
-    array_clear(child->metrics);
-  }
-}
+/* Add the metrics of a child to a parent index result. */
+void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
 
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
@@ -57,11 +48,10 @@ static inline void IndexResult_Clear(RSIndexResult *r) {
 }
 
 /* Reset the aggregate result's child vector */
-static inline void AggregateResult_Reset(RSIndexResult *r) {
+static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
-  r->data.agg.numChildren = 0;
-  r->data.agg.typeMask = (RSResultType)0;
+  AggregateResult_Reset(&r->data.agg);
   IndexResult_Clear(r);
 }
 /* Allocate a new intersection result with a given capacity*/
@@ -81,25 +71,6 @@ RSIndexResult *NewHybridResult();
 /* Allocate a new token record result for a given term */
 RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 
-/* Append a child to an aggregate result */
-static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
-
-  RSAggregateResult *agg = &parent->data.agg;
-
-  /* Increase capacity if needed */
-  if (agg->numChildren >= agg->childrenCap) {
-    agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
-    agg->children = (__typeof__(agg->children))rm_realloc(
-        agg->children, agg->childrenCap * sizeof(RSIndexResult *));
-  }
-  agg->children[agg->numChildren++] = child;
-  // update the parent's type mask
-  agg->typeMask |= child->type;
-  parent->freq += child->freq;
-  parent->docId = child->docId;
-  parent->fieldMask |= child->fieldMask;
-  ResultMetrics_Concat(parent, child);
-}
 /* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
  * caution */
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
