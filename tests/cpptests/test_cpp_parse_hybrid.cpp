@@ -11,6 +11,7 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "common.h"
+#include "src/hybrid/hybrid_request.h"
 #include "src/hybrid/parse_hybrid.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"

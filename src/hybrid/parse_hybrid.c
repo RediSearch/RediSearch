@@ -187,76 +187,6 @@ error:
 }
 
 
-HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
-  HybridRequest *req = rm_calloc(1, sizeof(*req));
-  req->requests = requests;
-  req->nrequests = nrequests;
-
-  // Initialize error tracking for each individual request
-  req->errors = array_new(QueryError, nrequests);
-
-  // Initialize the tail pipeline that will merge results from all requests
-  req->tailPipeline = rm_calloc(1, sizeof(Pipeline));
-  AGPLN_Init(&req->tailPipeline->ap);
-  QueryError_Init(&req->tailError);
-  Pipeline_Initialize(req->tailPipeline, requests[0]->pipeline->qctx.timeoutPolicy, &req->tailError);
-
-  // Initialize pipelines for each individual request
-  for (size_t i = 0; i < nrequests; i++) {
-    QueryError_Init(&req->errors[i]);
-    Pipeline_Initialize(requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
-  }
-  return req;
-}
-
-int HybridRequest_BuildPipeline(HybridRequest *req) { return REDISMODULE_OK; }
-
-void HybridRequest_Free(HybridRequest *hybridRequest) {
-  if (!hybridRequest) return;
-
-  // Free the tail pipeline
-  if (hybridRequest->tailPipeline) {
-    Pipeline_Clean(hybridRequest->tailPipeline);
-    rm_free(hybridRequest->tailPipeline);
-    hybridRequest->tailPipeline = NULL;
-  }
-
-  // Free all individual AREQ requests
-  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
-    // Check if we need to manually free the thread-safe context
-    if (hybridRequest->requests[i]->sctx && hybridRequest->requests[i]->sctx->redisCtx) {
-
-      // Free the search context
-      RedisModuleCtx *thctx = hybridRequest->requests[i]->sctx->redisCtx;
-      RedisSearchCtx *sctx = hybridRequest->requests[i]->sctx;
-      SearchCtx_Free(sctx);
-      // Free the thread-safe context
-      if (thctx) {
-        RedisModule_FreeThreadSafeContext(thctx);
-      }
-      hybridRequest->requests[i]->sctx = NULL;
-    }
-
-    AREQ_Free(hybridRequest->requests[i]);
-  }
-
-  // Free the scoring context resources
-  HybridScoringContext_Free(hybridRequest->hybridParams->scoringCtx);
-
-  // Free the aggregation search context
-  if(hybridRequest->hybridParams->aggregation.common.sctx) {
-    SearchCtx_Free(hybridRequest->hybridParams->aggregation.common.sctx);
-  }
-  // Free the hybrid parameters
-  rm_free(hybridRequest->hybridParams);
-
-  // Free the arrays and tail pipeline
-  array_free(hybridRequest->requests);
-  array_free(hybridRequest->errors);
-
-  rm_free(hybridRequest);
-}
-
 // Copy the request configuration from the source to the destination
 static void copyReqConfig(AREQ *dest, const AREQ *src) {
   dest->reqConfig.queryTimeoutMS = src->reqConfig.queryTimeoutMS;
@@ -364,7 +294,6 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   const AggregationPipelineParams params = {
       .common =
           {
-              .pln = NULL,  // I think. should be copied in HybridRequest_BuildPipeline
               .sctx = sctx,  // should be a separate context?
               .reqflags = hasMerge ? mergeAreq->reqflags : 0,
               .optimizer = NULL,  // is it?
@@ -374,7 +303,7 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
       .language = searchRequest->searchopts.language,
   };
 
-  hybridParams->aggregation = params;
+  hybridParams->aggregationParams = params;
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
@@ -461,7 +390,7 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto error;
   }
 
-  if (HybridRequest_BuildPipeline(hybridRequest) != REDISMODULE_OK) {
+  if (HybridRequest_BuildPipeline(hybridRequest, hybridRequest->hybridParams) != REDISMODULE_OK) {
     goto error;
   }
 

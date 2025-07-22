@@ -17,29 +17,13 @@
 #include "aggregate/aggregate.h"
 #include "pipeline/pipeline.h"
 #include "search_ctx.h"
+#include "hybrid_request.h"
 #include "hybrid_scoring.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct HybridPipelineParams {
-    AggregationPipelineParams aggregation;
-    bool synchronize_read_locks;
-    HybridScoringContext *scoringCtx;
-} HybridPipelineParams;
-
-typedef struct {
-  arrayof(AREQ*) requests;
-  size_t nrequests;
-  QueryError tailError;
-  QueryError *errors;
-  RequestConfig reqConfig;
-  Pipeline *tailPipeline;  // Now a pointer
-  HybridPipelineParams *hybridParams;
-} HybridRequest;
-
-void HybridRequest_Free(HybridRequest *hybridRequest);
 
 int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 

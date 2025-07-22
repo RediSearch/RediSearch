@@ -10,14 +10,16 @@ extern "C" {
 typedef struct {
     arrayof(AREQ*) requests;
     size_t nrequests;
-    QueryError pipelineError;
+    QueryError tailPipelineError;
     QueryError *errors;
-    Pipeline pipeline;
+    Pipeline *tailPipeline;
+    RequestConfig reqConfig;
+    HybridPipelineParams *hybridParams;
 } HybridRequest;
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
-int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params);
-void HybridRequest_Free(HybridRequest *req);
+int HybridRequest_BuildPipeline(HybridRequest *hybridReq, const HybridPipelineParams *params);
+void HybridRequest_Free(HybridRequest *hybridReq);
 
 #ifdef __cplusplus
 }

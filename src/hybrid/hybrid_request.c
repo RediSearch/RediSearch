@@ -26,7 +26,7 @@ extern "C" {
 int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params) {
     // Find any LOAD step in the tail pipeline that specifies which fields to load
     // This step will be temporarily removed and re-added after merger setup
-    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
 
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -49,7 +49,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         }
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-        RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
+        RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline->ap, NULL, AGPLN_GETLOOKUP_LAST);
         if (loadStep) {
             // Add a loader to load the fields specified in the LOAD step
             ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
@@ -71,7 +71,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Create the hybrid merger that combines results from all depleter processors
     // This is where the magic happens - results from different search modalities are merged
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests);
-    QITR_PushRP(&req->pipeline.qctx, merger);
+    QITR_PushRP(&req->tailPipeline->qctx, merger);
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts
     // during aggregation pipeline building, then restore it afterwards
@@ -82,11 +82,11 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    Pipeline_BuildAggregationPart(&req->pipeline, &params->aggregationParams, &stateFlags);
+    Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
 
     // Restore the LOAD step to the tail pipeline for proper cleanup
     if (loadStep) {
-        AGPLN_AddStep(&req->pipeline.ap, &loadStep->base);
+        AGPLN_AddStep(&req->tailPipeline->ap, &loadStep->base);
     }
     return REDISMODULE_OK;
 }
@@ -101,24 +101,25 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
  * @return Newly allocated HybridRequest, or NULL on failure
  */
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
-    HybridRequest *req = rm_calloc(1, sizeof(*req));
-    req->requests = requests;
-    req->nrequests = nrequests;
+    HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
+    hybridReq->requests = requests;
+    hybridReq->nrequests = nrequests;
 
-    // Initialize error tracking for each individual request plus the tail pipeline
-    req->errors = array_new(QueryError, nrequests);
+    // Initialize error tracking for each individual request
+    hybridReq->errors = array_new(QueryError, nrequests);
 
     // Initialize the tail pipeline that will merge results from all requests
-    AGPLN_Init(&req->pipeline.ap);
-    QueryError_Init(&req->pipelineError);
-    Pipeline_Initialize(&req->pipeline, requests[0]->pipeline.qctx.timeoutPolicy, &req->pipelineError);
+    hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
+    AGPLN_Init(&hybridReq->tailPipeline->ap);
+    QueryError_Init(&hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline->qctx.timeoutPolicy, &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
-        QueryError_Init(&req->errors[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
+        QueryError_Init(&hybridReq->errors[i]);
+        Pipeline_Initialize(requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
-    return req;
+    return hybridReq;
 }
 
 /**
@@ -126,14 +127,56 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
  * This function properly cleans up all individual AREQ requests, the tail pipeline,
  * error arrays, and the HybridRequest structure itself.
  *
- * @param req The HybridRequest to free
+ * @param hybridReq The HybridRequest to free
  */
-void HybridRequest_Free(HybridRequest *req) {
-    // Free all individual AREQ requests and their pipelines
-    array_free_ex(req->requests, AREQ_Free(*(AREQ **)ptr));
-    array_free(req->errors);
-    Pipeline_Clean(&req->pipeline);  // Cleans up the merger and aggregation pipeline
-    rm_free(req);
+void HybridRequest_Free(HybridRequest *hybridReq) {
+    if (!hybridReq) return;
+
+    // Free the tail pipeline
+    if (hybridReq->tailPipeline) {
+        Pipeline_Clean(hybridReq->tailPipeline);
+        rm_free(hybridReq->tailPipeline);
+        hybridReq->tailPipeline = NULL;
+    }
+
+    // Free all individual AREQ requests
+    for (size_t i = 0; i < hybridReq->nrequests; i++) {
+        // Check if we need to manually free the thread-safe context
+        if (hybridReq->requests[i]->sctx && hybridReq->requests[i]->sctx->redisCtx) {
+
+            // Free the search context
+            RedisModuleCtx *thctx = hybridReq->requests[i]->sctx->redisCtx;
+            RedisSearchCtx *sctx = hybridReq->requests[i]->sctx;
+            SearchCtx_Free(sctx);
+            // Free the thread-safe context
+            if (thctx) {
+                RedisModule_FreeThreadSafeContext(thctx);
+            }
+            hybridReq->requests[i]->sctx = NULL;
+        }
+
+        AREQ_Free(hybridReq->requests[i]);
+    }
+
+    // Free the scoring context resources
+    if (hybridReq->hybridParams) {
+        HybridScoringContext_Free(hybridReq->hybridParams->scoringCtx);
+
+        // Free the aggregationParams search context
+        if(hybridReq->hybridParams->aggregationParams.common.sctx) {
+            SearchCtx_Free(hybridReq->hybridParams->aggregationParams.common.sctx);
+        }
+        // Free the hybrid parameters
+        rm_free(hybridReq->hybridParams);
+    }
+
+
+
+    // Free the arrays and tail pipeline
+    array_free(hybridReq->requests);
+    array_free(hybridReq->errors);
+
+    rm_free(hybridReq);
 }
 
 #ifdef __cplusplus
