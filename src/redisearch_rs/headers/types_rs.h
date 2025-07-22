@@ -423,6 +423,20 @@ bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndex
  */
 void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
 
+/**
+ * Retrieve the offsets array from [`RSOffsetVector`].
+ *
+ * Set the array length into the `len` pointer.
+ * The returned array is borrowed from the [`RSOffsetVector`] and should not be modified.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
+ */
+const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_t *len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

@@ -9,7 +9,9 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
-use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult};
+use std::ffi::c_char;
+
+use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector};
 
 /// Check if the result is an aggregate result.
 ///
@@ -242,4 +244,30 @@ pub unsafe extern "C" fn AggregateResultIter_Free(iter: *mut RSAggregateResultIt
 
     // SAFETY: Caller is to ensure `iter` was allocated using `AggregateResult_Iter`
     let _boxed_iter = unsafe { Box::from_raw(iter) };
+}
+
+/// Retrieve the offsets array from [`RSOffsetVector`].
+///
+/// Set the array length into the `len` pointer.
+/// The returned array is borrowed from the [`RSOffsetVector`] and should not be modified.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSOffsetVector_GetData(
+    offsets: *const RSOffsetVector,
+    len: *mut u32,
+) -> *const c_char {
+    debug_assert!(!offsets.is_null(), "offsets must not be null");
+    debug_assert!(!len.is_null(), "len must not be null");
+
+    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
+    let offsets = unsafe { &*offsets };
+
+    // SAFETY: Caller is to ensure `len` is non-null and point to a valid u32 memory.
+    unsafe { len.write(offsets.len) };
+    offsets.data
 }
