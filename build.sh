@@ -348,6 +348,13 @@ build_redisearch_rs() {
     # See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
   fi
+
+  # Ensure Rust toolchain is up-to-date
+  if [[ "${SKIP_RUSTUP_UPDATE:-0}" != "1" ]] && command -v rustup &> /dev/null; then
+    echo "Updating Rust toolchain..."
+    rustup update stable || echo "Warning: Failed to update Rust toolchain"
+  fi
+
   # Build using cargo
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
   pushd .
