@@ -66,9 +66,6 @@ AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, Qu
     return nullptr;
   }
 
-  // Set VERBATIM flag to ensure the AREQ always uses verbatim search
-  req->searchopts.flags |= (Search_Verbatim | Search_NoStopWords);
-
   const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, specName, true);
   if (!sctx) {
