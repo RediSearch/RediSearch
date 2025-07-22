@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Encoder, IdDelta, InvertedIndex, RSIndexResult};
+use crate::{Encoder, IdDelta, InvertedIndex, RSIndexResult, SkipDuplicatesReader};
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
 struct Dummy;
@@ -237,5 +237,27 @@ fn u32_delta_overflow() {
     assert_eq!(
         delta, None,
         "Delta will overflow, so should request a new block for encoding"
+    );
+}
+
+#[test]
+fn read_skipping_over_duplicates() {
+    // Make an iterator where the first two entries have the same doc ID and the third one is different
+    let iter = vec![
+        RSIndexResult::virt().doc_id(10).weight(2.0),
+        RSIndexResult::virt().doc_id(10).weight(5.0),
+        RSIndexResult::virt().doc_id(11),
+    ];
+
+    let reader = SkipDuplicatesReader::new(iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::virt().doc_id(10).weight(2.0),
+            RSIndexResult::virt().doc_id(11),
+        ],
+        "should skip duplicates"
     );
 }
