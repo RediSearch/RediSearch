@@ -34,8 +34,8 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
 
 void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets) {
   size_t len;
-  offsets->offsets.data = VVW_TakeByteData(w->vw, &len);
-  offsets->offsets.len = len;
+  char *data = (char *) VVW_TakeByteData(w->vw, &len);
+  RSOffsetVector_SetData(&offsets->offsets, data, len);
 }
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
@@ -72,12 +72,12 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   }
 
   uint32_t offsetsLen = Buffer_ReadU32(&r);
-  offsets->offsets.len = offsetsLen;
   if (offsetsLen) {
-    offsets->offsets.data = rm_malloc(offsetsLen);
-    Buffer_Read(&r, offsets->offsets.data, offsetsLen);
+    char *data = rm_malloc(offsetsLen);
+    Buffer_Read(&r, data, offsetsLen);
+    RSOffsetVector_SetData(&offsets->offsets, data, offsetsLen);
   } else {
-    offsets->offsets.data = NULL;
+    RSOffsetVector_SetData(&offsets->offsets, NULL, 0);
   }
 
   return offsets;

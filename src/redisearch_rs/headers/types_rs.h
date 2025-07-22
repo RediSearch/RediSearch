@@ -437,6 +437,21 @@ void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
  */
 const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_t *len);
 
+/**
+ * Set the offsets array on a [`RSOffsetVector`].
+ *
+ * The [`RSOffsetVector`] will borrow the passed array so it's up to the caller to
+ * ensure it stays alive during the [`RSOffsetVector`] lifetime.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `data` must point to an array of `len` offsets.
+ * - if `data` is NULL then `len` should be 0.
+ */
+void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, uint32_t len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

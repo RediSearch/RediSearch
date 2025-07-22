@@ -271,3 +271,33 @@ pub unsafe extern "C" fn RSOffsetVector_GetData(
     unsafe { len.write(offsets.len) };
     offsets.data
 }
+
+/// Set the offsets array on a [`RSOffsetVector`].
+///
+/// The [`RSOffsetVector`] will borrow the passed array so it's up to the caller to
+/// ensure it stays alive during the [`RSOffsetVector`] lifetime.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `data` must point to an array of `len` offsets.
+/// - if `data` is NULL then `len` should be 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSOffsetVector_SetData(
+    offsets: *mut RSOffsetVector,
+    data: *const c_char,
+    len: u32,
+) {
+    debug_assert!(!offsets.is_null(), "offsets must not be null");
+    debug_assert!(
+        !data.is_null() || len == 0,
+        "data must not be null if len is higher than 0"
+    );
+
+    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
+    let offsets = unsafe { &mut *offsets };
+
+    offsets.data = data as _;
+    offsets.len = len;
+}
