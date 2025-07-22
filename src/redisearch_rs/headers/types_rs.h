@@ -13,7 +13,15 @@ typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct RSYieldableMetric RSYieldableMetric;
 typedef uint64_t t_docId;
+
+/* Copied from `redisearch.h` */
+#if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
+/* 64 bit architectures use 128 bit field masks and up to 128 fields */
 typedef __uint128_t t_fieldMask;
+#else
+/* 32 bit architectures use 64 bits and 64 fields only */
+typedef uint64_t t_fieldMask;
+#endif
 
 
 enum RSResultType

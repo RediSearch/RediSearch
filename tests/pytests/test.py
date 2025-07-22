@@ -4133,16 +4133,21 @@ def cluster_set_test(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'MYID', '0', 'RANGES', str(env.shardsCount), *shards).ok()
 
 @skip(cluster=False)
-def test_rq_job_without_topology(env:Env):
+def test_rq_job_without_topology():
+    env = Env(moduleArgs="SEARCH_IO_THREADS 20")
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
     env.expect(debug_cmd(), 'CLEAR_PENDING_TOPOLOGY').ok()
     workers = 5
     env.expect(config_cmd(), 'SET', 'WORKERS', workers).ok()
+    num_io_threads = 20
+    def compute_number_of_connections_in_each_ioruntime(num_connections):
+      return max(1, num_connections // num_io_threads)
 
     # Verify that the `SHARD_CONNECTION_STATES` debug command is blocked when the topology is not set.
     try:
         con = env.getConnection()
         with TimeLimit(2, 'Failed waiting (SUCCESS!)'):
+            print('Waiting for SHARD_CONNECTION_STATES to block...')
             con.execute_command(debug_cmd(), 'SHARD_CONNECTION_STATES')
             env.assertTrue(False, message='Expected to fail')
     except Exception as e:
@@ -4151,7 +4156,7 @@ def test_rq_job_without_topology(env:Env):
     # Now re-set the topology and call the debug command again
     env.expect('SEARCH.CLUSTERREFRESH').ok()
     # We should also see the effect of setting the number of workers
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal([ANY, [ANY] * (workers + 1)] * env.shardsCount)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal([ANY, [ANY] * (compute_number_of_connections_in_each_ioruntime(workers + 1))] * env.shardsCount)
 
 
 @skip(cluster=False) # this test is only relevant on cluster
@@ -4415,27 +4420,40 @@ def test_timeoutCoordSearch_Strict():
     `FT.SEARCH` path, when the timeout policy is strict"""
 
     if VALGRIND:
+        # Save some time
         unittest.SkipTest()
 
-    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+    env = Env(moduleArgs='ON_TIMEOUT FAIL DEFAULT_DIALECT 2')
 
     # Create and populate an index
-    n_docs_pershard = 50000
+    n_docs_pershard = 80000
     n_docs = n_docs_pershard * env.shardsCount
-    populate_db(env, text=True, n_per_shard=n_docs_pershard)
+    populate_db(env, text=True, numeric=True, tag=True, n_per_shard=n_docs_pershard)
 
-    # test erroneous params
-    env.expect('ft.search', 'idx', '* aa*', 'timeout').error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', -1).error()
-    env.expect('ft.search', 'idx', '* aa*', 'timeout', 'STR').error()
+    # test erroneous params for `TIMEOUT`
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT').error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT').error()
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT', -1).error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', -1).error()
+    env.expect('FT.SEARCH', 'idx', '*', 'TIMEOUT', 'STR').error()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', 'STR').error()
 
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '0')
+    # Search with no timeout limit, get all results
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'TIMEOUT', '0')
+    env.assertEqual(res[0], n_docs)
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '0')
     env.assertEqual(res[0], n_docs)
 
-    res = env.cmd('ft.search', 'idx', '*', 'TIMEOUT', '100000')
-    env.assertEqual(res[0], n_docs)
-
-    env.expect('ft.search', 'idx', '*', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+    # Small timeout, heavy query -> expect an error
+    env.expect('FT.SEARCH', 'idx', '(lala* | @numeric1:[5 50000]) (@tag1:{MOVIE} | @text1:lal*)', 'TIMEOUT', '1').error().contains('Timeout limit was reached')
+    env.expect(
+        'FT.AGGREGATE', 'idx', '(lala* | @numeric1:[5 50000]) (@tag1:{MOVIE} | @text1:lal*)',
+            'SORTBY', '1', '@text1',
+            'LOAD', '*',
+            'APPLY', 'upper(@text1)', 'AS', 'upper_text1',
+            'GROUPBY', '1', '@__key',
+        'TIMEOUT', '1'
+        ).error().contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def test_notIterTimeout(env):

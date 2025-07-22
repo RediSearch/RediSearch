@@ -144,7 +144,7 @@ use std::io::{IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult};
+use crate::{Decoder, DecoderResult, Encoder, IdDelta, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -152,17 +152,13 @@ trait ToBytes<const N: usize> {
     fn pack(self) -> [u8; N];
 }
 
-impl ToBytes<{ size_of::<usize>() }> for Delta {
-    fn pack(self) -> [u8; size_of::<usize>()] {
-        let delta = self.0;
-        delta.to_le_bytes()
-    }
-}
-
 pub struct Numeric {
     /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
     /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
     compress_floats: bool,
+
+    /// Keeps track of the number of entries help by the parent inverted index.
+    num_entries: usize,
 }
 
 impl Numeric {
@@ -176,6 +172,7 @@ impl Numeric {
     pub fn new() -> Self {
         Self {
             compress_floats: false,
+            num_entries: 0,
         }
     }
 
@@ -186,6 +183,11 @@ impl Numeric {
 
         self
     }
+
+    /// Returns the number of entries encoded by this encoder.
+    pub fn num_entries(&self) -> usize {
+        self.num_entries
+    }
 }
 
 impl Default for Numeric {
@@ -194,11 +196,46 @@ impl Default for Numeric {
     }
 }
 
+/// The [`Numeric`] encoder only supports encoding deltas that fit within 7 bytes
+#[derive(Debug, PartialEq)]
+pub struct NumericDelta(u64);
+
+impl ToBytes<8> for NumericDelta {
+    fn pack(self) -> [u8; 8] {
+        self.0.to_le_bytes()
+    }
+}
+
+impl IdDelta for NumericDelta {
+    fn from_u64(delta: u64) -> Option<Self> {
+        if (delta >> (7 * 8)) > 0 {
+            // If the delta is larger than 7 bytes (7 * 8), then we cannot encode it with this encoder.
+            // The inverted index should create a new block in this case.
+            None
+        } else {
+            Some(Self(delta))
+        }
+    }
+
+    fn zero() -> Self {
+        Self(0)
+    }
+}
+
+impl NumericDelta {
+    /// Get the value this delta type is wrapping
+    pub fn inner(&self) -> u64 {
+        self.0
+    }
+}
+
 impl Encoder for Numeric {
+    type Delta = NumericDelta;
+
     fn encode<W: Write + std::io::Seek>(
-        &self,
+        &mut self,
         mut writer: W,
-        delta: Delta,
+        delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         let num_record = record
@@ -358,6 +395,7 @@ impl Encoder for Numeric {
             }
         };
 
+        self.num_entries += 1;
         Ok(bytes_written)
     }
 }
@@ -426,7 +464,7 @@ impl Decoder for Numeric {
         };
 
         let doc_id = base + delta;
-        let record = RSIndexResult::numeric(doc_id, num);
+        let record = RSIndexResult::numeric(num).doc_id(doc_id);
 
         Ok(DecoderResult::Record(record))
     }

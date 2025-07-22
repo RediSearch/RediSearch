@@ -165,7 +165,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   res->indexResult = r;
   res->score = 0;
   res->dmd = dmd;
-  res->rowdata.sv = dmd->sortVector;
+  RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
   return RS_RESULT_OK;
 }
 
