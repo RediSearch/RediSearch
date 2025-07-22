@@ -61,7 +61,7 @@ jobs:
       - name: install python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.10
+          python-version: 3.9
       - name: Install Python dependencies
         run: |
           python3 -m pip install -r tests/benchmarks/requirements.txt
