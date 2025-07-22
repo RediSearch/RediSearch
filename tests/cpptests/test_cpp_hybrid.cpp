@@ -108,11 +108,6 @@ void VerifyPipelineChain(ResultProcessor *endProc, const std::vector<ResultProce
   }
 }
 
-static void loadDtor(PLN_BaseStep *bstp) {
-  PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
-  rm_free(lstp->keys);
-  rm_free(lstp);
-}
 
 /**
  * Helper function to add a LOAD step to an AGGPlan with properly initialized RLookupKeys.

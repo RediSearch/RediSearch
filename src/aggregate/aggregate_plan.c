@@ -126,6 +126,13 @@ static void arrangeDtor(PLN_BaseStep *bstp) {
   rm_free(bstp);
 }
 
+// TODO: implement GetOrCreate function for this step and make loadDtor static
+void loadDtor(PLN_BaseStep *bstp) {
+  PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
+  rm_free(lstp->keys);
+  rm_free(lstp);
+}
+
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
   // Go backwards.. and stop at the cutoff
   for (const DLLIST_node *nn = pln->steps.prev; nn != &pln->steps; nn = nn->prev) {
