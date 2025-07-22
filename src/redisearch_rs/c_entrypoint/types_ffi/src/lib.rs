@@ -171,6 +171,6 @@ pub unsafe extern "C" fn AggregateResultIter_Next(
 pub unsafe extern "C" fn AggregateResultIter_Free(iter: *mut RSAggregateResultIter<'static>) {
     debug_assert!(!iter.is_null(), "iter must not be null");
 
-    // SAFETY: Caller is to ensure `iter` is non-null and was allocated using `AggregateRusult_Iter`
+    // SAFETY: Caller is to ensure `iter` is non-null and was allocated using `AggregateResult_Iter`
     let _boxed_iter = unsafe { Box::from_raw(iter) };
 }
