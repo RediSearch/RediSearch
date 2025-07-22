@@ -977,9 +977,9 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_EPSILON), rc);
         return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_LEANVEC_DIM)) {
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_REDUCED_DIM)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.leanvec_dim, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_LEANVEC_DIM), rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_REDUCED_DIM), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_TRAINING_THRESHOLD)) {
@@ -1017,7 +1017,7 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     return 0;
   }
   if (!VecSim_IsLeanVecCompressionType(params->algoParams.svsParams.quantBits) && params->algoParams.svsParams.leanvec_dim > 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "LEANVEC_DIM is irrelevant when compression is not of type LeanVec", "");
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "REDUCE is irrelevant when compression is not of type LeanVec", "");
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.

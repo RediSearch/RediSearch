@@ -11,7 +11,7 @@ include_directories(${root}/src/redisearch_rs/headers)
 include_directories(.)
 
 if (NOT TEST_MODULE)
-    set(TEST_MODULE redisearch)
+  set(TEST_MODULE redisearch)
 endif()
 # redismock is a mock library for using redis module API in tests, defined in main CMakeLists.txt.
 
@@ -28,6 +28,8 @@ target_link_libraries(test_distagg ${TEST_MODULE} redismock)
 set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default")
 add_test(name test_distagg COMMAND test_distagg)
 
+# Add the coord_tests subdirectory
+add_subdirectory(coord_tests)
 
 file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
 add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)

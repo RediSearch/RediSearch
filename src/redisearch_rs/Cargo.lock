@@ -1579,6 +1579,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sorting_vector_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "ffi",
+ "libc",
+ "sorting_vector",
+ "value",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
