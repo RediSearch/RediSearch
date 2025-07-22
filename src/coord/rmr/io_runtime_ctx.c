@@ -51,7 +51,6 @@ static void rqAsyncCb(uv_async_t *async) {
   while (NULL != (req = RQ_Pop(io_runtime_ctx->queue, &io_runtime_ctx->uv_runtime.async))) {
     req->cb(req->privdata);
     rm_free(req);
-    RQ_Done(io_runtime_ctx->queue);
   }
 }
 
