@@ -78,8 +78,8 @@ jobs:
           ./install_script.sh sudo
           cd ..
           # Then install Python dependencies
-          #sudo apt install python3-pip -y
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin>=0.11.37
+          pip3 install --upgrade pip PyYAML setuptools
+          pip3 install -r tests/benchmarks/requirements.txt
         env:
           DEBIAN_FRONTEND: noninteractive
       - name: Run Micro Benchmark
