@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Encoder, IdDelta, InvertedIndex, RSIndexResult};
+use crate::{Encoder, FilterMaskReader, IdDelta, InvertedIndex, RSIndexResult};
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
 struct Dummy;
@@ -237,5 +237,27 @@ fn u32_delta_overflow() {
     assert_eq!(
         delta, None,
         "Delta will overflow, so should request a new block for encoding"
+    );
+}
+
+#[test]
+fn reading_filter_based_on_field_mask() {
+    // Make an iterator with three records having different field masks. The second record will be
+    // filtered out based on the field mask.
+    let iter = vec![
+        RSIndexResult::default().doc_id(10).field_mask(0b0001),
+        RSIndexResult::default().doc_id(11).field_mask(0b0010),
+        RSIndexResult::default().doc_id(12).field_mask(0b0100),
+    ];
+
+    let reader = FilterMaskReader::new(0b0101 as _, iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::default().doc_id(10).field_mask(0b0001),
+            RSIndexResult::default().doc_id(12).field_mask(0b0100),
+        ]
     );
 }
