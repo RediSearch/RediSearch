@@ -277,24 +277,26 @@ fn reading_records() {
     let mut ir = IndexReader::new(&blocks, Dummy);
 
     let record = ir
-        .next()
+        .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
 
     let record = ir
-        .next()
+        .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(11));
 
     let record = ir
-        .next()
+        .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(100));
 
-    let record = ir.next().expect("to be able to read from the buffer");
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer");
     assert_eq!(record, None);
 }
 
@@ -325,18 +327,20 @@ fn reading_over_empty_blocks() {
     let mut ir = IndexReader::new(&blocks, Dummy);
 
     let record = ir
-        .next()
+        .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
 
     let record = ir
-        .next()
+        .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(30));
 
-    let record = ir.next().expect("to be able to read from the buffer");
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer");
     assert!(record.is_none(), "should not return any more records");
 }
 
@@ -374,19 +378,19 @@ fn read_using_the_first_block_id_as_the_base() {
     let mut ir = IndexReader::new(&blocks, FirstBlockIdDummy);
 
     let record = ir
-        .next()
+        .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
 
     let record = ir
-        .next()
+        .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(11));
 
     let record = ir
-        .next()
+        .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(12));

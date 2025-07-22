@@ -788,7 +788,7 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
     /// Create a new index reader that reads from the given blocks using the provided decoder.
     pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
         debug_assert!(
-            blocks.len() > 0,
+            blocks.is_empty(),
             "IndexReader should not be created with an empty block list"
         );
 
@@ -805,7 +805,7 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
     }
 
     /// Read the next record from the index. If there are no more records to read, then `None` is returned.
-    pub fn next(&mut self) -> std::io::Result<Option<RSIndexResult>> {
+    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult>> {
         // Check if the current buffer is empty. The GC might clean out a block so we have to
         // continue checking until we find a block with data.
         while self.current_buffer.fill_buf()?.is_empty() {
@@ -825,7 +825,7 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
 
         self.last_doc_id = result.doc_id;
 
-        return Ok(Some(result));
+        Ok(Some(result))
     }
 }
 
