@@ -7,59 +7,98 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, ptr::NonNull, time::Duration};
+use std::{io::Cursor, ptr::NonNull, time::Duration, vec};
 
 use buffer::Buffer;
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{Decoder, Encoder, freqs_only::FreqsOnly};
+use ffi::t_fieldMask;
+use inverted_index::{
+    Decoder, Encoder, RSIndexResult,
+    freqs_fields::{FreqsFields, FreqsFieldsWide},
+};
 use itertools::Itertools;
 
-use crate::ffi::{TestBuffer, encode_freqs_only, read_freqs};
+use crate::ffi::{TestBuffer, encode_freqs_fields, read_freqs_flags};
+
+// The encode C implementation relies on this symbol. Re-export it to ensure it is not discarded by the linker.
+#[allow(unused_imports)]
+pub use varint_ffi::WriteVarintFieldMask;
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
+    wide: bool,
 }
 
 #[derive(Debug)]
 struct TestValue {
-    freq: u32,
     delta: u32,
+    freq: u32,
+    field_mask: t_fieldMask,
+
     encoded: Vec<u8>,
+}
+
+impl Default for Bencher {
+    fn default() -> Self {
+        Bencher::new(false)
+    }
 }
 
 impl Bencher {
     const MEASUREMENT_TIME: Duration = Duration::from_millis(500);
     const WARMUP_TIME: Duration = Duration::from_millis(200);
 
-    pub fn new() -> Self {
+    pub fn wide() -> Self {
+        Self::new(true)
+    }
+
+    fn new(wide: bool) -> Self {
         let freq_values = vec![0, 2, 256, u16::MAX as u32, u32::MAX];
         let deltas = vec![0, 1, 256, 65536, u16::MAX as u32, u32::MAX];
+        let mut field_masks_values =
+            vec![0, 1, 10, 100, 1_000, 10_000, u32::MAX as t_fieldMask - 1];
+        // field mask larger than 32 bits are only supported on 64-bit systems
+        #[cfg(target_pointer_width = "64")]
+        if wide {
+            // Add a larger field mask for wide mode
+            field_masks_values.extend(vec![u32::MAX as t_fieldMask, u128::MAX]);
+        }
 
         let test_values = freq_values
             .into_iter()
             .cartesian_product(deltas)
-            .map(|(freq, delta)| {
-                let record = inverted_index::RSIndexResult::virt()
+            .cartesian_product(field_masks_values)
+            .map(|((freq, delta), field_mask)| {
+                let record = RSIndexResult::term()
                     .doc_id(100)
+                    .field_mask(field_mask)
                     .frequency(freq);
+
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = FreqsOnly::default()
-                    .encode(&mut buffer, delta, &record)
-                    .unwrap();
+                let _grew_size = if wide {
+                    FreqsFieldsWide::default()
+                        .encode(&mut buffer, delta, &record)
+                        .unwrap()
+                } else {
+                    FreqsFields::default()
+                        .encode(&mut buffer, delta, &record)
+                        .unwrap()
+                };
                 let encoded = buffer.into_inner();
 
                 TestValue {
                     freq,
                     delta,
                     encoded,
+                    field_mask,
                 }
             })
             .collect();
 
-        Self { test_values }
+        Self { test_values, wide }
     }
 
     fn benchmark_group<'a>(
@@ -67,6 +106,10 @@ impl Bencher {
         c: &'a mut Criterion,
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
+        let mut label = label.to_string();
+        if self.wide {
+            label.push_str(" Wide");
+        }
         let mut group = c.benchmark_group(label);
         group.measurement_time(Self::MEASUREMENT_TIME);
         group.warm_up_time(Self::WARMUP_TIME);
@@ -74,20 +117,16 @@ impl Bencher {
     }
 
     pub fn encoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode - FreqsOnly");
-
+        let mut group = self.benchmark_group(c, "Encode - FreqsFields");
         self.c_encode(&mut group);
         self.rust_encode(&mut group);
-
         group.finish();
     }
 
     pub fn decoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode - FreqsOnly");
-
+        let mut group = self.benchmark_group(c, "Decode - FreqsFields");
         self.c_decode(&mut group);
         self.rust_decode(&mut group);
-
         group.finish();
     }
 
@@ -100,11 +139,17 @@ impl Bencher {
                 || TestBuffer::with_capacity(buffer_size),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let mut record = inverted_index::RSIndexResult::virt()
+                        let mut record = RSIndexResult::term()
                             .doc_id(100)
+                            .field_mask(test.field_mask)
                             .frequency(test.freq);
-                        let grew_size =
-                            encode_freqs_only(&mut buffer, &mut record, test.delta as _);
+
+                        let grew_size = encode_freqs_fields(
+                            &mut buffer,
+                            &mut record,
+                            test.delta as u64,
+                            self.wide,
+                        );
 
                         black_box(grew_size);
                     }
@@ -123,13 +168,20 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = inverted_index::RSIndexResult::virt()
+                        let record = RSIndexResult::term()
                             .doc_id(100)
+                            .field_mask(test.field_mask)
                             .frequency(test.freq);
 
-                        let grew_size = FreqsOnly::default()
-                            .encode(&mut buffer, test.delta, &record)
-                            .unwrap();
+                        let grew_size = if self.wide {
+                            FreqsFieldsWide::default()
+                                .encode(&mut buffer, test.delta, &record)
+                                .unwrap()
+                        } else {
+                            FreqsFields::default()
+                                .encode(&mut buffer, test.delta, &record)
+                                .unwrap()
+                        };
 
                         black_box(grew_size);
                     }
@@ -148,7 +200,7 @@ impl Bencher {
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
                     |mut buffer| {
-                        let (_filtered, result) = read_freqs(&mut buffer, 100);
+                        let (_filtered, result) = read_freqs_flags(&mut buffer, 100, self.wide);
 
                         black_box(result);
                     },
@@ -164,7 +216,12 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(&test.encoded),
                     |buffer| {
-                        let result = FreqsOnly.decode(buffer, 100);
+                        let result = if self.wide {
+                            FreqsFieldsWide::default().decode(buffer, 100)
+                        } else {
+                            FreqsFields::default().decode(buffer, 100)
+                        };
+
                         let _ = black_box(result);
                     },
                     BatchSize::SmallInput,

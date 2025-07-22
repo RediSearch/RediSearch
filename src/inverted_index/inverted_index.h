@@ -10,7 +10,7 @@
 #define __INVERTED_INDEX_H__
 
 #include "redisearch.h"
-#include "buffer.h"
+#include "buffer/buffer.h"
 #include "doc_table.h"
 #include "index_iterator.h"
 #include "spec.h"
@@ -209,14 +209,29 @@ IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId);
 // Create a new IndexDecoderCtx with a default numeric filter. Used only benchmarks
 IndexDecoderCtx NewIndexDecoderCtx_NumericFilter();
 
+// Create a new IndexDecoderCtx with a mask filter. Used only in benchmarks.
+IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask);
+
 /* Wrapper around the static encodeFreqsOnly to be able to access it in the Rust benchmarks. */
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFreqsFields to be able to access it in the Rust benchmarks. */
+size_t encode_freqs_fields(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFreqsFieldsWide to be able to access it in the Rust benchmarks. */
+size_t encode_freqs_fields_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
 /* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
 /* Wrapper around the static readFreqs to be able to access it in the Rust benchmarks */
 bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFreqsFlags to be able to access it in the Rust benchmarks */
+bool read_freqs_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFreqsFlagsWide to be able to access it in the Rust benchmarks */
+bool read_freqs_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);

@@ -12,11 +12,14 @@ use std::{
     fmt::Debug,
     io::{Cursor, Read, Seek, Write},
     mem::ManuallyDrop,
+    ptr,
 };
 
 use enumflags2::{BitFlags, bitflags};
+use ffi::{FieldMask, RS_FIELDMASK_ALL};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 
+pub mod freqs_fields;
 pub mod freqs_only;
 pub mod numeric;
 
@@ -60,6 +63,16 @@ pub struct RSOffsetVector {
     pub len: u32,
 }
 
+impl RSOffsetVector {
+    /// Create a new, empty offset vector ready to receive data
+    pub fn empty() -> Self {
+        Self {
+            data: ptr::null_mut(),
+            len: 0,
+        }
+    }
+}
+
 /// Represents a single record of a document inside a term in the inverted index
 #[repr(C)]
 #[derive(Debug, PartialEq)]
@@ -69,6 +82,22 @@ pub struct RSTermRecord {
 
     /// The encoded offsets in which the term appeared in the document
     pub offsets: RSOffsetVector,
+}
+
+impl RSTermRecord {
+    /// Create a new term record with the given term pointer
+    pub fn new() -> Self {
+        Self {
+            term: ptr::null_mut(),
+            offsets: RSOffsetVector::empty(),
+        }
+    }
+}
+
+impl Default for RSTermRecord {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[bitflags]
@@ -103,6 +132,18 @@ pub struct RSAggregateResult {
 
     /// A map of the aggregate type of the underlying records
     pub type_mask: RSResultTypeMask,
+}
+
+impl RSAggregateResult {
+    /// Dummy until this is managed by Rust
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            num_children: 0,
+            children_cap: cap as _,
+            children: ptr::null_mut(),
+            type_mask: RSResultTypeMask::empty(),
+        }
+    }
 }
 
 /// Represents a virtual result in an index record.
@@ -155,30 +196,18 @@ pub struct RSIndexResult {
     pub weight: f64,
 }
 
-impl RSIndexResult {
-    /// Create a new numeric index result with the given numeric value
-    pub fn numeric(doc_id: t_docId, num: f64) -> Self {
-        Self {
-            doc_id,
-            dmd: std::ptr::null(),
-            field_mask: 0,
-            freq: 0,
-            offsets_sz: 0,
-            data: RSIndexResultData {
-                num: ManuallyDrop::new(RSNumericRecord(num)),
-            },
-            result_type: RSResultType::Numeric,
-            is_copy: false,
-            metrics: std::ptr::null_mut(),
-            weight: 0.0,
-        }
+impl Default for RSIndexResult {
+    fn default() -> Self {
+        Self::virt()
     }
+}
 
+impl RSIndexResult {
     /// Create a new virtual index result
-    pub fn virt(doc_id: t_docId) -> Self {
+    pub fn virt() -> Self {
         Self {
-            doc_id,
-            dmd: std::ptr::null(),
+            doc_id: 0,
+            dmd: ptr::null(),
             field_mask: 0,
             freq: 0,
             offsets_sz: 0,
@@ -187,9 +216,109 @@ impl RSIndexResult {
             },
             result_type: RSResultType::Virtual,
             is_copy: false,
-            metrics: std::ptr::null_mut(),
+            metrics: ptr::null_mut(),
             weight: 0.0,
         }
+    }
+
+    /// Create a new numeric index result with the given number
+    pub fn numeric(num: f64) -> Self {
+        Self {
+            field_mask: RS_FIELDMASK_ALL,
+            freq: 1,
+            data: RSIndexResultData {
+                num: ManuallyDrop::new(RSNumericRecord(num)),
+            },
+            result_type: RSResultType::Numeric,
+            weight: 1.0,
+            ..Default::default()
+        }
+    }
+
+    /// Create a new metric index result
+    pub fn metric() -> Self {
+        Self {
+            field_mask: RS_FIELDMASK_ALL,
+            data: RSIndexResultData {
+                num: ManuallyDrop::new(RSNumericRecord(0.0)),
+            },
+            result_type: RSResultType::Metric,
+            weight: 1.0,
+            ..Default::default()
+        }
+    }
+
+    /// Create a new intersection index result with the given capacity
+    pub fn intersect(cap: usize) -> Self {
+        Self {
+            data: RSIndexResultData {
+                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
+            },
+            result_type: RSResultType::Intersection,
+            ..Default::default()
+        }
+    }
+
+    /// Create a new union index result with the given capacity
+    pub fn union(cap: usize) -> Self {
+        Self {
+            data: RSIndexResultData {
+                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
+            },
+            result_type: RSResultType::Union,
+            ..Default::default()
+        }
+    }
+
+    /// Create a new hybrid metric index result
+    pub fn hybrid_metric() -> Self {
+        Self {
+            data: RSIndexResultData {
+                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(2)),
+            },
+            result_type: RSResultType::HybridMetric,
+            weight: 1.0,
+            ..Default::default()
+        }
+    }
+
+    /// Create a new term index result with the given term pointer
+    pub fn term() -> Self {
+        Self {
+            data: RSIndexResultData {
+                term: ManuallyDrop::new(RSTermRecord::new()),
+            },
+            result_type: RSResultType::Term,
+            ..Default::default()
+        }
+    }
+
+    /// Set the document ID of this record
+    pub fn doc_id(mut self, doc_id: t_docId) -> Self {
+        self.doc_id = doc_id;
+
+        self
+    }
+
+    /// Set the field mask of this record
+    pub fn field_mask(mut self, field_mask: FieldMask) -> Self {
+        self.field_mask = field_mask;
+
+        self
+    }
+
+    /// Set the weight of this record
+    pub fn weight(mut self, weight: f64) -> Self {
+        self.weight = weight;
+
+        self
+    }
+
+    /// Set the frequency of this record
+    pub fn frequency(mut self, frequency: u32) -> Self {
+        self.freq = frequency;
+
+        self
     }
 
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
@@ -204,24 +333,6 @@ impl RSIndexResult {
             Some(unsafe { &self.data.num })
         } else {
             None
-        }
-    }
-
-    /// Create a new freqs only index result with the given frequency.
-    pub fn freqs_only(doc_id: t_docId, freq: u32) -> Self {
-        Self {
-            doc_id,
-            dmd: std::ptr::null(),
-            field_mask: 0,
-            freq,
-            offsets_sz: 0,
-            data: RSIndexResultData {
-                virt: ManuallyDrop::new(RSVirtualResult),
-            },
-            result_type: RSResultType::Virtual,
-            is_copy: false,
-            metrics: std::ptr::null_mut(),
-            weight: 0.0,
         }
     }
 }
