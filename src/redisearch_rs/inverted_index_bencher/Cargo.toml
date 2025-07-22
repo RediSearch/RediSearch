@@ -18,6 +18,7 @@ harness = false
 
 [build-dependencies]
 bindgen.workspace = true
+build_utils = { path = "../build_utils" }
 
 [dependencies]
 buffer.workspace = true
