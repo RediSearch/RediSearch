@@ -17,7 +17,7 @@
 #include "util/timeout.h"
 #include "resp3.h"
 #include "coord/config.h"
-// #include "config.h"  // For MIN_SHARD_WINDOW_RATIO and MAX_SHARD_WINDOW_RATIO constants
+#include "config.h"
 #include "dist_profile.h"
 #include "shard_window_ratio.h"
 #include "util/misc.h"
