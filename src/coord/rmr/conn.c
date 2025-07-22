@@ -213,11 +213,11 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
     if (existingEntry) {
       // Replace existing entry - the old value will be freed by the destructor
       dictReplace(stateDict, key, newList);
-      rm_free(key); // dictReplace doesn't take ownership of key if it already exists
     } else {
       // Add new entry
       dictAdd(stateDict, key, newList);
     }
+    rm_free(key);
   }
 
   dictReleaseIterator(it);

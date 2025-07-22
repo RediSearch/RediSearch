@@ -358,6 +358,7 @@ static void uvGetConnectionPoolState(void *p) {
     rm_free(mt_bc);
   } else {
     pthread_mutex_unlock(&mt_bc->lock);
+    RedisModule_FreeThreadSafeContext(ctx);
   }
 
   rm_free(reducedConnPoolStateCtx);
