@@ -155,9 +155,7 @@ void AddSortStepToPlan(AGGPlan *plan, const char **sortFields, size_t nfields, u
   PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(plan);
 
   // Set up sorting (free existing keys if any)
-  if (arrangeStep->sortKeys) {
-    array_free(arrangeStep->sortKeys);
-  }
+  RS_ASSERT(arrangeStep->sortkeysLK == NULL);
 
   arrangeStep->sortKeys = array_new(const char*, nfields);
   for (size_t i = 0; i < nfields; i++) {
@@ -207,7 +205,6 @@ TEST_F(HybridRequestTest, testHybridRequestCreationBasic) {
 
   // Verify the merge pipeline is initialized
   ASSERT_TRUE(hybridReq->pipeline.ap.steps.next != nullptr);
-
   // Clean up
   HybridRequest_Free(hybridReq);
 }
