@@ -343,37 +343,6 @@ fn reading_over_empty_blocks() {
 }
 
 #[test]
-fn read_skipping_over_duplicates() {
-    // Makes one block where the first two entries are duplicates and the third is a new record
-    let blocks = vec![IndexBlock {
-        buffer: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        num_entries: 3,
-        first_doc_id: 10,
-        last_doc_id: 11,
-    }];
-    let mut ir = IndexReader::new(&blocks, Dummy).skip_duplicates();
-
-    let record = ir
-        .next()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(record, RSIndexResult::virt().doc_id(10));
-
-    let record = ir
-        .next()
-        .expect("to be able to read from the buffer")
-        .expect("to get a record");
-    assert_eq!(
-        record,
-        RSIndexResult::virt().doc_id(11),
-        "should have skipped the duplicate"
-    );
-
-    let record = ir.next().expect("to be able to read from the buffer");
-    assert!(record.is_none(), "should not return any more records");
-}
-
-#[test]
 fn read_using_the_first_block_id_as_the_base() {
     struct FirstBlockIdDummy;
 

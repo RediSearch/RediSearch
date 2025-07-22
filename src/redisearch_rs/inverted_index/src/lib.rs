@@ -775,9 +775,6 @@ pub struct IndexReader<'a, D> {
     current_block: &'a IndexBlock,
     current_block_idx: usize,
     last_doc_id: t_docId,
-
-    skip_duplicates: bool,
-    last_read_doc_id: t_docId,
 }
 
 impl<'a, D: Decoder> IndexReader<'a, D> {
@@ -796,15 +793,7 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
             current_block: first_block,
             current_block_idx: 0,
             last_doc_id: first_block.first_doc_id,
-            skip_duplicates: false,
-            last_read_doc_id: 0, // TODO: can a doc id be 0?
         }
-    }
-
-    pub fn skip_duplicates(mut self) -> Self {
-        self.skip_duplicates = true;
-
-        self
     }
 
     pub fn next(&mut self) -> std::io::Result<Option<RSIndexResult>> {
@@ -830,15 +819,6 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
             else {
                 continue;
             };
-
-            if self.skip_duplicates {
-                if result.doc_id == self.last_read_doc_id {
-                    // We are skipping duplicates, so we don't return this record
-                    continue;
-                }
-
-                self.last_read_doc_id = result.doc_id;
-            }
 
             self.last_doc_id = result.doc_id;
 
