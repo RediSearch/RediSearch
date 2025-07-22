@@ -9,6 +9,13 @@
 
 //! This module contains mock implementations of C functions that are used in tests. Linking to a
 //! C static file with these implementations would have been a overkill.
+//!
+//! The integration tests can use these as is if they don't add anything to the metrics or set
+//! any of the term record type's internals. Using these only requires the following:
+//!
+//! ```rust
+//! mod c_mocks;
+//! ```
 
 use ffi::RSQueryTerm;
 use inverted_index::{RSIndexResult, RSTermRecord};
