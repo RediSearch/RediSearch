@@ -122,7 +122,7 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   bool ret = true;
   HiddenUnicodeString **prefixes = sp->rule->prefixes;
   RedisModuleString *prefix;
-  for (unsigned int i = 0; i < array_len(prefixes); i++) {
+  for (uint i = 0; i < array_len(prefixes); i++) {
     prefix = HiddenUnicodeString_CreateRedisModuleString(prefixes[i], ctx);
     if (RedisModule_ACLCheckKeyPrefixPermissions(user, prefix, REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
       ret = false;
