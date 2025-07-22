@@ -126,7 +126,6 @@ static void arrangeDtor(PLN_BaseStep *bstp) {
   rm_free(bstp);
 }
 
-// TODO: implement GetOrCreate function for this step and make loadDtor static
 void loadDtor(PLN_BaseStep *bstp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
   rm_free(lstp->keys);
