@@ -50,7 +50,10 @@ void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
   }
 
   Buffer_WriteU32(&w, offsets->offsets.len);
-  Buffer_Write(&w, offsets->offsets.data, offsets->offsets.len);
+
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&offsets->offsets, &offsets_len);
+  Buffer_Write(&w, offsets_data, offsets_len);
 }
 
 RSByteOffsets *LoadByteOffsets(Buffer *buf) {
@@ -93,9 +96,12 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
     return REDISMODULE_ERR;
   }
 
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&offsets->offsets, &offsets_len);
+
   iter->buf.cap = 0;
-  iter->buf.data = offsets->offsets.data;
-  iter->buf.offset = offsets->offsets.len;
+  iter->buf.data = (char *) offsets_data;
+  iter->buf.offset = offsets_len;
   iter->rdr = NewBufferReader(&iter->buf);
   iter->curPos = 1;
   iter->endPos = offField->lastTokPos;
