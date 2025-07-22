@@ -786,6 +786,9 @@ pub struct IndexReader<'a, D> {
 
 impl<'a, D: Decoder> IndexReader<'a, D> {
     /// Create a new index reader that reads from the given blocks using the provided decoder.
+    ///
+    /// # Panic
+    /// This function will panic if the `blocks` vector is empty. The reader expects at least one block to read from.
     pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
         debug_assert!(
             blocks.is_empty(),
