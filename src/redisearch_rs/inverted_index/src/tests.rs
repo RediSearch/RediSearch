@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Decoder, Encoder, IdDelta, IndexBlock, IndexReader, InvertedIndex, RSIndexResult};
+use crate::{
+    Decoder, Encoder, FilterMaskReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
+    RSIndexResult,
+};
 use pretty_assertions::assert_eq;
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
@@ -401,4 +404,26 @@ fn read_using_the_first_block_id_as_the_base() {
 fn index_reader_construction_with_no_blocks() {
     let blocks: Vec<IndexBlock> = vec![];
     let _ir = IndexReader::new(&blocks, Dummy);
+}
+
+#[test]
+fn reading_filter_based_on_field_mask() {
+    // Make an iterator with three records having different field masks. The second record will be
+    // filtered out based on the field mask.
+    let iter = vec![
+        RSIndexResult::default().doc_id(10).field_mask(0b0001),
+        RSIndexResult::default().doc_id(11).field_mask(0b0010),
+        RSIndexResult::default().doc_id(12).field_mask(0b0100),
+    ];
+
+    let reader = FilterMaskReader::new(0b0101 as _, iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::default().doc_id(10).field_mask(0b0001),
+            RSIndexResult::default().doc_id(12).field_mask(0b0100),
+        ]
+    );
 }
