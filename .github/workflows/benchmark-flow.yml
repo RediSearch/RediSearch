@@ -61,9 +61,10 @@ jobs:
       - name: install python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.9.16
+          python-version: 3.11
       - name: Install Python dependencies
         run: |
+          pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: install terraform
         uses: hashicorp/setup-terraform@v2
