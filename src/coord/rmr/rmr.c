@@ -353,6 +353,7 @@ static void uvGetConnectionPoolState(void *p) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);
     IORuntimeCtx_RequestCompleted(ioRuntime);
+    pthread_mutex_destroy(&mt_bc->lock);
     dictRelease(mt_bc->replyDict);
     rm_free(mt_bc);
   } else {
@@ -370,6 +371,7 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
   mt_bc->num_io_threads = cluster_g->num_io_threads;
   mt_bc->replyDict = dictCreate(&dictTypeHeapStringsListVal, NULL);
   mt_bc->bc = bc;
+  pthread_mutex_init(&mt_bc->lock, NULL);
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = rm_new(struct ReducedConnPoolStateCtx);
     reducedConnPoolStateCtx->ioRuntime = cluster_g->io_runtimes_pool[i];
