@@ -257,6 +257,14 @@ void HybridRequest_Free(HybridRequest *hybridRequest) {
   rm_free(hybridRequest);
 }
 
+// Copy the request configuration from the source to the destination
+static void copyReqConfig(AREQ *dest, const AREQ *src) {
+  dest->reqConfig.queryTimeoutMS = src->reqConfig.queryTimeoutMS;
+  dest->reqConfig.dialectVersion = src->reqConfig.dialectVersion;
+  dest->reqConfig.timeoutPolicy = src->reqConfig.timeoutPolicy;
+  dest->reqConfig.printProfileClock = src->reqConfig.printProfileClock;
+  dest->reqConfig.BM25STD_TanhFactor = src->reqConfig.BM25STD_TanhFactor;
+}
 
 HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  RedisSearchCtx *sctx, const char *indexname,
@@ -327,6 +335,9 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     searchRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
     vectorRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
 
+    copyReqConfig(searchRequest, mergeAreq);
+    copyReqConfig(vectorRequest, mergeAreq);
+
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
@@ -336,9 +347,10 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     goto error;
   }
 
-  if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
-    goto error;
-  }
+  // Enable this after merging PR to parse VSIM.
+  // if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
+  //   goto error;
+  // }
 
   // Create the hybrid request with proper structure
   requests = array_new(AREQ*, 2);
