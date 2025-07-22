@@ -126,7 +126,7 @@ typedef struct {
   struct GeometryQuery *geomq;
 } QueryGeometryNode;
 
-typedef struct {// TODO: consider remove this struct, not in use
+typedef struct {
   struct VectorQuery *vq;
 } QueryVectorNode;
 
