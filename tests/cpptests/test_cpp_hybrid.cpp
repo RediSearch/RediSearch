@@ -169,7 +169,7 @@ void AddSortStepToPlan(AGGPlan *plan, const char **sortFields, size_t nfields, u
 
   arrangeStep->sortKeys = array_new(const char*, nfields);
   for (size_t i = 0; i < nfields; i++) {
-    array_append(arrangeStep->sortKeys, rm_strdup(sortFields[i]));
+    array_append(arrangeStep->sortKeys, sortFields[i]);
   }
   arrangeStep->sortAscMap = ascendingMap;
 }
