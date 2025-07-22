@@ -405,6 +405,21 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
  */
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
 
+// exposed to be called from Rust, was inline before that.
+int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
+
+// exposed to be called from Rust, was inline before that.
+int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
+
+// exposed to be called from Rust, was inline before that.
+RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type);
+
+// exposed to be called from Rust, was inline before that.
+RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype);
+
+// exposed to be called from Rust, is part of dependency and was inline
+size_t sdslen__(const char* s);
+
 #ifdef __cplusplus
 }
 #endif
