@@ -758,18 +758,34 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 }
 
+/// Reader that is able to read the records from an [`InvertedIndex`]
 pub struct IndexReader<'a, D> {
+    /// The block of the inverted index that is being read from. This might be used to determine the
+    /// base document ID for delta calculations.
     blocks: &'a Vec<IndexBlock>,
 
+    /// The decoder used to decode the records from the index blocks.
     decoder: D,
 
+    /// The current position in the block that is being read from.
     current_buffer: Cursor<&'a [u8]>,
+
+    /// The current block that is being read from. This might be used to determine the base document
+    /// ID for delta calculations and to read the next record from the block.
     current_block: &'a IndexBlock,
+
+    /// The index of the current block in the `blocks` vector. This is used to keep track of
+    /// which block we are currently reading from, especially when the current buffer is empty and we
+    /// need to move to the next block.
     current_block_idx: usize,
+
+    /// The last document ID that was read from the index. This is used to determine the base
+    /// document ID for delta calculations.
     last_doc_id: t_docId,
 }
 
 impl<'a, D: Decoder> IndexReader<'a, D> {
+    /// Create a new index reader that reads from the given blocks using the provided decoder.
     pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
         debug_assert!(
             blocks.len() > 0,
@@ -788,6 +804,7 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
         }
     }
 
+    /// Read the next record from the index. If there are no more records to read, then `None` is returned.
     pub fn next(&mut self) -> std::io::Result<Option<RSIndexResult>> {
         // Check if the current buffer is empty. The GC might clean out a block so we have to
         // continue checking until we find a block with data.
