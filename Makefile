@@ -68,6 +68,18 @@ ifneq ($(RUST_PROFILE),)
 	BUILD_ARGS += RUST_PROFILE=$(RUST_PROFILE)
 endif
 
+ifeq ($(RUST_DYN_CRT),1)
+	BUILD_ARGS += RUST_DYN_CRT=1
+endif
+
+ifeq ($(RUN_MIRI),1)
+	BUILD_ARGS += RUN_MIRI=1
+endif
+
+ifeq ($(RUST_DENY_WARNS),1)
+	BUILD_ARGS += RUST_DENY_WARNS=1
+endif
+
 # Test arguments
 ifneq ($(TEST),)
 	BUILD_ARGS += TEST=$(TEST)
@@ -126,6 +138,7 @@ Build:
     SAN=type           Build with sanitizer (address|memory|leak|thread)
     COV=1              Build with coverage instrumentation
     RUST_PROFILE=name  Rust profile to use (default: release)
+    RUST_DYN_CRT=1     Use dynamic C runtime linking (for Alpine Linux)
     VERBOSE=1          Verbose build output
 
   make clean         Remove build artifacts
@@ -135,6 +148,9 @@ Testing:
   make test          Run all tests
   make unit-tests    Run unit tests (C and C++)
   make rust-tests    Run Rust tests
+    RUN_MIRI=1            Run Rust tests through miri to catch undefined behavior
+    RUST_DENY_WARNS=1     Deny all Rust compiler warnings
+    RUST_DYN_CRT=1        Use dynamic C runtime linking (for Alpine Linux)
   make pytest        Run Python tests
     COORD=oss|rlec        Test coordinator type (default: oss)
     REDIS_STANDALONE=1|0  Test with standalone/cluster Redis
@@ -279,7 +295,7 @@ license-check:
 	@echo "Checking license headers..."
 	@cd $(ROOT)/src/redisearch_rs && cargo license-check
 
-pack: $(BUILD_SCRIPT)
+pack:
 	@echo "Creating installation packages..."
 	@if [ -z "$(MODULE_PATH)" ]; then \
 		if [ "$(COORD)" = "rlec" ]; then \
