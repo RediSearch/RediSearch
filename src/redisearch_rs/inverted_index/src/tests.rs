@@ -30,7 +30,7 @@ impl Encoder for Dummy {
 #[test]
 fn adding_records() {
     let mut ii = InvertedIndex::new(Dummy);
-    let record = RSIndexResult::numeric(10, 5.0);
+    let record = RSIndexResult::default().doc_id(10);
 
     let mem_growth = ii.add_record(&record).unwrap();
 
@@ -45,7 +45,7 @@ fn adding_records() {
     assert_eq!(ii.blocks[0].last_doc_id, 10);
     assert_eq!(ii.n_unique_docs, 1);
 
-    let record = RSIndexResult::numeric(11, 5.0);
+    let record = RSIndexResult::default().doc_id(11);
 
     let mem_growth = ii.add_record(&record).unwrap();
 
@@ -61,7 +61,7 @@ fn adding_records() {
 #[test]
 fn adding_same_record_twice() {
     let mut ii = InvertedIndex::new(Dummy);
-    let record = RSIndexResult::numeric(10, 5.0);
+    let record = RSIndexResult::default().doc_id(10);
 
     ii.add_record(&record).unwrap();
     assert_eq!(ii.blocks.len(), 1);
@@ -153,18 +153,18 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
 
     let mut ii = InvertedIndex::new(SmallBlocksDummy);
 
-    let mem_growth = ii.add_record(&RSIndexResult::numeric(10, 5.0)).unwrap();
+    let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
     assert_eq!(
         mem_growth, 56,
         "size of the index block plus initial buffer capacity"
     );
     assert_eq!(ii.blocks.len(), 1);
-    let mem_growth = ii.add_record(&RSIndexResult::numeric(11, 6.0)).unwrap();
+    let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(11)).unwrap();
     assert_eq!(mem_growth, 0, "buffer does not need to grow again");
     assert_eq!(ii.blocks.len(), 1);
 
     // 3 entry should create a new block
-    let mem_growth = ii.add_record(&RSIndexResult::numeric(12, 4.0)).unwrap();
+    let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(12)).unwrap();
     assert_eq!(
         mem_growth, 56,
         "size of the new index block plus initial buffer capacity"
@@ -174,12 +174,12 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         2,
         "should create a new block after reaching the limit"
     );
-    let mem_growth = ii.add_record(&RSIndexResult::numeric(13, 2.0)).unwrap();
+    let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(13)).unwrap();
     assert_eq!(mem_growth, 0, "buffer does not need to grow again");
     assert_eq!(ii.blocks.len(), 2);
 
     // But duplicate entry does not go in new block even if the current block is full
-    let mem_growth = ii.add_record(&RSIndexResult::numeric(13, 1.0)).unwrap();
+    let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(13)).unwrap();
     assert_eq!(mem_growth, 0, "buffer does not need to grow again");
     assert_eq!(
         ii.blocks.len(),
@@ -195,7 +195,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
 #[test]
 fn adding_big_delta_makes_new_block() {
     let mut ii = InvertedIndex::new(Dummy);
-    let record = RSIndexResult::numeric(10, 5.0);
+    let record = RSIndexResult::default().doc_id(10);
 
     let mem_growth = ii.add_record(&record).unwrap();
 
@@ -213,7 +213,7 @@ fn adding_big_delta_makes_new_block() {
 
     // This will create a delta that is larger than the default u32 acceptable delta size
     let doc_id = (u32::MAX as u64) + 11;
-    let record = RSIndexResult::numeric(doc_id, 5.0);
+    let record = RSIndexResult::default().doc_id(doc_id);
 
     let mem_growth = ii.add_record(&record).unwrap();
 
