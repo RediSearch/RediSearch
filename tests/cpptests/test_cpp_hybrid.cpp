@@ -85,6 +85,29 @@ AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, Qu
   return req;
 }
 
+// Helper function to verify pipeline chain structure
+void VerifyPipelineChain(ResultProcessor *endProc, const std::vector<ResultProcessorType>& expectedTypes, const std::string& pipelineName) {
+  ASSERT_TRUE(endProc != nullptr) << pipelineName << " has no end processor";
+
+  std::vector<ResultProcessorType> actualTypes;
+  ResultProcessor *current = endProc;
+
+  // Walk the chain from end to beginning
+  while (current != nullptr) {
+    actualTypes.push_back(current->type);
+    current = current->upstream;
+  }
+
+  ASSERT_EQ(expectedTypes.size(), actualTypes.size())
+    << pipelineName << " has " << actualTypes.size() << " processors, expected " << expectedTypes.size();
+
+  for (size_t i = 0; i < expectedTypes.size(); i++) {
+    EXPECT_EQ(expectedTypes[i], actualTypes[i])
+      << pipelineName << " processor " << i << " is " << RPTypeToString(actualTypes[i])
+      << ", expected " << RPTypeToString(expectedTypes[i]);
+  }
+}
+
 static void loadDtor(PLN_BaseStep *bstp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
   rm_free(lstp->keys);
@@ -94,8 +117,7 @@ static void loadDtor(PLN_BaseStep *bstp) {
 /**
  * Helper function to add a LOAD step to an AGGPlan with properly initialized RLookupKeys.
  * This function creates a LOAD step that specifies which document fields should be loaded
- * during query execution. Unlike the previous version that used NULL keys, this properly
- * initializes RLookupKey objects using the plan's RLookup context.
+ * during query execution.
  *
  * @param plan The AGGPlan to add the LOAD step to
  * @param fields Array of field names to load
@@ -128,7 +150,54 @@ void AddLoadStepToPlan(AGGPlan *plan, const char **fields, size_t nfields) {
   AGPLN_AddStep(plan, &loadStep->base);
 }
 
+/**
+ * Helper function to add a SORT step to an AGGPlan.
+ * This function gets or creates an arrange step and configures it for sorting.
+ *
+ * @param plan The AGGPlan to add the SORT step to
+ * @param sortFields Array of field names to sort by
+ * @param nfields Number of fields in the array
+ * @param ascendingMap Bitmap indicating ascending (1) or descending (0) for each field
+ */
+void AddSortStepToPlan(AGGPlan *plan, const char **sortFields, size_t nfields, uint64_t ascendingMap) {
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(plan);
+
+  // Set up sorting (free existing keys if any)
+  if (arrangeStep->sortKeys) {
+    array_free(arrangeStep->sortKeys);
+  }
+
+  arrangeStep->sortKeys = array_new(const char*, nfields);
+  for (size_t i = 0; i < nfields; i++) {
+    array_append(arrangeStep->sortKeys, rm_strdup(sortFields[i]));
+  }
+  arrangeStep->sortAscMap = ascendingMap;
+}
+
+/**
+ * Helper function to add an APPLY step to an AGGPlan.
+ * This function creates an apply step that applies an expression to create a new field.
+ *
+ * @param plan The AGGPlan to add the APPLY step to
+ * @param expression The expression to apply (e.g., "@score * 2")
+ * @param alias The alias for the new field (e.g., "boosted_score")
+ */
+void AddApplyStepToPlan(AGGPlan *plan, const char *expression, const char *alias) {
+  HiddenString *expr = NewHiddenString(expression, strlen(expression), false);
+  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
+  HiddenString_Free(expr, false);
+
+  // Set the alias for the APPLY step
+  if (alias) {
+    applyStep->base.alias = rm_strdup(alias);
+  }
+
+  AGPLN_AddStep(plan, &applyStep->base);
+}
+
 // Tests that don't require full Redis Module integration
+
+// Test basic HybridRequest creation and initialization with multiple AREQ requests
 TEST_F(HybridRequestTest, testHybridRequestCreationBasic) {
   // Test basic HybridRequest creation without Redis dependencies
   AREQ **requests = array_new(AREQ*, 2);
@@ -151,76 +220,11 @@ TEST_F(HybridRequestTest, testHybridRequestCreationBasic) {
   HybridRequest_Free(hybridReq);
 }
 
+// Test basic pipeline building with two AREQ requests and verify the pipeline structure
 TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
-  // Test pipeline building logic without Redis dependencies
-  AREQ **requests = array_new(AREQ*, 1);
-  AREQ *req = AREQ_New();
-
-  requests = array_ensure_append_1(requests, req);
-
-  // Initialize basic pipeline components
-  AGPLN_Init(&requests[0]->pipeline.ap);
-
-  HybridRequest *hybridReq = HybridRequest_New(requests, 1);
-
-  // Add a basic LOAD step to test pipeline building
-  const char *loadFields[] = {"test_field"};
-  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 1);
-
-  ASSERT_TRUE(hybridReq != nullptr);
-
-  // Test that the structure is properly initialized
-  EXPECT_EQ(hybridReq->nrequests, 1);
-  EXPECT_TRUE(hybridReq->requests != nullptr);
-
-  // Verify merge pipeline structure
-  EXPECT_TRUE(hybridReq->pipeline.ap.steps.next != nullptr);
-
-  // Clean up
-  HybridRequest_Free(hybridReq);
-}
-
-TEST_F(HybridRequestTest, testHybridRequestCreationWithRedis) {
-  // Create test index spec
-  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx", &qerr);
-  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
-
-  // No need to add documents for pipeline building tests
-
-  // Create two AREQ requests for hybrid search
-  AREQ *req1 = CreateTestAREQ(ctx, "hello", spec, &qerr);
-  ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
-
-  AREQ *req2 = CreateTestAREQ(ctx, "world", spec, &qerr);
-  ASSERT_TRUE(req2 != nullptr) << "Failed to create second AREQ: " << QueryError_GetUserError(&qerr);
-
-  // Create array of requests
-  AREQ **requests = array_new(AREQ*, 2);
-  requests = array_ensure_append_1(requests, req1);
-  requests = array_ensure_append_1(requests, req2);
-
-  // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
-  ASSERT_TRUE(hybridReq != nullptr);
-  ASSERT_EQ(hybridReq->nrequests, 2);
-  ASSERT_TRUE(hybridReq->requests != nullptr);
-
-  // Verify the merge pipeline is initialized
-  ASSERT_TRUE(hybridReq->pipeline.ap.steps.next != nullptr);
-
-  // Clean up
-  HybridRequest_Free(hybridReq);
-  // Use IndexSpec_RemoveFromGlobals instead of IndexSpec_Free because the spec
-  // was added to the global registry by IndexSpec_CreateNew and holds a reference
-  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
-}
-
-TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   // Create test index spec
   IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx2", &qerr);
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
-
-  // No need to add documents for pipeline building tests
 
   // Create AREQ requests
   AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr);
@@ -264,20 +268,24 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineBasic) {
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
-  // Verify that individual request pipelines were built
+  // Verify individual request pipeline structures
+  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     AREQ *areq = hybridReq->requests[i];
-    EXPECT_TRUE(areq->pipeline.qctx.endProc != nullptr) << "Request " << i << " pipeline not built";
+    std::string pipelineName = "Request " + std::to_string(i) + " pipeline";
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
   }
 
-  // Verify merge pipeline has processors
-  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Tail pipeline not built";
+  // Verify tail pipeline structure (basic: just hybrid merger)
+  std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
+  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline");
 
   // Clean up
   HybridRequest_Free(hybridReq);
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
+// Test pipeline building with three AREQ requests to verify scalability and proper chain construction
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   // Create test index spec
   IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx3", &qerr);
@@ -332,22 +340,24 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
-  // Verify all individual request pipelines were built
+  // Verify individual request pipeline structures
+  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     AREQ *areq = hybridReq->requests[i];
-    EXPECT_TRUE(areq->pipeline.qctx.endProc != nullptr) << "Request " << i << " pipeline not built";
-    EXPECT_TRUE(areq->pipeline.qctx.rootProc != nullptr) << "Request " << i << " root processor not set";
+    std::string pipelineName = "Request " + std::to_string(i) + " pipeline";
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
   }
 
-  // Verify merge pipeline structure
-  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Tail pipeline end processor not set";
-  EXPECT_TRUE(hybridReq->pipeline.qctx.rootProc != nullptr) << "Tail pipeline root processor not set";
+  // Verify tail pipeline structure (basic: just hybrid merger)
+  std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
+  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline");
 
   // Clean up
   HybridRequest_Free(hybridReq);
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
+// Test pipeline building error handling and graceful degradation when LOAD step is missing
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   // Create test index spec
   IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx4", &qerr);
@@ -394,95 +404,17 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
-TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithDifferentQueries) {
+// Test complex tail pipeline construction with LOAD, SORT, and APPLY steps in the aggregation plan
+TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTailPipeline) {
   // Create test index spec
-  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx5", &qerr);
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx_complex", &qerr);
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
-
-  // No need to add documents for pipeline building tests
-
-  // Create AREQ requests with different query types
-  AREQ *textReq = CreateTestAREQ(ctx, "redis", spec, &qerr);
-  ASSERT_TRUE(textReq != nullptr) << "Failed to create text AREQ: " << QueryError_GetUserError(&qerr);
-
-  AREQ *categoryReq = CreateTestAREQ(ctx, "@category:database", spec, &qerr);
-  ASSERT_TRUE(categoryReq != nullptr) << "Failed to create category AREQ: " << QueryError_GetUserError(&qerr);
-
-  AREQ *numericReq = CreateTestAREQ(ctx, "@score:[3.0 5.0]", spec, &qerr);
-  ASSERT_TRUE(numericReq != nullptr) << "Failed to create numeric AREQ: " << QueryError_GetUserError(&qerr);
-
-  // Create array of diverse requests
-  AREQ **requests = array_new(AREQ*, 3);
-  requests = array_ensure_append_1(requests, textReq);
-  requests = array_ensure_append_1(requests, categoryReq);
-  requests = array_ensure_append_1(requests, numericReq);
-
-  // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 3);
-  ASSERT_TRUE(hybridReq != nullptr);
-
-  // Create AGGPlan with comprehensive LOAD step
-  const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
-
-  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
-
-  HybridPipelineParams params = {
-      .aggregationParams = {
-        .common = {
-          .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = hybridReq->requests[0]->reqflags,
-          .optimizer = hybridReq->requests[0]->optimizer,
-        },
-        .outFields = &hybridReq->requests[0]->outFields,
-        .maxResultsLimit = 10,
-      },
-      .synchronize_read_locks = true,
-      .scoringCtx = scoringCtx,
-  };
-
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed with diverse queries: " << QueryError_GetUserError(&qerr);
-
-  // Verify all pipelines are properly built
-  for (size_t i = 0; i < hybridReq->nrequests; i++) {
-    AREQ *areq = hybridReq->requests[i];
-    EXPECT_TRUE(areq->pipeline.qctx.endProc != nullptr) << "Request " << i << " pipeline not built";
-
-    // Verify pipeline has proper structure
-    ResultProcessor *rp = areq->pipeline.qctx.endProc;
-    int processorCount = 0;
-    while (rp && processorCount < 10) { // Safety limit
-      processorCount++;
-      rp = rp->upstream;
-    }
-    EXPECT_GT(processorCount, 0) << "Request " << i << " has no processors";
-  }
-
-  // Verify merge pipeline
-  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Tail pipeline not built";
-
-  // Clean up
-  HybridRequest_Free(hybridReq);
-  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
-}
-
-TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
-  // Create test index spec
-  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx7", &qerr);
-  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
-
-  // No need to add documents for pipeline building tests
 
   // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "component", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
-  AREQ *req2 = CreateTestAREQ(ctx, "pipeline", spec, &qerr);
+  AREQ *req2 = CreateTestAREQ(ctx, "@category:technology", spec, &qerr);
   ASSERT_TRUE(req2 != nullptr) << "Failed to create second AREQ: " << QueryError_GetUserError(&qerr);
 
   // Create array of requests
@@ -494,92 +426,17 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineComponents) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  // Create AGGPlan with LOAD step
-  const char *loadFields[] = {"title", "score"};
-  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 2);
-
-  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
-
-  // Build pipeline
-  HybridPipelineParams params = {
-      .aggregationParams = {
-        .common = {
-          .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = hybridReq->requests[0]->reqflags,
-          .optimizer = hybridReq->requests[0]->optimizer,
-        },
-        .outFields = &hybridReq->requests[0]->outFields,
-        .maxResultsLimit = 10,
-      },
-      .synchronize_read_locks = true,
-      .scoringCtx = scoringCtx,
-    };
-  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
-
-  // Verify pipeline components
-  for (size_t i = 0; i < hybridReq->nrequests; i++) {
-    AREQ *areq = hybridReq->requests[i];
-
-    // Check that pipeline has proper processor chain
-    ResultProcessor *rp = areq->pipeline.qctx.endProc;
-    EXPECT_TRUE(rp != nullptr) << "Request " << i << " has no end processor";
-
-    // Verify we have a depleter in the chain (should be the end processor)
-    EXPECT_TRUE(rp != nullptr) << "Request " << i << " missing depleter processor";
-
-    // Check root processor exists
-    EXPECT_TRUE(areq->pipeline.qctx.rootProc != nullptr) << "Request " << i << " has no root processor";
-  }
-
-  // Verify merge pipeline has hybrid merger
-  ResultProcessor *tail = hybridReq->pipeline.qctx.endProc;
-  EXPECT_TRUE(tail != nullptr) << "Tail pipeline has no end processor";
-
-  // The merge pipeline should have processors for handling the merged results
-  EXPECT_EQ(tail->type, RP_HYBRID_MERGER) << "Tail pipeline missing hybrid merger";
-
-  tail = hybridReq->requests[0]->pipeline.qctx.endProc;
-  EXPECT_TRUE(tail != nullptr) << "Request 0 has no end processor";
-  EXPECT_EQ(tail->type, RP_DEPLETER) << "Request 0 missing depleter processor";
-
-  // Clean up
-  HybridRequest_Free(hybridReq);
-  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
-}
-
-TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
-  // Create test index spec
-  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx8", &qerr);
-  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
-
-  // No need to add documents for pipeline building tests
-
-  // Create AREQ requests with different complexities
-  AREQ *simpleReq = CreateTestAREQ(ctx, "test", spec, &qerr);
-  ASSERT_TRUE(simpleReq != nullptr) << "Failed to create simple AREQ: " << QueryError_GetUserError(&qerr);
-
-  AREQ *complexReq = CreateTestAREQ(ctx, "@category:advanced @score:[1.0 3.0]", spec, &qerr);
-  ASSERT_TRUE(complexReq != nullptr) << "Failed to create complex AREQ: " << QueryError_GetUserError(&qerr);
-
-  // Create array of requests
-  AREQ **requests = array_new(AREQ*, 2);
-  requests = array_ensure_append_1(requests, simpleReq);
-  requests = array_ensure_append_1(requests, complexReq);
-
-  // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
-  ASSERT_TRUE(hybridReq != nullptr);
-
-  // Add LOAD step
+  // Add complex AGGPlan with LOAD + SORT + APPLY steps
   const char *loadFields[] = {"title", "score", "category"};
   AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
 
+  // Add SORT step
+  const char *sortFields[] = {"score"};
+  AddSortStepToPlan(&hybridReq->pipeline.ap, sortFields, 1, SORTASCMAP_INIT);
+
+  // Add APPLY step to create a boosted score field
+  AddApplyStepToPlan(&hybridReq->pipeline.ap, "@score * 2", "boosted_score");
+
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
   HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
   scoringCtx->scoringType = HYBRID_SCORING_RRF;
@@ -594,7 +451,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
-        .maxResultsLimit = 10,
+        .maxResultsLimit = 5,
       },
       .synchronize_read_locks = true,
       .scoringCtx = scoringCtx,
@@ -603,15 +460,18 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithComplexPlan) {
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Complex pipeline build failed: " << QueryError_GetUserError(&qerr);
 
-  // Verify complex pipeline structure
+  // Verify individual request pipeline structures (should include filter for field queries)
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     AREQ *areq = hybridReq->requests[i];
-    EXPECT_TRUE(areq->pipeline.qctx.endProc != nullptr) << "Complex request " << i << " pipeline not built";
-    EXPECT_TRUE(areq->pipeline.qctx.rootProc != nullptr) << "Complex request " << i << " root processor not set";
+    std::string pipelineName = "Request " + std::to_string(i) + " pipeline";
+
+    // Both requests should have the same basic pipeline structure
+    std::vector<ResultProcessorType> expectedPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedPipeline, pipelineName);
   }
 
-  // Verify merge pipeline handles complex structure
-  EXPECT_TRUE(hybridReq->pipeline.qctx.endProc != nullptr) << "Complex merge pipeline not built";
+  std::vector<ResultProcessorType> expectedComplexTailPipeline = {RP_PROJECTOR, RP_SORTER, RP_HYBRID_MERGER};
+  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedComplexTailPipeline, "Complex tail pipeline");
 
   // Clean up
   HybridRequest_Free(hybridReq);
