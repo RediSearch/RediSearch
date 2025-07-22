@@ -58,10 +58,6 @@ jobs:
 
       - name: Build RediSearch
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
-      - name: install python
-        uses: actions/setup-python@v4
-        with:
-          python-version: 3.11
       - name: Install Python dependencies
         run: |
           pip3 install --upgrade pip
