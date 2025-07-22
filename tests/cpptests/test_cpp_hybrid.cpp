@@ -269,6 +269,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   }
 
   // Verify tail pipeline structure (basic: just hybrid merger)
+  // TODO: Add sorter once MOD-10549 is done MOD-10549
   std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
   VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline");
 
@@ -341,6 +342,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   }
 
   // Verify tail pipeline structure (basic: just hybrid merger)
+  // TODO: Add sorter once MOD-10549 is done MOD-10549
   std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
   VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline");
 
@@ -397,7 +399,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
 }
 
 // Test complex tail pipeline construction with LOAD, SORT, and APPLY steps in the aggregation plan
-TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTailPipeline) {
+TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   // Create test index spec
   IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx_complex", &qerr);
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
