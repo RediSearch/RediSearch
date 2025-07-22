@@ -357,7 +357,8 @@ impl IntoIterator for RSAggregateResult {
         }
     }
 }
-// Represents a virtual result in an index record.
+
+/// Represents a virtual result in an index record.
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSVirtualResult;
