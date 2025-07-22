@@ -274,7 +274,6 @@ static void uvUpdateTopologyRequest(void *p) {
 
 /* Set a new topology for the cluster.*/
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
-  // TODO(Joan): Most likely we need to make sure we wait for the topology to properly be applied to every runtime context before returning.
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == 0);
   }
@@ -327,7 +326,9 @@ struct MultiThreadedRedisBlockedCtx {
   RedisModuleBlockedClient *bc;
   size_t pending_replies;
   size_t num_io_threads;
+  pthread_mutex_t lock;
   // Accumulate partial replies
+  dict *replyDict;
 };
 
 struct ReducedConnPoolStateCtx {
@@ -341,17 +342,21 @@ static void uvGetConnectionPoolState(void *p) {
   struct MultiThreadedRedisBlockedCtx *mt_bc = reducedConnPoolStateCtx->mt_ctx;
   RedisModuleBlockedClient *bc = mt_bc->bc;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  //TODO(Joan): Get all the partial replies from this runtime (Some API on MRConnManager should obtain this info)
-  size_t remaining = __atomic_sub_fetch(&mt_bc->pending_replies, 1, __ATOMIC_RELAXED);
-
-  if (remaining == 0) {
+  pthread_mutex_lock(&mt_bc->lock);
+  MRConnManager_FillStateDict(&ioRuntime->conn_mgr, mt_bc->replyDict);
+  mt_bc->pending_replies--;
+  if (mt_bc->pending_replies == 0) {
     // We are the last ones to reply, so we can now send the response
-    MRConnManager_ReplyState(&ioRuntime->conn_mgr, ctx);
+    MRConnManager_ReplyState(mt_bc->replyDict, ctx);
+    pthread_mutex_unlock(&mt_bc->lock);
     RedisModule_FreeThreadSafeContext(ctx);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);
     IORuntimeCtx_RequestCompleted(ioRuntime);
+    dictRelease(mt_bc->replyDict);
     rm_free(mt_bc);
+  } else {
+    pthread_mutex_unlock(&mt_bc->lock);
   }
 
   rm_free(reducedConnPoolStateCtx);
@@ -363,6 +368,7 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
   struct MultiThreadedRedisBlockedCtx *mt_bc = rm_new(struct MultiThreadedRedisBlockedCtx);
   mt_bc->pending_replies = cluster_g->num_io_threads;
   mt_bc->num_io_threads = cluster_g->num_io_threads;
+  mt_bc->replyDict = dictCreate(&dictTypeHeapStringsListVal, NULL);
   mt_bc->bc = bc;
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     struct ReducedConnPoolStateCtx *reducedConnPoolStateCtx = rm_new(struct ReducedConnPoolStateCtx);
