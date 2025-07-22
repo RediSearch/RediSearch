@@ -832,6 +832,47 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
     }
 }
 
+/// A reader that skips duplicate records in the index. It is used to ensure that the same document
+/// ID is not returned multiple times in the results. This is useful when the index contains
+/// multiple entries for the same document ID, such as when the document has multiple values for a
+/// field or when the document is indexed multiple times.
+pub struct SkipDuplicatesReader<I> {
+    /// The last document ID that was read from the index. This is used to determine if the next
+    /// record is a duplicate of the last one.
+    last_doc_id: t_docId,
+
+    /// The inner reader that is used to read the records from the index.
+    inner: I,
+}
+
+impl<I: Iterator<Item = RSIndexResult>> SkipDuplicatesReader<I> {
+    /// Create a new skip duplicates reader over the given inner iterator.
+    pub fn new(inner: I) -> Self {
+        Self {
+            last_doc_id: 0,
+            inner,
+        }
+    }
+}
+
+impl<I: Iterator<Item = RSIndexResult>> Iterator for SkipDuplicatesReader<I> {
+    type Item = RSIndexResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let next = self.inner.next()?;
+
+            if next.doc_id == self.last_doc_id {
+                continue;
+            }
+
+            self.last_doc_id = next.doc_id;
+
+            return Some(next);
+        }
+    }
+}
+
 /// A reader that filters out records that do not match a given field mask. It is used to
 /// filter records in an index based on their field mask, allowing only those that match the
 /// specified mask to be returned.
