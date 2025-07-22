@@ -62,7 +62,6 @@ jobs:
         run: |
           pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
-          # pip3 install --force-reinstall redis
       - name: install terraform
         uses: hashicorp/setup-terraform@v2
         with:
