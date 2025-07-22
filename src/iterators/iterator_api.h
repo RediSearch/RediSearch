@@ -91,7 +91,7 @@ typedef struct QueryIterator {
    * The iterator should check if it is still valid.
    *
    * @return VALIDATE_OK if the iterator is still valid
-   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed
+   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
    * @return VALIDATE_ABORTED if the iterator is no longer valid
    */
   ValidateStatus (*Revalidate)(struct QueryIterator *self);

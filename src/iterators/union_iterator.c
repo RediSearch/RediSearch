@@ -420,6 +420,64 @@ static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool q
   return ret;
 }
 
+static ValidateStatus UI_Revalidate(QueryIterator *base) {
+  UnionIterator *ui = (UnionIterator *)base;
+  t_docId original_lastDocId = base->lastDocId;
+  bool all_child_ok = true;
+
+  // Loop over the original iterators list and revalidate each child
+  // Use read/write indexes to efficiently pack the array
+  uint32_t write_idx = 0;
+  for (uint32_t read_idx = 0; read_idx < ui->num_orig; read_idx++) {
+    QueryIterator *child = ui->its_orig[read_idx];
+    RS_ASSERT(child != NULL);
+
+    ValidateStatus child_status = child->Revalidate(child);
+
+    if (child_status == VALIDATE_ABORTED) {
+      // Free the aborted child
+      child->Free(child);
+      // Don't copy this child to write position (effectively removes it)
+    } else {
+      // Keep this child - copy it to write position if needed
+      if (write_idx != read_idx) {
+        ui->its_orig[write_idx] = child;
+      }
+      write_idx++;
+      all_child_ok = all_child_ok && (child_status == VALIDATE_OK);
+    }
+  }
+  if (write_idx == ui->num_orig && all_child_ok) {
+    // No children were removed or moved, just return
+    return VALIDATE_OK;
+  }
+  ui->num_orig = write_idx;
+
+  // Use UI_SyncIterList to update `its` array and heap
+  UI_SyncIterList(ui);
+
+  // Update current result - reset and rebuild if we have active children
+  if (ui->num > 0) {
+    AggregateResult_Reset(ui->base.current);
+    // Find the minimum docId among active children to update current result
+    t_docId minId = UINT64_MAX;
+    for (int i = 0; i < ui->num; i++) {
+      if (ui->its[i]->lastDocId < minId) {
+        minId = ui->its[i]->lastDocId;
+      }
+    }
+    base->lastDocId = minId;
+    // Set the current result based on the minimum docId found, regardless of quick exit or algorithm
+    UI_SetFullFlat(ui);
+  } else {
+    // No active children left
+    base->atEOF = true;
+  }
+
+  // Return VALIDATE_MOVED only if our lastDocId actually changed
+  return (base->lastDocId != original_lastDocId) ? VALIDATE_MOVED : VALIDATE_OK;
+}
+
 QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit,
                                       double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
 
@@ -446,6 +504,7 @@ QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickE
   ret->NumEstimated = UI_NumEstimated;
   ret->Free = UI_Free;
   ret->Rewind = UI_Rewind;
+  ret->Revalidate = UI_Revalidate;
 
   // Choose `Read` and `SkipTo` implementations.
   // We have 2 factors for the choice:
