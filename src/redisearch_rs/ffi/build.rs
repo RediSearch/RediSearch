@@ -48,11 +48,12 @@ fn main() {
         ]
     };
 
-    let headers = [
-        root.join("src").join("redisearch.h"),
-        root.join("src").join("buffer.h"),
-        root.join("src").join("result_processor.h"),
-    ];
+    let headers = {
+        let buffer_h = root.join("src").join("buffer.h");
+        let redisearch_h = root.join("src").join("redisearch.h");
+        let result_processor_h = root.join("src").join("result_processor.h");
+        [buffer_h, redisearch_h, result_processor_h]
+    };
 
     let mut bindings = bindgen::Builder::default();
 

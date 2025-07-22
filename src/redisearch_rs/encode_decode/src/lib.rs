@@ -7,12 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! FFI layer to access, from C, the varint encoding machinery implemented in Rust.
+pub mod varint;
 
-mod field_mask;
-mod value;
-mod vector_writer;
-
-pub use field_mask::*;
-pub use value::*;
-pub use vector_writer::*;
+/// Rust implementation of `t_fieldMask` from `redisearch.h`
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+pub type FieldMask = u128;
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+pub type FieldMask = u64;

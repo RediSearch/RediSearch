@@ -399,7 +399,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
   if (FieldSpec_IsIndexable(fs)) {
     ForwardIndexTokenizerCtx tokCtx;
-    ByteOffsetWriter *curOffsetWriter = NULL;
+    VarintVectorWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
     if (aCtx->byteOffsets) {
       curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);

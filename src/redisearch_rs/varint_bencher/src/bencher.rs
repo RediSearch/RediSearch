@@ -11,35 +11,38 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
+use encode_decode::varint;
 use std::{hint::black_box, time::Duration};
-use varint::VarintEncode;
 
-/// A helper struct for benchmarking varint operations.
+use crate::FieldMask;
+
+use crate::c_varint::{CVarintVectorWriter, c_varint_ops};
+
+/// A helper struct for benchmarking varint operations against C implementation.
 pub struct VarintBencher {
-    /// `u32` benchmarking inputs.
-    u32_values: Vec<BenchInputs<u32>>,
-    /// `u64` benchmarking inputs.
-    u64_values: Vec<BenchInputs<u64>>,
+    /// Test values for benchmarking.
+    test_values: Vec<u32>,
+
+    /// Field mask test values.
+    field_mask_values: Vec<FieldMask>,
 
     /// How long to run benchmarks overall.
     measurement_time: Duration,
+
+    /// The prefix added to the label of each benchmark group.
+    prefix: String,
 }
 
 impl VarintBencher {
     /// Creates a new `VarintBencher` instance with different value ranges.
-    pub fn new(measurement_time: Duration) -> Self {
+    pub fn new(prefix: String, measurement_time: Duration) -> Self {
         let test_values = generate_test_values();
-        let u64_values = test_values
-            .iter()
-            .map(|input| BenchInputs {
-                values: input.values.iter().map(|&v| v as u64).collect(),
-                n_bytes: input.n_bytes,
-            })
-            .collect();
+        let field_mask_values = test_values.iter().map(|&v| v as FieldMask).collect();
 
         Self {
-            u32_values: test_values,
-            u64_values,
+            prefix,
+            test_values,
+            field_mask_values,
             measurement_time,
         }
     }
@@ -49,45 +52,50 @@ impl VarintBencher {
         c: &'a mut Criterion,
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
-        let mut group = c.benchmark_group(format!("Varint | {label}"));
+        let mut group = c.benchmark_group(format!("{}|{}", self.prefix, label));
         group.measurement_time(self.measurement_time);
         group.warm_up_time(Duration::from_secs(5));
         group
     }
 
     /// Benchmark varint encoding operations.
-    pub fn encode_u32(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode u32");
-        for bench_input in &self.u32_values {
-            encode_u32_benchmark(&mut group, bench_input);
-        }
+    /// Benchmark single varint encoding.
+    pub fn encode_group(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Encode");
+        encode_rust_benchmark(&mut group, &self.test_values);
+        encode_c_benchmark(&mut group, &self.test_values);
         group.finish();
     }
 
-    /// Benchmark u64 varint encoding operations.
-    pub fn encode_u64(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode u64");
-        for bench_input in &self.u64_values {
-            encode_u64_benchmark(&mut group, bench_input);
-        }
+    /// Benchmark field mask encoding operations.
+    pub fn encode_field_mask_group(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Encode FieldMask");
+        encode_field_mask_rust_benchmark(&mut group, &self.field_mask_values);
+        encode_field_mask_c_benchmark(&mut group, &self.field_mask_values);
         group.finish();
     }
 
     /// Benchmark varint decoding operations.
-    pub fn decode_u32(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode u32");
-        for bench_input in &self.u32_values {
-            decode_u32_benchmark(&mut group, bench_input);
-        }
+    pub fn decode_group(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Decode");
+        decode_rust_benchmark(&mut group, &self.test_values);
+        decode_c_benchmark(&mut group, &self.test_values);
         group.finish();
     }
 
-    /// Benchmark u64 varint decoding operations.
-    pub fn decode_u64(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode u64");
-        for bench_input in &self.u64_values {
-            decode_u64_benchmark(&mut group, bench_input);
-        }
+    /// Benchmark field mask decoding operations.
+    pub fn decode_field_mask_group(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Decode FieldMask");
+        decode_field_mask_rust_benchmark(&mut group, &self.field_mask_values);
+        decode_field_mask_c_benchmark(&mut group, &self.field_mask_values);
+        group.finish();
+    }
+
+    /// Benchmark vector writer operations.
+    pub fn vector_writer_group(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Vector Writer");
+        vector_writer_rust_benchmark(&mut group, &self.test_values);
+        vector_writer_c_benchmark(&mut group, &self.test_values);
         group.finish();
     }
 }
@@ -98,59 +106,40 @@ impl VarintBencher {
 /// - Three bytes: 16384-2097151
 /// - Four bytes: 2097152-268435455
 /// - Five bytes: 268435456-u32::MAX
-fn generate_test_values() -> Vec<BenchInputs<u32>> {
+fn generate_test_values() -> Vec<u32> {
     let mut values = Vec::new();
 
+    // Edge cases.
+    values.extend([0, 1, u32::MAX]);
+
     // Single byte values (0-127).
-    values.push(BenchInputs {
-        values: vec![10, 50, 100, 127],
-        n_bytes: 1,
-    });
+    values.extend([10, 50, 100, 127]);
 
     // Two byte values (128-16383).
-    values.push(BenchInputs {
-        values: vec![128, 1000, 8000, 16383],
-        n_bytes: 2,
-    });
+    values.extend([128, 1000, 8000, 16383]);
 
     // Three byte values (16384-2097151).
-    values.push(BenchInputs {
-        values: vec![16384, 100000, 1000000, 2097151],
-        n_bytes: 3,
-    });
+    values.extend([16384, 100000, 1000000, 2097151]);
 
     // Four byte values (2097152-268435455).
-    values.push(BenchInputs {
-        values: vec![2097152, 50000000, 200000000, 268435455],
-        n_bytes: 4,
-    });
+    values.extend([2097152, 50000000, 200000000, 268435455]);
 
     // Five byte values (268435456-u32::MAX).
-    values.push(BenchInputs {
-        values: vec![268435456, 1000000000, 3000000000, u32::MAX - 1],
-        n_bytes: 5,
-    });
+    values.extend([268435456, 1000000000, 3000000000, u32::MAX - 1]);
+
+    // Sequential pattern for delta encoding tests.
+    values.extend((0..100).map(|i| i * 1000));
 
     values
 }
 
-pub struct BenchInputs<T> {
-    pub values: Vec<T>,
-    /// The number of bytes required to encode each value.
-    pub n_bytes: usize,
-}
-
-fn encode_u32_benchmark<M: Measurement>(
-    group: &mut BenchmarkGroup<'_, M>,
-    inputs: &BenchInputs<u32>,
-) {
-    let BenchInputs { values, n_bytes } = inputs;
-    group.bench_function(format!("{n_bytes} bytes"), |b| {
+fn encode_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
+    group.bench_function("Rust", |b| {
         b.iter_batched_ref(
             || Vec::with_capacity(1024),
             |buf| {
                 for &value in values {
-                    black_box(value).write_as_varint(&mut *buf).unwrap();
+                    varint::write(black_box(value), &mut *buf).unwrap();
                 }
             },
             BatchSize::SmallInput,
@@ -158,17 +147,47 @@ fn encode_u32_benchmark<M: Measurement>(
     });
 }
 
-fn encode_u64_benchmark<M: Measurement>(
+fn encode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
+    // Allocate buffer once for the entire benchmark
+    // SAFETY: RedisModule_Alloc is a valid function pointer provided by Redis module system
+    let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
+    // SAFETY: Calling Redis allocator with valid size parameter
+    let buffer_ptr = unsafe { alloc_fn(1024) };
+    let mut buffer = crate::ffi::Buffer {
+        data: buffer_ptr as *mut i8,
+        offset: 0,
+        cap: 1024,
+    };
+
+    group.bench_function("C", |b| {
+        b.iter(|| {
+            for &value in values {
+                let _bytes_written = c_varint_ops::write(black_box(value), &mut buffer);
+                black_box(buffer.offset);
+                buffer.offset = 0; // Reset the buffer.
+            }
+        })
+    });
+
+    // Free buffer after benchmark
+    // SAFETY: RedisModule_Free is a valid function pointer provided by Redis module system
+    let free_fn = unsafe { crate::RedisModule_Free.unwrap() };
+    // SAFETY: Freeing buffer that was allocated by RedisModule_Alloc
+    unsafe {
+        free_fn(buffer_ptr);
+    }
+}
+
+fn encode_field_mask_rust_benchmark<M: Measurement>(
     group: &mut BenchmarkGroup<'_, M>,
-    inputs: &BenchInputs<u64>,
+    values: &[FieldMask],
 ) {
-    let BenchInputs { values, n_bytes } = inputs;
-    group.bench_function(format!("{n_bytes} bytes"), |b| {
+    group.bench_function("Rust", |b| {
         b.iter_batched_ref(
             || Vec::with_capacity(1024),
             |buf| {
                 for &value in values {
-                    black_box(value).write_as_varint(&mut *buf).unwrap();
+                    varint::write_field_mask(black_box(value), &mut *buf).unwrap();
                 }
             },
             BatchSize::SmallInput,
@@ -176,52 +195,162 @@ fn encode_u64_benchmark<M: Measurement>(
     });
 }
 
-fn decode_u32_benchmark<M: Measurement>(
+fn encode_field_mask_c_benchmark<M: Measurement>(
     group: &mut BenchmarkGroup<'_, M>,
-    inputs: &BenchInputs<u32>,
+    values: &[FieldMask],
 ) {
-    let BenchInputs { values, n_bytes } = inputs;
-    // Pre-encode the values.
+    // Allocate buffer once for the entire benchmark
+    // SAFETY: RedisModule_Alloc is a valid function pointer provided by Redis module system
+    let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
+    // SAFETY: Calling Redis allocator with valid size parameter
+    let buffer_ptr = unsafe { alloc_fn(1024) };
+    let mut buffer = crate::ffi::Buffer {
+        data: buffer_ptr as *mut i8,
+        offset: 0,
+        cap: 1024,
+    };
+
+    group.bench_function("C", |b| {
+        b.iter(|| {
+            for &value in values {
+                let _bytes_written = c_varint_ops::write_field_mask(black_box(value), &mut buffer);
+                black_box(buffer.offset);
+                buffer.offset = 0; // Reset the buffer.
+            }
+        })
+    });
+
+    // Free buffer after benchmark
+    // SAFETY: RedisModule_Free is a valid function pointer provided by Redis module system
+    let free_fn = unsafe { crate::RedisModule_Free.unwrap() };
+    // SAFETY: Freeing buffer that was allocated by RedisModule_Alloc
+    unsafe {
+        free_fn(buffer_ptr);
+    }
+}
+
+fn vector_writer_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
+    group.bench_function("Rust", |b| {
+        b.iter_batched(
+            || varint::VectorWriter::new(1024),
+            |mut writer| {
+                for &value in values {
+                    let _size = writer.write(black_box(value)).unwrap();
+                }
+                black_box(writer.bytes_len());
+            },
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+fn vector_writer_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
+    group.bench_function("C", |b| {
+        b.iter_batched(
+            || CVarintVectorWriter::new(1024),
+            |mut writer| {
+                for &value in values {
+                    let _size = writer.write(black_box(value));
+                }
+                black_box(writer.bytes_len());
+            },
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+fn decode_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
+    // Pre-encode the values
     let encoded_values: Vec<Vec<u8>> = values
         .iter()
         .map(|&value| {
             let mut buf = Vec::new();
-            value.write_as_varint(&mut buf).unwrap();
+            varint::write(value, &mut buf).unwrap();
             buf
         })
         .collect();
 
-    group.bench_function(format!("{n_bytes} bytes"), |b| {
+    group.bench_function("Rust", |b| {
         b.iter(|| {
             for encoded in &encoded_values {
                 let mut reader = encoded.as_slice();
-                let decoded = u32::read_as_varint(&mut reader).unwrap();
+                let decoded = varint::read(&mut reader).unwrap();
                 black_box(decoded);
             }
         })
     });
 }
 
-fn decode_u64_benchmark<M: Measurement>(
+fn decode_field_mask_rust_benchmark<M: Measurement>(
     group: &mut BenchmarkGroup<'_, M>,
-    inputs: &BenchInputs<u64>,
+    values: &[FieldMask],
 ) {
-    let BenchInputs { values, n_bytes } = inputs;
-    // Pre-encode the u64.
+    // Pre-encode the field masks
     let encoded_values: Vec<Vec<u8>> = values
         .iter()
         .map(|&value| {
             let mut buf = Vec::new();
-            value.write_as_varint(&mut buf).unwrap();
+            varint::write_field_mask(value, &mut buf).unwrap();
             buf
         })
         .collect();
 
-    group.bench_function(format!("{n_bytes} bytes"), |b| {
+    group.bench_function("Rust", |b| {
         b.iter(|| {
             for encoded in &encoded_values {
                 let mut reader = encoded.as_slice();
-                let decoded = u64::read_as_varint(&mut reader).unwrap();
+                let decoded = varint::read_field_mask(&mut reader).unwrap();
+                black_box(decoded);
+            }
+        })
+    });
+}
+
+fn decode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
+    // Pre-encode the values using C implementation
+    let encoded_values: Vec<Vec<u8>> = values
+        .iter()
+        .map(|&value| c_varint_ops::write_to_vec(value))
+        .collect();
+
+    group.bench_function("C", |b| {
+        b.iter(|| {
+            for encoded in &encoded_values {
+                // Set up buffer to point to encoded data
+                let mut buffer = crate::ffi::Buffer {
+                    data: encoded.as_ptr() as *mut i8,
+                    offset: encoded.len(),
+                    cap: encoded.len(),
+                };
+                // Only time the actual decode operation
+                let decoded = c_varint_ops::read(&mut buffer);
+                black_box(decoded);
+            }
+        })
+    });
+}
+
+fn decode_field_mask_c_benchmark<M: Measurement>(
+    group: &mut BenchmarkGroup<'_, M>,
+    values: &[FieldMask],
+) {
+    // Pre-encode the field masks using C implementation
+    let encoded_values: Vec<Vec<u8>> = values
+        .iter()
+        .map(|&value| c_varint_ops::write_field_mask_to_vec(value))
+        .collect();
+
+    group.bench_function("C", |b| {
+        b.iter(|| {
+            for encoded in &encoded_values {
+                // Set up buffer to point to encoded data
+                let mut buffer = crate::ffi::Buffer {
+                    data: encoded.as_ptr() as *mut i8,
+                    offset: encoded.len(),
+                    cap: encoded.len(),
+                };
+                // Only time the actual decode operation
+                let decoded = c_varint_ops::read_field_mask(&mut buffer);
                 black_box(decoded);
             }
         })

@@ -18,7 +18,7 @@ extern "C" {
 #include "src/query_parser/tokenizer.h"
 #include "src/spec.h"
 #include "src/tokenize.h"
-#include "varint.h"
+#include "src/varint.h"
 #include "src/hybrid_reader.h"
 #include "src/metric_iterator.h"
 #include "src/util/arr.h"
@@ -46,7 +46,7 @@ class IndexTest : public ::testing::Test {};
 
 static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
   RSOffsetVector ret = {0};
-  ret.data = (char *) VVW_GetByteData(vvw);
+  ret.data = VVW_GetByteData(vvw);
   ret.len = VVW_GetByteLength(vvw);
   return ret;
 }
