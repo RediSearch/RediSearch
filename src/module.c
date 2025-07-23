@@ -47,6 +47,8 @@
 #include "reply.h"
 #include "resp3.h"
 #include "coord/rmr/rmr.h"
+#include "shard_window_ratio.h"
+
 #include "hiredis/async.h"
 #include "coord/rmr/reply.h"
 #include "coord/rmr/redis_cluster.h"
@@ -2105,7 +2107,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
-  if (!result_id || !MRReply_Type(result_id) == MR_REPLY_STRING) {
+  if (!result_id || MRReply_Type(result_id) != MR_REPLY_STRING) {
     // We crash in development env, and return NULL (such that an error is raised)
     // in production.
     RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
@@ -2893,6 +2895,7 @@ cleanup:
   if (rCtx.reduceSpecialCaseCtxKnn &&
       rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
     heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
+    rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL;
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
@@ -3292,6 +3295,28 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   RedisModuleString **argv, int argc, WeakRef spec_ref, QueryError *status) {
 
   cmd->protocol = protocol;
+
+  // Handle KNN with shard ratio optimization for both multi-shard and standalone
+  if (req->specialCases) {
+    for (size_t i = 0; i < array_len(req->specialCases); ++i) {
+      if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
+        specialCaseCtx* knnCtx = req->specialCases[i];
+        KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+        double ratio = knn_query->shardWindowRatio;
+
+        // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+        if (ratio < MAX_SHARD_WINDOW_RATIO) {
+          // Calculate effective K based on deployment mode
+          size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, NumShards);
+          // No modification needed if K values are the same
+          if (knn_query->k == effectiveK) break;
+          // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
+          modifyKNNCommand(cmd, 2 + req->profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
+        }
+        break; // Only handle KNN context
+      }
+    }
+  }
 
   // replace the LIMIT {offset} {limit} with LIMIT 0 {limit}, because we need all top N to merge
   int limitIndex = RMUtil_ArgExists("LIMIT", argv, argc, 3);
