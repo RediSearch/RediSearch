@@ -24,9 +24,9 @@ typedef enum IteratorStatus {
 } IteratorStatus;
 
 typedef enum VALIDATE_OK {
-  VALIDATE_OK, // The iterator is still valid and lastDocID did not change
-  VALIDATE_MOVED, // The iterator is still valid but lastDocID changed
-  VALIDATE_ABORTED,
+  VALIDATE_OK,      // The iterator is still valid and lastDocID did not change (may be EOF)
+  VALIDATE_MOVED,   // The iterator is still valid but lastDocID changed, and `current` is a new valid result
+  VALIDATE_ABORTED, // The iterator is no longer valid, and should not be used or rewound. Should be freed.
 } ValidateStatus;
 
 enum IteratorType {
