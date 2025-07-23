@@ -3,6 +3,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
+#include "rmutil/args.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,7 +38,13 @@ static PLN_LoadStep* CreateImplicitLoadStep(AGGPlan *plan) {
     // combined_score maps to the hybrid score (__score internally)
     lstp->keys[1] = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_COMBINED_SCORE, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
 
-    lstp->args = (ArgsCursor){0};  // Zero-initialize for empty cursor
+    // Set up args to represent the user-facing field names for serialization
+    // Use static array to avoid memory management issues with loadDtor
+    static const char* implicit_field_names[2] = {HYBRID_IMPLICIT_DOC_ID, HYBRID_IMPLICIT_COMBINED_SCORE};
+    lstp->args.argc = 2;
+    lstp->args.objs = (void**)implicit_field_names;
+    lstp->args.type = AC_TYPE_CHAR;
+    lstp->args.offset = 0;
 
     return lstp;
 }
