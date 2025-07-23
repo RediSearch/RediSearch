@@ -6,6 +6,7 @@
 
 #include "gtest/gtest.h"
 #include "iterator_util.h"
+#include <vector>
 
 extern "C" {
 #include "src/forward_index.h"
@@ -355,6 +356,9 @@ protected:
     TagIndex *tagIdx;
     InvertedIndex *tagInvIdx;
 
+    // Flag to track if numericIdx was created standalone (needs manual freeing)
+    bool numericIdxNeedsFreeing;
+
     // Query terms for Query-type iterators
     RSQueryTerm *queryTerm;
     RSQueryTerm *tagQueryTerm;
@@ -373,6 +377,7 @@ protected:
         termIdx = nullptr;
         tagIdx = nullptr;
         tagInvIdx = nullptr;
+        numericIdxNeedsFreeing = false;
         queryTerm = nullptr;
         tagQueryTerm = nullptr;
         numericFilter = nullptr;
@@ -433,6 +438,12 @@ protected:
 
         // Note: tagIdx is now owned by the IndexSpec's keysDict and will be freed
         // automatically when the spec is removed from globals
+
+        // Free standalone numeric index if it was created directly (not managed by spec)
+        if (numericIdxNeedsFreeing && numericIdx) {
+            InvertedIndex_Free(numericIdx);
+            numericIdx = nullptr;
+        }
 
         // Remove spec from globals (this may free associated indices)
         if (spec) {
@@ -512,6 +523,7 @@ private:
 
             Vector_Free(ranges);
             RedisModule_FreeString(ctx, numField);
+            numericIdxNeedsFreeing = false; // Managed by IndexSpec
         } else {
             // Full version (simpler, no context needed)
             size_t memsize;
@@ -523,6 +535,7 @@ private:
             }
 
             iterator = NewInvIndIterator_NumericFull(numericIdx);
+            numericIdxNeedsFreeing = true; // Created standalone, needs manual freeing
         }
     }
 
@@ -806,10 +819,15 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     DocTable tempDocTable = DocTable_New(100);
 
     // Add all documents to the temp DocTable first
+    // Store the returned metadata to properly free the references
+    std::vector<RSDocumentMetadata*> tempDocs;
     for (size_t i = 0; i < n_docs; ++i) {
         char docKey[32];
         snprintf(docKey, sizeof(docKey), "doc%zu", i);
-        DocTable_Put(&tempDocTable, docKey, strlen(docKey), 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+        RSDocumentMetadata* dmd = DocTable_Put(&tempDocTable, docKey, strlen(docKey), 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+        if (dmd) {
+            tempDocs.push_back(dmd);
+        }
     }
 
     // Now mark the third document as deleted
@@ -850,6 +868,14 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     if (deletedDoc) {
         DMD_Return(deletedDoc);
     }
+
+    // Free the references from DocTable_Put calls
+    for (RSDocumentMetadata* dmd : tempDocs) {
+        if (dmd) {
+            DMD_Return(dmd);
+        }
+    }
+
     DocTable_Free(&tempDocTable);
 
     // Restore the original index state
