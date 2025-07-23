@@ -1409,7 +1409,7 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
       if (!frags) {
         // First invalid doc; copy everything prior to this to the repair
         // buffer
-        Buffer_Write(&bw, blk->buf.data, bufBegin - blk->buf.data);
+        Buffer_Write(&bw, IndexBlock_Data(blk), bufBegin - IndexBlock_Data(blk));
       }
       frags += fragsIncr;
       params->bytesCollected += sz;
