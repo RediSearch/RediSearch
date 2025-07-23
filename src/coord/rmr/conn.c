@@ -140,6 +140,7 @@ void MRConnManager_Free(MRConnManager *mgr) {
 }
 
 void MRConnManager_ReplyState(dict *stateDict, RedisModuleCtx *ctx) {
+  RS_ASSERT(stateDict);
   RedisModule_ReplyWithMap(ctx, dictSize(stateDict));
   dictIterator *it = dictGetIterator(stateDict);
   dictEntry *entry;
@@ -169,6 +170,7 @@ void MRConnManager_ReplyState(dict *stateDict, RedisModuleCtx *ctx) {
 }
 
 void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
+  RS_ASSERT(stateDict);
   dictIterator *it = dictGetIterator(mgr->map);
   dictEntry *entry;
 

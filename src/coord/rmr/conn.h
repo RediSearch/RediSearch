@@ -64,8 +64,18 @@ typedef struct {
 
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
 
+/*
+ * Gets the stateDict filled with connection pool states of different IORuntimes and
+ * fills the reply with this stateDict. It fills the Reply for the client.
+*/
 void MRConnManager_ReplyState(dict *stateDict, RedisModuleCtx *ctx);
 
+/*
+ * Fill the state dictionary with the connection pool state.
+ * The dictionary is a map of host:port strings to an array of connection states.
+ * The array contains the state of each connection in the pool. The stateDict may be empty
+ * or already contain information from other ConnManager
+*/
 void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict);
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */

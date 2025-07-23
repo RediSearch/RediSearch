@@ -324,7 +324,7 @@ struct ReplyClusterInfoCtx {
 
 struct MultiThreadedRedisBlockedCtx {
   RedisModuleBlockedClient *bc;
-  size_t pending_replies;
+  size_t pending_threads;
   size_t num_io_threads;
   pthread_mutex_t lock;
   // Accumulate partial replies
@@ -344,8 +344,8 @@ static void uvGetConnectionPoolState(void *p) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   pthread_mutex_lock(&mt_bc->lock);
   MRConnManager_FillStateDict(&ioRuntime->conn_mgr, mt_bc->replyDict);
-  mt_bc->pending_replies--;
-  if (mt_bc->pending_replies == 0) {
+  mt_bc->pending_threads--;
+  if (mt_bc->pending_threads == 0) {
     // We are the last ones to reply, so we can now send the response
     MRConnManager_ReplyState(mt_bc->replyDict, ctx);
     pthread_mutex_unlock(&mt_bc->lock);
@@ -368,8 +368,8 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
   struct MultiThreadedRedisBlockedCtx *mt_bc = rm_new(struct MultiThreadedRedisBlockedCtx);
-  mt_bc->pending_replies = cluster_g->num_io_threads;
   mt_bc->num_io_threads = cluster_g->num_io_threads;
+  mt_bc->pending_threads = cluster_g->num_io_threads;
   mt_bc->replyDict = dictCreate(&dictTypeHeapStringsListVal, NULL);
   mt_bc->bc = bc;
   pthread_mutex_init(&mt_bc->lock, NULL);
