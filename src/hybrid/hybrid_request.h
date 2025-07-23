@@ -7,6 +7,9 @@
 extern "C" {
 #endif
 
+// Number of requests in a hybrid command: SEARCH + VSIM
+#define HYBRID_REQUEST_NUM_SUBQUERIES 2
+
 typedef struct {
     arrayof(AREQ*) requests;
     size_t nrequests;

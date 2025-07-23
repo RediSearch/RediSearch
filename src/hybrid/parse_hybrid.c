@@ -110,7 +110,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
 /**
  * Parse COMBINE clause parameters for hybrid scoring configuration.
  *
- * Supports LINEAR (requires 2 weight values) and RRF (optional K and WINDOW parameters).
+ * Supports LINEAR (requires HYBRID_REQUEST_NUM_SUBQUERIES weight values) and RRF (optional K and WINDOW parameters).
  * Defaults to RRF if no method specified.
  *
  * @param ac Arguments cursor positioned after "COMBINE"
@@ -130,12 +130,11 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
 
   // Parse parameters based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    // For LINEAR, we expect exactly 2 weight values
-    combineCtx->linearCtx.linearWeights = rm_calloc(2, sizeof(double));
-    combineCtx->linearCtx.numWeights = 2;
+    combineCtx->linearCtx.linearWeights = rm_calloc(HYBRID_REQUEST_NUM_SUBQUERIES, sizeof(double));
+    combineCtx->linearCtx.numWeights = HYBRID_REQUEST_NUM_SUBQUERIES;
 
-    // Parse the two weight values directly
-    for (size_t i = 0; i < 2; i++) {
+    // Parse the weight values directly
+    for (size_t i = 0; i < HYBRID_REQUEST_NUM_SUBQUERIES; i++) {
       double weight;
       if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
@@ -309,11 +308,11 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   // }
 
   // Create the hybrid request with proper structure
-  requests = array_new(AREQ*, 2);
+  requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   array_ensure_append_1(requests, searchRequest);
   array_ensure_append_1(requests, vectorRequest);
 
-  HybridRequest *hybridRequest = HybridRequest_New(requests, 2);
+  HybridRequest *hybridRequest = HybridRequest_New(requests, HYBRID_REQUEST_NUM_SUBQUERIES);
   hybridRequest->hybridParams = hybridParams;
 
   // thread safe context
