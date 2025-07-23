@@ -220,7 +220,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
 
     // Capture the pointer address before the block is cleared; otherwise
     // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
-    void *bufptr = blk->buf.data;
+    void *bufptr = IndexBlock_Data(blk);
     size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
     if (nrepaired == 0) {
       // unmodified block
@@ -286,7 +286,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     const IndexBlock *blk = blocklist + msg->newix;
     FGC_sendFixed(gc, msg, sizeof(*msg));
     // TODO: check why we need to send the data if its part of the blk struct.
-    FGC_sendBuffer(gc, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
+    FGC_sendBuffer(gc, IndexBlock_Data(blk), IndexBlock_DataLen(blk));
   }
   rv = true;
 
@@ -607,7 +607,7 @@ FGC_recvInvIdx(ForkGC *gc, InvIdxBuffers *bufs, MSG_IndexInfo *info) {
 error:
   rm_free(bufs->newBlocklist);
   for (size_t ii = 0; ii < nblocksRecvd; ++ii) {
-    rm_free(bufs->changedBlocks[ii].blk.buf.data);
+    IndexBlock_DataFree(&bufs->changedBlocks[ii].blk);
   }
   rm_free(bufs->changedBlocks);
   memset(bufs, 0, sizeof(*bufs));
@@ -621,7 +621,7 @@ static void freeInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
   if (bufs->changedBlocks) {
     // could be null because of pipe error
     for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
-      rm_free(bufs->changedBlocks[ii].blk.buf.data);
+      IndexBlock_DataFree(&bufs->changedBlocks[ii].blk);
     }
     rm_free(bufs->changedBlocks);
   }

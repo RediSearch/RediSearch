@@ -119,7 +119,14 @@ static inline uint16_t IndexBlock_NumEntries(const IndexBlock *b) {
   return b->numEntries;
 }
 
-#define IndexBlock_DataBuf(b) (b)->buf.data
+static inline char *IndexBlock_Data(const IndexBlock *b) {
+  return b->buf.data;
+}
+
+static inline void IndexBlock_DataFree(const IndexBlock *b) {
+  rm_free(b->buf.data);
+}
+
 #define IndexBlock_DataLen(b) (b)->buf.offset
 #define IndexBlock_DataCap(b) (b)->buf.cap
 
