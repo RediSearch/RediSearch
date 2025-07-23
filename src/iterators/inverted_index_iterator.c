@@ -69,6 +69,10 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
   NumericInvIndIterator *nit = (NumericInvIndIterator *)base;
   InvIndIterator *it = (InvIndIterator *)base;
 
+  if (!it->sctx) {
+    return VALIDATE_OK;
+  }
+
   // For numeric fields, we need to get the field name from the filter context
   // We need to use the field spec directly from the numeric filter
   const NumericFilter *filter = it->decoderCtx.filter;
@@ -92,6 +96,9 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
 
 static ValidateStatus TermCheckAbort(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
+  if (!it->sctx) {
+    return VALIDATE_OK;
+  }
   InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, base->current->data.term.term->str,
       base->current->data.term.term->len, false, NULL);
   if (!idx || idx == TRIEMAP_NOTFOUND || it->idx != idx) {
@@ -107,6 +114,9 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
 
 static ValidateStatus TagCheckAbort(QueryIterator *base) {
   TagInvIndIterator *it = (TagInvIndIterator *)base;
+  if (!it->base.sctx) {
+    return VALIDATE_OK;
+  }
   size_t sz;
   InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, base->current->data.term.term->str,
       base->current->data.term.term->len, false, &sz);

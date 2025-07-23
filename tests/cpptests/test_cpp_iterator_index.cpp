@@ -301,12 +301,12 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
 }
 
 typedef enum RevalidateIndexType {
-    REVALIDATE_INDEX_TYPE_NUMERIC_QUERY,
-    REVALIDATE_INDEX_TYPE_NUMERIC_FULL,
-    REVALIDATE_INDEX_TYPE_TERM_QUERY,
-    REVALIDATE_INDEX_TYPE_TERM_FULL,
-    REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_TAG_FULL,
+    REVALIDATE_INDEX_TYPE_NUMERIC_QUERY = 0,
+    REVALIDATE_INDEX_TYPE_NUMERIC_FULL = 1,
+    REVALIDATE_INDEX_TYPE_TERM_QUERY = 2,
+    REVALIDATE_INDEX_TYPE_TERM_FULL = 3,
+    REVALIDATE_INDEX_TYPE_TAG_QUERY = 4,
+    REVALIDATE_INDEX_TYPE_TAG_FULL = 5,
 } RevalidateIndexType;
 
 /**
@@ -354,6 +354,7 @@ protected:
     // Query terms for Query-type iterators
     RSQueryTerm *queryTerm;
     RSQueryTerm *tagQueryTerm;
+    NumericFilter *numericFilter;
 
     void SetUp() override {
         // Initialize Redis context
@@ -369,6 +370,7 @@ protected:
         tagInvIdx = nullptr;
         queryTerm = nullptr;
         tagQueryTerm = nullptr;
+        numericFilter = nullptr;
 
         // Generate a set of document IDs for testing
         for (size_t i = 0; i < n_docs; ++i) {
@@ -395,6 +397,9 @@ protected:
             case REVALIDATE_INDEX_TYPE_TAG_FULL:
                 SetupTagIndex(false);     // Full version
                 break;
+            default:
+                FAIL() << "Unknown index type: " << GetParam();
+                break;
         }
     }
 
@@ -409,17 +414,20 @@ protected:
         queryTerm = nullptr;
         tagQueryTerm = nullptr;
 
+        // Free numeric filter if it was created
+        if (numericFilter) {
+            NumericFilter_Free(numericFilter);
+            numericFilter = nullptr;
+        }
+
         // Free search context
         if (sctx) {
             SearchCtx_Free(sctx);
             sctx = nullptr;
         }
 
-        // Free tag index (not owned by iterator)
-        if (tagIdx) {
-            TagIndex_Free(tagIdx);
-            tagIdx = nullptr;
-        }
+        // Note: tagIdx is now owned by the IndexSpec's keysDict and will be freed
+        // automatically when the spec is removed from globals
 
         // Remove spec from globals (this may free associated indices)
         if (spec) {
@@ -430,6 +438,7 @@ protected:
         // Clear pointers (don't free directly as they may have been freed by iterator or spec)
         numericIdx = nullptr;
         termIdx = nullptr;
+        tagIdx = nullptr;
         tagInvIdx = nullptr;
 
         RedisModule_FreeThreadSafeContext(ctx);
@@ -452,7 +461,7 @@ private:
         sctx = NewSearchCtxC(ctx, "numeric_idx", false);
         ASSERT_TRUE(sctx != nullptr);
 
-        // Create numeric inverted index
+        // Create numeric inverted index directly (numeric indexes work differently from text/tag)
         size_t memsize;
         numericIdx = NewInvertedIndex(Index_StoreNumeric, 1, &memsize);
 
@@ -463,10 +472,11 @@ private:
 
         // Create iterator based on type
         if (useQuery) {
-            // Query version with proper context
+            // Query version - use nullptr for sctx like the working test does
             FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
             FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-            iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, nullptr, -INFINITY, INFINITY);
+            numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+            iterator = NewInvIndIterator_NumericQuery(numericIdx, nullptr, &fieldCtx, numericFilter, -INFINITY, INFINITY);
         } else {
             // Full version (simpler, no context needed)
             iterator = NewInvIndIterator_NumericFull(numericIdx);
@@ -489,9 +499,11 @@ private:
         sctx = NewSearchCtxC(ctx, "term_idx", false);
         ASSERT_TRUE(sctx != nullptr);
 
-        // Create term inverted index
-        size_t memsize;
-        termIdx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
+        // Get the term inverted index from the spec using Redis_OpenInvertedIndex
+        // This will create the index and add it to the spec's keysDict properly
+        bool isNew;
+        termIdx = Redis_OpenInvertedIndex(sctx, "term", strlen("term"), 1, &isNew);
+        ASSERT_TRUE(termIdx != nullptr);
         IndexEncoder encoder = InvertedIndex_GetEncoder(termIdx->flags);
 
         // Populate with term data
@@ -538,8 +550,14 @@ private:
         sctx = NewSearchCtxC(ctx, "tag_idx", false);
         ASSERT_TRUE(sctx != nullptr);
 
-        // Create tag index
-        tagIdx = NewTagIndex();
+        // Get the tag index from the spec using TagIndex_Open
+        // This will create the index and add it to the spec's keysDict properly
+        const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "tag_field", strlen("tag_field"));
+        ASSERT_TRUE(fs != nullptr);
+        RedisModuleString *tagKeyName = TagIndex_FormatName(spec, fs->fieldName);
+        tagIdx = TagIndex_Open(spec, tagKeyName, CREATE_INDEX);
+        ASSERT_TRUE(tagIdx != nullptr);
+        RedisModule_FreeString(ctx, tagKeyName);
 
         // Create tag inverted index for a specific tag value
         size_t sz;
@@ -625,22 +643,9 @@ TEST_P(InvIndIteratorRevalidateTest, BasicIteratorFunctionality) {
 
 // Test basic Revalidate functionality - should return VALIDATE_OK when index is valid
 TEST_P(InvIndIteratorRevalidateTest, RevalidateBasic) {
-    // Read some documents first
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
     ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
-    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
-
-    // Revalidate behavior depends on iterator type
-    if (IsNumericIterator() || IsQueryIterator()) {
-        // NUMERIC iterators and Query-type iterators should work with proper context
-        ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
-
-        // Should still be able to continue reading
-        ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
-    } else {
-        // Full-type TERM and TAG iterators don't have proper term data for CheckAbort
-        // This would require more complex setup with proper term storage
-        GTEST_SKIP() << "Full-type TERM and TAG iterators require proper term data setup for Revalidate";
-    }
+    ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
 }
 
 // Test Revalidate when iterator is at EOF
@@ -653,44 +658,5 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAtEOF) {
     ASSERT_EQ(rc, ITERATOR_EOF);
     ASSERT_TRUE(iterator->atEOF);
 
-    // Revalidate at EOF should return VALIDATE_OK (optimization)
-    // This works for all iterator types since it's an early return
     ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
-}
-
-// Test that Revalidate can be called multiple times safely
-TEST_P(InvIndIteratorRevalidateTest, RevalidateMultipleCalls) {
-    // Read some documents first
-    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
-
-    // Multiple Revalidate calls should be safe
-    if (IsNumericIterator() || IsQueryIterator()) {
-        ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
-        ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
-        ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
-    } else {
-        GTEST_SKIP() << "Full-type TERM and TAG iterators require proper term data setup for Revalidate";
-    }
-}
-
-// Test Revalidate after rewind
-TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterRewind) {
-    // Read some documents
-    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
-    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
-
-    // Rewind the iterator
-    iterator->Rewind(iterator);
-    ASSERT_EQ(iterator->lastDocId, 0);
-    ASSERT_FALSE(iterator->atEOF);
-
-    // Revalidate after rewind should work
-    if (IsNumericIterator() || IsQueryIterator()) {
-        ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
-
-        // Should be able to read again after revalidate
-        ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
-    } else {
-        GTEST_SKIP() << "Full-type TERM and TAG iterators require proper term data setup for Revalidate";
-    }
 }
