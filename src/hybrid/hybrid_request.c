@@ -1,10 +1,51 @@
 #include "hybrid/hybrid_request.h"
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
+#include "document.h"
+#include "aggregate/aggregate_plan.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Create an implicit LOAD step for hybrid search when no explicit LOAD is provided.
+ * The implicit LOAD includes @__key (document ID) and @__score (combined score).
+ *
+ * @param plan The aggregation plan to get RLookup from
+ * @return Newly allocated PLN_LoadStep with implicit fields, or NULL on failure
+ */
+static PLN_LoadStep* CreateImplicitLoadStep(AGGPlan *plan) {
+    PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
+    if (!lstp) {
+        return NULL;
+    }
+
+    lstp->base.type = PLN_T_LOAD;
+    lstp->base.dtor = loadDtor;
+    lstp->nkeys = 2;  // @__key and @__score
+    lstp->keys = rm_calloc(2, sizeof(*lstp->keys));
+
+    if (!lstp->keys) {
+        rm_free(lstp);
+        return NULL;
+    }
+
+    // Get the RLookup from the plan to create proper RLookupKeys
+    RLookup *lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST);
+    if (!lookup) {
+        lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_FIRST);
+    }
+
+    // Create RLookupKeys for @__key and @__score
+    lstp->keys[0] = RLookup_GetKey_Load(lookup, UNDERSCORE_KEY, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+    lstp->keys[1] = RLookup_GetKey_Load(lookup, UNDERSCORE_SCORE, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+
+    // Initialize args as empty since this is implicit (no user-provided arguments)
+    lstp->args = (ArgsCursor){0};  // Zero-initialize for empty cursor
+
+    return lstp;
+}
 
 /**
  * Build the complete hybrid search pipeline for processing multiple search requests.
@@ -72,6 +113,16 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // This is where the magic happens - results from different search modalities are merged
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests);
     QITR_PushRP(&req->pipeline.qctx, merger);
+
+    // Create implicit LOAD step if none exists (MOD-10249: automatic @__key and @__score return)
+    // This should happen after merge operation, for the final tail pipeline
+    if (!loadStep) {
+        loadStep = CreateImplicitLoadStep(&req->pipeline.ap);
+        if (!loadStep) {
+            return REDISMODULE_ERR;  // Memory allocation failed
+        }
+        AGPLN_AddStep(&req->pipeline.ap, &loadStep->base);
+    }
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts
     // during aggregation pipeline building, then restore it afterwards

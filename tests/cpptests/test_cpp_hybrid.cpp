@@ -395,6 +395,71 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
+TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx_baseline", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  // Create AREQ requests
+  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr);
+  ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
+
+  AREQ *req2 = CreateTestAREQ(ctx, "learning", spec, &qerr);
+  ASSERT_TRUE(req2 != nullptr) << "Failed to create second AREQ: " << QueryError_GetUserError(&qerr);
+
+  // Create array of requests
+  AREQ **requests = array_new(AREQ*, 2);
+  requests = array_ensure_append_1(requests, req1);
+  requests = array_ensure_append_1(requests, req2);
+
+  // Create HybridRequest WITHOUT adding any LOAD step
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  ASSERT_TRUE(hybridReq != nullptr);
+
+  // Verify no LOAD step exists initially
+  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+  EXPECT_EQ(nullptr, loadStep) << "No LOAD step should exist initially";
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
+
+  HybridPipelineParams params = {
+      .aggregationParams = {
+        .common = {
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
+      },
+      .synchronize_read_locks = true,
+      .scoringCtx = scoringCtx,
+  };
+
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+
+  // Verify individual request pipeline structures (should NOT have loaders since implicit LOAD is only for tail)
+  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_INDEX};
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    AREQ *areq = hybridReq->requests[i];
+    std::string pipelineName = "Request " + std::to_string(i) + " pipeline (no individual loaders)";
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
+  }
+
+  // Verify tail pipeline structure (basic: just hybrid merger)
+  std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
+  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline (no LOAD)");
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
 // Test complex tail pipeline construction with LOAD, SORT, and APPLY steps in the aggregation plan
 TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   // Create test index spec
@@ -468,3 +533,139 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   HybridRequest_Free(hybridReq);
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
+
+// Test implicit LOAD feature (MOD-10249): automatic @__key and @__score when no LOAD specified
+TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_implicit_basic", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  // Create AREQ requests
+  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr);
+  ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
+
+  AREQ *req2 = CreateTestAREQ(ctx, "learning", spec, &qerr);
+  ASSERT_TRUE(req2 != nullptr) << "Failed to create second AREQ: " << QueryError_GetUserError(&qerr);
+
+  // Create array of requests
+  AREQ **requests = array_new(AREQ*, 2);
+  requests = array_ensure_append_1(requests, req1);
+  requests = array_ensure_append_1(requests, req2);
+
+  // Create HybridRequest WITHOUT adding any explicit LOAD step
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  ASSERT_TRUE(hybridReq != nullptr);
+
+  // Verify no LOAD step exists initially
+  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+  EXPECT_EQ(nullptr, loadStep) << "No LOAD step should exist initially";
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
+
+  HybridPipelineParams params = {
+      .aggregationParams = {
+        .common = {
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
+      },
+      .synchronize_read_locks = true,
+      .scoringCtx = scoringCtx,
+  };
+
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+
+  // Verify that an implicit LOAD step was created
+  loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+  ASSERT_NE(nullptr, loadStep) << "Implicit LOAD step should have been created";
+  EXPECT_EQ(2, loadStep->nkeys) << "Implicit LOAD should have 2 fields (@__key and @__score)";
+
+  // Verify individual request pipeline structures (should NOT have loaders since implicit LOAD is only for tail)
+  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_INDEX};
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    AREQ *areq = hybridReq->requests[i];
+    std::string pipelineName = "Request " + std::to_string(i) + " pipeline (implicit LOAD)";
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
+  }
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
+// Test explicit LOAD preservation: verify existing LOAD steps are not modified by implicit logic
+TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_explicit_preserved", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  // Create AREQ requests
+  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr);
+  ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
+
+  AREQ *req2 = CreateTestAREQ(ctx, "intelligence", spec, &qerr);
+  ASSERT_TRUE(req2 != nullptr) << "Failed to create second AREQ: " << QueryError_GetUserError(&qerr);
+
+  // Create array of requests
+  AREQ **requests = array_new(AREQ*, 2);
+  requests = array_ensure_append_1(requests, req1);
+  requests = array_ensure_append_1(requests, req2);
+
+  // Create HybridRequest
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  ASSERT_TRUE(hybridReq != nullptr);
+
+  // Add explicit LOAD step with custom fields
+  const char *loadFields[] = {"title", "category", "score"};
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
+
+  // Verify explicit LOAD step exists
+  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+  ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should exist";
+  EXPECT_EQ(3, loadStep->nkeys) << "Explicit LOAD should have 3 fields";
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
+
+  HybridPipelineParams params = {
+      .aggregationParams = {
+        .common = {
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
+      },
+      .synchronize_read_locks = true,
+      .scoringCtx = scoringCtx,
+  };
+
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+
+  // Verify that the explicit LOAD step is preserved (still 3 fields, not 2)
+  loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+  ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should still exist";
+  EXPECT_EQ(3, loadStep->nkeys) << "Explicit LOAD should still have 3 fields (not replaced by implicit)";
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
+
+
+
+
