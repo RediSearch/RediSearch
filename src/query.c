@@ -386,7 +386,7 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
 
       // Save K position so it can be modified later in the shard command.
       // NOTE: If k is given as a *parameter*:
-      // 1. value->pos: postion of "$"
+      // 1. value->pos: position of "$"
       vq->knn.k_token_pos = value->pos;
       // 2. value->len: length of the parameter name (e.g. $k -> len=1, $k_meow -> len=6)
       // So we need to include the '$' in the token length.
