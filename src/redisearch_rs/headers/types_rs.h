@@ -464,6 +464,21 @@ void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, ui
  */
 void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
 
+/**
+ * Copy the data from one offset vector to another.
+ *
+ * Deep copies the data array from `src` to `dest`.
+ * It's up to the caller to free the copied array using [`RSOffsetVector_FreeData`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `src` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `src` data should point to a valid array of `src.len` offsets.
+ */
+void RSOffsetVector_CopyData(struct RSOffsetVector *dest, const struct RSOffsetVector *src);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

@@ -166,10 +166,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     // copy term results
     case RSResultType_Term:
       // copy the offset vectors
-      if (src->data.term.offsets.data) {
-        ret->data.term.offsets.data = rm_malloc(ret->data.term.offsets.len);
-        memcpy(ret->data.term.offsets.data, src->data.term.offsets.data, ret->data.term.offsets.len);
-      }
+      RSOffsetVector_CopyData(&ret->data.term.offsets, &src->data.term.offsets);
       break;
 
     // the rest have no dynamic stuff, we can just copy the base result

@@ -329,3 +329,46 @@ pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
     offsets.data = std::ptr::null_mut();
     offsets.len = 0;
 }
+
+/// Copy the data from one offset vector to another.
+///
+/// Deep copies the data array from `src` to `dest`.
+/// It's up to the caller to free the copied array using [`RSOffsetVector_FreeData`].
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `src` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - `src` data should point to a valid array of `src.len` offsets.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSOffsetVector_CopyData(
+    dest: *mut RSOffsetVector,
+    src: *const RSOffsetVector,
+) {
+    debug_assert!(!dest.is_null(), "offsets must not be null");
+    debug_assert!(!src.is_null(), "offsets must not be null");
+
+    // SAFETY: Caller is to ensure `src` is non-null and point to a valid RSOffsetVector.
+    let src = unsafe { &*src };
+    // SAFETY: Caller is to ensure `dest` is non-null and point to a valid RSOffsetVector.
+    let dest = unsafe { &mut *dest };
+
+    dest.len = src.len;
+
+    if src.len > 0 {
+        debug_assert!(!src.data.is_null(), "src data must not be null");
+        let layout = Layout::array::<c_char>(src.len as usize).unwrap();
+        // SAFETY: we just checked that len > 0
+        dest.data = unsafe { std::alloc::alloc(layout).cast() };
+        // SAFETY:
+        // - The source buffer and the destination buffer don't overlap because
+        //   they belong to distinct non-overlapping allocations.
+        // - The destination buffer is valid for writes of `src.len` elements
+        //   since it was just allocated with capacity `src.len`.
+        // - The source buffer is valid for reads of `src.len` elements as a call invariant.
+        unsafe { std::ptr::copy_nonoverlapping(src.data, dest.data, src.len as usize) };
+    } else {
+        dest.data = std::ptr::null_mut();
+    }
+}
