@@ -226,6 +226,72 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   return rc;
 }
 
+// Revalidate for NOT iterator - Non-optimized version.
+static ValidateStatus NI_Revalidate_NotOptimized(QueryIterator *base) {
+  NotIterator *ni = (NotIterator *)base;
+
+  // 1. Revalidate the child iterator
+  ValidateStatus child_status = ni->child->Revalidate(ni->child);
+
+  // 2. Handle child validation results
+  if (child_status == VALIDATE_ABORTED) {
+    // Free child and replace with empty iterator
+    // When child is aborted, NOT iterator becomes "NOT nothing" = everything
+    ni->child->Free(ni->child);
+    ni->child = IT_V2(NewEmptyIterator)();
+    // Continue processing - this doesn't invalidate our current position
+  }
+
+  // Now the child is either at EOF, OK or MOVED.
+  // if the child is at EOF or OK, we can return VALIDATE_OK.
+  // if the child is MOVED, it must have advanced beyond the iterator's lastDocId, so the current result is still valid in this case.
+  RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
+  return VALIDATE_OK;
+}
+
+// Revalidate for NOT iterator - Optimized version.
+static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
+  NotIterator *ni = (NotIterator *)base;
+
+  // 1. Revalidate the wildcard iterator first
+  ValidateStatus wcii_status = ni->wcii->Revalidate(ni->wcii);
+  if (wcii_status == VALIDATE_ABORTED) {
+    return VALIDATE_ABORTED; // If wildcard iterator is aborted, we must abort too
+  }
+
+  // 2. Revalidate the child iterator
+  ValidateStatus child_status = ni->child->Revalidate(ni->child);
+  if (child_status == VALIDATE_ABORTED) {
+    // Free child and replace with empty iterator
+    // When child is aborted, NOT iterator becomes "NOT nothing" = everything
+    ni->child->Free(ni->child);
+    ni->child = IT_V2(NewEmptyIterator)();
+  }
+
+  // 3. Branch on wildcard status
+  if (wcii_status == VALIDATE_OK) {
+    // Same logic as non-optimized case
+    RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
+    return VALIDATE_OK;
+  } else {
+    // wcii_status == VALIDATE_MOVED
+    // Check child position relative to our current position
+    if (ni->child->atEOF || ni->child->lastDocId > base->lastDocId) {
+      // Child is ahead or at EOF - our position is still valid, but wildcard moved
+      return VALIDATE_MOVED;
+    } else {
+      // Child is behind or at the same ID - need to read next valid position
+      IteratorStatus read_status = base->Read(base);
+      if (read_status == ITERATOR_OK) {
+        return VALIDATE_MOVED;
+      } else {
+        // EOF or timeout
+        return VALIDATE_OK;
+      }
+    }
+  }
+}
+
 /*
  * Reduce the not iterator by applying these rules:
  * 1. If the child is an empty iterator or NULL, return a wildcard iterator
@@ -274,6 +340,7 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   ret->Read = optimized ? NI_Read_Optimized : NI_Read_NotOptimized;
   ret->SkipTo = optimized ? NI_SkipTo_Optimized : NI_SkipTo_NotOptimized;
   ret->Rewind = NI_Rewind;
+  ret->Revalidate = optimized ? NI_Revalidate_Optimized : NI_Revalidate_NotOptimized;
 
   return ret;
 }
@@ -297,6 +364,7 @@ QueryIterator *IT_V2(_New_NotIterator_With_WildCardIterator)(QueryIterator *chil
   ret->Read = NI_Read_Optimized;
   ret->SkipTo = NI_SkipTo_Optimized;
   ret->Rewind = NI_Rewind;
+  ret->Revalidate = NI_Revalidate_Optimized;
 
   return ret;
 }
