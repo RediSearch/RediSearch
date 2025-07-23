@@ -130,7 +130,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     case RSResultType_Union:
     case RSResultType_HybridMetric:
       // allocate a new child pointer array
-      int numChildren = AggregateResult_NumChildren(&src->data.agg);
+      size_t numChildren = AggregateResult_NumChildren(&src->data.agg);
 
       ret->data.agg.children = rm_malloc(numChildren * sizeof(RSIndexResult *));
       ret->data.agg.childrenCap = numChildren;
@@ -251,7 +251,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
 
   const RSAggregateResult *agg = &r->data.agg;
   int dist = 0;
-  int num = AggregateResult_NumChildren(agg);
+  size_t num = AggregateResult_NumChildren(agg);
 
   RSOffsetIterator v1, v2;
   int i = 0;
@@ -451,7 +451,7 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     return 1;
   }
   RSAggregateResult *r = &ir->data.agg;
-  int num = AggregateResult_NumChildren(r);
+  size_t num = AggregateResult_NumChildren(r);
 
   // Fill a list of iterators and the last read positions
   RSOffsetIterator iters[num];

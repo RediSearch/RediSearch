@@ -112,7 +112,7 @@ static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
   _RSAggregateOffsetIterator *it = mempool_get(pool);
   it->res = agg;
 
-  int numChildren = AggregateResult_NumChildren(agg);
+  size_t numChildren = AggregateResult_NumChildren(agg);
 
   if (numChildren > it->size) {
     it->size = numChildren;
@@ -169,7 +169,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     case RSResultType_Union:
     default:
       // if we only have one sub result, just iterate that...
-      int numChildren = AggregateResult_NumChildren(&res->data.agg);
+      size_t numChildren = AggregateResult_NumChildren(&res->data.agg);
 
       if (numChildren == 1) {
         return RSIndexResult_IterateOffsets(AggregateResult_Get(&res->data.agg, 0));
@@ -209,7 +209,7 @@ uint32_t _aoi_Next(void *ctx, RSQueryTerm **t) {
   int minIdx = -1;
   uint32_t minVal = RS_OFFSETVECTOR_EOF;
   uint32_t *offsets = it->offsets;
-  register int num = AggregateResult_NumChildren(it->res);
+  register size_t num = AggregateResult_NumChildren(it->res);
   // find the minimal value that's not EOF
   for (register int i = 0; i < num; i++) {
     if (offsets[i] < minVal) {
@@ -232,7 +232,7 @@ uint32_t _aoi_Next(void *ctx, RSQueryTerm **t) {
 
 void _aoi_Free(void *ctx) {
   _RSAggregateOffsetIterator *it = ctx;
-  int numChildren = AggregateResult_NumChildren(it->res);
+  size_t numChildren = AggregateResult_NumChildren(it->res);
   for (int i = 0; i < numChildren; i++) {
     it->iters[i].Free(it->iters[i].ctx);
   }
@@ -243,7 +243,7 @@ void _aoi_Free(void *ctx) {
 void _aoi_Rewind(void *ctx) {
   _RSAggregateOffsetIterator *it = ctx;
 
-  int numChildren = AggregateResult_NumChildren(it->res);
+  size_t numChildren = AggregateResult_NumChildren(it->res);
   for (int i = 0; i < numChildren; i++) {
     it->iters[i].Rewind(it->iters[i].ctx);
     it->offsets[i] = 0;

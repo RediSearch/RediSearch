@@ -69,7 +69,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
 
       AggregateResultIter_Free(iter);
     } else {
-      int numChildren = AggregateResult_NumChildren(&r->data.agg);
+      size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
@@ -173,7 +173,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
 
       AggregateResultIter_Free(iter);
     } else {
-      int numChildren = AggregateResult_NumChildren(&r->data.agg);
+      size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
@@ -265,7 +265,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
 
       AggregateResultIter_Free(iter);
     } else {
-      int numChildren = AggregateResult_NumChildren(&r->data.agg);
+      size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
@@ -397,7 +397,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
 
         AggregateResultIter_Free(iter);
       } else {
-        int numChildren = AggregateResult_NumChildren(&r->data.agg);
+        size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
         scrExp->numChildren = numChildren;
         scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 
@@ -428,7 +428,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
 
         AggregateResultIter_Free(iter);
       } else {
-        int numChildren = AggregateResult_NumChildren(&r->data.agg);
+        size_t numChildren = AggregateResult_NumChildren(&r->data.agg);
         scrExp->numChildren = numChildren;
         scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
 

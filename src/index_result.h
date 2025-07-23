@@ -80,7 +80,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 
   RSAggregateResult *agg = &parent->data.agg;
-  int numChildren = AggregateResult_NumChildren(agg);
+  size_t numChildren = AggregateResult_NumChildren(agg);
   int capacity = AggregateResult_Capacity(agg);
 
   /* Increase capacity if needed */
