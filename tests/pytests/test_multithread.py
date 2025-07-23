@@ -418,7 +418,6 @@ def test_switch_loader_modes():
 
 @skip(cluster=False)
 def test_change_num_connections():
-    # TODO(Joan): This test is changed because it seems hard to accumulate all the Status from all the I/O threads. To be revisited
     env = initEnv('SEARCH_IO_THREADS 20')
     # Validate the default values
     env.expect(config_cmd(), 'GET', 'WORKERS').equal([['WORKERS', '0']])
@@ -427,6 +426,7 @@ def test_change_num_connections():
     # The logic of the number of connections is as follows:
     # - If `CONN_PER_SHARD` is not 0, the number of connections is `CONN_PER_SHARD`
     # - If `CONN_PER_SHARD` is 0, the number of connections is `WORKERS` + 1
+    # - Each SEARCH_IO_THREAD has this number of connections: CEIL_DIV(connPerShard, coordinatorIOThreads)
 
     # Helper that will return the expected output structure.
     # In this test we don't care about the actual values, so we use the ANY matcher.
@@ -435,8 +435,12 @@ def test_change_num_connections():
     #  '127.0.0.1:6381', ['Connected', 'Connecting'],
     #  '127.0.0.1:6383', ['Connected', 'Connected']]
     num_io_threads = 20
-    def compute_number_of_connections_in_each_ioruntime(num_connections):
-        return max(1, num_connections // num_io_threads)
+
+    # This function implements the same logic as CEIL_DIV(connPerShard, coordinatorIOThreads)
+    # from src/coord/config.c line 85: size_t conn_pool_size = CEIL_DIV(connPerShard, realConfig->coordinatorIOThreads);
+    def compute_total_number_of_connections(num_connections):
+        import math
+        return num_io_threads * max(1, math.ceil(num_connections // num_io_threads))
 
     def expected(conns):
         return [
@@ -444,43 +448,43 @@ def test_change_num_connections():
             [ANY] * conns # The connections states
         ] * env.shardsCount
 
-    # By default, the number of connections is 1
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(1)))
+    # By default, the number of connections is 1 (WORKERS=0, so connPerShard=0+1=1, conn_pool_size=ceil(1/20)=1)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(1)))
 
     # Increase the number of worker threads to 6
     env.expect(config_cmd(), 'SET', 'WORKERS', '6').ok()
-    # The number of connections should be 7
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(7)))
+    # The number of connections should be ceil(7/20) = 1
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(7)))
 
     # Set the number of connections to 4
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '4').ok()
-    # The number of connections should be 4
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(4)))
+    # The number of connections should be ceil(4/20) = 1
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(4)))
 
     # Decrease the number of worker threads to 5
     env.expect(config_cmd(), 'SET', 'WORKERS', '5').ok()
-    # The number of connections should remain 4
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(4)))
+    # The number of connections should remain ceil(4/20) = 1 (CONN_PER_SHARD takes precedence)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(4)))
 
     # Set the number of connections to 0
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '0').ok()
-    # The number of connections should be 6 (5 worker threads + 1)
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(6)))
+    # The number of connections should be ceil(6/20) = 1 (5 worker threads + 1)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(6)))
 
     # Set back the number of worker threads to 0
     env.expect(config_cmd(), 'SET', 'WORKERS', '0').ok()
-    # The number of connections should be 1 again
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(1)))
+    # The number of connections should be ceil(1/20) = 1 again
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(1)))
 
     # Set back Connection per shard to 40
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '40').ok()
-    # The number of connections should be 40 again, but only 2 should be seen
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(40)))
+    # The number of connections should be ceil(40/20) = 2
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(40)))
 
-    # Set back Connection per shard to 40
+    # Set Connection per shard to 100
     env.expect(config_cmd(), 'SET', 'CONN_PER_SHARD', '100').ok()
-    # The number of connections should be 40 again, but only 2 should be seen
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_number_of_connections_in_each_ioruntime(100)))
+    # The number of connections should be ceil(100/20) = 5
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal(expected(compute_total_number_of_connections(100)))
 
 def test_change_workers_number():
 
