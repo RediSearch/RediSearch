@@ -14,7 +14,7 @@
 #include <coord/rmr/reply.h>
 #include <util/heap.h>
 #include "shard_window_ratio.h"
-#include "special_case_ctx.h"
+#include "coord/special_case_ctx.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
