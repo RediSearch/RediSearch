@@ -15,7 +15,7 @@ RSByteOffsets *NewByteOffsets() {
 }
 
 void RSByteOffsets_Free(RSByteOffsets *offsets) {
-  rm_free(offsets->offsets.data);
+  RSOffsetVector_FreeData(&offsets->offsets);
   rm_free(offsets->fields);
   rm_free(offsets);
 }
