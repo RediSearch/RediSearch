@@ -1333,7 +1333,7 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
   t_docId lastReadId = 0;
   bool isLastValid = false;
 
-  params->bytesBeforFix = blk->buf.cap;
+  params->bytesBeforFix = IndexBlock_Cap(blk);
 
   bool docExists;
   while (!BufferReader_AtEnd(br)) {
@@ -1403,7 +1403,7 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
     Buffer_ShrinkToSize(&blk->buf);
   }
 
-  params->bytesAfterFix = blk->buf.cap;
+  params->bytesAfterFix = IndexBlock_Cap(blk);
 
   IndexResult_Free(res);
   return frags;

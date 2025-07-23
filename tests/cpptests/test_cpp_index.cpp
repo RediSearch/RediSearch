@@ -579,7 +579,7 @@ TEST_F(IndexTest, testNumericVaried) {
 
   for (size_t i = 0; i < numCount; i++) {
     size_t min_data_len;
-    size_t cap = idx->blocks[idx->size-1].buf.cap;
+    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
     size_t offset = idx->blocks[idx->size-1].buf.offset;
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
 
@@ -658,7 +658,7 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t cap = idx->blocks[idx->size-1].buf.cap;
+    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
     size_t offset = idx->blocks[idx->size-1].buf.offset;
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
@@ -670,7 +670,7 @@ void testNumericEncodingHelper(bool isMulti) {
     }
 
     if (isMulti) {
-      cap = idx->blocks[idx->size-1].buf.cap;
+      cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
       offset = idx->blocks[idx->size-1].buf.offset;
 
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
