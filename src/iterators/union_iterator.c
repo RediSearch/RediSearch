@@ -452,27 +452,26 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
     return VALIDATE_OK;
   }
   ui->num_orig = write_idx;
+  if (ui->num_orig == 0) {
+    // All children were aborted, we should abort the union iterator
+    return VALIDATE_ABORTED;
+  }
 
   // Use UI_SyncIterList to update `its` array and heap
   UI_SyncIterList(ui);
 
   // Update current result - reset and rebuild if we have active children
-  if (ui->num > 0) {
-    AggregateResult_Reset(ui->base.current);
-    // Find the minimum docId among active children to update current result
-    t_docId minId = UINT64_MAX;
-    for (int i = 0; i < ui->num; i++) {
-      if (ui->its[i]->lastDocId < minId) {
-        minId = ui->its[i]->lastDocId;
-      }
+  AggregateResult_Reset(ui->base.current);
+  // Find the minimum docId among active children to update current result
+  t_docId minId = UINT64_MAX;
+  for (int i = 0; i < ui->num; i++) {
+    if (ui->its[i]->lastDocId < minId) {
+      minId = ui->its[i]->lastDocId;
     }
-    base->lastDocId = minId;
-    // Set the current result based on the minimum docId found, regardless of quick exit or algorithm
-    UI_SetFullFlat(ui);
-  } else {
-    // No active children left
-    base->atEOF = true;
   }
+  base->lastDocId = minId;
+  // Set the current result based on the minimum docId found, regardless of quick exit or algorithm
+  UI_SetFullFlat(ui);
 
   // Return VALIDATE_MOVED only if our lastDocId actually changed
   return (base->lastDocId != original_lastDocId) ? VALIDATE_MOVED : VALIDATE_OK;
