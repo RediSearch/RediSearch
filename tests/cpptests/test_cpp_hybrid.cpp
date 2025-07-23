@@ -664,8 +664,3 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   HybridRequest_Free(hybridReq);
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
-
-
-
-
-
