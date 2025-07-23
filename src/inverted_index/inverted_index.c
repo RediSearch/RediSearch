@@ -388,6 +388,16 @@ size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeFreqsOnly(bw, delta, res);
 }
 
+// Wrapper around the private static `encodeFieldsOnly` function to expose it to benchmarking.
+size_t encode_fields_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFieldsOnly(bw, delta, res);
+}
+
+// Wrapper around the private static `encodeFieldsOnlyWide` function to expose it to benchmarking.
+size_t encode_fields_only_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFieldsOnlyWide(bw, delta, res);
+}
+
 // Wrapper around the private static `encodeNumeric` function to expose it to benchmarking
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeNumeric(bw, delta, res);
@@ -826,6 +836,16 @@ DECODER(readDocIdsOnly) {
 // Wrapper around the private static `readFreqs` function to expose it to benchmarking.
 bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   return readFreqs(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readFlags` function to expose it to benchmarking.
+bool read_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFlags(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readFlagsWide` function to expose it to benchmarking.
+bool read_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFlagsWide(blockReader, ctx, res);
 }
 
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
