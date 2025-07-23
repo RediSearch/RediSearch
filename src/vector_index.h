@@ -96,13 +96,11 @@ typedef struct {
   VecSimQueryReply_Order order;  // specify the result order.
   double shardWindowRatio;       // shard window ratio for distributed queries
 
-  // Position tracking for literal K modification (shard ratio optimization)
-  // These fields are ONLY populated when:
-  // 1. K is literal (not parameter) AND
-  // 2. Used for precise K value replacement in coordinator->shard commands
-  // Otherwise they remain 0 (no memory/performance overhead for normal queries)
-  size_t k_literal_pos;          // Byte offset of K value in original query (0 = not set)
-  size_t k_literal_len;          // Length of K token (0 = not set)
+  // Position tracking for K value modification (shard ratio optimization)
+  // For literal K (e.g., "KNN 10"): stores position and length of numeric value
+  // For parameter K (e.g., "KNN $k"): stores position and length INCLUDING the '$' prefix
+  size_t k_token_pos;            // Byte offset where K token starts in original query
+  size_t k_token_len;            // Length of K token
 } KNNVectorQuery;
 
 typedef struct {

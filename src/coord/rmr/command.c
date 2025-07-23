@@ -175,37 +175,29 @@ void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t 
   MRCommand_ReplaceArgNoDup(cmd, index, news, len);
 }
 
-void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t oldLen, const char *newStr, size_t newLen) {
-  if (index < 0 || index >= cmd->num) {
-    return;
-  }
+void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t oldSubStringLen, const char *newStr, size_t newLen) {
+  RS_LOG_ASSERT_FMT(index >= 0 && index < cmd->num, "Invalid index %d. Command has %d arguments", index, cmd->num);
 
   char *oldArg = cmd->strs[index];
+  // Get full argument length
   size_t oldArgLen = cmd->lens[index];
 
   // Validate position and length
-  if (pos + oldLen > oldArgLen) {
-    return;
-  }
+  RS_LOG_ASSERT_FMT(pos + oldSubStringLen <= oldArgLen, "Invalid position %zu. Argument length is %zu", pos, oldArgLen);
 
   // Calculate new total length
-  size_t newArgLen = oldArgLen - oldLen + newLen;
+  size_t newArgLen = oldArgLen - oldSubStringLen + newLen;
 
-  // OPTIMIZATION: If new string is same or shorter, modify in-place to avoid reallocation
-  if (newArgLen <= oldArgLen) {
-    // Move the "after" part to make room for new substring
-    if (newLen != oldLen) {
-      memmove(oldArg + pos + newLen, oldArg + pos + oldLen, oldArgLen - pos - oldLen);
-    }
-
-    // Copy new substring in place
+  // OPTIMIZATION: For query string literals, pad with spaces instead of moving memory
+  if (newLen <= oldSubStringLen) {
+    // Copy new string
     memcpy(oldArg + pos, newStr, newLen);
 
-    // Update length and null-terminate
-    cmd->lens[index] = newArgLen;
-    oldArg[newArgLen] = '\0';
+    // Pad remaining space with spaces (no memmove needed)
+    memset(oldArg + pos + newLen, ' ', oldSubStringLen - newLen);
 
-    return; // No reallocation needed!
+    // No length change needed - argument stays same size
+    return;
   }
 
   // Fallback: Allocate new string for longer replacements
@@ -214,8 +206,8 @@ void MRCommand_ReplaceArgSubstring(MRCommand *cmd, int index, size_t pos, size_t
   // Copy parts: [before] + [new] + [after]
   memcpy(newArg, oldArg, pos);                           // Copy before
   memcpy(newArg + pos, newStr, newLen);                  // Copy new substring
-  memcpy(newArg + pos + newLen, oldArg + pos + oldLen,   // Copy after
-         oldArgLen - pos - oldLen);
+  memcpy(newArg + pos + newLen, oldArg + pos + oldSubStringLen,   // Copy after
+         oldArgLen - pos - oldSubStringLen);
 
   newArg[newArgLen] = '\0';
 

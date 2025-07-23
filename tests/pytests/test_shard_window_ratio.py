@@ -65,8 +65,6 @@ def set_up_database_with_vectors(env, dim, num_docs, index_name='idx', datatype=
         p.execute_command('HSET', f'doc{i}', 'v', vector.tobytes())
     p.execute()
 
-    waitForIndex(env, 'idx')
-
 @skip(cluster=False) # shard_k_ratio is ignored is SA
 def test_shard_k_ratio_parameter_validation():
     """Test parameter validation and error handling for shard k ratio."""
@@ -147,6 +145,26 @@ def test_ft_profile_shard_result_validation_scenarios():
 
                 env.assertEqual(actual_result_count, k,
                             message=f"{cmd} With K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
+
+def test_k_0():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    dim = 1
+    datatype = 'FLOAT32'
+    set_up_database_with_vectors(env, dim, num_docs=10, index_name='idx', datatype='FLOAT32')
+
+    query_vec = get_unique_vector(dim, datatype)
+
+    k = 0
+    ratio = 0.5
+    query = f'*=>[KNN {k} @v $query_vec]=>{{$shard_k_ratio: {ratio}}}'
+    params_and_args = ["PARAMS", 2, "query_vec", query_vec.tobytes(), "LIMIT", 0, k + 1]
+
+    res = env.cmd('FT.SEARCH', "idx", query, *params_and_args, "return", 1, "__v_score")
+    env.assertEqual(len(res[1:]), 0)
+
+    res = env.cmd('FT.AGGREGATE', "idx", query, *params_and_args, "load", 1, "__v_score")
+    env.assertEqual(len(res[1:]), 0)
 
 def test_query():
     """Test FT.AGGREGATE with shard k ratio and profile metrics"""

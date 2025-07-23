@@ -384,13 +384,17 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
       QueryNode_SetParam(q, &ret->params[1], &vq->knn.k, NULL, value);
       vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
 
-      // Save position for literal K values so it can be modified later in the shard command.
-      // Only impacts queries with $SHARD_K_RATIO
-      if (value->type == QT_SIZE) {  // Literal K case (e.g., "KNN 50")
-        vq->knn.k_literal_pos = value->pos;
-        vq->knn.k_literal_len = value->len;
+      // Save K position so it can be modified later in the shard command.
+      // NOTE: If k is given as a *parameter*:
+      // 1. value->pos: postion of "$"
+      vq->knn.k_token_pos = value->pos;
+      // 2. value->len: length of the parameter name (e.g. $k -> len=1, $k_meow -> len=6)
+      // So we need to include the '$' in the token length.
+      if (value->type == QT_PARAM_SIZE) {
+        vq->knn.k_token_len = value->len + 1;
+      } else { // k is literal
+        vq->knn.k_token_len = value->len;
       }
-      // If K is parameter (QT_PARAM_SIZE), k_literal_pos remains 0
       break;
     case VECSIM_QT_RANGE:
       QueryNode_InitParams(ret, 2);

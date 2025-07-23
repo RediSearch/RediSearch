@@ -622,7 +622,7 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
       size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, numShards);
 
       // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
-      modifyKNNCommand(xcmd, knn_query->k, effectiveK, &knnCtx->knn);
+      modifyKNNCommand(xcmd, 2 + profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
     }
   }
 

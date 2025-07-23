@@ -3304,17 +3304,15 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
         double ratio = knn_query->shardWindowRatio;
 
         // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
-        if (ratio < 1.0) {
+        if (ratio < MAX_SHARD_WINDOW_RATIO) {
           // Calculate effective K based on deployment mode
           size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, NumShards);
-
+          // No modification needed if K values are the same
+          if (knn_query->k == effectiveK) break;
           // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
-          if (modifyKNNCommand(cmd, knn_query->k, effectiveK, &knnCtx->knn) != 0) {
-            QueryError_SetError(status, QUERY_EGENERIC, "Failed to modify KNN command for shard distribution");
-            return REDISMODULE_ERR;
-          }
+          modifyKNNCommand(cmd, 2 + req->profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
         }
-        break; // Only handle first KNN context
+        break; // Only handle KNN context
       }
     }
   }

@@ -15,6 +15,8 @@
 #include "redismodule.h"
 #include "coord/rmr/command.h"
 #include "special_case_ctx.h"
+#include "config.h"
+#include "vector_index.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +37,12 @@ extern "C" {
  */
 static inline size_t calculateEffectiveK(size_t originalK, double ratio, size_t numShards) {
   // No optimization if ratio is invalid or > 1.0, or if numShards is 0
-  if (ratio <= 0.0 || ratio > 1.0 || numShards == 0) {
+  RS_LOG_ASSERT_FMT(ratio >= MIN_SHARD_WINDOW_RATIO && ratio <= MAX_SHARD_WINDOW_RATIO, "Invalid shard window ratio: %f", ratio);
+
+  // We should not get here if numShards == 1
+  RS_LOG_ASSERT(numShards > 1, "Should not calculate effective K for single shard");
+
+  if (ratio == MAX_SHARD_WINDOW_RATIO) {
     return originalK;
   }
 
@@ -50,7 +57,7 @@ static inline size_t calculateEffectiveK(size_t originalK, double ratio, size_t 
   // Apply PRD formula: max(top_k/#shards, ceil(top_k × ratio))
   size_t effectiveK = (ratioKPerShard > minKPerShard) ? ratioKPerShard : minKPerShard;
 
-  return effectiveK > 0 ? effectiveK : 1;  // Ensure at least 1 result
+  return effectiveK;
 }
 
 /**
@@ -58,15 +65,15 @@ static inline size_t calculateEffectiveK(size_t originalK, double ratio, size_t 
  *
  * This function handles two cases:
  * 1. Literal K (e.g., "KNN 50") - uses saved position for exact replacement
- * 2. Parameter K (e.g., "KNN $k") - modifies parameter value in PARAMS section
+ * 2. Parameter K (e.g., "KNN $k") - replaces parameter reference in query string
  *
  * @param cmd The MRCommand to modify
- * @param originalK The original K value from the coordinator
+ * @param query_arg_index Index of the query string argument in cmd
  * @param effectiveK The calculated effective K value for shards
- * @param knnCtx Contains the QueryNode used to find K position and parameter name for modification
- * @return 0 on success, -1 on error
+ * @param vq The VectorQuery containing K position information
+
  */
-int modifyKNNCommand(MRCommand *cmd, size_t originalK, size_t effectiveK, knnContext *knnCtx);
+void modifyKNNCommand(MRCommand *cmd, size_t query_arg_index, size_t effectiveK, VectorQuery *vq);
 
 #ifdef __cplusplus
 }
