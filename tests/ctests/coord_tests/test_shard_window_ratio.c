@@ -22,7 +22,7 @@ static QueryNode* createTestVectorNode() {
     QueryNode* node = rm_calloc(1, sizeof(QueryNode));
     node->type = QN_VECTOR;
     node->vn.vq = rm_calloc(1, sizeof(VectorQuery));
-    node->vn.vq->knn.shardWindowRatio = 1.0; // Initialize with DEFAULT_SHARD_WINDOW_RATIO
+    node->vn.vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
     node->vn.vq->params.params = NULL;
     node->vn.vq->params.needResolve = NULL;
     node->vn.vq->scoreField = NULL;
@@ -33,8 +33,6 @@ static QueryNode* createTestVectorNode() {
 
     return node;
 }
-
-
 
 static void freeTestVectorNode(QueryNode* node) {
     if (node) {
@@ -59,12 +57,11 @@ static void freeTestAttribute(QueryAttribute* attr) {
 }
 
 // Helper function to test modifyKNNCommand with different configurations
-// paramType: PARAM_NONE for literal K, PARAM_SIZE for parameter K
-// paramName: parameter name for PARAM_SIZE case, NULL for PARAM_NONE
+// kTokenInQuery: the K token as it appears in query string ("50" for literal, "$k_costume" for parameter)
 // originalK, effectiveK: K values to test with
 // testContext: descriptive string for error messages
 static void runModifyKNNTest(const char** args, int argCount,
-                            int paramType, const char* paramName,
+                            const char* kTokenInQuery,
                             size_t originalK, size_t effectiveK,
                             const char* testContext) {
     // Create MRCommand from provided arguments
@@ -78,48 +75,40 @@ static void runModifyKNNTest(const char** args, int argCount,
         cmd.lens[i] = strlen(args[i]);
     }
 
-    // Create QueryNode based on parameter type
     QueryNode *node = createTestVectorNode();
-    node->params[1].type = paramType;
 
-    if (paramType == PARAM_NONE) {
-        // Literal K: find position in query string using originalK value
-        const char *query = args[2];
-        char originalK_str[32];
-        snprintf(originalK_str, sizeof(originalK_str), "%zu", originalK);
-        const char *k_pos = strstr(query, originalK_str);
-        node->vn.vq->knn.k_literal_pos = k_pos - query;
-        node->vn.vq->knn.k_literal_len = strlen(originalK_str);
-    } else {
-        // Parameter K: set parameter name (allocate memory for proper cleanup)
-        node->params[1].name = rm_strdup(paramName);
-    }
+    // set original K in VectorQuery
+    node->vn.vq->knn.k = originalK;
 
-    knnContext knnCtx = {0};
-    knnCtx.queryNode = node;
+    // Find k token position in query string
+    const char *query = args[2];
+    const char *k_pos = strstr(query, kTokenInQuery);
+    node->vn.vq->knn.k_token_pos = k_pos - query;
+    node->vn.vq->knn.k_token_len = strlen(kTokenInQuery);
 
     // Test modifyKNNCommand with provided K values
-    int result = modifyKNNCommand(&cmd, originalK, effectiveK, &knnCtx);
-
-    // Verify modification was successful
-    char msg[256];
-    snprintf(msg, sizeof(msg), "modifyKNNCommand should succeed for %s", testContext);
-    mu_assert_int_eq(0, result);
+    modifyKNNCommand(&cmd, 2, effectiveK, node->vn.vq);
 
     // Verify command modifications using dynamic validation
     char expectedK_str[32];
-    snprintf(expectedK_str, sizeof(expectedK_str), "%zu", effectiveK);
+    char msg[256];
+    size_t expectedK_str_len = snprintf(expectedK_str, sizeof(expectedK_str), "%zu", effectiveK);
 
     for (int i = 0; i < cmd.num; i++) {
-        if (paramType == PARAM_SIZE && i > 0 && !strcmp(cmd.strs[i-1], paramName)) {
-            // Parameter case: value after parameter name should be modified
-            snprintf(msg, sizeof(msg), "Parameter %s value should be modified for %s: expected '%zu', got '%s'",
-                     paramName, testContext, effectiveK, cmd.strs[i]);
-            mu_assert(!strcmp(expectedK_str, cmd.strs[i]), msg);
-        } else if (paramType == PARAM_NONE && i == 2) {
-            // Literal case: query string should be modified with effectiveK
-            char expectedQuery[64];
-            snprintf(expectedQuery, sizeof(expectedQuery), "*=>[KNN %zu @v $vec]", effectiveK);
+        if (i == 2) { // query string
+            char expectedQuery[128];
+            mu_check(sizeof(expectedQuery) >= strlen(query) + 1);
+            if (node->vn.vq->knn.k_token_len >= expectedK_str_len) {
+                // Copy query
+                memcpy(expectedQuery, query, strlen(query));
+                expectedQuery[strlen(query)] = '\0';  // Null terminate
+                // Set new k
+                memcpy(expectedQuery + node->vn.vq->knn.k_token_pos, expectedK_str, expectedK_str_len);
+                // Pad remaining space with spaces (no memmove needed)
+                memset(expectedQuery + node->vn.vq->knn.k_token_pos + expectedK_str_len, ' ', node->vn.vq->knn.k_token_len - expectedK_str_len);
+            } else { // we need to reallocate the query
+                snprintf(expectedQuery, sizeof(expectedQuery), "*=>[KNN %zu @v $vec]", effectiveK);
+            }
             snprintf(msg, sizeof(msg), "Query string should be modified for %s: expected '%s', got '%s'",
                      testContext, expectedQuery, cmd.strs[i]);
             mu_assert(!strcmp(expectedQuery, cmd.strs[i]), msg);
@@ -218,7 +207,7 @@ void testModifyLiteralKInSearch() {
 
     // Test literal K modification: 50 -> 30
     runModifyKNNTest(searchArgs, sizeof(searchArgs) / sizeof(searchArgs[0]),
-                     PARAM_NONE, NULL, 50, 30, "literal K in FT.SEARCH");
+                     "50", 50, 30, "literal K in FT.SEARCH");
 }
 
 // Test modifyKNNCommand with literal K in FT.AGGREGATE
@@ -232,7 +221,7 @@ void testModifyLiteralKInAggregate() {
 
     // Test literal K modification: 50 -> 30
     runModifyKNNTest(searchArgs, sizeof(searchArgs) / sizeof(searchArgs[0]),
-                     PARAM_NONE, NULL, 50, 30, "literal K in FT.AGGREGATE");
+                     "50", 50, 30, "literal K in FT.AGGREGATE");
 }
 
 // Test modifyKNNCommand with parameter K in FT.SEARCH
@@ -240,27 +229,28 @@ void testModifyParameterKInSearch() {
     const char *searchArgs[] = {
         "FT.SEARCH",                                // Command name
         "idx",                                      // Index name
-        "*=>[KNN $k @v $vec]",                      // Query with parameter K=$k
-        "PARAMS", "4", "k", "50", "vec", "binary_vector_data"  // PARAMS with k=50
+        "*=>[KNN $k_costume @v $vec]",                      // Query with parameter K=$k
+        "PARAMS", "4", "k_costume", "50", "vec", "binary_vector_data"  // PARAMS with k=50
     };
 
     // Test parameter K modification: 50 -> 30
     runModifyKNNTest(searchArgs, sizeof(searchArgs) / sizeof(searchArgs[0]),
-                     PARAM_SIZE, "k", 50, 30, "parameter K in FT.SEARCH");
+                     "$k_costume", 50, 30, "parameter K in FT.SEARCH");
 }
 
 // Test modifyKNNCommand with parameter K in FT.AGGREGATE
+// This test also covers re-allocation of the query because strlen("$k") < strlen("300")
 void testModifyParameterKInAggregate() {
     const char *searchArgs[] = {
         "FT.AGGREGATE",                                // Command name
         "idx",                                      // Index name
         "*=>[KNN $k @v $vec]",                      // Query with parameter K=$k
-        "PARAMS", "4", "k", "50", "vec", "binary_vector_data"  // PARAMS with k=50
+        "PARAMS", "4", "k", "500", "vec", "binary_vector_data"  // PARAMS with k=500
     };
 
     // Test parameter K modification: 50 -> 30
     runModifyKNNTest(searchArgs, sizeof(searchArgs) / sizeof(searchArgs[0]),
-                     PARAM_SIZE, "k", 50, 30, "parameter K in FT.AGGREGATE");
+                     "$k", 500, 300, "parameter K in FT.AGGREGATE");
 }
 
 // Test error message validation
@@ -332,6 +322,50 @@ void testMultipleAttributes() {
     freeTestVectorNode(node);
 }
 
+// Test calculateEffectiveK function with various scenarios
+MU_TEST(test_calculateEffectiveK) {
+    // Test case 1: k = 0 - should return 0 regardless of ratio and numShards
+    size_t k = 0;
+    double ratio = 0.5;
+    size_t numShards = 4;
+    size_t result = calculateEffectiveK(k, ratio, numShards);
+    mu_assert_int_eq(0, result);
+
+    // Test case 2: k * ratio < k / numShards - should use k / numShards
+    k = 100;
+    ratio = 0.1;
+    numShards = 4;
+    size_t expected = k / numShards;  // 100/4 = 25
+    // k * ratio = 100 * 0.1 = 10, k / numShards = 25, so 10 < 25
+    result = calculateEffectiveK(k, ratio, numShards);
+    mu_assert_int_eq(expected, result);
+
+    // Test case 3: k * ratio > k / numShards - should use ceil(k * ratio)
+    k = 100;
+    ratio = 0.8;
+    numShards = 10;
+    expected = (size_t)ceil(k * ratio);  // ceil(100 * 0.8) = ceil(80) = 80
+    // k * ratio = 80, k / numShards = 10, so 80 > 10
+    result = calculateEffectiveK(k, ratio, numShards);
+    mu_assert_int_eq(expected, result);
+
+    // Test case 4: Test rounding behavior - ceil should be used, not floor
+    k = 7;
+    ratio = 0.2;
+    numShards = 10;  // k/numShards = 0.7, k*ratio = 1.4, so 1.4 > 0.7
+    expected = (size_t)ceil(k * ratio);  // ceil(7 * 0.2) = ceil(1.4) = 2
+    result = calculateEffectiveK(k, ratio, numShards);
+    mu_assert_int_eq(expected, result);
+
+    // Test case 5: ratio = 1 - should return original k (no optimization)
+    k = 50;
+    ratio = 1.0;
+    numShards = 4;
+    expected = k;  // When ratio = 1, effective K should equal original K
+    result = calculateEffectiveK(k, ratio, numShards);
+    mu_assert_int_eq(expected, result);
+}
+
 // Main test runner following minunit framework pattern
 int main(int argc, char **argv) {
     RMUTil_InitAlloc();
@@ -345,6 +379,7 @@ int main(int argc, char **argv) {
     MU_RUN_TEST(testModifyParameterKInSearch);
     MU_RUN_TEST(testModifyLiteralKInAggregate);
     MU_RUN_TEST(testModifyParameterKInAggregate);
+    MU_RUN_TEST(test_calculateEffectiveK);
     MU_REPORT();
 
     return minunit_status;
