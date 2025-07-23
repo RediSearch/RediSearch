@@ -127,8 +127,11 @@ static inline void IndexBlock_DataFree(const IndexBlock *b) {
   rm_free(b->buf.data);
 }
 
+static inline size_t IndexBlock_Cap(const IndexBlock *b) {
+  return b->buf.cap;
+}
+
 #define IndexBlock_DataLen(b) (b)->buf.offset
-#define IndexBlock_DataCap(b) (b)->buf.cap
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
