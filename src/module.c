@@ -1203,7 +1203,7 @@ cleanup:
 }
 
 int RSHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execHybrid(ctx, argv, argc);
+  return hybridCommandHandler(ctx, argv, argc);
 }
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {

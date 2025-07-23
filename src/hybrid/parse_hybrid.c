@@ -11,7 +11,6 @@
 
 #include <string.h>
 #include <strings.h>
-#include <ctype.h>
 
 #include "aggregate/aggregate.h"
 #include "query_error.h"
@@ -108,6 +107,17 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   return REDISMODULE_OK;
 }
 
+/**
+ * Parse COMBINE clause parameters for hybrid scoring configuration.
+ *
+ * Supports LINEAR (requires 2 weight values) and RRF (optional K and WINDOW parameters).
+ * Defaults to RRF if no method specified.
+ *
+ * @param ac Arguments cursor positioned after "COMBINE"
+ * @param combineCtx Hybrid scoring context to populate
+ * @param status Output parameter for error reporting
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
+ */
 static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
   // Check if a specific method is provided
   if (AC_AdvanceIfMatch(ac, "LINEAR")) {
@@ -196,7 +206,23 @@ static void copyReqConfig(AREQ *dest, const AREQ *src) {
   dest->reqConfig.BM25STD_TanhFactor = src->reqConfig.BM25STD_TanhFactor;
 }
 
-HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+/**
+ * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
+ *
+ * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
+ *                  [COMBINE <method> [params]] [aggregation_options]
+ *
+ * @param ctx Redis module context
+ * @param argv Command arguments array (starting with "FT.HYBRID")
+ * @param argc Number of arguments in argv
+ * @param sctx Search context for the index (takes ownership)
+ * @param indexname Name of the index to search
+ * @param status Output parameter for error reporting
+ * @return HybridRequest* on success, NULL on error
+ *
+ * @note Takes ownership of sctx. Exposed for testing.
+ */
+HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  RedisSearchCtx *sctx, const char *indexname,
                                  QueryError *status) {
   AREQ *searchRequest = AREQ_New();
@@ -366,7 +392,13 @@ error:
   return NULL;
 }
 
-int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/**
+ * Main command handler for FT.HYBRID command.
+ *
+ * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
+ * and prepares for hybrid search execution.
+ */
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -385,7 +417,7 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   QueryError status = {0};
 
-  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, indexname, &status);
+  HybridRequest *hybridRequest = parseHybridCommand(ctx, argv, argc, sctx, indexname, &status);
   if (!hybridRequest) {
     goto error;
   }
