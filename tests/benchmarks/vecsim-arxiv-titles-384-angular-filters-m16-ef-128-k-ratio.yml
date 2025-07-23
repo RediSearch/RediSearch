@@ -7,12 +7,15 @@ timeout_seconds: 1800
 setups:
   - oss-standalone
 
-dbconfig:
-  dataset_name: "arxiv-titles-384-angular-filters-m16-ef-128"
-  dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/internal.tasks/arxiv-titles-384-angular-filters-m16-ef-128/arxiv-titles-384-angular-filters-m16-ef-128-dump.rdb"
-  dataset_load_timeout_secs: 1000
-  check:
-    keyspacelen: 100000
+# dbconfig:
+#   dataset_name: "arxiv-titles-384-angular-filters-m16-ef-128"
+#   dataset: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/internal.tasks/arxiv-titles-384-angular-filters-m16-ef-128/arxiv-titles-384-angular-filters-m16-ef-128-dump.rdb"
+#   dataset_load_timeout_secs: 1000
+#   check:
+#     keyspacelen: 100000
+
+# install docker.io
+# docker run --rm -e REDIS_PORT=<port> --network=host redis/vector-db-benchmark:latest run.py --host localhost --engines redis-hnsw-m-16-ef-128  --datasets arxiv-titles-384-angular-filters --parallels 100 --skip-search
 
 clientconfig:
   benchmark_type: "read-only"
