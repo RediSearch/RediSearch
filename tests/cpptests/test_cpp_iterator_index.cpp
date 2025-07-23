@@ -350,6 +350,7 @@ protected:
 
     // For different index types
     InvertedIndex *numericIdx;
+    NumericRangeTree *numericRangeTree;
     InvertedIndex *termIdx;
     TagIndex *tagIdx;
     InvertedIndex *tagInvIdx;
@@ -368,6 +369,7 @@ protected:
         sctx = nullptr;
         iterator = nullptr;
         numericIdx = nullptr;
+        numericRangeTree = nullptr;
         termIdx = nullptr;
         tagIdx = nullptr;
         tagInvIdx = nullptr;
@@ -464,25 +466,62 @@ private:
         sctx = NewSearchCtxC(ctx, "numeric_idx", false);
         ASSERT_TRUE(sctx != nullptr);
 
-        // Create numeric inverted index directly (simpler approach for testing)
-        size_t memsize;
-        numericIdx = NewInvertedIndex(Index_StoreNumeric, 1, &memsize);
-
-        // Populate with numeric data
-        for (size_t i = 0; i < n_docs; ++i) {
-            InvertedIndex_WriteNumericEntry(numericIdx, resultSet[i], static_cast<double>(i * 10));
-        }
-
-        // Create iterator based on type
         if (useQuery) {
-            // Query version - use nullptr for sctx to avoid complex numeric range tree setup
-            // We'll test the revision ID manipulation directly in the test
+            // For query version, we need to properly set up the numeric range tree
+            // so that NumericCheckAbort can find it and check revision IDs
+            const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "num_field", strlen("num_field"));
+            ASSERT_TRUE(fs != nullptr);
+
+            // Create the numeric range tree through the proper API
+            RedisModuleString *numField = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_NUMERIC);
+            numericRangeTree = openNumericKeysDict(spec, numField, CREATE_INDEX);
+            ASSERT_TRUE(numericRangeTree != nullptr);
+
+            // Add numeric data to the range tree
+            for (size_t i = 0; i < n_docs; ++i) {
+                NumericRangeTree_Add(numericRangeTree, resultSet[i], static_cast<double>(i * 10), false);
+            }
+
+            // Create a numeric filter to find ranges
+            NumericFilter tempFilter = {
+                .fieldSpec = fs,
+                .min = -INFINITY,
+                .max = INFINITY,
+                .geoFilter = nullptr,
+                .inclusiveMin = 1,
+                .inclusiveMax = 1,
+                .asc = false,
+                .limit = 0,
+                .offset = 0
+            };
+
+            // Find a range that covers our data to get the inverted index
+            Vector *ranges = NumericRangeTree_Find(numericRangeTree, &tempFilter);
+            ASSERT_TRUE(ranges != nullptr && Vector_Size(ranges) > 0);
+            NumericRange *range;
+            Vector_Get(ranges, 0, &range);
+            numericIdx = range->entries;
+
+            // Create the numeric filter with the field spec
+            numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, fs);
+
+            // Create the iterator with proper sctx so NumericCheckAbort can work
             FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
             FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-            numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
-            iterator = NewInvIndIterator_NumericQuery(numericIdx, nullptr, &fieldCtx, numericFilter, -INFINITY, INFINITY);
+            iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
+
+            Vector_Free(ranges);
+            RedisModule_FreeString(ctx, numField);
         } else {
             // Full version (simpler, no context needed)
+            size_t memsize;
+            numericIdx = NewInvertedIndex(Index_StoreNumeric, 1, &memsize);
+
+            // Populate with numeric data
+            for (size_t i = 0; i < n_docs; ++i) {
+                InvertedIndex_WriteNumericEntry(numericIdx, resultSet[i], static_cast<double>(i * 10));
+            }
+
             iterator = NewInvIndIterator_NumericFull(numericIdx);
         }
     }
@@ -681,10 +720,23 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
         // index was garbage collected and recreated.
 
         if (IsNumericIterator()) {
-            // For numeric iterators without sctx, NumericCheckAbort always returns VALIDATE_OK
-            // This is because the CheckAbort function checks if (!it->sctx) and returns VALIDATE_OK
-            // So we can't easily test the VALIDATE_ABORTED case for numeric iterators in this setup
-            ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_OK);
+            // For numeric iterators, we can simulate index disappearance by
+            // manipulating the revision ID. NumericCheckAbort compares the stored
+            // revision ID with the current one from the NumericRangeTree.
+            NumericInvIndIterator *numIt = (NumericInvIndIterator *)iterator;
+            uint32_t originalRevisionId = numIt->revisionId;
+
+            // Simulate the range tree being modified by incrementing its revision ID
+            // This simulates a scenario where the tree was modified (e.g., node split, removal)
+            // while the iterator was suspended
+            numericRangeTree->revisionId++;
+
+            // Now Revalidate should return VALIDATE_ABORTED because the revision IDs don't match
+            ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
+            ASSERT_TRUE(iterator->isAborted);
+
+            // Restore the original revision ID for proper cleanup
+            numericRangeTree->revisionId--;
         } else if (IsTermIterator() || IsTagIterator()) {
             // For term and tag iterators, we can simulate index disappearance by
             // setting the iterator's idx pointer to a different value than what
