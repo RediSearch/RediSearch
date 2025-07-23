@@ -18,8 +18,8 @@ typedef struct {
 } HybridRequest;
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
-int HybridRequest_BuildPipeline(HybridRequest *hybridReq, const HybridPipelineParams *params);
-void HybridRequest_Free(HybridRequest *hybridReq);
+int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params);
+void HybridRequest_Free(HybridRequest *req);
 
 #ifdef __cplusplus
 }

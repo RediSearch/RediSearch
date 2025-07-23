@@ -127,56 +127,53 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
  * This function properly cleans up all individual AREQ requests, the tail pipeline,
  * error arrays, and the HybridRequest structure itself.
  *
- * @param hybridReq The HybridRequest to free
+ * @param req The HybridRequest to free
  */
-void HybridRequest_Free(HybridRequest *hybridReq) {
-    if (!hybridReq) return;
+void HybridRequest_Free(HybridRequest *req) {
+    if (!req) return;
 
-    // Free the tail pipeline
-    if (hybridReq->tailPipeline) {
-        Pipeline_Clean(hybridReq->tailPipeline);
-        rm_free(hybridReq->tailPipeline);
-        hybridReq->tailPipeline = NULL;
-    }
+    // Free all individual AREQ requests and their pipelines
+    for (size_t i = 0; i < req->nrequests; i++) {
+      // Check if we need to manually free the thread-safe context
+      if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
 
-    // Free all individual AREQ requests
-    for (size_t i = 0; i < hybridReq->nrequests; i++) {
-        // Check if we need to manually free the thread-safe context
-        if (hybridReq->requests[i]->sctx && hybridReq->requests[i]->sctx->redisCtx) {
-
-            // Free the search context
-            RedisModuleCtx *thctx = hybridReq->requests[i]->sctx->redisCtx;
-            RedisSearchCtx *sctx = hybridReq->requests[i]->sctx;
-            SearchCtx_Free(sctx);
-            // Free the thread-safe context
-            if (thctx) {
-                RedisModule_FreeThreadSafeContext(thctx);
-            }
-            hybridReq->requests[i]->sctx = NULL;
+        // Free the search context
+        RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
+        RedisSearchCtx *sctx = req->requests[i]->sctx;
+        SearchCtx_Free(sctx);
+        // Free the thread-safe context
+        if (thctx) {
+          RedisModule_FreeThreadSafeContext(thctx);
         }
+        req->requests[i]->sctx = NULL;
+      }
 
-        AREQ_Free(hybridReq->requests[i]);
+      AREQ_Free(req->requests[i]);
     }
+    array_free(req->requests);
+
+    array_free(req->errors);
 
     // Free the scoring context resources
-    if (hybridReq->hybridParams) {
-        HybridScoringContext_Free(hybridReq->hybridParams->scoringCtx);
+    if (req->hybridParams) {
+      HybridScoringContext_Free(req->hybridParams->scoringCtx);
 
-        // Free the aggregationParams search context
-        if(hybridReq->hybridParams->aggregationParams.common.sctx) {
-            SearchCtx_Free(hybridReq->hybridParams->aggregationParams.common.sctx);
-        }
-        // Free the hybrid parameters
-        rm_free(hybridReq->hybridParams);
+      // Free the aggregationParams search context
+      if(req->hybridParams->aggregationParams.common.sctx) {
+        SearchCtx_Free(req->hybridParams->aggregationParams.common.sctx);
+      }
+      // Free the hybrid parameters
+      rm_free(req->hybridParams);
     }
 
+    // Free the tail pipeline
+    if (req->tailPipeline) {
+      Pipeline_Clean(req->tailPipeline);
+      rm_free(req->tailPipeline);
+      req->tailPipeline = NULL;
+    }
 
-
-    // Free the arrays and tail pipeline
-    array_free(hybridReq->requests);
-    array_free(hybridReq->errors);
-
-    rm_free(hybridReq);
+    rm_free(req);
 }
 
 #ifdef __cplusplus
