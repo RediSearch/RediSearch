@@ -317,7 +317,9 @@ uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
 uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
 
 /**
- * Reset the aggregate result, clearing all children and resetting the type mask.
+ * Reset the aggregate result, clearing all children and resetting the type mask. This function
+ * does not deallocate the children pointers, but rather resets the internal state of the
+ * aggregate result. The owner of the children pointers is responsible for managing their lifetime.
  *
  * # Safety
  *

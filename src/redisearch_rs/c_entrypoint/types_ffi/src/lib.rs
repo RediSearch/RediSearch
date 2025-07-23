@@ -88,7 +88,9 @@ pub unsafe extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult)
     agg.type_mask().bits()
 }
 
-/// Reset the aggregate result, clearing all children and resetting the type mask.
+/// Reset the aggregate result, clearing all children and resetting the type mask. This function
+/// does not deallocate the children pointers, but rather resets the internal state of the
+/// aggregate result. The owner of the children pointers is responsible for managing their lifetime.
 ///
 /// # Safety
 ///

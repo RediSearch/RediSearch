@@ -149,7 +149,10 @@ impl RSAggregateResult {
         }
     }
 
-    /// Reset the aggregate result, clearing all children and resetting the type mask
+    /// Reset the aggregate result, clearing all children and resetting the type mask.
+    ///
+    /// Note, this does not deallocate the children pointers, it just resets the count and type
+    /// mask. The owner of the children pointers is responsible for deallocating them when needed.
     pub fn reset(&mut self) {
         self.num_children = 0;
         self.type_mask = RSResultTypeMask::empty();
