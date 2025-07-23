@@ -491,7 +491,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   ArgsCursor returnFields = {0};
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
-  Pipeline *pipeline = &req->pipeline;
+  Pipeline *pipeline = req->pipeline;
   ACArgSpec querySpecs[] = {
       {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
       {.name = "SLOP",
@@ -1277,7 +1277,7 @@ void AREQ_Free(AREQ *req) {
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
-  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
+  Pipeline_Initialize(req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
       .common = {
