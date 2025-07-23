@@ -586,7 +586,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   // Verify that an implicit LOAD step was created
   loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
   ASSERT_NE(nullptr, loadStep) << "Implicit LOAD step should have been created";
-  EXPECT_EQ(2, loadStep->nkeys) << "Implicit LOAD should have 2 fields (@__key and @__score)";
+  EXPECT_EQ(2, loadStep->nkeys) << "Implicit LOAD should have 2 fields (doc_id and combined_score)";
 
   // Verify individual request pipeline structures (should NOT have loaders since implicit LOAD is only for tail)
   std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_INDEX};

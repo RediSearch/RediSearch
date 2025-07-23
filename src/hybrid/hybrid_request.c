@@ -8,9 +8,13 @@
 extern "C" {
 #endif
 
+// Field names for implicit LOAD step
+#define HYBRID_IMPLICIT_DOC_ID "doc_id"
+#define HYBRID_IMPLICIT_COMBINED_SCORE "combined_score"
+
 /**
  * Create an implicit LOAD step for hybrid search when no explicit LOAD is provided.
- * The implicit LOAD includes @__key (document ID) and @__score (combined score).
+ * The implicit LOAD includes doc_id (document ID) and combined_score (combined score).
  *
  * @param plan The aggregation plan to get RLookup from
  * @return Newly allocated PLN_LoadStep with implicit fields, or NULL on failure
@@ -23,7 +27,7 @@ static PLN_LoadStep* CreateImplicitLoadStep(AGGPlan *plan) {
 
     lstp->base.type = PLN_T_LOAD;
     lstp->base.dtor = loadDtor;
-    lstp->nkeys = 2;  // @__key and @__score
+    lstp->nkeys = 2;  // doc_id and combined_score
     lstp->keys = rm_calloc(2, sizeof(*lstp->keys));
 
     if (!lstp->keys) {
@@ -37,9 +41,9 @@ static PLN_LoadStep* CreateImplicitLoadStep(AGGPlan *plan) {
         lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_FIRST);
     }
 
-    // Create RLookupKeys for @__key and @__score
-    lstp->keys[0] = RLookup_GetKey_Load(lookup, UNDERSCORE_KEY, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
-    lstp->keys[1] = RLookup_GetKey_Load(lookup, UNDERSCORE_SCORE, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+    // Create RLookupKeys for doc_id and combined_score
+    lstp->keys[0] = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_DOC_ID, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+    lstp->keys[1] = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_COMBINED_SCORE, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
 
     // Initialize args as empty since this is implicit (no user-provided arguments)
     lstp->args = (ArgsCursor){0};  // Zero-initialize for empty cursor
