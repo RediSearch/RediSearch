@@ -452,6 +452,18 @@ const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_
  */
 void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, uint32_t len);
 
+/**
+ * Free the data inside an [`RSOffsetVector`]'s offset
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - The data pointer of `offsets` had been allocated via the global allocator
+ *   and points to an array matching the length of `offsets`.
+ */
+void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

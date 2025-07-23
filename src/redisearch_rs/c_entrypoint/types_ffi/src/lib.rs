@@ -9,7 +9,7 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
-use std::ffi::c_char;
+use std::{alloc::Layout, ffi::c_char};
 
 use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector};
 
@@ -300,4 +300,32 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
 
     offsets.data = data as _;
     offsets.len = len;
+}
+
+/// Free the data inside an [`RSOffsetVector`]'s offset
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+/// - The data pointer of `offsets` had been allocated via the global allocator
+///   and points to an array matching the length of `offsets`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
+    debug_assert!(!offsets.is_null(), "offsets must not be null");
+
+    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
+    let offsets = unsafe { &mut *offsets };
+
+    if offsets.data.is_null() {
+        return;
+    }
+
+    let layout = Layout::array::<c_char>(offsets.len as usize).unwrap();
+    // SAFETY: Caller is to ensure data has been allocated via the global allocator
+    // and points to an array matching the length of `offsets`.
+    unsafe { std::alloc::dealloc(offsets.data.cast(), layout) };
+
+    offsets.data = std::ptr::null_mut();
+    offsets.len = 0;
 }

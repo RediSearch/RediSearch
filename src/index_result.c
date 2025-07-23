@@ -47,7 +47,7 @@ void ResultMetrics_Free(RSIndexResult *r) {
 }
 
 void Term_Offset_Data_Free(RSTermRecord *tr) {
-  rm_free(tr->offsets.data);
+  RSOffsetVector_FreeData(&tr->offsets);
 }
 
 /* Allocate a new intersection result with a given capacity*/
@@ -233,7 +233,7 @@ void IndexResult_Free(RSIndexResult *r) {
     AggregateResult_Free(r->data.agg);
   } else if (r->type == RSResultType_Term) {
     if (r->isCopy) {
-      rm_free(r->data.term.offsets.data);
+      RSOffsetVector_FreeData(&r->data.term.offsets);
 
     } else {  // non copy result...
 
