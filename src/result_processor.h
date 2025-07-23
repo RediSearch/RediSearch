@@ -20,7 +20,7 @@
 #include "extension.h"
 #include "score_explain.h"
 #include "util/references.h"
-#include "hybrid_scoring.h"
+#include "hybrid/hybrid_scoring.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -326,19 +326,22 @@ void PipelineAddCrash(struct AREQ *r);
  */
 
 /**
- * Constructs a new RPDepleter processor, wrapping the given upstream processor.
+ * Constructs a new RPDepleter processor that offloads result consumption to a background thread.
  * The returned processor takes ownership of result depleting and yielding.
- * @param sync_ref Reference to shared synchronization object
- * @param take_index_lock Whether this depleter should participate in index locking
+ * @param sync_ref Reference to shared synchronization object for coordinating multiple depleters
+ * @param depletingThreadCtx Search context for the upstream processor being wrapped
+ * @param nextThreadCtx Search context for the downstream processor that will receive results
  */
-ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *sctx);
+ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
 
 /**
- * Creates a new shared sync object for a pipeline.
- * This is used during pipeline construction to create sync objects
- * that can be shared among multiple RPDepleters.
+ * Creates a new shared synchronization object for coordinating multiple RPDepleter processors.
+ * This is used during pipeline construction to create sync objects that allow multiple
+ * depleters to coordinate their background threads and wake each other when depleting completes.
+ * @param num_depleters Number of RPDepleter processors that will share this sync object
+ * @param take_index_lock Whether the depleters should participate in index locking coordination
  */
-StrongRef DepleterSync_New(uint num_depleters, bool take_index_lock);
+StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
 
  /*******************************************************************************************************************
   *  Hybrid Merger Result Processor

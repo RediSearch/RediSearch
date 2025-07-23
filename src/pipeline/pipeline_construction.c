@@ -257,7 +257,7 @@ bool hasQuerySortby(const AGGPlan *pln) {
 void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *params) {
   IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
-  RLookup *first = AGPLN_GetLookup(params->common.pln, NULL, AGPLN_GETLOOKUP_FIRST);
+  RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_Init(first, cache);
 
@@ -282,7 +282,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
   const int reqflags = params->common.reqflags;
   if ((reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
       ((reqflags & QEXEC_F_IS_SEARCH) && !(reqflags & QEXEC_F_NOROWS) &&
-       ((reqflags & QEXEC_OPTIMIZE) ? (params->common.optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(params->common.pln)))) {
+       ((reqflags & QEXEC_OPTIMIZE) ? (params->common.optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(&pipeline->ap)))) {
     rp = getScorerRP(pipeline, first, params);
     PUSH_RP();
     const char *scorerName = params->scorerName;

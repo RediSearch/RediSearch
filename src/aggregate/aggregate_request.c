@@ -853,11 +853,7 @@ error:
   return REDISMODULE_ERR;
 }
 
-static void loadDtor(PLN_BaseStep *bstp) {
-  PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
-  rm_free(lstp->keys);
-  rm_free(lstp);
-}
+
 
 static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
@@ -1208,7 +1204,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 void AREQ_Free(AREQ *req) {
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
-  
+
   if (req->rootiter) {
     req->rootiter->Free(req->rootiter);
     req->rootiter = NULL;
@@ -1269,11 +1265,10 @@ void AREQ_Free(AREQ *req) {
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
-  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status); 
+  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
       .common = {
-        .pln = &req->pipeline.ap,
         .sctx = req->sctx,
         .reqflags = req->reqflags,
         .optimizer = req->optimizer,
@@ -1289,9 +1284,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       return REDISMODULE_ERR;
     }
   }
-  AggregationPipelineParams params = { 
+  AggregationPipelineParams params = {
     .common = {
-      .pln = &req->pipeline.ap,
       .sctx = req->sctx,
       .reqflags = req->reqflags,
       .optimizer = req->optimizer,
