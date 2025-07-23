@@ -196,13 +196,13 @@ error:
 }
 
 
-// Copy the request configuration from the source to the destination
-static void copyReqConfig(AREQ *dest, const AREQ *src) {
-  dest->reqConfig.queryTimeoutMS = src->reqConfig.queryTimeoutMS;
-  dest->reqConfig.dialectVersion = src->reqConfig.dialectVersion;
-  dest->reqConfig.timeoutPolicy = src->reqConfig.timeoutPolicy;
-  dest->reqConfig.printProfileClock = src->reqConfig.printProfileClock;
-  dest->reqConfig.BM25STD_TanhFactor = src->reqConfig.BM25STD_TanhFactor;
+// Copy request configuration from source to destination
+static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
+  dest->queryTimeoutMS = src->queryTimeoutMS;
+  dest->dialectVersion = src->dialectVersion;
+  dest->timeoutPolicy = src->timeoutPolicy;
+  dest->printProfileClock = src->printProfileClock;
+  dest->BM25STD_TanhFactor = src->BM25STD_TanhFactor;
 }
 
 /**
@@ -242,7 +242,15 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
   vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
 
-  AREQ *mergeAreq = NULL;
+  // Individual variables used for parsing the tail of the command
+  Pipeline *mergePipeline = NULL;
+  uint32_t mergeReqflags = 0;
+  RequestConfig mergeReqConfig = RSGlobalConfig.requestConfigParams;
+  RSSearchOptions mergeSearchopts;
+  CursorConfig mergeCursorConfig = {0};
+  size_t mergeMaxSearchResults = RSGlobalConfig.maxSearchResults;
+  size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
+
   AREQ **requests = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
   vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
@@ -277,21 +285,38 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   bool hasMerge = false;
   if (remainingArgs > 0) {
     hasMerge = true;
-    mergeAreq = AREQ_New();
 
-    AGPLN_Init(AREQ_AGGPlan(mergeAreq));
-    RSSearchOptions_Init(&mergeAreq->searchopts);
-    if (parseAggPlan(mergeAreq, &ac, status) != REDISMODULE_OK) {
+    mergePipeline = rm_calloc(1, sizeof(Pipeline));
+    AGPLN_Init(&mergePipeline->ap);
+    RSSearchOptions_Init(&mergeSearchopts);
+
+    ParseAggPlanContext papCtx = {
+      .plan = &mergePipeline->ap,
+      .reqflags = &mergeReqflags,
+      .reqConfig = &mergeReqConfig,
+      .searchopts = &mergeSearchopts,
+      .prefixesOffset = NULL,               // Invalid in FT.HYBRID
+      .cursorConfig = &mergeCursorConfig,   // TODO: Confirm if this is supported
+      .requiredFields = NULL,               // Invalid in FT.HYBRID
+      .maxSearchResults = &mergeMaxSearchResults,
+      .maxAggregateResults = &mergeMaxAggregateResults
+    };
+    if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
       goto error;
     }
 
-    mergeAreq->protocol = is_resp3(ctx) ? 3 : 2;
+    searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+    vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
 
-    searchRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
-    vectorRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
+    // Copy request configuration using the helper function
+    copyRequestConfig(&searchRequest->reqConfig, &mergeReqConfig);
+    copyRequestConfig(&vectorRequest->reqConfig, &mergeReqConfig);
 
-    copyReqConfig(searchRequest, mergeAreq);
-    copyReqConfig(vectorRequest, mergeAreq);
+    // Copy max results limits
+    searchRequest->maxSearchResults = mergeMaxSearchResults;
+    searchRequest->maxAggregateResults = mergeMaxAggregateResults;
+    vectorRequest->maxSearchResults = mergeMaxSearchResults;
+    vectorRequest->maxAggregateResults = mergeMaxAggregateResults;
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
@@ -320,11 +345,11 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       .common =
           {
               .sctx = sctx,  // should be a separate context?
-              .reqflags = hasMerge ? mergeAreq->reqflags : 0,
+              .reqflags = hasMerge ? mergeReqflags : 0,
               .optimizer = NULL,  // is it?
           },
       .outFields = NULL,
-      .maxResultsLimit = hasMerge ? mergeAreq->maxAggregateResults : RSGlobalConfig.maxAggregateResults,
+      .maxResultsLimit = mergeMaxAggregateResults,
       .language = searchRequest->searchopts.language,
   };
 
@@ -332,21 +357,14 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
-    // Now we can simply transfer the pointer
+    // Create and transfer the pipeline
     if (hybridRequest->tailPipeline) {
       Pipeline_Clean(hybridRequest->tailPipeline);
       rm_free(hybridRequest->tailPipeline);
     }
 
-    // Transfer ownership of the pipeline
-    hybridRequest->tailPipeline = mergeAreq->pipeline;
-
-    // Prevent double free
-    mergeAreq->pipeline = NULL;
-  }
-
-  if (mergeAreq) {
-    AREQ_Free(mergeAreq);
+    hybridRequest->tailPipeline = mergePipeline;
+    mergePipeline = NULL;  // Prevent double free
   }
 
   return hybridRequest;
@@ -376,9 +394,6 @@ error:
     AREQ_Free(vectorRequest);
   }
 
-  if (mergeAreq) {
-    AREQ_Free(mergeAreq);
-  }
   if (requests) {
     array_free(requests);
   }

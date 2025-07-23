@@ -1062,13 +1062,13 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RedisModuleCtx *thctx = NULL;
 
   if (type == COMMAND_SEARCH) {
-    AREQ_AddRequestFlags(*r, QEXEC_F_IS_SEARCH);
+    AREQ_AddRequestFlags(&(*r)->reqflags, QEXEC_F_IS_SEARCH);
   }
   else if (type == COMMAND_AGGREGATE) {
-    AREQ_AddRequestFlags(*r, QEXEC_F_IS_AGGREGATE);
+    AREQ_AddRequestFlags(&(*r)->reqflags, QEXEC_F_IS_AGGREGATE);
   }
 
-  AREQ_AddRequestFlags(*r, QEXEC_FORMAT_DEFAULT);
+  AREQ_AddRequestFlags(&(*r)->reqflags, QEXEC_FORMAT_DEFAULT);
 
   if (AREQ_Compile(*r, argv + 2, argc - 2, status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
@@ -1114,9 +1114,9 @@ done:
 static void parseProfile(AREQ *r, int execOptions) {
   if (execOptions & EXEC_WITH_PROFILE) {
     AREQ_QueryProcessingCtx(r)->isProfile = true;
-    AREQ_AddRequestFlags(r, QEXEC_F_PROFILE);
+    AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_PROFILE);
     if (execOptions & EXEC_WITH_PROFILE_LIMITED) {
-      AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
+      AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_PROFILE_LIMITED);
     }
   } else {
     AREQ_QueryProcessingCtx(r)->isProfile = false;
@@ -1128,7 +1128,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   // If we got here, we know `argv[0]` is a valid registered command name.
   // If it starts with an underscore, it is an internal command.
   if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
-    AREQ_AddRequestFlags(r, QEXEC_F_INTERNAL);
+    AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_INTERNAL);
   }
 
   parseProfile(r, execOptions);
@@ -1163,7 +1163,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, 0);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
-    AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
+    AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_RUN_IN_BACKGROUND);
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
     if (qctx->isProfile) {
       struct timespec time;
@@ -1310,7 +1310,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *err, bool coord) {
-  Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorMaxIdle, err);
+  Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorConfig.maxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
@@ -1329,12 +1329,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
 
   if (!num) {
-    num = req->cursorChunkSize;
+    num = req->cursorConfig.chunkSize;
     if (!num) {
       num = RSGlobalConfig.cursorReadSize;
     }
   }
-  req->cursorChunkSize = num;
+  req->cursorConfig.chunkSize = num;
 
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
@@ -1353,7 +1353,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
   AREQ *req = cursor->execState;
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   qctx->err = &status;
-  AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
+  AREQ_RemoveRequestFlags(&req->reqflags, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
 
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
@@ -1374,12 +1374,12 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
         // Reset loaders to run in background
         SetLoadersForBG(AREQ_QueryProcessingCtx(req));
         // Mark the request as set to run in background
-        AREQ_AddRequestFlags(req, QEXEC_F_RUN_IN_BACKGROUND);
+        AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_RUN_IN_BACKGROUND);
       } else if (!bg && isSetForBackground) {
         // Reset loaders to run in main thread
         SetLoadersForMainThread(AREQ_QueryProcessingCtx(req));
         // Mark the request as set to run in main thread
-        AREQ_RemoveRequestFlags(req, QEXEC_F_RUN_IN_BACKGROUND);
+        AREQ_RemoveRequestFlags(&req->reqflags, QEXEC_F_RUN_IN_BACKGROUND);
       }
     }
   }

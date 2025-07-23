@@ -37,7 +37,7 @@ static bool ensureSimpleMode(AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
-  AREQ_AddRequestFlags(req, QEXEC_F_IS_SEARCH);
+  AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_IS_SEARCH);
   return true;
 }
 
@@ -47,14 +47,14 @@ static bool ensureSimpleMode(AREQ *req) {
  * found in the document - was not requested.
  * name argument must not contain any user data, as it is used for error formatting
  */
-static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) {
-  if (AREQ_RequestFlags(areq) & QEXEC_F_IS_SEARCH) {
+static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
+  if (*reqflags & QEXEC_F_IS_SEARCH) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
                            "option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
   }
-  AREQ_AddRequestFlags(areq, QEXEC_F_IS_AGGREGATE);
+  AREQ_AddRequestFlags(reqflags, QEXEC_F_IS_AGGREGATE);
   return 1;
 }
 
@@ -104,14 +104,14 @@ static void FieldList_RestrictReturn(FieldList *fields) {
   fields->numFields = oix;
 }
 
-static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
+static int parseCursorSettings(uint32_t *reqflags, CursorConfig *cursorConfig, ArgsCursor *ac, QueryError *status) {
   ACArgSpec specs[] = {{.name = "MAXIDLE",
                         .type = AC_ARGTYPE_UINT,
-                        .target = &req->cursorMaxIdle,
+                        .target = &cursorConfig->maxIdle,
                         .intflags = AC_F_GE1},
                        {.name = "COUNT",
                         .type = AC_ARGTYPE_UINT,
-                        .target = &req->cursorChunkSize,
+                        .target = &cursorConfig->chunkSize,
                         .intflags = AC_F_GE1},
                        {NULL}};
 
@@ -122,14 +122,14 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (req->cursorMaxIdle == 0 || req->cursorMaxIdle > RSGlobalConfig.cursorMaxIdle) {
-    req->cursorMaxIdle = RSGlobalConfig.cursorMaxIdle;
+  if (cursorConfig->maxIdle == 0 || cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
+    cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
   }
-  AREQ_AddRequestFlags(req, QEXEC_F_IS_CURSOR);
+  AREQ_AddRequestFlags(reqflags, QEXEC_F_IS_CURSOR);
   return REDISMODULE_OK;
 }
 
-static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
+static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, QueryError *status){
 
   ArgsCursor args = {0};
   int rv = AC_GetVarArgs(ac, &args);
@@ -141,18 +141,18 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   int requiredFieldNum = AC_NumArgs(&args);
   // This array contains shallow copy of the required fields names. Those copies are to use only for lookup.
   // If we need to use them in reply we should make a copy of those strings.
-  const char** requiredFields = array_new(const char*, requiredFieldNum);
+  const char** reqFields = array_new(const char*, requiredFieldNum);
   for(size_t i=0; i < requiredFieldNum; i++) {
     const char *s = AC_GetStringNC(&args, NULL); {
       if(!s) {
-        array_free(requiredFields);
+        array_free(reqFields);
         return REDISMODULE_ERR;
       }
     }
-    array_append(requiredFields, s);
+    array_append(reqFields, s);
   }
 
-  req->requiredFields = requiredFields;
+  *requiredFields = reqFields;
 
   return REDISMODULE_OK;
 }
@@ -245,12 +245,12 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
-static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int allowLegacy) {
+static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
   int rv;
   bool dialect_specified = false;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(req));
+    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
     arng->isLimited = 1;
     // Parse offset, length
     if (AC_NumRemaining(ac) < 2) {
@@ -270,28 +270,28 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
 
     if (arng->isLimited && arng->limit == 0) {
       // LIMIT 0 0 - only count
-      AREQ_AddRequestFlags(req, QEXEC_F_NOROWS);
-      AREQ_AddRequestFlags(req, QEXEC_F_SEND_NOFIELDS);
+      AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_NOROWS);
+      AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
-    } else if ((arng->limit > req->maxSearchResults) &&
-               (AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) {
+    } else if ((arng->limit > *papCtx->maxSearchResults) &&
+               (*papCtx->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             req->maxSearchResults);
+                             *papCtx->maxSearchResults);
       return ARG_ERROR;
-    } else if ((arng->limit > req->maxAggregateResults) &&
-               !(AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) {
+    } else if ((arng->limit > *papCtx->maxAggregateResults) &&
+               !(*papCtx->reqflags & QEXEC_F_IS_SEARCH)) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             req->maxAggregateResults);
+                             *papCtx->maxAggregateResults);
       return ARG_ERROR;
-    } else if (arng->offset > req->maxSearchResults) {
+    } else if (arng->offset > *papCtx->maxSearchResults) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
-                             req->maxSearchResults);
+                             *papCtx->maxSearchResults);
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
-    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(req));
-    if ((parseSortby(arng, ac, status, AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
+    PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
+    if ((parseSortby(arng, ac, status, *papCtx->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
@@ -299,39 +299,39 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
       return ARG_ERROR;
     }
-    if (AC_GetLongLong(ac, &req->reqConfig.queryTimeoutMS, AC_F_GE0) != AC_OK) {
+    if (AC_GetLongLong(ac, &papCtx->reqConfig->queryTimeoutMS, AC_F_GE0) != AC_OK) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
-    if (parseCursorSettings(req, ac, status) != REDISMODULE_OK) {
+    if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
-    AREQ_AddRequestFlags(req, QEXEC_F_TYPED);
+    AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
-    AREQ_AddRequestFlags(req, QEXEC_F_SENDRAWIDS);
+    AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
-    if (parseParams(&(req->searchopts.params), ac, status) != REDISMODULE_OK) {
+    if (parseParams(&(papCtx->searchopts->params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if(AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS")) {
-    if (parseRequiredFields(req, ac, status) != REDISMODULE_OK) {
+  } else if(AC_AdvanceIfMatch(ac, "_REQUIRED_FIELDS") && papCtx->requiredFields) {
+    if (parseRequiredFields(papCtx->requiredFields, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    AREQ_AddRequestFlags(req, QEXEC_F_REQUIRED_FIELDS);
+    AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_REQUIRED_FIELDS);
   } else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
     dialect_specified = true;
-    if (parseDialect(&req->reqConfig.dialectVersion, ac, status) != REDISMODULE_OK) {
+    if (parseDialect(&papCtx->reqConfig->dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
-    if (parseValueFormat(&req->reqflags, ac, status) != REDISMODULE_OK) {
+    if (parseValueFormat(papCtx->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-  } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
+  } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES") && papCtx->prefixesOffset) {
     // Set the offset of the prefixes in the query, for further processing later
-    req->prefixesOffset = ac->offset - 1;
+    *papCtx->prefixesOffset = ac->offset - 1;
 
     ArgsCursor tmp = {0};
     if (AC_GetVarArgs(ac, &tmp) != AC_OK) {
@@ -342,7 +342,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for BM25STD_TANH_FACTOR");
       return ARG_ERROR;
     }
-    if (AC_GetUnsignedLongLong(ac, (unsigned long long *)&req->reqConfig.BM25STD_TanhFactor, AC_F_GE1) != AC_OK) {
+    if (AC_GetUnsignedLongLong(ac, (unsigned long long *)&papCtx->reqConfig->BM25STD_TanhFactor, AC_F_GE1) != AC_OK) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
@@ -351,7 +351,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     return ARG_UNKNOWN;
   }
 
-  if (dialect_specified && req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && AREQ_RequestFlags(req) & QEXEC_FORMAT_EXPAND) {
+  if (dialect_specified && papCtx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && *papCtx->reqflags & QEXEC_FORMAT_EXPAND) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
@@ -518,7 +518,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
        .len = &ast->udatalen},
       {NULL}};
 
-  AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
+  AREQ_AddRequestFlags(&req->reqflags, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
   while (!AC_IsAtEnd(ac)) {
@@ -543,7 +543,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
       }
-      AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
+      AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       if(!ensureSimpleMode(req)) {
@@ -555,7 +555,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
       }
-      AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
+      AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if ((AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH) &&
                ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status)) != ARG_UNKNOWN)) {
@@ -563,13 +563,24 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
-      AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_RemoveRequestFlags(&req->reqflags, QEXEC_OPTIMIZE);
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
-      AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+      AREQ_AddRequestFlags(&req->reqflags, QEXEC_OPTIMIZE);
       optimization_specified = true;
     } else {
-      int rv = handleCommonArgs(req, ac, status, 1);
+      ParseAggPlanContext papCtx = {
+        .plan = AREQ_AGGPlan(req),
+        .reqflags = &req->reqflags,
+        .reqConfig = &req->reqConfig,
+        .searchopts = &req->searchopts,
+        .prefixesOffset = &req->prefixesOffset,
+        .cursorConfig = &req->cursorConfig,
+        .requiredFields = &req->requiredFields,
+        .maxSearchResults = &req->maxSearchResults,
+        .maxAggregateResults = &req->maxAggregateResults
+      };
+      int rv = handleCommonArgs(&papCtx, ac, status);
       if (rv == ARG_HANDLED) {
         // nothing
       } else if (rv == ARG_ERROR) {
@@ -588,7 +599,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
-    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
+    AREQ_AddRequestFlags(&req->reqflags, QEXEC_OPTIMIZE);
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
@@ -622,7 +633,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     req->outFields.explicitReturn = 1;
     if (returnFields.argc == 0) {
-      AREQ_AddRequestFlags(req, QEXEC_F_SEND_NOFIELDS);
+      AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_SEND_NOFIELDS);
     }
 
     while (!AC_IsAtEnd(&returnFields)) {
@@ -759,7 +770,7 @@ PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
   return gstp;
 }
 
-static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
+static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   ArgsCursor groupArgs = {0};
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
@@ -779,7 +790,7 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
   // Number of fields.. now let's see the reducers
   PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
-  AGPLN_AddStep(AREQ_AGGPlan(req), &gstp->base);
+  AGPLN_AddStep(plan, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
     const char *name;
@@ -815,7 +826,7 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
   return stp;
 }
 
-static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, int isApply) {
+static int handleApplyOrFilter(AGGPlan *plan, ArgsCursor *ac, QueryError *status, int isApply) {
   // Parse filters!
   const char *expr = NULL;
   size_t exprLen;
@@ -828,7 +839,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
   HiddenString* expression = NewHiddenString(expr, exprLen, false);
   PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
   HiddenString_Free(expression, false);
-  AGPLN_AddStep(AREQ_AGGPlan(req), &stp->base);
+  AGPLN_AddStep(plan, &stp->base);
 
   if (isApply) {
     if (AC_AdvanceIfMatch(ac, "AS")) {
@@ -855,7 +866,7 @@ error:
 
 
 
-static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
@@ -870,7 +881,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     // Successfully got a '*', load all fields
-    AREQ_AddRequestFlags(req, QEXEC_AGG_LOAD_ALL);
+    AREQ_AddRequestFlags(reqflags, QEXEC_AGG_LOAD_ALL);
   } else if (rc != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for LOAD: %s", AC_Strerror(rc));
     return REDISMODULE_ERR;
@@ -884,11 +895,11 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
   }
 
-  if (AREQ_RequestFlags(req) & QEXEC_AGG_LOAD_ALL) {
+  if (*reqflags & QEXEC_AGG_LOAD_ALL) {
     lstp->base.flags |= PLN_F_LOAD_ALL;
   }
 
-  AGPLN_AddStep(AREQ_AGGPlan(req), &lstp->base);
+  AGPLN_AddStep(plan, &lstp->base);
   return REDISMODULE_OK;
 }
 
@@ -900,6 +911,8 @@ AREQ *AREQ_New(void) {
   RSTimeoutPolicy timeoutPolicy;
   int printProfileClock;
   uint64_t BM25STD_TanhFactor;
+  size_t maxSearchResults;
+  size_t maxAggregateResults;
   */
   req->reqConfig = RSGlobalConfig.requestConfigParams;
 
@@ -916,9 +929,9 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
-int parseAggPlan(AREQ *req, ArgsCursor *ac, QueryError *status) {
+int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
   while (!AC_IsAtEnd(ac)) {
-    int rv = handleCommonArgs(req, ac, status, AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH);
+    int rv = handleCommonArgs(papCtx, ac, status);
     if (rv == ARG_HANDLED) {
       continue;
     } else if (rv == ARG_ERROR) {
@@ -926,22 +939,22 @@ int parseAggPlan(AREQ *req, ArgsCursor *ac, QueryError *status) {
     }
 
     if (AC_AdvanceIfMatch(ac, "GROUPBY")) {
-      if (!ensureExtendedMode(req, "GROUPBY", status)) {
+      if (!ensureExtendedMode(papCtx->reqflags, "GROUPBY", status)) {
         return REDISMODULE_ERR;
       }
-      if (parseGroupby(req, ac, status) != REDISMODULE_OK) {
+      if (parseGroupby(papCtx->plan, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "APPLY")) {
-      if (handleApplyOrFilter(req, ac, status, 1) != REDISMODULE_OK) {
+      if (handleApplyOrFilter(papCtx->plan, ac, status, 1) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(req, ac, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
-      if (handleApplyOrFilter(req, ac, status, 0) != REDISMODULE_OK) {
+      if (handleApplyOrFilter(papCtx->plan, ac, status, 0) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else {
@@ -950,12 +963,12 @@ int parseAggPlan(AREQ *req, ArgsCursor *ac, QueryError *status) {
     }
   }
 
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(AREQ_AGGPlan(req)))) {
+  if (!(*papCtx->reqflags & QEXEC_F_SEND_HIGHLIGHT) && !(*papCtx->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) && (!(*papCtx->reqflags & QEXEC_F_IS_SEARCH) || hasQuerySortby(papCtx->plan))) {
     // We can skip collecting full results structure and metadata from the iterators if:
     // 1. We don't have a highlight/summarize step,
     // 2. We are not required to return scores explicitly,
     // 3. This is not a search query with implicit sorting by query score.
-    req->searchopts.flags |= Search_CanSkipRichResults;
+    papCtx->searchopts->flags |= Search_CanSkipRichResults;
   }
 
   return REDISMODULE_OK;
@@ -991,7 +1004,18 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   // Now we have a 'compiled' plan. Let's get some more options..
 
-  if (parseAggPlan(req, &ac, status) != REDISMODULE_OK) {
+  ParseAggPlanContext papCtx = {
+    .plan = AREQ_AGGPlan(req),
+    .reqflags = &req->reqflags,
+    .reqConfig = &req->reqConfig,
+    .searchopts = &req->searchopts,
+    .prefixesOffset = &req->prefixesOffset,
+    .cursorConfig = &req->cursorConfig,
+    .requiredFields = &req->requiredFields,
+    .maxSearchResults = &req->maxSearchResults,
+    .maxAggregateResults = &req->maxAggregateResults
+  };
+  if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -1092,8 +1116,8 @@ static bool IsIndexCoherent(AREQ *req) {
   // Validate that the prefixes in the arguments are the same as the ones in the
   // index (also in the same order)
   // The first argument is at req->prefixesOffset + 2
-  uint base_idx = req->prefixesOffset + 2;
-  for (uint i = 0; i < n_prefixes; i++) {
+  unsigned int base_idx = req->prefixesOffset + 2;
+  for (unsigned int i = 0; i < n_prefixes; i++) {
     sds arg = args[base_idx + i];
     if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
       // Unmatching prefixes
@@ -1303,7 +1327,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .optimizer = req->optimizer,
     },
     .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
+    .maxResultsLimit = IsSearch(req) ? RSGlobalConfig.maxSearchResults : RSGlobalConfig.maxAggregateResults,
     .language = req->searchopts.language,
   };
   return Pipeline_BuildAggregationPart(req->pipeline, &params, &req->stateflags);

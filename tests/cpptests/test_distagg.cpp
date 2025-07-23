@@ -73,7 +73,7 @@ static void testAverage() {
   printf("Printing local plan\n");
   AGPLN_Dump(plan);
 
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
+  AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
   rc = AREQ_BuildPipeline(r, &status);
@@ -95,7 +95,7 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
+  AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
@@ -133,7 +133,7 @@ static void testCountDistinct() {
 }
 static void testSplit() {
   AREQ *r = AREQ_New();
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
+  AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
