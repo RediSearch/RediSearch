@@ -392,3 +392,7 @@ void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_po
     MRConnManager_Expand(&ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
   }
 }
+
+int IORuntimeCtx_GetPendingCount(IORuntimeCtx *io_runtime_ctx) {
+  return RQ_GetPendingCount(io_runtime_ctx->queue);
+}

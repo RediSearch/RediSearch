@@ -113,3 +113,10 @@ void RQ_Free(MRWorkQueue *q) {
 void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending) {
   q->maxPending = maxPending;
 }
+
+int RQ_GetPendingCount(MRWorkQueue *q) {
+  uv_mutex_lock(&q->lock);
+  int ret = q->pending;
+  uv_mutex_unlock(&q->lock);
+  return ret;
+}

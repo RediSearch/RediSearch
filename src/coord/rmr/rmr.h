@@ -47,6 +47,8 @@ void MR_Debug_ClearPendingTopo();
 
 void MR_FreeCluster();
 
+int MR_GetPendingCount();
+
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
@@ -56,7 +58,6 @@ void MRCtx_RequestCompleted(struct MRCtx *ctx);
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
-
 
 /* Free the MapReduce context */
 void MRCtx_Free(struct MRCtx *ctx);

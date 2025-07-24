@@ -84,6 +84,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime);
 int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime);
 void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership);
 void IORuntimeCtx_UpdateConnPoolSize(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
+int IORuntimeCtx_GetPendingCount(IORuntimeCtx *io_runtime_ctx);
 
 #ifdef __cplusplus
 }
