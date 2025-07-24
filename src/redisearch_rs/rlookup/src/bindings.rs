@@ -97,6 +97,7 @@ impl IndexSpecCache {
 
     pub fn find_field(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
         self.fields().iter().find(|field| {
+            debug_assert!(!field.fieldName.is_null());
             // Safety: we have to trust that the `fieldName` pointer is valid
             unsafe {
                 ffi::HiddenString_CompareC(field.fieldName, name.as_ptr(), name.count_bytes()) == 0
