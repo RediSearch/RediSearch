@@ -10,7 +10,6 @@
 use std::{
     ffi::c_char,
     ops::{Deref, DerefMut},
-    panic,
     ptr::NonNull,
 };
 
@@ -54,19 +53,23 @@ unsafe extern "C" fn RSSortingVector_Get(
     vec: *const RSSortingVector,
     idx: libc::size_t,
 ) -> *mut ffi::RSValue {
-    assert!(
+    debug_assert!(
         !vec.is_null(),
         "RSSortingVector_Get called with null pointer"
     );
 
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { &*vec };
-    assert!(
-        idx < vec.len(),
-        "RSSortingVector_Get: Index out of bounds: {} >= {}",
-        idx,
-        vec.len()
-    );
+
+    if idx >= vec.len() {
+        debug_assert!(
+            idx < vec.len(),
+            "RSSortingVector_Get: Index out of bounds: {} >= {}",
+            idx,
+            vec.len()
+        );
+        return std::ptr::null_mut();
+    }
 
     vec[idx].0.as_ptr()
 }
@@ -77,7 +80,7 @@ unsafe extern "C" fn RSSortingVector_Get(
 /// 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or null.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc::size_t {
-    assert!(
+    debug_assert!(
         !vec.is_null(),
         "RSSortingVector_Length called with null pointer",
     );
@@ -97,10 +100,13 @@ unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc
 unsafe extern "C" fn RSSortingVector_GetMemorySize(
     vector: Option<NonNull<RSSortingVector>>,
 ) -> libc::size_t {
-    assert!(
-        vector.is_some(),
-        "RSSortingVector_GetMemorySize called with null pointer"
-    );
+    if vector.is_none() {
+        debug_assert!(
+            vector.is_some(),
+            "RSSortingVector_GetMemorySize called with null pointer"
+        );
+        return 0;
+    }
 
     // Safety: We checked for null above, so unwrap is safe
     let vector = unsafe { vector.unwrap_unchecked() };
@@ -119,7 +125,7 @@ unsafe extern "C" fn RSSortingVector_PutNum(
     idx: libc::size_t,
     num: f64,
 ) {
-    assert!(
+    debug_assert!(
         vec.is_some(),
         "RSSortingVector_PutNum called with null pointer"
     );
@@ -130,7 +136,7 @@ unsafe extern "C" fn RSSortingVector_PutNum(
     let vec = unsafe { vec.as_mut() };
     vec.try_insert_val(idx, RSValueFFI::create_num(num))
         .unwrap_or_else(|_| {
-            panic!("Index out of bounds: {} >= {}", idx, vec.len());
+            debug_assert!(false, "Index out of bounds: {} >= {}", idx, vec.len());
         });
 }
 
@@ -148,7 +154,7 @@ unsafe extern "C" fn RSSortingVector_PutStr(
     idx: libc::size_t,
     str: *const c_char,
 ) {
-    assert!(
+    debug_assert!(
         vec.is_some(),
         "RSSortingVector_PutStr called with null pointer"
     );
@@ -168,7 +174,7 @@ unsafe extern "C" fn RSSortingVector_PutStr(
     let value = unsafe { NonNull::new_unchecked(value) };
     let value = RSValueFFI(value);
     vec.try_insert_val(idx, value).unwrap_or_else(|_| {
-        panic!("Index out of bounds: {} >= {}", idx, vec.len());
+        debug_assert!(false, "Index out of bounds: {} >= {}", idx, vec.len());
     });
 }
 
@@ -183,11 +189,11 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
     idx: libc::size_t,
     val: Option<NonNull<ffi::RSValue>>,
 ) {
-    assert!(
+    debug_assert!(
         vec.is_some(),
         "RSSortingVector_PutRSVal called with null pointer"
     );
-    assert!(
+    debug_assert!(
         val.is_some(),
         "RSSortingVector_PutRSVal called with null RSValue pointer"
     );
@@ -202,7 +208,7 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
     //let _ = vec.try_insert_val(idx, RSValueFFI(val));
     vec.try_insert_val(idx, RSValueFFI(val))
         .unwrap_or_else(|_| {
-            panic!("Index out of bounds: {} >= {}", idx, vec.len());
+            debug_assert!(false, "Index out of bounds: {} >= {}", idx, vec.len());
         });
 }
 
@@ -215,7 +221,7 @@ unsafe extern "C" fn RSSortingVector_PutNull(
     vec: Option<NonNull<RSSortingVector>>,
     idx: libc::size_t,
 ) {
-    assert!(
+    debug_assert!(
         vec.is_some(),
         "RSSortingVector_PutNull called with null pointer"
     );
@@ -225,17 +231,20 @@ unsafe extern "C" fn RSSortingVector_PutNull(
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { vec.as_mut() };
     vec.try_insert_null(idx).unwrap_or_else(|_| {
-        panic!("Index out of bounds: {} >= {}", idx, vec.len());
+        debug_assert!(false, "Index out of bounds: {} >= {}", idx, vec.len());
     });
 }
 
 /// Creates a new `RSSortingVector` with the given length. If the length is greater than `RS_SORTABLES_MAX`=`1024`, it returns a null pointer.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RSSortingVector_New(len: libc::size_t) -> *mut RSSortingVector {
-    assert!(
-        len <= RS_SORTABLES_MAX,
-        "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"
-    );
+    if len > RS_SORTABLES_MAX {
+        debug_assert!(
+            false,
+            "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"
+        );
+        return std::ptr::null_mut();
+    }
 
     let vector = RSSortingVector {
         inner: sorting_vector::RSSortingVector::new(len),
