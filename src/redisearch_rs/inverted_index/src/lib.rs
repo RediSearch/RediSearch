@@ -130,6 +130,11 @@ pub enum RSResultType {
 pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 
 /// Represents an aggregate array of values in an index record.
+///
+/// The C code should always use `AggregateResult_New` to construct a new instance of this type
+/// using Rust since the internals cannot be construceted directly in C. The reason is because of
+/// the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+/// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
