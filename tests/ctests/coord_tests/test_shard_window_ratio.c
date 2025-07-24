@@ -278,6 +278,17 @@ void testErrorMessages() {
     QueryError_ClearError(&status);
     freeTestAttribute(&attr2);
 
+    // Test error when feature is disabled
+    RSGlobalConfig.enableUnstableFeatures = 0;
+    QueryAttribute attr3 = createTestAttribute("shard_k_ratio", "0.5");
+    int result3 = QueryNode_ApplyAttributes(node, &attr3, 1, &status);
+    mu_assert_int_eq(0, result3);
+    mu_check(QueryError_HasError(&status));
+    errorMsg = QueryError_GetUserError(&status);
+    mu_check(strstr(errorMsg, "Shard k ratio is unavailable") != NULL);
+    QueryError_ClearError(&status);
+    freeTestAttribute(&attr3);
+
     freeTestVectorNode(node);
 }
 
@@ -364,18 +375,27 @@ MU_TEST(test_calculateEffectiveK) {
     expected = k;  // When ratio = 1, effective K should equal original K
     result = calculateEffectiveK(k, ratio, numShards);
     mu_assert_int_eq(expected, result);
+}
 
-    // Test case 6: ENABLE_UNSTABLE_FEATURES is off - should return original k
-    RSGlobalConfig.enableUnstableFeatures = 0;
-    result = calculateEffectiveK(k, 0.5, numShards);
-    mu_assert_int_eq(k, result);
-    RSGlobalConfig.enableUnstableFeatures = 1;
+static bool original_enable_unstable_features = 0;
+
+// Global setup function to ensure consistent test environment
+void global_test_setup() {
+    RSGlobalConfig.enableUnstableFeatures = 1;  // Default state for all tests
+}
+
+void global_test_teardown() {
+    RSGlobalConfig.enableUnstableFeatures = original_enable_unstable_features;  // Reset to the original value
 }
 
 // Main test runner following minunit framework pattern
 int main(int argc, char **argv) {
-    // Enable unstable features for testing
-    RSGlobalConfig.enableUnstableFeatures = 1;
+    RMUTil_InitAlloc();
+    original_enable_unstable_features = RSGlobalConfig.enableUnstableFeatures;
+
+    // Configure global setup to run before each test
+    MU_SUITE_CONFIGURE(global_test_setup, NULL);
+
     RMUTil_InitAlloc();
     MU_RUN_TEST(testShardKRatioValues);
     MU_RUN_TEST(testAttributeNames);
@@ -389,7 +409,6 @@ int main(int argc, char **argv) {
     MU_RUN_TEST(testModifyParameterKInAggregate);
     MU_RUN_TEST(test_calculateEffectiveK);
     MU_REPORT();
-    RSGlobalConfig.enableUnstableFeatures = 0;
 
     return minunit_status;
 }

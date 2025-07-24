@@ -103,6 +103,24 @@ def test_shard_k_ratio_parameter_validation():
                         message=f"{cmd} expected error for {malformed_query['error']} in: {malformed_query['query']}",
                         expected_error_message=f"Syntax error")
 
+def test_shard_k_unstable_feature_flag():
+    ''"Test that shard k ratio feature is only available when unstable features are enabled."
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false')
+
+    dim = 1
+    datatype = 'FLOAT32'
+    set_up_database_with_vectors(env, dim, num_docs=1, index_name='idx', datatype='FLOAT32')
+
+    query_vec = get_unique_vector(dim, datatype)
+
+    for cmd in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # Should return error for unavailable feature
+        res = env.expect(cmd, 'idx',
+                    f'*=>[KNN 10 @v $query_vec]=>{{$shard_k_ratio: 0.1}}',
+                    'PARAMS', 2, 'query_vec', query_vec.tobytes(), 'nocontent')
+        ValidateError(env, res, message=f"{cmd} expected error for unavailable shard k ratio",
+                        expected_error_message="Shard k ratio is unavailable")
+
 def test_ft_profile_shard_result_validation_scenarios():
     """Test comprehensive scenarios for shard window ratio validation."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true', protocol=3)
@@ -237,59 +255,6 @@ def test_query():
 
         res = env.cmd('FT.AGGREGATE', "idx", query, *params_and_args)
         validate_len("FT.AGGREGATE", query, len(res[1:]))
-
-def test_enable_unstable_features_flag_off():
-    """Test SHARD_K_RATIO feature is disabled when ENABLE_UNSTABLE_FEATURES is not set"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false', protocol=3)
-    conn = getConnectionByEnv(env)
-
-    dim = 2
-    datatype = 'FLOAT32'
-    k = 100
-    num_docs = k * env.shardsCount * 3 # ensure we always have enough results in each shard
-
-    set_up_database_with_vectors(env, dim, num_docs=num_docs, index_name='idx', datatype='FLOAT32')
-
-    query_vec = get_unique_vector(dim, datatype)
-
-    min_shard_ratio = 1 / float(env.shardsCount)
-    ratios = [min_shard_ratio, 0.01, 0.9, 1.0]  # Valid ratios
-
-    for ratio in ratios:
-        k_param_style_command_args = {
-            "k_as_literal": [f'*=>[KNN {k} @v $query_vec]=>{{$shard_k_ratio: {ratio}}}',
-                                        'PARAMS', 2, 'query_vec', query_vec.tobytes(),],
-
-            "k_in_param": [f'*=>[KNN $k @v $query_vec]=>{{$shard_k_ratio: {ratio}}}',
-                                        'PARAMS', 4, 'query_vec', query_vec.tobytes(), 'k', k,]
-        }
-        for k_style, command_args in k_param_style_command_args.items():
-            for cmd in ['SEARCH', 'AGGREGATE']:
-                # Determine expected results based on deployment mode
-                profile_res = env.cmd('FT.PROFILE', 'idx', f'{cmd}', 'QUERY',
-                                    *command_args,
-                                    'nocontent', "LIMIT", 0, k + 1)
-                shards_section = profile_res['Profile']['Shards']
-
-                env.assertEqual(len(shards_section), env.shardsCount, depth=1, message=f"Validate shards count in profile_dict['Shards']")
-
-                # Parse each shard's results
-                for i, shard in enumerate(shards_section):
-
-                    index_rp_profile = shard['Result processors profile'][0] #index_rp is always first
-
-                    # Look for Counter which represents the number of results processed
-                    shard_result_count = index_rp_profile['Counter']
-                    env.assertEqual(shard_result_count, k,
-                    message=f"In scenario {cmd} {k_style}: With k={k}, ratio: {ratio}, Shard {i} expected {k} results, got {shard_result_count}")
-
-
-
-                # Validate final result count
-                actual_result_count = len(profile_res['Results']['results'])
-
-                env.assertEqual(actual_result_count, k,
-                            message=f"{cmd} With K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
 
 @skip(cluster=False)  # Only relevant for cluster mode
 def test_insufficient_docs_per_shard():

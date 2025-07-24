@@ -42,7 +42,7 @@ static inline size_t calculateEffectiveK(size_t originalK, double ratio, size_t 
   // We should not get here if numShards == 1
   RS_LOG_ASSERT(numShards > 1, "Should not calculate effective K for single shard");
 
-  if (ratio == MAX_SHARD_WINDOW_RATIO || !(RSGlobalConfig.enableUnstableFeatures)) {
+  if (ratio == MAX_SHARD_WINDOW_RATIO) {
     return originalK;
   }
 

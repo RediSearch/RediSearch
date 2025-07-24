@@ -2172,6 +2172,11 @@ static int ValidateShardKRatio(const char *value, double *ratio, QueryError *sta
 // down the road. return 0 in case of an unrecognized parameter.
 static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr, QueryError *status) {
   if (STR_EQCASE(attr->name, attr->namelen, SHARD_K_RATIO_ATTR)) {
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+        "Shard k ratio is unavailable when `ENABLE_UNSTABLE_FEATURES` is off.");
+      return 0;
+    }
     double ratio;
     if (!ValidateShardKRatio(attr->value, &ratio, status)) {
       return 0;
