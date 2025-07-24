@@ -200,7 +200,7 @@ impl RSAggregateResult {
     /// Note, this does not deallocate the children pointers, it just resets the count and type
     /// mask. The owner of the children pointers is responsible for deallocating them when needed.
     pub fn reset(&mut self) {
-        self.clear();
+        self.records.clear();
         self.type_mask = RSResultTypeMask::empty();
     }
 
@@ -213,14 +213,6 @@ impl RSAggregateResult {
         self.records.push(child as *const _ as *mut _);
 
         self.type_mask |= child.result_type;
-    }
-
-    /// Clear all the children from the aggregate result
-    ///
-    /// Note, this does not deallocate the children pointers, that is the responsibility of the
-    /// owner of the children pointers.
-    pub fn clear(&mut self) {
-        self.records.clear();
     }
 }
 

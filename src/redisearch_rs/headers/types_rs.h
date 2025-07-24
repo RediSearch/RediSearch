@@ -351,11 +351,21 @@ uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
 void AggregateResult_Reset(struct RSAggregateResult *agg);
 
 /**
- * Create a new aggregate result with the specified capacity. This function will allocate memory
- * for the aggregate result and return a pointer to it. The caller is responsible for freeing
- * the memory using [`AggregateResult_FreeChildren`].
+ * Create a new aggregate result with the specified capacity. This function will make the result
+ * in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
+ * should return to Rust to free up any heap memory using [`AggregateResult_Free`].
  */
-struct RSAggregateResult *AggregateResult_New(uintptr_t cap);
+struct RSAggregateResult AggregateResult_New(uintptr_t cap);
+
+/**
+ * Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
+ * free the individual children pointers, but rather the heap allocations owned by the aggregate
+ * result itself (such as the internal vector buffer). The caller is responsible for managing the
+ * memory of the children pointers before this call if needed.
+ *
+ * The `agg` parameter should have been created with [`AggregateResult_New`].
+ */
+void AggregateResult_Free(struct RSAggregateResult agg);
 
 /**
  * Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
@@ -371,19 +381,6 @@ struct RSAggregateResult *AggregateResult_New(uintptr_t cap);
  * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
  */
 void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
-
-/**
- * Free the children pointers of the aggregate result. The instances at the pointers will, however,
- * not be freed, and the caller is responsible for managing their memory.
- *
- * This function will clear the children of the aggregate result, effectively resetting it.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` created using [`AggregateResult_New`].
- */
-void AggregateResult_FreeChildren(struct RSAggregateResult *agg);
 
 /**
  * Create an iterator over the aggregate result. This iterator should be freed

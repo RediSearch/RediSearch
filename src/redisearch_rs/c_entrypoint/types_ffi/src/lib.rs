@@ -124,15 +124,23 @@ pub unsafe extern "C" fn AggregateResult_Reset(agg: *mut RSAggregateResult) {
     agg.reset();
 }
 
-/// Create a new aggregate result with the specified capacity. This function will allocate memory
-/// for the aggregate result and return a pointer to it. The caller is responsible for freeing
-/// the memory using [`AggregateResult_FreeChildren`].
+/// Create a new aggregate result with the specified capacity. This function will make the result
+/// in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
+/// should return to Rust to free up any heap memory using [`AggregateResult_Free`].
 #[unsafe(no_mangle)]
-pub extern "C" fn AggregateResult_New(cap: usize) -> *mut RSAggregateResult {
-    let agg = RSAggregateResult::with_capacity(cap);
-    let boxed_agg = Box::new(agg);
+pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult {
+    RSAggregateResult::with_capacity(cap)
+}
 
-    Box::into_raw(boxed_agg)
+/// Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
+/// free the individual children pointers, but rather the heap allocations owned by the aggregate
+/// result itself (such as the internal vector buffer). The caller is responsible for managing the
+/// memory of the children pointers before this call if needed.
+///
+/// The `agg` parameter should have been created with [`AggregateResult_New`].
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
+    drop(agg); // Explicit for clarity - automatically frees LowMemoryThinVec buffer
 }
 
 /// Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
@@ -161,24 +169,6 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
     let child = unsafe { &*child };
 
     parent.push(child);
-}
-
-/// Free the children pointers of the aggregate result. The instances at the pointers will, however,
-/// not be freed, and the caller is responsible for managing their memory.
-///
-/// This function will clear the children of the aggregate result, effectively resetting it.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` created using [`AggregateResult_New`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_FreeChildren(agg: *mut RSAggregateResult) {
-    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
-    // a `RSAggregateResult`.
-    let agg = unsafe { &mut *agg };
-
-    agg.clear();
 }
 
 /// Create an iterator over the aggregate result. This iterator should be freed
