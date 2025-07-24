@@ -8,7 +8,7 @@
 */
 
 use inverted_index::{
-    Decoder, DecoderResult, Encoder, IdDelta, RSIndexResult,
+    Decoder, Encoder, IdDelta, RSIndexResult,
     numeric::{Numeric, NumericDelta},
 };
 use pretty_assertions::assert_eq;
@@ -390,12 +390,9 @@ fn test_numeric_encode_decode(
     buf.set_position(0);
 
     let prev_doc_id = u64::MAX - (delta as u64);
-    let DecoderResult::Record(record_decoded) = numeric
+    let record_decoded = numeric
         .decode(&mut buf, prev_doc_id)
-        .expect("to decode numeric record")
-    else {
-        panic!("Record was filtered out incorrectly")
-    };
+        .expect("to decode numeric record");
 
     assert_eq!(record_decoded, record, "failed for value: {}", value);
 }
@@ -443,12 +440,9 @@ fn encode_f64_with_compression() {
 
     buf.set_position(0);
 
-    let DecoderResult::Record(record_decoded) = numeric
+    let record_decoded = numeric
         .decode(&mut buf, 0)
-        .expect("to decode numeric record")
-    else {
-        panic!("Record was filtered out incorrectly")
-    };
+        .expect("to decode numeric record");
 
     let diff = record_decoded.as_numeric().unwrap().0 - record.as_numeric().unwrap().0;
     let diff = diff.abs();
@@ -611,12 +605,9 @@ proptest! {
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
 
-        let DecoderResult::Record(record_decoded) = numeric
+        let record_decoded = numeric
             .decode(&mut buf, prev_doc_id)
-            .expect("to decode numeric record")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
+            .expect("to decode numeric record");
 
         assert_eq!(record_decoded, record, "failed for value: {}", value);
     }
@@ -636,12 +627,9 @@ proptest! {
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
 
-        let DecoderResult::Record(record_decoded) = numeric
+        let record_decoded = numeric
             .decode(&mut buf, prev_doc_id)
-            .expect("to decode numeric record")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
+            .expect("to decode numeric record");
 
         assert_eq!(record_decoded, record, "failed for value: {}", value);
     }
