@@ -50,9 +50,9 @@ typedef struct RSAggregateResultIter RSAggregateResultIter;
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVec_____RSIndexResult {
+typedef struct LowMemoryThinVec______RSIndexResult {
   Header *ptr;
-} LowMemoryThinVec_____RSIndexResult;
+} LowMemoryThinVec______RSIndexResult;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -173,6 +173,11 @@ typedef BitFlags_RSResultType__u32 RSResultTypeMask;
 
 /**
  * Represents an aggregate array of values in an index record.
+ *
+ * The C code should always use `AggregateResult_New` to construct a new instance of this type
+ * using Rust since the internals cannot be construceted directly in C. The reason is because of
+ * the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+ * managed correctly.
  */
 typedef struct RSAggregateResult {
   /**
@@ -182,7 +187,7 @@ typedef struct RSAggregateResult {
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  struct LowMemoryThinVec_____RSIndexResult records;
+  struct LowMemoryThinVec______RSIndexResult records;
   /**
    * A map of the aggregate type of the underlying records
    */
