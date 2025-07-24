@@ -676,10 +676,10 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
   int profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     profileArgs += 2;     // SEARCH/AGGREGATE + QUERY
-    AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_PROFILE);
+    AREQ_AddRequestFlags(r, QEXEC_F_PROFILE);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       profileArgs++;
-      AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_PROFILE_LIMITED);
+      AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
       QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_EPARSEARGS, "No QUERY keyword provided");
@@ -692,7 +692,7 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
-  AREQ_AddRequestFlags(&r->reqflags, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   r->initClock = clock();
 
   int profileArgs = parseProfile(argv, argc, r);

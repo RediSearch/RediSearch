@@ -37,7 +37,7 @@ static bool ensureSimpleMode(AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
-  AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_IS_SEARCH);
+  AREQ_AddRequestFlags(req, QEXEC_F_IS_SEARCH);
   return true;
 }
 
@@ -54,7 +54,7 @@ static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *
                            name);
     return 0;
   }
-  AREQ_AddRequestFlags(reqflags, QEXEC_F_IS_AGGREGATE);
+  REQFLAGS_AddFlags(reqflags, QEXEC_F_IS_AGGREGATE);
   return 1;
 }
 
@@ -125,7 +125,7 @@ static int parseCursorSettings(uint32_t *reqflags, CursorConfig *cursorConfig, A
   if (cursorConfig->maxIdle == 0 || cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
     cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
   }
-  AREQ_AddRequestFlags(reqflags, QEXEC_F_IS_CURSOR);
+  REQFLAGS_AddFlags(reqflags, QEXEC_F_IS_CURSOR);
   return REDISMODULE_OK;
 }
 
@@ -137,7 +137,6 @@ static int parseRequiredFields(const char ***requiredFields, ArgsCursor *ac, Que
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for _REQUIRED_FIELDS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
-
   int requiredFieldNum = AC_NumArgs(&args);
   // This array contains shallow copy of the required fields names. Those copies are to use only for lookup.
   // If we need to use them in reply we should make a copy of those strings.
@@ -270,8 +269,8 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
 
     if (arng->isLimited && arng->limit == 0) {
       // LIMIT 0 0 - only count
-      AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_NOROWS);
-      AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_NOROWS);
+      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > *papCtx->maxSearchResults) &&
@@ -308,9 +307,9 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
-    AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_TYPED);
+    REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
-    AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);
+    REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
     if (parseParams(&(papCtx->searchopts->params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
@@ -319,7 +318,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     if (parseRequiredFields(papCtx->requiredFields, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    AREQ_AddRequestFlags(papCtx->reqflags, QEXEC_F_REQUIRED_FIELDS);
+    REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_REQUIRED_FIELDS);
   } else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
     dialect_specified = true;
     if (parseDialect(&papCtx->reqConfig->dialectVersion, ac, status) != REDISMODULE_OK) {
@@ -518,7 +517,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
        .len = &ast->udatalen},
       {NULL}};
 
-  AREQ_AddRequestFlags(&req->reqflags, QEXEC_FORMAT_DEFAULT);
+  AREQ_AddRequestFlags(req, QEXEC_FORMAT_DEFAULT);
   bool optimization_specified = false;
   bool hasEmptyFilterValue = false;
   while (!AC_IsAtEnd(ac)) {
@@ -543,7 +542,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
       }
-      AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_SEND_HIGHLIGHT);
+      AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       if(!ensureSimpleMode(req)) {
@@ -555,7 +554,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
       }
-      AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_SEND_HIGHLIGHT);
+      AREQ_AddRequestFlags(req, QEXEC_F_SEND_HIGHLIGHT);
 
     } else if ((AREQ_RequestFlags(req) & QEXEC_F_IS_SEARCH) &&
                ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status)) != ARG_UNKNOWN)) {
@@ -563,10 +562,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
-      AREQ_RemoveRequestFlags(&req->reqflags, QEXEC_OPTIMIZE);
+      AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
-      AREQ_AddRequestFlags(&req->reqflags, QEXEC_OPTIMIZE);
+      AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       optimization_specified = true;
     } else {
       ParseAggPlanContext papCtx = {
@@ -599,7 +598,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
-    AREQ_AddRequestFlags(&req->reqflags, QEXEC_OPTIMIZE);
+    AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
@@ -633,7 +632,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
     req->outFields.explicitReturn = 1;
     if (returnFields.argc == 0) {
-      AREQ_AddRequestFlags(&req->reqflags, QEXEC_F_SEND_NOFIELDS);
+      AREQ_AddRequestFlags(req, QEXEC_F_SEND_NOFIELDS);
     }
 
     while (!AC_IsAtEnd(&returnFields)) {
@@ -881,7 +880,7 @@ static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryEr
       return REDISMODULE_ERR;
     }
     // Successfully got a '*', load all fields
-    AREQ_AddRequestFlags(reqflags, QEXEC_AGG_LOAD_ALL);
+    REQFLAGS_AddFlags(reqflags, QEXEC_AGG_LOAD_ALL);
   } else if (rc != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for LOAD: %s", AC_Strerror(rc));
     return REDISMODULE_ERR;

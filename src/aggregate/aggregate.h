@@ -284,13 +284,20 @@ static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
   return (QEFlags)req->reqflags;
 }
 
-static inline void AREQ_AddRequestFlags(uint32_t *reqflags, QEFlags flags) {
-  *reqflags |= flags;
+static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
+  req->reqflags |= flags;
 }
 
-static inline void AREQ_RemoveRequestFlags(uint32_t *reqflags, QEFlags flags) {
-  *reqflags &= ~flags;
+static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
+  req->reqflags &= ~flags;
 }
+
+/**
+ * Macro to directly set flags on a uint32_t *reqflags pointer.
+ * This is used when we don't have access to an AREQ structure
+ * but need to set flags directly on the reqflags pointer.
+ */
+#define REQFLAGS_AddFlags(reqflags, flags) (*(reqflags) |= (flags))
 
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
   return &req->pipeline.qctx;
