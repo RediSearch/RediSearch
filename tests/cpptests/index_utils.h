@@ -93,7 +93,8 @@ public:
     spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &spec.stats.invertedSize);
     IndexEncoder enc = InvertedIndex_GetEncoder(spec.existingDocs->flags);
     for (t_docId docId : docs) {
-      InvertedIndex_WriteEntryGeneric(spec.existingDocs, enc, docId, nullptr);
+      RSIndexResult rec = {.docId = docId, .type = RSResultType_Virtual};
+      InvertedIndex_WriteEntryGeneric(spec.existingDocs, enc, &rec);
     }
   }
 

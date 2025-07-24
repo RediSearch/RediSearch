@@ -50,7 +50,7 @@ unsigned long InvertedIndex_MemUsage(const void *value) {
   unsigned long ret = sizeof_InvertedIndex(idx->flags)
                       + sizeof(IndexBlock) * idx->size;
   for (size_t i = 0; i < idx->size; i++) {
-    ret += IndexBlock_DataCap(&idx->blocks[i]);
+    ret += IndexBlock_Cap(&idx->blocks[i]);
   }
   return ret;
 }

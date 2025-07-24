@@ -412,7 +412,7 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
       .freq = 1,
       .type = RSResultType::RSResultType_Term,
     };
-    InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+    InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
   }
   // Create an iterator that reads only entries with field mask 2
   QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);

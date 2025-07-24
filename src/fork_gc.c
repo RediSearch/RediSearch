@@ -205,7 +205,10 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     params->bytesAfterFix = 0;
     params->entriesCollected = 0;
     IndexBlock *blk = idx->blocks + i;
-    if (blk->lastId - blk->firstId > UINT32_MAX) {
+    t_docId firstId = IndexBlock_FirstId(blk);
+    t_docId lastId = IndexBlock_LastId(blk);
+
+    if (lastId - firstId > UINT32_MAX) {
       // Skip over blocks which have a wide variation. In the future we might
       // want to split a block into two (or more) on high-delta boundaries.
       // todo: is it ok??
@@ -217,7 +220,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
 
     // Capture the pointer address before the block is cleared; otherwise
     // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
-    void *bufptr = blk->buf.data;
+    void *bufptr = IndexBlock_Data(blk);
     size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
     if (nrepaired == 0) {
       // unmodified block
@@ -227,7 +230,8 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
 
     uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
 
-    if (blk->numEntries == 0) {
+    uint16_t numEntries = IndexBlock_NumEntries(blk);
+    if (numEntries == 0) {
       // this block should be removed
       MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
       *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
@@ -254,7 +258,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
       // were added during the fork process was running. If there were, the main process will discard the last block
       // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
       // or it will get to its maximum capacity and will no longer be the last block.
-      ixmsg.lastblkNumEntries = blk->numEntries + params->entriesCollected;
+      ixmsg.lastblkNumEntries = IndexBlock_NumEntries(blk) + params->entriesCollected;
     }
   }
 
@@ -282,7 +286,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     const IndexBlock *blk = blocklist + msg->newix;
     FGC_sendFixed(gc, msg, sizeof(*msg));
     // TODO: check why we need to send the data if its part of the blk struct.
-    FGC_sendBuffer(gc, IndexBlock_DataBuf(blk), IndexBlock_DataLen(blk));
+    FGC_sendBuffer(gc, IndexBlock_Data(blk), IndexBlock_Len(blk));
   }
   rv = true;
 
@@ -566,11 +570,10 @@ FGC_recvRepairedBlock(ForkGC *gc, MSG_RepairedBlock *binfo) {
   if (FGC_recvFixed(gc, binfo, sizeof(*binfo)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  Buffer *b = &binfo->blk.buf;
-  if (FGC_recvBuffer(gc, (void **)&b->data, &b->offset) != REDISMODULE_OK) {
+  if (FGC_recvBuffer(gc, (void **)IndexBlock_DataPtr(&binfo->blk), IndexBlock_LenPtr(&binfo->blk)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  b->cap = b->offset;
+  IndexBlock_SetCap(&binfo->blk, IndexBlock_Len(&binfo->blk));
   return REDISMODULE_OK;
 }
 
@@ -603,7 +606,7 @@ FGC_recvInvIdx(ForkGC *gc, InvIdxBuffers *bufs, MSG_IndexInfo *info) {
 error:
   rm_free(bufs->newBlocklist);
   for (size_t ii = 0; ii < nblocksRecvd; ++ii) {
-    rm_free(bufs->changedBlocks[ii].blk.buf.data);
+    IndexBlock_DataFree(&bufs->changedBlocks[ii].blk);
   }
   rm_free(bufs->changedBlocks);
   memset(bufs, 0, sizeof(*bufs));
@@ -617,7 +620,7 @@ static void freeInvIdx(InvIdxBuffers *bufs, MSG_IndexInfo *info) {
   if (bufs->changedBlocks) {
     // could be null because of pipe error
     for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
-      rm_free(bufs->changedBlocks[ii].blk.buf.data);
+      IndexBlock_DataFree(&bufs->changedBlocks[ii].blk);
     }
     rm_free(bufs->changedBlocks);
   }
@@ -630,7 +633,7 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
     // didn't touch last block in child
     return;
   }
-  if (info->lastblkNumEntries == lastOld->numEntries) {
+  if (info->lastblkNumEntries == IndexBlock_NumEntries(lastOld)) {
     // didn't touch last block in parent
     return;
   }
@@ -755,7 +758,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   idx->numDocs -= info->ndocsCollected;
   idx->gcMarker++;
   RS_LOG_ASSERT(idx->size, "Index should have at least one block");
-  idx->lastId = idx->blocks[idx->size - 1].lastId; // Update lastId
+  idx->lastId = IndexBlock_LastId(&idx->blocks[idx->size - 1]); // Update lastId
 }
 
 typedef struct {
@@ -810,7 +813,7 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
   RSIndexResult *cur;
   IndexReader *ir = NewMinimalNumericReader(range->entries, false);
   size_t startIdx = range->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
-  t_docId startId = range->entries->blocks[startIdx].firstId;
+  t_docId startId = IndexBlock_FirstId(&range->entries->blocks[startIdx]);
   int rc = IR_SkipTo(ir, startId, &cur);
   while (INDEXREAD_OK == rc) {
     hll_add(&range->hll, &cur->data.num.value, sizeof(cur->data.num.value));

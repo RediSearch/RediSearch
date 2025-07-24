@@ -579,8 +579,8 @@ TEST_F(IndexTest, testNumericVaried) {
 
   for (size_t i = 0; i < numCount; i++) {
     size_t min_data_len;
-    size_t cap = idx->blocks[idx->size-1].buf.cap;
-    size_t offset = idx->blocks[idx->size-1].buf.offset;
+    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
+    size_t offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
 
     if(i == 0 || i == 4 || i == 5) {
@@ -658,8 +658,8 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t cap = idx->blocks[idx->size-1].buf.cap;
-    size_t offset = idx->blocks[idx->size-1].buf.offset;
+    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
+    size_t offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
     // if there was not enough space to store the entry, sz will be greater than zero
@@ -670,8 +670,8 @@ void testNumericEncodingHelper(bool isMulti) {
     }
 
     if (isMulti) {
-      cap = idx->blocks[idx->size-1].buf.cap;
-      offset = idx->blocks[idx->size-1].buf.offset;
+      cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
+      offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
 
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
@@ -1607,7 +1607,8 @@ TEST_F(IndexTest, testRawDocId) {
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    InvertedIndex_WriteEntryGeneric(idx, enc, id, NULL);
+    RSIndexResult rec = {.docId = id, .type = RSResultType_Virtual};
+    InvertedIndex_WriteEntryGeneric(idx, enc, &rec);
   }
 
   // Test that we can read them back
