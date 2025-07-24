@@ -125,6 +125,29 @@ impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// We have to turn off miri for this test. As stacked borrows generate a false positive on the underlying code.
+    ///
+    /// ```
+    /// fn clone(&self) -> Self {
+    ///   // ...  
+    ///   let refcount = unsafe { &raw const self.0.as_ref().refcount };
+    ///   let refcount = unsafe { AtomicUsize::from_ptr(refcount.cast_mut()) };
+    ///   //...
+    /// ```
+    ///
+    /// This code generates the error message:  
+    ///
+    /// ```
+    /// error: Undefined Behavior: trying to retag from <182444> for SharedReadWrite permission at alloc76385[0x10], but that tag only grants SharedReadOnly permission for this location
+    /// ```
+    ///
+    /// This happens because, self is a read-only reference, and the second line is trying to retag it to a read-write reference. Which is fine as
+    /// a refcount mutable even in const instances. For this the keyword mutable has been introduced to C++. It allows the change of specific variables in const c++ structs or objects.
+    /// Here the same safety conditions hold, so we are sound.
+    ///
+    /// An upcoming alternative for stacked borrows with less false positives are [tree borrows](https://pldi25.sigplan.org/details/pldi-2025-papers/42/Tree-Borrows).
+    #[cfg(not(miri))]
     #[test]
     fn index_spec_cache_refcount() {
         let spcache = Box::new(ffi::IndexSpecCache {
