@@ -68,7 +68,7 @@ def set_up_database_with_vectors(env, dim, num_docs, index_name='idx', datatype=
 @skip(cluster=False) # shard_k_ratio is ignored is SA
 def test_shard_k_ratio_parameter_validation():
     """Test parameter validation and error handling for shard k ratio."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
     conn = getConnectionByEnv(env)
 
     dim = 1
@@ -103,9 +103,27 @@ def test_shard_k_ratio_parameter_validation():
                         message=f"{cmd} expected error for {malformed_query['error']} in: {malformed_query['query']}",
                         expected_error_message=f"Syntax error")
 
+def test_shard_k_unstable_feature_flag():
+    ''"Test that shard k ratio feature is only available when unstable features are enabled."
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false')
+
+    dim = 1
+    datatype = 'FLOAT32'
+    set_up_database_with_vectors(env, dim, num_docs=1, index_name='idx', datatype='FLOAT32')
+
+    query_vec = get_unique_vector(dim, datatype)
+
+    for cmd in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # Should return error for unavailable feature
+        res = env.expect(cmd, 'idx',
+                    f'*=>[KNN 10 @v $query_vec]=>{{$shard_k_ratio: 0.1}}',
+                    'PARAMS', 2, 'query_vec', query_vec.tobytes(), 'nocontent')
+        ValidateError(env, res, message=f"{cmd} expected error for unavailable shard k ratio",
+                        expected_error_message="Shard k ratio is unavailable")
+
 def test_ft_profile_shard_result_validation_scenarios():
     """Test comprehensive scenarios for shard window ratio validation."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true', protocol=3)
 
     dim = 1
     datatype = 'FLOAT32'
@@ -147,7 +165,7 @@ def test_ft_profile_shard_result_validation_scenarios():
                             message=f"{cmd} With K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
 
 def test_k_0():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     dim = 1
     datatype = 'FLOAT32'
@@ -168,7 +186,7 @@ def test_k_0():
 
 def test_query():
     """Test FT.AGGREGATE with shard k ratio and profile metrics"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
     conn = getConnectionByEnv(env)
 
     dim = 2
@@ -241,7 +259,7 @@ def test_query():
 @skip(cluster=False)  # Only relevant for cluster mode
 def test_insufficient_docs_per_shard():
     """Test scenario where not all shards have enough docs to return ceil(k/num_shards) results"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     # This test is using hardcoded shard distribution, so it only works with 3 shards
     num_shards = 3
