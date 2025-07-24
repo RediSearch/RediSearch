@@ -9,5 +9,7 @@
 
 mod bindings;
 mod lookup;
+mod row;
 
 pub use lookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags};
+pub use row::RLookupRow;
