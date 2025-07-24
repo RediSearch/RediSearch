@@ -910,8 +910,6 @@ AREQ *AREQ_New(void) {
   RSTimeoutPolicy timeoutPolicy;
   int printProfileClock;
   uint64_t BM25STD_TanhFactor;
-  size_t maxSearchResults;
-  size_t maxAggregateResults;
   */
   req->reqConfig = RSGlobalConfig.requestConfigParams;
 
@@ -1111,8 +1109,8 @@ static bool IsIndexCoherent(AREQ *req) {
   // Validate that the prefixes in the arguments are the same as the ones in the
   // index (also in the same order)
   // The first argument is at req->prefixesOffset + 2
-  unsigned int base_idx = req->prefixesOffset + 2;
-  for (unsigned int i = 0; i < n_prefixes; i++) {
+  uint base_idx = req->prefixesOffset + 2;
+  for (uint i = 0; i < n_prefixes; i++) {
     sds arg = args[base_idx + i];
     if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
       // Unmatching prefixes
@@ -1318,7 +1316,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .optimizer = req->optimizer,
     },
     .outFields = &req->outFields,
-    .maxResultsLimit = IsSearch(req) ? RSGlobalConfig.maxSearchResults : RSGlobalConfig.maxAggregateResults,
+    .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,
     .language = req->searchopts.language,
   };
   return Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
