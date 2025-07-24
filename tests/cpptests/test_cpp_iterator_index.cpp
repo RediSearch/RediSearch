@@ -36,8 +36,11 @@ protected:
     InvertedIndex *idx;
     QueryIterator *it_base;
     MockQueryEvalCtx q_mock;
+    NumericFilter *numericFilter;
 
     void SetUp() override {
+        numericFilter = nullptr;
+
         // Generate a set of document IDs for testing
         for (size_t i = 0; i < n_docs; ++i) {
             resultSet[i] = 2 * i + 1; // Document IDs start from 1
@@ -69,7 +72,8 @@ protected:
                 SetNumericInvIndex();
                 FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
                 FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-                it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, nullptr, -INFINITY, INFINITY);
+                numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+                it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
             }
                 break;
             case TYPE_GENERIC:
@@ -81,6 +85,9 @@ protected:
     void TearDown() override {
         it_base->Free(it_base);
         InvertedIndex_Free(idx);
+        if (numericFilter) {
+            NumericFilter_Free(numericFilter);
+        }
     }
 
 private:
@@ -324,8 +331,10 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
       InvertedIndex *idx;
       QueryIterator *it_base;
       MockQueryEvalCtx q_mock;
+      NumericFilter *numericFilter;
 
       void SetUp() override {
+          numericFilter = nullptr;
           IndexFlags flags = GetParam();
 
           size_t dummy;
@@ -362,7 +371,8 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           // Create the iterator based on the flags
           if (flags & Index_StoreNumeric) {
               FieldFilterContext fieldCtx = {.field = {false, fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
-              it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, nullptr, -INFINITY, INFINITY);
+              numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+              it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
           } else if (flags == Index_DocIdsOnly) {
               it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, fieldIndex, FIELD_EXPIRATION_DEFAULT, 1.0);
           } else {
@@ -373,6 +383,9 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
       void TearDown() override {
           it_base->Free(it_base);
           InvertedIndex_Free(idx);
+          if (numericFilter) {
+              NumericFilter_Free(numericFilter);
+          }
       }
   };
   INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTestExpiration, ::testing::Values(

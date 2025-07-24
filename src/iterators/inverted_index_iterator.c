@@ -73,25 +73,7 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
     return VALIDATE_OK;
   }
 
-  // For numeric fields, we need to get the field name from the filter context
-  // We need to use the field spec directly from the numeric filter
-  const NumericFilter *filter = it->decoderCtx.filter;
-  const FieldSpec *fieldSpec = NULL;
-
-  if (!it->filterCtx.field.isFieldMask && it->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
-    // Extract FieldSpec from filterCtx when filter is not available
-    fieldSpec = &it->sctx->spec->fields[it->filterCtx.field.value.index];
-  }
-
-  if (!fieldSpec) {
-    // No field spec means we can't check for revision changes
-    return VALIDATE_OK;
-  }
-
-  RedisModuleString *numField = IndexSpec_GetFormattedKey(it->sctx->spec, fieldSpec, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = openNumericKeysDict(it->sctx->spec, numField, DONT_CREATE_INDEX);
-
-  if (!rt || rt->revisionId != nit->revisionId) {
+  if (nit->rt->revisionId != nit->revisionId) {
     // The numeric tree was either completely deleted or a node was split or removed.
     // The cursor is invalidated.
     base->isAborted = true;
@@ -592,7 +574,7 @@ static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, 
   return InitInvIndIterator(it, idx, res, filterCtx, skipMulti, sctx, decoderCtx, checkAbortFn);
 }
 
-static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndexResult *res, const FieldSpec* fieldSpec, const FieldFilterContext *filterCtx,
                 bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
   RS_ASSERT(idx && idx->size > 0);
   NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
@@ -600,21 +582,14 @@ static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndex
   // Initialize the iterator first
   InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
 
-  // Get the numeric field key and retrieve the NumericRangeTree
-  const FieldSpec *fieldSpec = NULL;
-
-  if (sctx && filterCtx && !filterCtx->field.isFieldMask &&
-             filterCtx->field.value.index != RS_INVALID_FIELD_INDEX) {
-    fieldSpec = &sctx->spec->fields[filterCtx->field.value.index];
-  }
-
   if (fieldSpec) {
     RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fieldSpec, INDEXFLD_T_NUMERIC);
     NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
-    if (rt) {
-      it->revisionId = rt->revisionId;
-    }
+    RS_ASSERT(rt);
+    it->revisionId = rt->revisionId;
+    it->rt = rt;
   } else {
+    it->rt = NULL;
     it->revisionId = 0;
     it->base.CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))EmptyCheckAbort;
   }
@@ -628,7 +603,7 @@ QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx, t_fieldIndex fi
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
   IndexDecoderCtx decoderCtx = {.filter = NULL};
-  return NewInvIndIterator_NumericRange(idx, NewNumericResult(), &fieldCtx, false, NULL, &decoderCtx);
+  return NewInvIndIterator_NumericRange(idx, NewNumericResult(), NULL, &fieldCtx, false, NULL, &decoderCtx);
 }
 
 QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx) {
@@ -660,7 +635,8 @@ QueryIterator *NewInvIndIterator_TagFull(InvertedIndex *idx, TagIndex *tagIdx) {
 QueryIterator *NewInvIndIterator_NumericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, double rangeMin, double rangeMax) {
   IndexDecoderCtx decoderCtx = {.filter = flt};
-  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), fieldCtx, true, sctx, &decoderCtx);
+  const FieldSpec *fieldSpec = flt->fieldSpec;
+  QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), fieldSpec, fieldCtx, true, sctx, &decoderCtx);
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
   it->profileCtx.numeric.rangeMax = rangeMax;

@@ -64,6 +64,7 @@ typedef struct InvIndIterator {
 
 typedef struct {
   InvIndIterator base;
+  NumericRangeTree *rt;
   uint32_t revisionId;
 } NumericInvIndIterator;
 
