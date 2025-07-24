@@ -286,7 +286,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     const IndexBlock *blk = blocklist + msg->newix;
     FGC_sendFixed(gc, msg, sizeof(*msg));
     // TODO: check why we need to send the data if its part of the blk struct.
-    FGC_sendBuffer(gc, IndexBlock_Data(blk), IndexBlock_DataLen(blk));
+    FGC_sendBuffer(gc, IndexBlock_Data(blk), IndexBlock_Len(blk));
   }
   rv = true;
 

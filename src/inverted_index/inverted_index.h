@@ -131,7 +131,9 @@ static inline size_t IndexBlock_Cap(const IndexBlock *b) {
   return b->buf.cap;
 }
 
-#define IndexBlock_DataLen(b) (b)->buf.offset
+static inline size_t IndexBlock_Len(const IndexBlock *b) {
+  return b->buf.offset;
+}
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
