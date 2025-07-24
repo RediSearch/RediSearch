@@ -570,11 +570,10 @@ FGC_recvRepairedBlock(ForkGC *gc, MSG_RepairedBlock *binfo) {
   if (FGC_recvFixed(gc, binfo, sizeof(*binfo)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  Buffer *b = &binfo->blk.buf;
-  if (FGC_recvBuffer(gc, (void **)&b->data, &b->offset) != REDISMODULE_OK) {
+  if (FGC_recvBuffer(gc, (void **)IndexBlock_DataPtr(&binfo->blk), IndexBlock_LenPtr(&binfo->blk)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  b->cap = b->offset;
+  IndexBlock_SetCap(&binfo->blk, IndexBlock_Len(&binfo->blk));
   return REDISMODULE_OK;
 }
 

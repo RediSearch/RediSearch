@@ -123,6 +123,10 @@ static inline char *IndexBlock_Data(const IndexBlock *b) {
   return b->buf.data;
 }
 
+static inline char **IndexBlock_DataPtr(IndexBlock *b) {
+  return &b->buf.data;
+}
+
 static inline void IndexBlock_DataFree(const IndexBlock *b) {
   rm_free(b->buf.data);
 }
@@ -131,8 +135,24 @@ static inline size_t IndexBlock_Cap(const IndexBlock *b) {
   return b->buf.cap;
 }
 
+static inline void IndexBlock_SetCap(IndexBlock *b, size_t cap) {
+  b->buf.cap = cap;
+}
+
 static inline size_t IndexBlock_Len(const IndexBlock *b) {
   return b->buf.offset;
+}
+
+static inline size_t *IndexBlock_LenPtr(IndexBlock *b) {
+  return &b->buf.offset;
+}
+
+static inline Buffer *IndexBlock_Buffer(IndexBlock *b) {
+  return &b->buf;
+}
+
+static inline void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
+  b->buf = buf;
 }
 
 /**
