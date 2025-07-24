@@ -742,7 +742,6 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         flags: RLookupKeyFlags,
     ) -> Option<Pin<&'list mut RLookupKey<'a>>> {
         let mut old = self.current()?;
-        println!("overriding key {old:?}");
 
         let new = {
             let mut old = old.as_mut().project();
@@ -1406,6 +1405,42 @@ mod tests {
         // and the next item to be the new key
         c.move_next();
         assert_eq!(c.current().unwrap()._name.as_ref(), c"foo");
+    }
+
+    #[test]
+    fn keylist_override_key_tail_handling() {
+        let mut keylist = KeyList::new();
+
+        // push two keys, so we can override one without altering the tail and another one to override it.
+        keylist.push(RLookupKey::new(
+            c"foo",
+            make_bitflags!(RLookupKeyFlag::Unresolved),
+        ));
+        let secoond = keylist.push(RLookupKey::new(
+            c"bar",
+            make_bitflags!(RLookupKeyFlag::Unresolved),
+        ));
+        let second = unsafe { NonNull::from(Pin::into_inner_unchecked(secoond)) };
+
+        // store first override key
+        let override1 = keylist
+            .cursor_front_mut()
+            .override_current(make_bitflags!(RLookupKeyFlag::Numeric));
+        let override1 = unsafe { NonNull::from(Pin::into_inner_unchecked(override1.unwrap())) };
+
+        // we expect the tail to be the second key still
+        assert_ne!(override1, keylist.tail.unwrap());
+        assert_eq!(second, keylist.tail.unwrap());
+
+        // now we override the second key, which is the tail
+        let mut cursor = keylist.cursor_front_mut();
+        cursor.move_next(); // move to the first override
+        cursor.move_next(); // move to the second key
+        let override2 = cursor.override_current(make_bitflags!(RLookupKeyFlag::Numeric));
+        let override2 = unsafe { NonNull::from(Pin::into_inner_unchecked(override2.unwrap())) };
+
+        // we expect the tail to be the new key
+        assert_eq!(override2, keylist.tail.unwrap());
     }
 
     #[repr(C)]
