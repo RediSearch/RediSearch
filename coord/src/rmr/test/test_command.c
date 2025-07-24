@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "minunit.h"
+#include "coord/tests/utils/minunit.h"
 #include "command.h"
 #include "rmutil/alloc.h"
 

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "minunit.h"
+#include "coord/tests/utils/minunit.h"
 #include "query.h"
 #include "query_node.h"
 #include "vector_index.h"
