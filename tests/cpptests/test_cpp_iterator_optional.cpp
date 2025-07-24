@@ -676,7 +676,7 @@ protected:
   const t_docId maxDocId = 100;
   const size_t numDocs = 50;
   const double weight = 2.0;
-  
+
   void SetUp() override {
     // Create child iterator with specific docIds
     mockChild = new MockIterator({10UL, 20UL, 30UL, 40UL, 50UL});
@@ -686,7 +686,7 @@ protected:
     mockCtx = new MockQueryEvalCtx(maxDocId, numDocs);
     oi_base = IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
   }
-  
+
   void TearDown() override {
     if (oi_base) {
       oi_base->Free(oi_base);
@@ -698,18 +698,18 @@ protected:
 TEST_F(OptionalIteratorRevalidateTest, RevalidateOK) {
   // Child returns VALIDATE_OK
   mockChild->SetRevalidateResult(VALIDATE_OK);
-  
+
   // Read a few documents first to establish position
   ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
-  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);  
-  
+  ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
+
   // Revalidate should return VALIDATE_OK
   ValidateStatus status = oi_base->Revalidate(oi_base);
   ASSERT_EQ(status, VALIDATE_OK);
-  
+
   // Verify child was revalidated
   ASSERT_EQ(mockChild->GetValidationCount(), 1);
-  
+
   // Should be able to continue reading
   ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
 }
@@ -717,15 +717,15 @@ TEST_F(OptionalIteratorRevalidateTest, RevalidateOK) {
 TEST_F(OptionalIteratorRevalidateTest, RevalidateAborted) {
   // Child returns VALIDATE_ABORTED
   mockChild->SetRevalidateResult(VALIDATE_ABORTED);
-  
+
   // Read a document first
   ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
-  
+
   // Optional iterator handles child abort gracefully by replacing with empty iterator
   ValidateStatus status = oi_base->Revalidate(oi_base);
   ASSERT_EQ(status, VALIDATE_OK); // Optional iterator continues even when child is aborted
   ASSERT_FALSE(oi_base->isAborted); // Optional iterator itself is not aborted
-  
+
   // Should be able to continue reading (now all virtual hits)
   ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
 }
@@ -733,16 +733,16 @@ TEST_F(OptionalIteratorRevalidateTest, RevalidateAborted) {
 TEST_F(OptionalIteratorRevalidateTest, RevalidateMoved) {
   // Child returns VALIDATE_MOVED
   mockChild->SetRevalidateResult(VALIDATE_MOVED);
-  
+
   // Read to a real hit (document from child)
   ASSERT_EQ(oi_base->SkipTo(oi_base, 10), ITERATOR_OK);
   ASSERT_EQ(oi_base->lastDocId, 10);
-  
+
   // Revalidate should handle child movement
   ValidateStatus status = oi_base->Revalidate(oi_base);
   // Should either be OK (if virtual result) or MOVED (if real result was affected)
   ASSERT_TRUE(status == VALIDATE_OK || status == VALIDATE_MOVED);
-  
+
   // Should be able to continue reading after revalidation
   IteratorStatus read_status = oi_base->Read(oi_base);
   ASSERT_TRUE(read_status == ITERATOR_OK || read_status == ITERATOR_EOF);
@@ -751,15 +751,15 @@ TEST_F(OptionalIteratorRevalidateTest, RevalidateMoved) {
 TEST_F(OptionalIteratorRevalidateTest, RevalidateMovedVirtualResult) {
   // Child returns VALIDATE_MOVED
   mockChild->SetRevalidateResult(VALIDATE_MOVED);
-  
+
   // Read to a virtual hit (document not in child)
   ASSERT_EQ(oi_base->SkipTo(oi_base, 15), ITERATOR_OK);
   ASSERT_EQ(oi_base->lastDocId, 15);
-  
+
   // Since current result is virtual, revalidate should return OK
   ValidateStatus status = oi_base->Revalidate(oi_base);
   ASSERT_EQ(status, VALIDATE_OK);
-  
+
   // Should be able to continue reading
   ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
 }
