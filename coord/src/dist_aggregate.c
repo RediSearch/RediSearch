@@ -18,6 +18,7 @@
 #include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
 #include "util/units.h"
+#include "config.h"
 #include "shard_window_ratio.h"
 
 #include <err.h>
