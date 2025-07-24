@@ -101,7 +101,7 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
   }
   InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, base->current->data.term.term->str,
       base->current->data.term.term->len, false, NULL);
-  if (!idx || idx == TRIEMAP_NOTFOUND || it->idx != idx) {
+  if (!idx || it->idx != idx) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
@@ -120,7 +120,7 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
   size_t sz;
   InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, base->current->data.term.term->str,
       base->current->data.term.term->len, false, &sz);
-  if (!idx || idx == TRIEMAP_NOTFOUND || it->base.idx != idx) {
+  if (idx == TRIEMAP_NOTFOUND || it->base.idx != idx) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
@@ -143,20 +143,19 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
 
   ValidateStatus ret = it->CheckAbort(it);
 
-  if(ret != VALIDATE_OK) {
+  if (ret != VALIDATE_OK) {
     return ret;
   }
 
-  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
+  // the gc marker tells us if there is a chance the keys have undergone GC while we were asleep
   if (it->gcMarker == it->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
     size_t offset = it->blockReader.buffReader.pos;
     SetCurrentBlockReader(it);
     it->blockReader.buffReader.pos = offset;
-    ret = VALIDATE_OK;
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
-    // anymore. This means that we need to seek to last docId we were at
+    // anymore. This means that we need to seek the last docId we were at
 
     // keep the last docId we were at
     t_docId lastDocId = base->lastDocId;
@@ -165,8 +164,6 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
     IteratorStatus rc = base->SkipTo(base, lastDocId);
     if (rc == ITERATOR_NOTFOUND) {
       ret = VALIDATE_MOVED;
-    } else if (rc == ITERATOR_EOF) {
-      ret = VALIDATE_OK;
     }
   }
 
