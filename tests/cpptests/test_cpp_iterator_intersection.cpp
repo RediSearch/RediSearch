@@ -459,3 +459,135 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithSingleChild) {
   ASSERT_EQ(ii_base->type, expected_type);
   ii_base->Free(ii_base);
 }
+
+// Test class for Revalidate functionality of Intersection Iterator
+class IntersectionIteratorRevalidateTest : public ::testing::Test {
+protected:
+  QueryIterator *ii_base;
+  std::vector<MockIterator*> mockChildren;
+  std::vector<t_docId> commonDocIds;
+
+  void SetUp() override {
+    // Create common document IDs that all children will have
+    commonDocIds = {10, 20, 30, 40, 50};
+
+    // Create 3 mock children with overlapping doc IDs
+    mockChildren.resize(3);
+    auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 3);
+
+    // Child 0: has common docs + some unique ones
+    mockChildren[0] = new MockIterator({10UL, 15UL, 20UL, 25UL, 30UL, 35UL, 40UL, 45UL, 50UL, 55UL});
+    children[0] = reinterpret_cast<QueryIterator *>(mockChildren[0]);
+
+    // Child 1: has common docs + different unique ones
+    mockChildren[1] = new MockIterator({5UL, 10UL, 18UL, 20UL, 28UL, 30UL, 38UL, 40UL, 48UL, 50UL, 60UL});
+    children[1] = reinterpret_cast<QueryIterator *>(mockChildren[1]);
+
+    // Child 2: has common docs + different unique ones
+    mockChildren[2] = new MockIterator({2UL, 10UL, 12UL, 20UL, 22UL, 30UL, 32UL, 40UL, 42UL, 50UL, 70UL});
+    children[2] = reinterpret_cast<QueryIterator *>(mockChildren[2]);
+
+    // Create intersection iterator
+    ii_base = NewIntersectionIterator(children, 3, -1, false, 1.0);
+  }
+
+  void TearDown() override {
+    if (ii_base) {
+      ii_base->Free(ii_base);
+    }
+  }
+};
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateOK) {
+  // All children return VALIDATE_OK
+  for (auto& child : mockChildren) {
+    child->SetRevalidateResult(VALIDATE_OK);
+  }
+
+  // Read a few documents first
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 10);
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 20);
+
+  // Revalidate should return VALIDATE_OK
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify all children were revalidated
+  for (auto& child : mockChildren) {
+    ASSERT_EQ(child->GetValidationCount(), 1);
+  }
+
+  // Should be able to continue reading
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 30);
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted) {
+  // One child returns VALIDATE_ABORTED
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_ABORTED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+
+  // Revalidate should return VALIDATE_ABORTED since one child is aborted
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+  // Note: The intersection iterator's isAborted flag might not be set by Revalidate itself
+  // but would be set when subsequent Read/SkipTo operations encounter the aborted child
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved) {
+  // All children return VALIDATE_MOVED - each will advance by one document
+  mockChildren[0]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 10);
+
+  // Revalidate should return VALIDATE_MOVED
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(ii_base->lastDocId, 20) << "After revalidation with VALIDATE_MOVED, the lastDocId should be advanced to the next common doc ID";
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults) {
+  // Mix of different revalidate results
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 10);
+
+  // Revalidate should return VALIDATE_MOVED (if any child moved)
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Should be able to continue reading (intersection will handle the moved child)
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+}
+
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateMovedToEOF) {
+  // Mix of different revalidate results
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Read a document first
+  ASSERT_EQ(ii_base->SkipTo(ii_base, commonDocIds.back()), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 50);
+
+  // Revalidate should return VALIDATE_OK (a child moved but we are at EOF)
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+  ASSERT_TRUE(ii_base->atEOF);
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+}

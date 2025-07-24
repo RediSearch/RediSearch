@@ -272,9 +272,11 @@ static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
   if (wcii_status == VALIDATE_OK) {
     // Same logic as non-optimized case
     RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
+    base->atEOF = ni->wcii->atEOF; // sync EOF state with wildcard iterator
     return VALIDATE_OK;
   } else {
-    // wcii_status == VALIDATE_MOVED
+    RS_ASSERT(wcii_status == VALIDATE_MOVED);
+    base->lastDocId = base->current->docId = ni->wcii->lastDocId;
     // Check child position relative to our current position
     if (ni->child->atEOF || ni->child->lastDocId > base->lastDocId) {
       // Child is ahead or at EOF - our position is still valid, but wildcard moved

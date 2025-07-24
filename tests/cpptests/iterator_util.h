@@ -24,6 +24,7 @@ extern "C" {
     size_t MockIterator_NumEstimated(QueryIterator *base);
     void MockIterator_Rewind(QueryIterator *base);
     void MockIterator_Free(QueryIterator *base);
+    ValidateStatus MockIterator_Revalidate(QueryIterator *base);
 }
 
 class MockIterator {
@@ -34,6 +35,9 @@ public:
     IteratorStatus whenDone;
     size_t readCount;
     std::optional<std::chrono::nanoseconds> sleepTime; // Sleep for this duration before returning from Read/SkipTo
+    ValidateStatus revalidateResult; // Whether to simulate a change after GC
+    size_t validationCount;
+
 private:
     void Init() {
       base.type = MAX_ITERATOR;
@@ -45,6 +49,8 @@ private:
       base.Read = MockIterator_Read;
       base.SkipTo = MockIterator_SkipTo;
       base.Rewind = MockIterator_Rewind;
+      base.Revalidate = MockIterator_Revalidate;
+
       std::sort(docIds.begin(), docIds.end());
       auto new_end = std::unique(docIds.begin(), docIds.end());
       docIds.erase(new_end, docIds.end());
@@ -98,31 +104,54 @@ public:
       base.atEOF = false;
     }
 
+    ValidateStatus Revalidate() {
+      validationCount++;
+
+      if (revalidateResult == VALIDATE_ABORTED) {
+        base.isAborted = true;
+      } else if (revalidateResult == VALIDATE_MOVED) {
+        nextIndex++; // Simulate a move by incrementing nextIndex
+        RS_LOG_ASSERT(nextIndex < docIds.size(), "BAD TEST: Requested `VALIDATE_MOVED` but nextIndex is out of bounds (real iterators should return VALIDATE_OK on EOF)");
+        base.lastDocId = base.current->docId = docIds[nextIndex++];
+      }
+
+      return revalidateResult;
+    }
+
+    // Methods to configure revalidate behavior for testing
+    void SetRevalidateResult(ValidateStatus result) {
+      revalidateResult = result;
+    }
+
+    size_t GetValidationCount() const {
+      return validationCount;
+    }
+
     ~MockIterator() noexcept {
       IndexResult_Free(base.current);
     }
 
     template<typename... Args>
     MockIterator(Args&&... args)
-      : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(std::nullopt) {
+      : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(std::nullopt), revalidateResult(VALIDATE_OK), validationCount(0) {
       Init();
     }
 
     template<typename... Args>
     MockIterator(std::chrono::nanoseconds sleep, Args&&... args)
-      : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(sleep) {
+      : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(sleep), revalidateResult(VALIDATE_OK), validationCount(0) {
       Init();
     }
 
     template<typename... Args>
     MockIterator(IteratorStatus st, Args&&... ids_args)
-      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(std::nullopt) {
+      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(std::nullopt), revalidateResult(VALIDATE_OK), validationCount(0) {
       Init();
     }
 
     template<typename... Args>
     MockIterator(IteratorStatus st, std::chrono::nanoseconds sleep, Args&&... ids_args)
-      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
+      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep), revalidateResult(VALIDATE_OK), validationCount(0) {
       Init();
     }
 };

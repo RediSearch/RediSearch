@@ -360,3 +360,123 @@ TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
   ui_base->Free(ui_base);
   InvertedIndex_Free(idx);
 }
+
+// Test class for Revalidate functionality of Union Iterator
+class UnionIteratorRevalidateTest : public ::testing::Test {
+protected:
+  QueryIterator *ui_base;
+  std::vector<MockIterator*> mockChildren;
+  
+  void SetUp() override {
+    // Create 3 mock children with different doc IDs
+    mockChildren.resize(3);
+    auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 3);
+    
+    // Child 0: docs [10, 30, 50]
+    mockChildren[0] = new MockIterator({10UL, 30UL, 50UL});
+    children[0] = reinterpret_cast<QueryIterator *>(mockChildren[0]);
+    
+    // Child 1: docs [20, 40, 60]
+    mockChildren[1] = new MockIterator({20UL, 40UL, 60UL});
+    children[1] = reinterpret_cast<QueryIterator *>(mockChildren[1]);
+    
+    // Child 2: docs [15, 35, 55]
+    mockChildren[2] = new MockIterator({15UL, 35UL, 55UL});
+    children[2] = reinterpret_cast<QueryIterator *>(mockChildren[2]);
+    
+    // Create union iterator (should yield: 10, 15, 20, 30, 35, 40, 50, 55, 60)
+    ui_base = IT_V2(NewUnionIterator)(children, 3, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  }
+  
+  void TearDown() override {
+    if (ui_base) {
+      ui_base->Free(ui_base);
+    }
+  }
+};
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateOK) {
+  // All children return VALIDATE_OK
+  for (auto& child : mockChildren) {
+    child->SetRevalidateResult(VALIDATE_OK);
+  }
+  
+  // Read a few documents first
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 10);
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 15);
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 20);
+  
+  // Revalidate should return VALIDATE_OK
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+  
+  // Verify all children were revalidated
+  for (auto& child : mockChildren) {
+    ASSERT_EQ(child->GetValidationCount(), 1);
+  }
+  
+  // Should be able to continue reading
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 30);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateAborted) {
+  // Union iterator only returns VALIDATE_ABORTED if ALL children are aborted
+  // If only some children are aborted, it removes them and continues
+  
+  // Set all children to be aborted
+  mockChildren[0]->SetRevalidateResult(VALIDATE_ABORTED);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_ABORTED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_ABORTED);
+  
+  // Read a document first
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  
+  // Revalidate should return VALIDATE_ABORTED since all children are aborted
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_ABORTED);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidatePartiallyAborted) {
+  // When only some children are aborted, Union iterator removes them and continues
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_ABORTED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+  
+  // Read a document first
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  t_docId docIdBeforeRevalidate = ui_base->lastDocId;
+  
+  // Revalidate should return VALIDATE_OK or VALIDATE_MOVED (not ABORTED)
+  // since not all children are aborted
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_TRUE(status == VALIDATE_OK || status == VALIDATE_MOVED);
+  ASSERT_NE(status, VALIDATE_ABORTED);
+  
+  // Should be able to continue reading after removing aborted child
+  IteratorStatus read_status = ui_base->Read(ui_base);
+  ASSERT_TRUE(read_status == ITERATOR_OK || read_status == ITERATOR_EOF);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateMoved) {
+  // All children return VALIDATE_MOVED - each will advance by one document
+  mockChildren[0]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_MOVED);
+  
+  // Read a document first
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 10);
+  
+  // Revalidate should return VALIDATE_MOVED
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  
+  // After revalidation with VALIDATE_MOVED, each child advances by one position
+  // The union iterator should handle the moved children appropriately
+  // We don't make specific assertions about the exact document ID since the
+  // union logic will need to re-synchronize the children
+}
