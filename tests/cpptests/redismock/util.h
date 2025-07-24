@@ -85,9 +85,6 @@ class ArgvList {
   ArgvList(RedisModuleCtx *ctx, const char **s, size_t n) : m_ctx(ctx) {
     m_list = CreateArgv(ctx, s, n);
   }
-
-  explicit ArgvList(RedisModuleCtx *ctx, const char* command);
-
   ArgvList(ArgvList &) = delete;
 
   void clear() {
