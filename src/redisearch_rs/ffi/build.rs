@@ -56,7 +56,9 @@ fn main() {
             .join("RedisModulesSDK")
             .join("redismodule.h"),
         root.join("src").join("buffer/buffer.h"),
+        root.join("src").join("config.h"),
         root.join("src").join("result_processor.h"),
+        root.join("src").join("rlookup.h"),
         root.join("src").join("sortable.h"),
         root.join("src").join("value.h"),
         root.join("src").join("obfuscation").join("hidden.h"),

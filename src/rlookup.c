@@ -379,7 +379,7 @@ void RLookup_Cleanup(RLookup *lk) {
   memset(lk, 0xff, sizeof(*lk));
 }
 
-static RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
+RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type) {
   if (type == RLOOKUP_C_BOOL || type == RLOOKUP_C_INT) {
     long long ll;
     RedisModule_StringToLongLong(src, &ll);
@@ -551,7 +551,7 @@ done:
   return res;
 }
 
-static RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
+RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype) {
   switch (RedisModule_CallReplyType(rep)) {
     case REDISMODULE_REPLY_STRING: {
       if (otype == RLOOKUP_C_BOOL || RLOOKUP_C_INT) {
@@ -706,7 +706,7 @@ typedef int (*GetKeyFunc)(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOpti
                           void **keyobj);
 
 
-static int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   // Load the document from the schema. This should be simple enough...
   void *key = NULL;  // This is populated by getKeyCommon; we free it at the end
   DocumentType type = options->dmd ? options->dmd->type : options->type;
@@ -859,7 +859,7 @@ done:
   return rc;
 }
 
-static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
+int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rc = REDISMODULE_ERR;
   if (!japi) {
     return rc;
@@ -956,4 +956,9 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   QueryError_ClearError(&status);
   rm_free(keys);
   return rv;
+}
+
+// added as entry point for the rust code
+size_t sdslen__(const char* s) {
+  return sdslen(s);
 }
