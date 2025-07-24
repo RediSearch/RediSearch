@@ -9,6 +9,8 @@
 
 mod bindings;
 mod lookup;
+#[cfg(test)]
+mod mock;
 
 pub use bindings::IndexSpecCache;
 pub use lookup::{
