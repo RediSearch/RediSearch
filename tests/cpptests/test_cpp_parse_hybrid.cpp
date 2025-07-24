@@ -114,6 +114,8 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -151,6 +153,8 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -244,6 +248,8 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
   assertLinearScoringCtx(0.7, 0.3);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
   QueryError_ClearError(&status);
 }
@@ -268,6 +274,8 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   assertRRFScoringCtx(1, 20);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -312,6 +320,8 @@ TEST_F(ParseHybridTest, testVectorParameterAdvancing) {
   assertRRFScoringCtx(1, 20);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -335,6 +345,8 @@ TEST_F(ParseHybridTest, testVectorParameterAdvancingToLimit) {
   assertRRFScoringCtx(1, 20);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -365,5 +377,7 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   assertLinearScoringCtx(0.65, 0.35);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
