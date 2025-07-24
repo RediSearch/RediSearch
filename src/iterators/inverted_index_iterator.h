@@ -74,7 +74,7 @@ typedef struct {
 } TagInvIndIterator;
 
 // API for full index scan. Not suitable for queries
-QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx, t_fieldIndex fieldIndex);
+QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx);
 // API for full index scan. Not suitable for queries
 QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx);
 

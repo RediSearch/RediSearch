@@ -597,9 +597,9 @@ static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndex
   return &it->base.base;
 }
 
-QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx, t_fieldIndex fieldIndex) {
+QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {
   FieldFilterContext fieldCtx = {
-    .field = {.isFieldMask = false, .value = {.index = fieldIndex}},
+    .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
   IndexDecoderCtx decoderCtx = {.filter = NULL};

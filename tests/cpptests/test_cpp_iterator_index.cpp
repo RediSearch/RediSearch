@@ -62,7 +62,7 @@ protected:
                 break;
             case TYPE_NUMERIC_FULL:
                 SetNumericInvIndex();
-                it_base = NewInvIndIterator_NumericFull(idx, RS_INVALID_FIELD_INDEX);
+                it_base = NewInvIndIterator_NumericFull(idx);
                 break;
             case TYPE_TERM:
                 SetTermsInvIndex();
@@ -679,7 +679,7 @@ private:
                 InvertedIndex_WriteNumericEntry(numericIdx, resultSet[i], static_cast<double>(i * 10));
             }
 
-            iterator = NewInvIndIterator_NumericFull(numericIdx, RS_INVALID_FIELD_INDEX);
+            iterator = NewInvIndIterator_NumericFull(numericIdx);
             numericIdxNeedsFreeing = true; // Created standalone, needs manual freeing
         }
     }
