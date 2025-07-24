@@ -68,7 +68,7 @@ def set_up_database_with_vectors(env, dim, num_docs, index_name='idx', datatype=
 @skip(cluster=False) # shard_k_ratio is ignored is SA
 def test_shard_k_ratio_parameter_validation():
     """Test parameter validation and error handling for shard k ratio."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
     conn = getConnectionByEnv(env)
 
     dim = 1
@@ -105,7 +105,7 @@ def test_shard_k_ratio_parameter_validation():
 
 def test_ft_profile_shard_result_validation_scenarios():
     """Test comprehensive scenarios for shard window ratio validation."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true', protocol=3)
 
     dim = 1
     datatype = 'FLOAT32'
@@ -147,7 +147,7 @@ def test_ft_profile_shard_result_validation_scenarios():
                             message=f"{cmd} With K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
 
 def test_k_0():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     dim = 1
     datatype = 'FLOAT32'
@@ -168,7 +168,7 @@ def test_k_0():
 
 def test_query():
     """Test FT.AGGREGATE with shard k ratio and profile metrics"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
     conn = getConnectionByEnv(env)
 
     dim = 2
@@ -240,7 +240,7 @@ def test_query():
 
 def test_enable_unstable_features_flag_off():
     """Test SHARD_K_RATIO feature is disabled when ENABLE_UNSTABLE_FEATURES is not set"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false', protocol=3)
     conn = getConnectionByEnv(env)
 
     dim = 2
@@ -294,7 +294,7 @@ def test_enable_unstable_features_flag_off():
 @skip(cluster=False)  # Only relevant for cluster mode
 def test_insufficient_docs_per_shard():
     """Test scenario where not all shards have enough docs to return ceil(k/num_shards) results"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     # This test is using hardcoded shard distribution, so it only works with 3 shards
     num_shards = 3
