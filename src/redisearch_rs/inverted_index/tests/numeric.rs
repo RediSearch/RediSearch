@@ -392,6 +392,8 @@ fn test_numeric_encode_decode(
     buf.set_position(0);
 
     let prev_doc_id = u64::MAX - (delta as u64);
+    let buf = buf.into_inner();
+    let mut buf = Cursor::new(buf.as_ref());
     let record_decoded = numeric
         .decode(&mut buf, prev_doc_id)
         .expect("to decode numeric record");
@@ -442,6 +444,8 @@ fn encode_f64_with_compression() {
 
     buf.set_position(0);
 
+    let buf = buf.into_inner();
+    let mut buf = Cursor::new(buf.as_ref());
     let record_decoded = numeric
         .decode(&mut buf, 0)
         .expect("to decode numeric record");
@@ -454,7 +458,8 @@ fn encode_f64_with_compression() {
 
 #[test]
 fn test_empty_buffer() {
-    let mut buffer = Cursor::new(Vec::new());
+    let buffer = Vec::new();
+    let mut buffer = Cursor::new(buffer.as_ref());
     let res = Numeric::new().decode(&mut buffer, 0);
 
     assert_eq!(res.is_err(), true);
@@ -606,6 +611,8 @@ proptest! {
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
+        let buf = buf.into_inner();
+        let mut buf = Cursor::new(buf.as_ref());
 
         let record_decoded = numeric
             .decode(&mut buf, prev_doc_id)
@@ -628,6 +635,8 @@ proptest! {
 
         buf.set_position(0);
         let prev_doc_id = u64::MAX - delta;
+        let buf = buf.into_inner();
+        let mut buf = Cursor::new(buf.as_ref());
 
         let record_decoded = numeric
             .decode(&mut buf, prev_doc_id)

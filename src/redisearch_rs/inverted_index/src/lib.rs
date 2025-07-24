@@ -10,7 +10,7 @@
 use std::{
     ffi::c_char,
     fmt::Debug,
-    io::{BufRead, Cursor, Read, Seek, Write},
+    io::{BufRead, Cursor, Seek, Write},
     mem::ManuallyDrop,
     ops::DerefMut,
     ptr,
@@ -800,19 +800,23 @@ pub trait Encoder {
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult>;
+    fn decode<'a, 'b>(
+        &self,
+        cursor: &'b mut Cursor<&'a [u8]>,
+        base: t_docId,
+    ) -> std::io::Result<RSIndexResult>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
     /// Returns `None` if no record has a document ID greater than or equal to `target`.
-    fn seek<R: Read + Seek>(
+    fn seek<'a, 'b>(
         &self,
-        reader: &mut R,
+        cursor: &'b mut Cursor<&'a [u8]>,
         base: t_docId,
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult>> {
         loop {
-            match self.decode(reader, base) {
+            match self.decode(cursor, base) {
                 Ok(record) if record.doc_id >= target => {
                     return Ok(Some(record));
                 }
