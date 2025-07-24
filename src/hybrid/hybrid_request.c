@@ -92,10 +92,10 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         }
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-        RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
+        RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
         if (loadStep) {
             // Add a loader to load the fields specified in the LOAD step
-            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
+            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
             QITR_PushRP(qctx, loader);
         }
 
