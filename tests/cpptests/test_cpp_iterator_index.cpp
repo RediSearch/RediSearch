@@ -59,7 +59,7 @@ protected:
                 break;
             case TYPE_NUMERIC_FULL:
                 SetNumericInvIndex();
-                it_base = NewInvIndIterator_NumericFull(idx);
+                it_base = NewInvIndIterator_NumericFull(idx, RS_INVALID_FIELD_INDEX);
                 break;
             case TYPE_TERM:
                 SetTermsInvIndex();
@@ -649,7 +649,7 @@ private:
             numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, fs);
 
             // Create the iterator with proper sctx so NumericCheckAbort can work
-            FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+            FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = fs->index}};
             FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
             iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
 
@@ -666,7 +666,7 @@ private:
                 InvertedIndex_WriteNumericEntry(numericIdx, resultSet[i], static_cast<double>(i * 10));
             }
 
-            iterator = NewInvIndIterator_NumericFull(numericIdx);
+            iterator = NewInvIndIterator_NumericFull(numericIdx, RS_INVALID_FIELD_INDEX);
             numericIdxNeedsFreeing = true; // Created standalone, needs manual freeing
         }
     }

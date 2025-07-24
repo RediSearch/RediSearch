@@ -76,12 +76,19 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
   // For numeric fields, we need to get the field name from the filter context
   // We need to use the field spec directly from the numeric filter
   const NumericFilter *filter = it->decoderCtx.filter;
-  if (!filter) {
-    // No filter means we can't check for revision changes
+  const FieldSpec *fieldSpec = NULL;
+
+  if (!it->filterCtx.field.isFieldMask && it->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
+    // Extract FieldSpec from filterCtx when filter is not available
+    fieldSpec = &it->sctx->spec->fields[it->filterCtx.field.value.index];
+  }
+
+  if (!fieldSpec) {
+    // No field spec means we can't check for revision changes
     return VALIDATE_OK;
   }
 
-  RedisModuleString *numField = IndexSpec_GetFormattedKey(it->sctx->spec, filter->fieldSpec, INDEXFLD_T_NUMERIC);
+  RedisModuleString *numField = IndexSpec_GetFormattedKey(it->sctx->spec, fieldSpec, INDEXFLD_T_NUMERIC);
   NumericRangeTree *rt = openNumericKeysDict(it->sctx->spec, numField, DONT_CREATE_INDEX);
 
   if (!rt || rt->revisionId != nit->revisionId) {
@@ -594,9 +601,15 @@ static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndex
   InitInvIndIterator(&it->base, idx, res, filterCtx, skipMulti, sctx, decoderCtx, NumericCheckAbort);
 
   // Get the numeric field key and retrieve the NumericRangeTree
-  const NumericFilter *filter = decoderCtx->filter;
-  if (sctx && filter) {
-    RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, filter->fieldSpec, INDEXFLD_T_NUMERIC);
+  const FieldSpec *fieldSpec = NULL;
+
+  if (sctx && filterCtx && !filterCtx->field.isFieldMask &&
+             filterCtx->field.value.index != RS_INVALID_FIELD_INDEX) {
+    fieldSpec = &sctx->spec->fields[filterCtx->field.value.index];
+  }
+
+  if (fieldSpec) {
+    RedisModuleString *numField = IndexSpec_GetFormattedKey(sctx->spec, fieldSpec, INDEXFLD_T_NUMERIC);
     NumericRangeTree *rt = openNumericKeysDict(sctx->spec, numField, DONT_CREATE_INDEX);
     if (rt) {
       it->revisionId = rt->revisionId;
@@ -606,13 +619,12 @@ static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndex
     it->base.CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))EmptyCheckAbort;
   }
 
-
   return &it->base.base;
 }
 
-QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {
+QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx, t_fieldIndex fieldIndex) {
   FieldFilterContext fieldCtx = {
-    .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
+    .field = {.isFieldMask = false, .value = {.index = fieldIndex}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
   IndexDecoderCtx decoderCtx = {.filter = NULL};
