@@ -22,7 +22,7 @@ void InvIndIterator_Free(QueryIterator *it) {
 
 static inline void SetCurrentBlockReader(InvIndIterator *it) {
   it->blockReader = (IndexBlockReader) {
-    NewBufferReader(&CURRENT_BLOCK(it).buf),
+    NewBufferReader(IndexBlock_Buffer(&CURRENT_BLOCK(it))),
     IndexBlock_FirstId(&CURRENT_BLOCK(it)),
   };
 }

@@ -39,7 +39,7 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
   IndexBlock *last = idx->blocks + (idx->size - 1);
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
-  Buffer_Init(&INDEX_LAST_BLOCK(idx).buf, INDEX_BLOCK_INITIAL_CAP);
+  Buffer_Init(IndexBlock_Buffer(&INDEX_LAST_BLOCK(idx)), INDEX_BLOCK_INITIAL_CAP);
   (*memsize) += sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   return &INDEX_LAST_BLOCK(idx);
 }
@@ -70,7 +70,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
 }
 
 size_t indexBlock_Free(IndexBlock *blk) {
-  return Buffer_Free(&blk->buf);
+  return Buffer_Free(IndexBlock_Buffer(blk));
 }
 
 void InvertedIndex_Free(void *ctx) {
@@ -122,7 +122,7 @@ void IndexReader_OnReopen(IndexReader *ir) {
   if (ir->gcMarker == ir->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
     size_t offset = ir->br.pos;
-    ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
+    ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
     ir->br.pos = offset;
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
@@ -535,7 +535,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
     delta = 0;
   }
 
-  BufferWriter bw = NewBufferWriter(&blk->buf);
+  BufferWriter bw = NewBufferWriter(IndexBlock_Buffer(blk));
 
   sz += encoder(&bw, delta, entry);
 
@@ -565,7 +565,7 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
 
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->currentBlock++;
-  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
+  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
   ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
 }
 
@@ -1142,7 +1142,7 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
 new_block:
   RS_LOG_ASSERT(ir->currentBlock < idx->size, "Invalid block index");
   ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
-  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
+  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
 }
 
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
@@ -1236,7 +1236,7 @@ static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, Inver
   ret->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ret));
   ret->sameId = 0;
   ret->skipMulti = skipMulti;
-  ret->br = NewBufferReader(&IR_CURRENT_BLOCK(ret).buf);
+  ret->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ret)));
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
   ret->filterCtx = *filterCtx;
@@ -1335,7 +1335,7 @@ void IR_Rewind(void *ctx) {
   IR_SetAtEnd(ir, 0);
   ir->currentBlock = 0;
   ir->gcMarker = ir->idx->gcMarker;
-  ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
+  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
   ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
   ir->sameId = 0;
 }
@@ -1368,7 +1368,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
   static const IndexDecoderCtx empty = {0};
 
-  IndexBlockReader reader = { .buffReader = NewBufferReader(&blk->buf), .curBaseId = IndexBlock_FirstId(blk) };
+  IndexBlockReader reader = { .buffReader = NewBufferReader(IndexBlock_Buffer(blk)), .curBaseId = IndexBlock_FirstId(blk) };
   BufferReader *br = &reader.buffReader;
   Buffer repair = {0};
   BufferWriter bw = NewBufferWriter(&repair);
@@ -1447,9 +1447,9 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
     // If we deleted stuff from this block, we need to change the number of entries and the data
     // pointer
     blk->numEntries -= params->entriesCollected;
-    Buffer_Free(&blk->buf);
-    blk->buf = repair;
-    Buffer_ShrinkToSize(&blk->buf);
+    Buffer_Free(IndexBlock_Buffer(blk));
+    IndexBlock_SetBuffer(blk, repair);
+    Buffer_ShrinkToSize(IndexBlock_Buffer(blk));
   }
 
   params->bytesAfterFix = IndexBlock_Cap(blk);
