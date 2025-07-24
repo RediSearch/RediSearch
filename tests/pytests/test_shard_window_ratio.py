@@ -68,7 +68,7 @@ def set_up_database_with_vectors(env, dim, num_docs, index_name='idx', datatype=
 @skip(cluster=False) # shard_k_ratio is ignored is SA
 def test_shard_k_ratio_parameter_validation():
     """Test parameter validation and error handling for shard k ratio."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
     conn = getConnectionByEnv(env)
 
     dim = 1
@@ -105,7 +105,7 @@ def test_shard_k_ratio_parameter_validation():
 
 def test_ft_profile_shard_result_validation_scenarios():
     """Test comprehensive scenarios for shard window ratio validation."""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true', protocol=3)
 
     dim = 1
     datatype = 'FLOAT32'
@@ -147,7 +147,7 @@ def test_ft_profile_shard_result_validation_scenarios():
                             message=f"{cmd} With K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
 
 def test_k_0():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     dim = 1
     datatype = 'FLOAT32'
@@ -168,7 +168,7 @@ def test_k_0():
 
 def test_query():
     """Test FT.AGGREGATE with shard k ratio and profile metrics"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
     conn = getConnectionByEnv(env)
 
     dim = 2
@@ -238,10 +238,63 @@ def test_query():
         res = env.cmd('FT.AGGREGATE', "idx", query, *params_and_args)
         validate_len("FT.AGGREGATE", query, len(res[1:]))
 
+def test_enable_unstable_features_flag_off():
+    """Test SHARD_K_RATIO feature is disabled when ENABLE_UNSTABLE_FEATURES is not set"""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES false', protocol=3)
+    conn = getConnectionByEnv(env)
+
+    dim = 2
+    datatype = 'FLOAT32'
+    k = 100
+    num_docs = k * env.shardsCount * 3 # ensure we always have enough results in each shard
+
+    set_up_database_with_vectors(env, dim, num_docs=num_docs, index_name='idx', datatype='FLOAT32')
+
+    query_vec = get_unique_vector(dim, datatype)
+
+    min_shard_ratio = 1 / float(env.shardsCount)
+    ratios = [min_shard_ratio, 0.01, 0.9, 1.0]  # Valid ratios
+
+    for ratio in ratios:
+        k_param_style_command_args = {
+            "k_as_literal": [f'*=>[KNN {k} @v $query_vec]=>{{$shard_k_ratio: {ratio}}}',
+                                        'PARAMS', 2, 'query_vec', query_vec.tobytes(),],
+
+            "k_in_param": [f'*=>[KNN $k @v $query_vec]=>{{$shard_k_ratio: {ratio}}}',
+                                        'PARAMS', 4, 'query_vec', query_vec.tobytes(), 'k', k,]
+        }
+        for k_style, command_args in k_param_style_command_args.items():
+            for cmd in ['SEARCH', 'AGGREGATE']:
+                # Determine expected results based on deployment mode
+                profile_res = env.cmd('FT.PROFILE', 'idx', f'{cmd}', 'QUERY',
+                                    *command_args,
+                                    'nocontent', "LIMIT", 0, k + 1)
+                shards_section = profile_res['Profile']['Shards']
+
+                env.assertEqual(len(shards_section), env.shardsCount, depth=1, message=f"Validate shards count in profile_dict['Shards']")
+
+                # Parse each shard's results
+                for i, shard in enumerate(shards_section):
+
+                    index_rp_profile = shard['Result processors profile'][0] #index_rp is always first
+
+                    # Look for Counter which represents the number of results processed
+                    shard_result_count = index_rp_profile['Counter']
+                    env.assertEqual(shard_result_count, k,
+                    message=f"In scenario {cmd} {k_style}: With k={k}, ratio: {ratio}, Shard {i} expected {k} results, got {shard_result_count}")
+
+
+
+                # Validate final result count
+                actual_result_count = len(profile_res['Results']['results'])
+
+                env.assertEqual(actual_result_count, k,
+                            message=f"{cmd} With K={k}, ratio={ratio}: expected {k} results, got {actual_result_count}")
+
 @skip(cluster=False)  # Only relevant for cluster mode
 def test_insufficient_docs_per_shard():
     """Test scenario where not all shards have enough docs to return ceil(k/num_shards) results"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     # This test is using hardcoded shard distribution, so it only works with 3 shards
     num_shards = 3
