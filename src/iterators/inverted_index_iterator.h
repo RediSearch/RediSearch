@@ -15,6 +15,7 @@ extern "C" {
 
 #include "iterator_api.h"
 #include "inverted_index.h"
+#include "tag_index.h"
 
 typedef struct InvIndIterator {
   QueryIterator base;
@@ -56,7 +57,21 @@ typedef struct InvIndIterator {
 
   // The context for the field/s filter, used to determine if the field/s is/are expired
   FieldFilterContext filterCtx;
+
+  ValidateStatus (*CheckAbort)(struct InvIndIterator *self);
+
 } InvIndIterator;
+
+typedef struct {
+  InvIndIterator base;
+  NumericRangeTree *rt;
+  uint32_t revisionId;
+} NumericInvIndIterator;
+
+typedef struct {
+  InvIndIterator base;
+  TagIndex *tagIdx; // not const, may reopen on revalidation
+} TagInvIndIterator;
 
 // API for full index scan. Not suitable for queries
 QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx);
@@ -76,6 +91,13 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
 // the specific functions NewInvIndIterator_TermQuery/NewInvIndIterator_NumericQuery
 QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                               enum FieldExpirationPredicate predicate, double weight);
+
+// API for full index scan with TagIndex. Not suitable for queries
+QueryIterator *NewInvIndIterator_TagFull(InvertedIndex *idx, TagIndex *tagIdx);
+
+// Returns an iterator for a tag index, suitable for queries
+QueryIterator *NewInvIndIterator_TagQuery(InvertedIndex *idx, TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+                                          RSQueryTerm *term, double weight);
 
 #ifdef __cplusplus
 }

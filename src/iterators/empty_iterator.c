@@ -33,7 +33,10 @@ static QueryIterator eofIterator = {.Read = EOI_Read,
                                     .type = EMPTY_ITERATOR,
                                     .atEOF = true,
                                     .lastDocId = 0,
-                                    .current = NULL};
+                                    .current = NULL,
+                                    .isAborted = false,
+                                    .Revalidate = Default_Revalidate,
+    };
 
 QueryIterator *IT_V2(NewEmptyIterator)(void) {
   return &eofIterator;

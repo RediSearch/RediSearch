@@ -110,6 +110,7 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   ret->Read = IL_Read;
   ret->SkipTo = IL_SkipTo;
   ret->Rewind = IL_Rewind;
+  ret->Revalidate = Default_Revalidate;
   return ret;
 }
 
@@ -165,11 +166,13 @@ QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, si
   ret->lastDocId = 0;
   setEof(ret, false);
   ret->type = METRIC_ITERATOR;
+  ret->isAborted = false;
   ret->current = NewMetricResult();
   ret->Read = MR_Read;
   ret->SkipTo = MR_SkipTo;
   ret->Rewind = IL_Rewind;
   ret->Free = MR_Free;
   ret->NumEstimated = IL_NumEstimated;
+  ret->Revalidate = Default_Revalidate;
   return ret;
 }
