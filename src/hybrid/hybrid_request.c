@@ -14,42 +14,6 @@ extern "C" {
 #define HYBRID_IMPLICIT_COMBINED_SCORE "combined_score"
 
 /**
- * Create an implicit LOAD step for hybrid search when no explicit LOAD is provided.
- * The implicit LOAD includes doc_id (document ID) and combined_score (combined score).
- *
- * @param plan The aggregation plan to get RLookup from
- * @return Newly allocated PLN_LoadStep with implicit fields
- */
-static PLN_LoadStep* CreateImplicitLoadStep(AGGPlan *plan) {
-    PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
-    lstp->base.type = PLN_T_LOAD;
-    lstp->base.dtor = loadDtor;
-    lstp->nkeys = 2;
-    lstp->keys = rm_calloc(2, sizeof(*lstp->keys));
-
-    // Get the RLookup from the plan to create proper RLookupKeys
-    RLookup *lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST);
-    if (!lookup) {
-        lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_FIRST);
-    }
-
-    // doc_id maps to the document key (__key internally)
-    lstp->keys[0] = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_DOC_ID, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
-    // combined_score maps to the hybrid score (__score internally)
-    lstp->keys[1] = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_COMBINED_SCORE, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
-
-    // Set up args to represent the user-facing field names for serialization
-    // Use static array to avoid memory management issues with loadDtor
-    static const char* implicit_field_names[2] = {HYBRID_IMPLICIT_DOC_ID, HYBRID_IMPLICIT_COMBINED_SCORE};
-    lstp->args.argc = 2;
-    lstp->args.objs = (void**)implicit_field_names;
-    lstp->args.type = AC_TYPE_CHAR;
-    lstp->args.offset = 0;
-
-    return lstp;
-}
-
-/**
  * Build the complete hybrid search pipeline for processing multiple search requests.
  * This function constructs a sophisticated pipeline that:
  * 1. Builds individual pipelines for each AREQ (search request)
@@ -93,11 +57,19 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+        RLookupKey **keys;
+        size_t nkeys;
         if (loadStep) {
-            // Add a loader to load the fields specified in the LOAD step
-            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
-            QITR_PushRP(qctx, loader);
+          keys = loadStep->keys;
+          nkeys = loadStep->nkeys;
+        } else {
+          // If load was not specified, implicitly load doc key
+          keys = array_new(RLookupKey *, 1);
+          array_append(keys, RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_DOC_ID, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS));
+          nkeys = 1;
         }
+        ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lookup, keys, nkeys, false, &areq->stateflags);
+        QITR_PushRP(qctx, loader);
 
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
@@ -115,16 +87,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // This is where the magic happens - results from different search modalities are merged
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests);
     QITR_PushRP(&req->pipeline.qctx, merger);
-
-    // Create implicit LOAD step if none exists (MOD-10249: automatic @__key and @__score return)
-    // This should happen after merge operation, for the final tail pipeline
-    if (!loadStep) {
-        loadStep = CreateImplicitLoadStep(&req->pipeline.ap);
-        if (!loadStep) {
-            return REDISMODULE_ERR;  // Memory allocation failed
-        }
-        AGPLN_AddStep(&req->pipeline.ap, &loadStep->base);
-    }
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts
     // during aggregation pipeline building, then restore it afterwards
