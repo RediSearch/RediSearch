@@ -491,7 +491,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   ArgsCursor returnFields = {0};
   ArgsCursor inKeys = {0};
   ArgsCursor inFields = {0};
-  Pipeline *pipeline = req->pipeline;
+  Pipeline *pipeline = &req->pipeline;
   ACArgSpec querySpecs[] = {
       {.name = "INFIELDS", .type = AC_ARGTYPE_SUBARGS, .target = &inFields},  // Comment
       {.name = "SLOP",
@@ -922,10 +922,6 @@ AREQ *AREQ_New(void) {
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
   req->optimizer = QOptimizer_New();
   req->profile = Profile_PrintDefault;
-
-  // Allocate pipeline separately
-  req->pipeline = rm_calloc(1, sizeof(Pipeline));
-
   return req;
 }
 
@@ -1235,11 +1231,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
 void AREQ_Free(AREQ *req) {
   // First, free the pipeline
-  if (req->pipeline) {
-    Pipeline_Clean(req->pipeline);
-    rm_free(req->pipeline);
-    req->pipeline = NULL;
-  }
+  Pipeline_Clean(&req->pipeline);
 
   if (req->rootiter) {
     req->rootiter->Free(req->rootiter);
@@ -1301,7 +1293,7 @@ void AREQ_Free(AREQ *req) {
 }
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
-  Pipeline_Initialize(req->pipeline, req->reqConfig.timeoutPolicy, status);
+  Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     QueryPipelineParams params = {
       .common = {
@@ -1315,7 +1307,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .conc = &req->conc,
       .reqConfig = &req->reqConfig,
     };
-    Pipeline_BuildQueryPart(req->pipeline, &params);
+    Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (status->code != QUERY_OK) {
       return REDISMODULE_ERR;
     }
@@ -1330,5 +1322,5 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     .maxResultsLimit = IsSearch(req) ? RSGlobalConfig.maxSearchResults : RSGlobalConfig.maxAggregateResults,
     .language = req->searchopts.language,
   };
-  return Pipeline_BuildAggregationPart(req->pipeline, &params, &req->stateflags);
+  return Pipeline_BuildAggregationPart(&req->pipeline, &params, &req->stateflags);
 }

@@ -263,7 +263,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     AREQ *areq = hybridReq->requests[i];
     std::string pipelineName = "Request " + std::to_string(i) + " pipeline";
-    VerifyPipelineChain(areq->pipeline->qctx.endProc, expectedIndividualPipeline, pipelineName);
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
   }
 
   // Verify tail pipeline structure (basic: just hybrid merger)
@@ -336,7 +336,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     AREQ *areq = hybridReq->requests[i];
     std::string pipelineName = "Request " + std::to_string(i) + " pipeline";
-    VerifyPipelineChain(areq->pipeline->qctx.endProc, expectedIndividualPipeline, pipelineName);
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
   }
 
   // Verify tail pipeline structure (basic: just hybrid merger)
@@ -459,7 +459,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
 
     // Both requests should have the same basic pipeline structure
     std::vector<ResultProcessorType> expectedPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
-    VerifyPipelineChain(areq->pipeline->qctx.endProc, expectedPipeline, pipelineName);
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedPipeline, pipelineName);
   }
 
   std::vector<ResultProcessorType> expectedComplexTailPipeline = {RP_PROJECTOR, RP_SORTER, RP_HYBRID_MERGER};

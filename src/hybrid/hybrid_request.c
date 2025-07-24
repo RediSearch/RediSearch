@@ -49,7 +49,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         }
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-        RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline->ap, NULL, AGPLN_GETLOOKUP_LAST);
+        RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
         if (loadStep) {
             // Add a loader to load the fields specified in the LOAD step
             ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
@@ -112,12 +112,12 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     QueryError_Init(&hybridReq->tailPipelineError);
-    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline->qctx.timeoutPolicy, &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         QueryError_Init(&hybridReq->errors[i]);
-        Pipeline_Initialize(requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
     return hybridReq;
 }
