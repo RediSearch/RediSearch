@@ -364,18 +364,10 @@ MU_TEST(test_calculateEffectiveK) {
     expected = k;  // When ratio = 1, effective K should equal original K
     result = calculateEffectiveK(k, ratio, numShards);
     mu_assert_int_eq(expected, result);
-
-    // Test case 6: ENABLE_UNSTABLE_FEATURES is off - should return original k
-    RSGlobalConfig.enableUnstableFeatures = 0;
-    result = calculateEffectiveK(k, 0.5, numShards);
-    mu_assert_int_eq(k, result);
-    RSGlobalConfig.enableUnstableFeatures = 1;
 }
 
 // Main test runner following minunit framework pattern
 int main(int argc, char **argv) {
-    // Enable unstable features for testing
-    RSGlobalConfig.enableUnstableFeatures = 1;
     RMUTil_InitAlloc();
     MU_RUN_TEST(testShardKRatioValues);
     MU_RUN_TEST(testAttributeNames);
@@ -389,7 +381,6 @@ int main(int argc, char **argv) {
     MU_RUN_TEST(testModifyParameterKInAggregate);
     MU_RUN_TEST(test_calculateEffectiveK);
     MU_REPORT();
-    RSGlobalConfig.enableUnstableFeatures = 0;
 
     return minunit_status;
 }
