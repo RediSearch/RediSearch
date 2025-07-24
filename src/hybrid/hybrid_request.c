@@ -41,6 +41,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
+
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
@@ -59,13 +60,15 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
         RLookupKey **keys;
         size_t nkeys;
+        RLookupKey *implicitLoadKeys[1];
         if (loadStep) {
           keys = loadStep->keys;
           nkeys = loadStep->nkeys;
         } else {
           // If load was not specified, implicitly load doc key
-          keys = array_new(RLookupKey *, 1);
-          array_append(keys, RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_DOC_ID, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS));
+          RLookupKey *docIdKey = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_DOC_ID, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+          implicitLoadKeys[0] = docIdKey;
+          keys = implicitLoadKeys;
           nkeys = 1;
         }
         ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lookup, keys, nkeys, false, &areq->stateflags);
