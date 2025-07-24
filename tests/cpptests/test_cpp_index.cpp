@@ -23,6 +23,7 @@ extern "C" {
 #include "src/metric_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
+#include "types_rs.h"
 
 #include "rmutil/alloc.h"
 
@@ -46,8 +47,9 @@ class IndexTest : public ::testing::Test {};
 
 static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
   RSOffsetVector ret = {0};
-  ret.data = (char *) VVW_GetByteData(vvw);
-  ret.len = VVW_GetByteLength(vvw);
+  char *data = (char *) VVW_GetByteData(vvw);
+  uint32_t len = VVW_GetByteLength(vvw);
+  RSOffsetVector_SetData(&ret, data, len);
   return ret;
 }
 
