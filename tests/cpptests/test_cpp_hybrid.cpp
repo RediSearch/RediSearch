@@ -491,7 +491,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  // Verify no LOAD step exists initially
+  // Verify no LOAD step exists initially in any pipeline
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
   EXPECT_EQ(nullptr, loadStep) << "No LOAD step should exist initially";
 
@@ -518,16 +518,20 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
-  // Verify that an implicit LOAD step was created
-  loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
-  ASSERT_NE(nullptr, loadStep) << "Implicit LOAD step should have been created";
-  EXPECT_EQ(2, loadStep->nkeys) << "Implicit LOAD should have 2 fields (doc_id and combined_score)";
-
-  // Verify individual request pipeline structures (should NOT have loaders since implicit LOAD is only for tail)
-  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_INDEX};
+  // Verify that implicit LOAD functionality is implemented via RPLoader result processors
+  // (not PLN_LoadStep aggregation plan steps) in individual request pipelines
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     AREQ *areq = hybridReq->requests[i];
-    std::string pipelineName = "Request " + std::to_string(i) + " pipeline (implicit LOAD)";
+    // Check that no PLN_LoadStep exists in the aggregation plan (implicit loading uses RPLoader instead)
+    PLN_LoadStep *requestLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&areq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+    EXPECT_EQ(nullptr, requestLoadStep) << "Request " << i << " should not have PLN_LoadStep (uses RPLoader instead)";
+  }
+
+  // Verify individual request pipeline structures include loaders for document key loading
+  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    AREQ *areq = hybridReq->requests[i];
+    std::string pipelineName = "Request " + std::to_string(i) + " pipeline with implicit LOAD";
     VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
   }
 

@@ -141,7 +141,7 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
   hybridScoringCtx->linearCtx.linearWeights = heapWeights;
   hybridScoringCtx->linearCtx.numWeights = numUpstreams;
 
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams);
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -153,7 +153,7 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   hybridScoringCtx->rrfCtx.k = k;
   hybridScoringCtx->rrfCtx.window = window;
 
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams);
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
 }
 
 

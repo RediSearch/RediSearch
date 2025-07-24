@@ -85,7 +85,13 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
     // Create the hybrid merger that combines results from all depleter processors
     // This is where the magic happens - results from different search modalities are merged
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests);
+    const RLookupKey *scoreKey = NULL;
+    if (!loadStep) {
+        // implicit load score as well as key
+        RLookup *lookup = AGPLN_GetLookup(&req->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+        scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+    }
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->pipeline.qctx, merger);
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts

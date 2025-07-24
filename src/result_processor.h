@@ -352,10 +352,12 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  /*
   * Creates a new Hybrid Merger processor.
   * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
+  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
   */
  ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                      ResultProcessor **upstreams,
-                                     size_t numUpstreams);
+                                     size_t numUpstreams,
+                                     const RLookupKey *scoreKey);
 
 #ifdef __cplusplus
 }
