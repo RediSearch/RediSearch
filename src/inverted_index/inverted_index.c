@@ -373,9 +373,29 @@ ENCODER(encodeNumeric) {
   return sz;
 }
 
+// Wrapper around the private static `encodeFreqsFields` function to expose it to benchmarking.
+size_t encode_freqs_fields(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFreqsFields(bw, delta, res);
+}
+
+// Wrapper around the private static `encodeFreqsFieldsWide` function to expose it to benchmarking.
+size_t encode_freqs_fields_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFreqsFieldsWide(bw, delta, res);
+}
+
 // Wrapper around the private static `encodeFreqsOnly` function to expose it to benchmarking.
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeFreqsOnly(bw, delta, res);
+}
+
+// Wrapper around the private static `encodeFieldsOnly` function to expose it to benchmarking.
+size_t encode_fields_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFieldsOnly(bw, delta, res);
+}
+
+// Wrapper around the private static `encodeFieldsOnlyWide` function to expose it to benchmarking.
+size_t encode_fields_only_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFieldsOnlyWide(bw, delta, res);
 }
 
 // Wrapper around the private static `encodeNumeric` function to expose it to benchmarking
@@ -394,6 +414,13 @@ IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId) {
 
 IndexDecoderCtx NewIndexDecoderCtx_NumericFilter() {
   IndexDecoderCtx ctx = {.filter = NULL};
+
+  return ctx;
+}
+
+// Create a new IndexDecoderCtx with a mask filter. Used only in benchmarks.
+IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask) {
+  IndexDecoderCtx ctx = {.mask = mask};
 
   return ctx;
 }
@@ -811,9 +838,29 @@ bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSInd
   return readFreqs(blockReader, ctx, res);
 }
 
+// Wrapper around the private static `readFlags` function to expose it to benchmarking.
+bool read_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFlags(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readFlagsWide` function to expose it to benchmarking.
+bool read_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFlagsWide(blockReader, ctx, res);
+}
+
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   return readNumeric(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readFreqsFlags` function to expose it to benchmarking.
+bool read_freqs_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFreqsFlags(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readNumeric` function to expose it to benchmarking
+bool read_freqs_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFreqsFlagsWide(blockReader, ctx, res);
 }
 
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {

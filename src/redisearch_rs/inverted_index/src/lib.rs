@@ -19,6 +19,8 @@ use enumflags2::{BitFlags, bitflags};
 use ffi::{FieldMask, RS_FIELDMASK_ALL};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 
+pub mod fields_only;
+pub mod freqs_fields;
 pub mod freqs_only;
 pub mod numeric;
 
@@ -121,16 +123,98 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 #[derive(Debug, PartialEq)]
 pub struct RSAggregateResult {
     /// The number of child records
-    pub num_children: c_int,
+    num_children: c_int,
 
     /// The capacity of the records array. Has no use for extensions
-    pub children_cap: c_int,
+    children_cap: c_int,
 
     /// An array of records
-    pub children: *mut *mut RSIndexResult,
+    children: *mut *mut RSIndexResult,
 
     /// A map of the aggregate type of the underlying records
-    pub type_mask: RSResultTypeMask,
+    type_mask: RSResultTypeMask,
+}
+
+impl RSAggregateResult {
+    /// The number of results in this aggregate result
+    pub fn len(&self) -> usize {
+        self.num_children as _
+    }
+
+    /// Check whether this aggregate result is empty
+    pub fn is_empty(&self) -> bool {
+        self.num_children == 0
+    }
+
+    /// The capacity of the aggregate result
+    pub fn capacity(&self) -> usize {
+        self.children_cap as _
+    }
+
+    /// The current type mask of the aggregate result
+    pub fn type_mask(&self) -> RSResultTypeMask {
+        self.type_mask
+    }
+
+    /// Get an iterator over the children of this aggregate result
+    pub fn iter(&self) -> RSAggregateResultIter<'_> {
+        RSAggregateResultIter {
+            agg: self,
+            index: 0,
+        }
+    }
+
+    /// Get the child at the given index, if it exists
+    ///
+    /// # Safety
+    /// The caller must ensure that the memory at the given index is still valid
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if index < self.num_children as usize {
+            // SAFETY: We are guaranteed that the index is within bounds because of the check above.
+            let result_ptr = unsafe { self.children.add(index) };
+
+            // SAFETY: It is safe to dereference the pointer because we correctly got it using
+            // `add` above.
+            let result_addr = unsafe { *result_ptr };
+
+            // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
+            Some(unsafe { &*result_addr })
+        } else {
+            None
+        }
+    }
+
+    /// Reset the aggregate result, clearing all children and resetting the type mask.
+    ///
+    /// Note, this does not deallocate the children pointers, it just resets the count and type
+    /// mask. The owner of the children pointers is responsible for deallocating them when needed.
+    pub fn reset(&mut self) {
+        self.num_children = 0;
+        self.type_mask = RSResultTypeMask::empty();
+    }
+}
+
+/// An iterator over the results in an [`RSAggregateResult`].
+pub struct RSAggregateResultIter<'a> {
+    agg: &'a RSAggregateResult,
+    index: usize,
+}
+
+impl<'a> Iterator for RSAggregateResultIter<'a> {
+    type Item = &'a RSIndexResult;
+
+    /// Get the next item in the iterator
+    ///
+    /// # Safety
+    /// The caller must ensure that all memory pointers in the aggregate result are still valid.
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(result) = self.agg.get(self.index) {
+            self.index += 1;
+            Some(result)
+        } else {
+            None
+        }
+    }
 }
 
 impl RSAggregateResult {

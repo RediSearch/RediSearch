@@ -4140,8 +4140,9 @@ def test_rq_job_without_topology():
     workers = 5
     env.expect(config_cmd(), 'SET', 'WORKERS', workers).ok()
     num_io_threads = 20
-    def compute_number_of_connections_in_each_ioruntime(num_connections):
-      return max(1, num_connections // num_io_threads)
+    def compute_total_number_of_connections(num_connections):
+        import math
+        return num_io_threads * max(1, math.ceil(num_connections // num_io_threads))
 
     # Verify that the `SHARD_CONNECTION_STATES` debug command is blocked when the topology is not set.
     try:
@@ -4156,7 +4157,7 @@ def test_rq_job_without_topology():
     # Now re-set the topology and call the debug command again
     env.expect('SEARCH.CLUSTERREFRESH').ok()
     # We should also see the effect of setting the number of workers
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal([ANY, [ANY] * (compute_number_of_connections_in_each_ioruntime(workers + 1))] * env.shardsCount)
+    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal([ANY, [ANY] * (compute_total_number_of_connections(workers + 1))] * env.shardsCount)
 
 
 @skip(cluster=False) # this test is only relevant on cluster

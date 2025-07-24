@@ -140,7 +140,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
   it->hitCounter = 0;
 
   while (1) {
-    AggregateResult_Reset(it->base.current);
+    IndexResult_ResetAggregate(it->base.current);
 
 
     while (1) {
@@ -167,7 +167,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
         if (numericRes->type == RSResultType_Numeric) {
           *it->pooledResult = *numericRes;
         } else {
-          RSIndexResult *child = numericRes->data.agg.children[0];
+          const RSIndexResult *child = AggregateResult_Get(&numericRes->data.agg, 0);
           RS_LOG_ASSERT(child->type == RSResultType_Numeric, "???");
           *it->pooledResult = *(child);
         }

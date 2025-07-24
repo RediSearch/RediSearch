@@ -39,7 +39,7 @@ impl Decoder for FreqsOnly {
         let [delta, freq] = decoded_values;
 
         let record = RSIndexResult::virt()
-            .doc_id(base + delta as u64)
+            .doc_id(base + delta as t_docId)
             .frequency(freq);
         Ok(DecoderResult::Record(record))
     }

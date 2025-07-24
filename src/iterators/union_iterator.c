@@ -98,7 +98,7 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
     return ITERATOR_EOF;
   }
   t_docId minId = UINT64_MAX;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     if (cur->lastDocId < nextId) {
@@ -146,7 +146,7 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
   }
   const t_docId lastId = ui->base.lastDocId;
   t_docId minId = UINT64_MAX;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     RS_LOG_ASSERT(cur->lastDocId >= lastId,
@@ -185,7 +185,7 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
   }
   t_docId minId = UINT64_MAX;
   QueryIterator *minIt;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   // TODO: performance improvement?
   // We can avoid performing any `SkipTo` call if we first scan an check if we already have a child
   // that matches the required ID.
@@ -252,7 +252,7 @@ static inline IteratorStatus UI_Skip_Full_Heap(QueryIterator *base, const t_docI
   }
   QueryIterator *cur;
   heap_t *hp = ui->heap_min_id;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->lastDocId < nextId) {
     IteratorStatus rc = cur->SkipTo(cur, nextId);
     if (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
@@ -284,7 +284,7 @@ static inline IteratorStatus UI_Read_Full_Heap(QueryIterator *base) {
   }
   QueryIterator *cur;
   heap_t *hp = ui->heap_min_id;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->lastDocId == base->lastDocId) {
     IteratorStatus rc = cur->Read(cur);
     if (rc == ITERATOR_OK) {
@@ -319,7 +319,7 @@ static inline IteratorStatus UI_Skip_Quick_Heap(QueryIterator *base, const t_doc
   }
   QueryIterator *cur;
   heap_t *hp = ui->heap_min_id;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   // TODO: performance improvement?
   // before attempting to advance lagging iterators, we can perform a quick scan of the heap and check if
   // we already have a matching iterator, saving us from performing any `SkipTo` call, which may be expensive.

@@ -24,10 +24,6 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-/** Reset the state of an existing index hit. This can be used to
-recycle index hits during reads */
-void IndexResult_Init(RSIndexResult *h);
-
 static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
   if (child->metrics) {
     // Passing ownership over the RSValues in the child metrics, but not on the array itself
@@ -57,11 +53,10 @@ static inline void IndexResult_Clear(RSIndexResult *r) {
 }
 
 /* Reset the aggregate result's child vector */
-static inline void AggregateResult_Reset(RSIndexResult *r) {
+static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
-  r->data.agg.numChildren = 0;
-  r->data.agg.typeMask = (RSResultType)0;
+  AggregateResult_Reset(&r->data.agg);
   IndexResult_Clear(r);
 }
 /* Allocate a new intersection result with a given capacity*/
@@ -85,12 +80,15 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 
   RSAggregateResult *agg = &parent->data.agg;
+  size_t numChildren = AggregateResult_NumChildren(agg);
+  int capacity = AggregateResult_Capacity(agg);
 
   /* Increase capacity if needed */
-  if (agg->numChildren >= agg->childrenCap) {
-    agg->childrenCap = agg->childrenCap ? agg->childrenCap * 2 : 1;
+  if (numChildren >= capacity) {
+    int newCapacity = capacity ? capacity * 2 : 1;
+    agg->childrenCap = newCapacity;
     agg->children = (__typeof__(agg->children))rm_realloc(
-        agg->children, agg->childrenCap * sizeof(RSIndexResult *));
+        agg->children, newCapacity * sizeof(RSIndexResult *));
   }
   agg->children[agg->numChildren++] = child;
   // update the parent's type mask
