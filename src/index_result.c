@@ -27,7 +27,7 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
       .isCopy = 0,
       .weight = weight,
       .metrics = NULL,
-      .data.agg = *AggregateResult_New(cap)
+      .data.agg = AggregateResult_New(cap)
   };
   return res;
 }
@@ -138,7 +138,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     {
       // allocate a new child pointer array
       size_t numChildren = AggregateResult_NumChildren(&src->data.agg);
-      ret->data.agg = *AggregateResult_New(numChildren);
+      ret->data.agg = AggregateResult_New(numChildren);
 
       // deep copy recursively all children
       RSAggregateResultIter *iter = AggregateResult_Iter(&src->data.agg);
@@ -220,7 +220,7 @@ void IndexResult_Free(RSIndexResult *r) {
 
       AggregateResultIter_Free(iter);
     }
-    AggregateResult_FreeChildren(&r->data.agg);
+    AggregateResult_Free(r->data.agg);
   } else if (r->type == RSResultType_Term) {
     if (r->isCopy) {
       rm_free(r->data.term.offsets.data);
