@@ -175,7 +175,7 @@ typedef BitFlags_RSResultType__u32 RSResultTypeMask;
  * Represents an aggregate array of values in an index record.
  *
  * The C code should always use `AggregateResult_New` to construct a new instance of this type
- * using Rust since the internals cannot be construceted directly in C. The reason is because of
+ * using Rust since the internals cannot be constructed directly in C. The reason is because of
  * the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
  * managed correctly.
  */
@@ -418,7 +418,7 @@ bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndex
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
+ * - `iter` must point to a valid `RSAggregateResultIter`.
  * - The iterator must have been created using [`AggregateResult_Iter`].
  */
 void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
