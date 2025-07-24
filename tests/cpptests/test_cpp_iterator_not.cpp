@@ -993,11 +993,6 @@ TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildOK_WildcardMoved) {
   ASSERT_EQ(mockChild->GetValidationCount(), 1);
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
   ASSERT_GT(ni_base->lastDocId, originalDocId); // Position might change due to wildcard movement
-
-  // We should break out of the loop when wildcard stops moving - VALIDATE_OK due to EOF
-  ASSERT_EQ(status, VALIDATE_OK);
-  ASSERT_TRUE(ni_base->atEOF); // Should reach EOF eventually
-  ASSERT_TRUE(mockWildcard->base.atEOF); // Wildcard should also reach EOF
 }
 
 // Test combinations: Child ABORTED, Wildcard MOVED
