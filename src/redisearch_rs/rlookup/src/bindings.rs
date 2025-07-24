@@ -121,3 +121,30 @@ impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
         unsafe { self.0.as_ref() }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn index_spec_cache_refcount() {
+        let spcache = Box::new(ffi::IndexSpecCache {
+            fields: std::ptr::null_mut(),
+            nfields: 0,
+            refcount: 1,
+        });
+
+        let spcache =
+            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+        let ffi_ptr_pre = spcache.0;
+
+        assert_eq!(spcache.as_ref().refcount, 1);
+
+        {
+            let _clone = spcache.clone();
+            assert_eq!(spcache.as_ref().refcount, 2);
+        }
+
+        assert_eq!(spcache.as_ref().refcount, 1);
+        assert_eq!(ffi_ptr_pre, spcache.0);
+    }
+}

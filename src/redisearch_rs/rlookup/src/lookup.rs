@@ -868,7 +868,11 @@ impl<'a> RLookup<'a> {
     }
 
     pub fn init(&mut self, spcache: IndexSpecCache) {
-        assert!(self.index_spec_cache.is_none());
+        // c version used memset to zero initialize, We behave the same way in release, but add a debug assert to catch misuses.
+        if self.index_spec_cache.is_some() {
+            debug_assert!(false, "RLookup already initialized with an IndexSpecCache");
+            *self = Self::new();
+        }
         self.index_spec_cache = Some(spcache);
     }
 }
@@ -1517,7 +1521,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[cfg_attr(debug_assertions, should_panic)]
     fn rlookup_no_reinit() {
         let mut rlookup = RLookup::new();
 
