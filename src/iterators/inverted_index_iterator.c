@@ -136,11 +136,6 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
   // Here we should apply the specifics of Term, Tag and Numeric
 
   InvIndIterator *it = (InvIndIterator *)base;
-  if (base->atEOF) {
-    // Save time and state if we are already at the end
-    return VALIDATE_OK;
-  }
-
   ValidateStatus ret = it->CheckAbort(it);
 
   if (ret != VALIDATE_OK) {
