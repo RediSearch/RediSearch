@@ -394,6 +394,19 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
       QueryNode_InitParams(ret, 2);
       QueryNode_SetParam(q, &ret->params[0], &vq->knn.vector, &vq->knn.vecLen, vec);
       QueryNode_SetParam(q, &ret->params[1], &vq->knn.k, NULL, value);
+      vq->knn.shardWindowRatio = DEFAULT_SHARD_WINDOW_RATIO;
+
+      // Save K position so it can be modified later in the shard command.
+      // NOTE: If k is given as a *parameter*:
+      // 1. value->pos: position of "$"
+      vq->knn.k_token_pos = value->pos;
+      // 2. value->len: length of the parameter name (e.g. $k -> len=1, $k_meow -> len=6)
+      // So we need to include the '$' in the token length.
+      if (value->type == QT_PARAM_SIZE) {
+        vq->knn.k_token_len = value->len + 1;
+      } else { // k is literal
+        vq->knn.k_token_len = value->len;
+      }
       break;
     case VECSIM_QT_RANGE:
       QueryNode_InitParams(ret, 2);
@@ -2141,13 +2154,37 @@ int QueryNode_ForEach(QueryNode *q, QueryNode_ForEachCallback callback, void *ct
   return retVal;
 }
 
+static int ValidateShardKRatio(const char *value, double *ratio, QueryError *status) {
+  if (!ParseDouble(value, ratio, 1)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
+      "Invalid shard k ratio value", " '%s'", value);
+    return 0;
+  }
+
+  if (*ratio <= MIN_SHARD_WINDOW_RATIO || *ratio > MAX_SHARD_WINDOW_RATIO) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+      "Invalid shard k ratio value: Shard k ratio must be greater than %g and at most %g (got %g)",
+      MIN_SHARD_WINDOW_RATIO, MAX_SHARD_WINDOW_RATIO, *ratio);
+    return 0;
+  }
+
+  return 1;
+}
+
 // Convert the query attribute into a raw vector param to be resolved by the vector iterator
 // down the road. return 0 in case of an unrecognized parameter.
-static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr) {
-  if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
-      STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
+static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr, QueryError *status) {
+  if (STR_EQCASE(attr->name, attr->namelen, SHARD_K_RATIO_ATTR)) {
+    double ratio;
+    if (!ValidateShardKRatio(attr->value, &ratio, status)) {
+      return 0;
+    }
+    vq->knn.shardWindowRatio = ratio;
+    return 1;
+  } else if (STR_EQCASE(attr->name, attr->namelen, VECSIM_EFRUNTIME) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_EPSILON) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_HYBRID_POLICY) ||
+             STR_EQCASE(attr->name, attr->namelen, VECSIM_BATCH_SIZE)) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
     // The name string was not copied by the parser (unlike the value) - so we copy and save it.
     VecSimRawParam param = (VecSimRawParam){ .name = rm_strndup(attr->name, attr->namelen),
@@ -2231,7 +2268,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     res = 1;
 
   } else if (qn->type == QN_VECTOR) {
-    res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr);
+    res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr, status);
   }
 
   if (!res) {
