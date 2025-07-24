@@ -286,6 +286,8 @@ void testErrorMessages() {
     mu_check(QueryError_HasError(&status));
     errorMsg = QueryError_GetUserError(&status);
     mu_check(strstr(errorMsg, "Shard k ratio is unavailable") != NULL);
+    QueryError_ClearError(&status);
+    freeTestAttribute(&attr3);
 
     freeTestVectorNode(node);
 }
