@@ -51,3 +51,4 @@ dict *Param_DictCreate();
 int Param_DictAdd(dict *d, const char *name, const char *value, size_t value_len, QueryError *status);
 const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryError *status);
 void Param_DictFree(dict *);
+dict *Param_DictClone(dict *source);

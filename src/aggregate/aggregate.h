@@ -97,6 +97,25 @@ typedef enum {
 
 } QEFlags;
 
+// Configuration parameters for cursor behavior
+typedef struct {
+  unsigned maxIdle;     // Maximum idle time for the cursor (from MAXIDLE parameter)
+  unsigned chunkSize;   // Number of results per cursor read (from COUNT parameter)
+} CursorConfig;
+
+// Context structure for parseAggPlan to reduce parameter count
+typedef struct {
+  AGGPlan *plan;                    // Aggregation plan
+  uint32_t *reqflags;               // Request flags
+  RequestConfig *reqConfig;         // Request configuration
+  RSSearchOptions *searchopts;      // Search options
+  size_t *prefixesOffset;           // Prefixes offset
+  CursorConfig *cursorConfig;       // Cursor configuration
+  const char ***requiredFields;     // Required fields
+  size_t *maxSearchResults;         // Maximum search results
+  size_t *maxAggregateResults;      // Maximum aggregate results
+} ParseAggPlanContext;
+
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
@@ -173,10 +192,8 @@ typedef struct AREQ {
 
   RequestConfig reqConfig;
 
-  /** Cursor settings */
-  unsigned cursorMaxIdle;
-  unsigned cursorChunkSize;
-
+  /** Cursor configuration */
+  CursorConfig cursorConfig;
 
   /** Profile variables */
   clock_t initClock;         // Time of start. Reset for each cursor call
@@ -240,6 +257,13 @@ AREQ *AREQ_New(void);
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status);
 
 /**
+ * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.
+ * This function extracts the aggregate-specific parsing logic that was previously
+ * part of AREQ_Compile, allowing it to be reused for merge plans in hybrid queries.
+ */
+int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, QueryError *status);
+
+/**
  * This stage will apply the context to the request. During this phase, the
  * query will be parsed (and matched according to the schema), and the reducers
  * will be loaded and analyzed.
@@ -267,6 +291,13 @@ static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
 static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
   req->reqflags &= ~flags;
 }
+
+/**
+ * Macro to directly set flags on a uint32_t *reqflags pointer.
+ * This is used when we don't have access to an AREQ structure
+ * but need to set flags directly on the reqflags pointer.
+ */
+#define REQFLAGS_AddFlags(reqflags, flags) (*(reqflags) |= (flags))
 
 static inline QueryProcessingCtx *AREQ_QueryProcessingCtx(AREQ *req) {
   return &req->pipeline.qctx;

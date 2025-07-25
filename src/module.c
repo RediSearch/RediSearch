@@ -64,6 +64,7 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "hybrid/parse_hybrid.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1201,6 +1202,10 @@ cleanup:
   return rc;
 }
 
+int RSHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return hybridCommandHandler(ctx, argv, argc);
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
@@ -1285,6 +1290,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
          INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "", true))
+
+  RM_TRY(RMCreateSearchCommand(ctx, RS_HYBRID_CMD, RSHybridCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,
@@ -3901,4 +3909,34 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   }
   rm_free(sCmdCtx->argv);
   rm_free(sCmdCtx);
+}
+
+// Structure to pass context cleanup data to main thread
+typedef struct ContextCleanupData{
+  RedisModuleCtx *thctx;
+  RedisSearchCtx *sctx;
+} ContextCleanupData;
+
+// Callback to safely free contexts from main thread
+static void freeContextsCallback(void *data) {
+  ContextCleanupData *cleanup = (ContextCleanupData *)data;
+
+  if (cleanup->sctx) {
+    SearchCtx_Free(cleanup->sctx);
+  }
+
+  if (cleanup->thctx) {
+    RedisModule_FreeThreadSafeContext(cleanup->thctx);
+  }
+
+  rm_free(cleanup);
+}
+
+// Public function to schedule context cleanup
+void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx) {
+  ContextCleanupData *cleanup = rm_malloc(sizeof(ContextCleanupData));
+  cleanup->thctx = thctx;
+  cleanup->sctx = sctx;
+
+  ConcurrentSearch_ThreadPoolRun(freeContextsCallback, cleanup, DIST_THREADPOOL);
 }

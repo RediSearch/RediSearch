@@ -47,7 +47,6 @@ static void testAverage() {
     abort();
   }
 
-  Pipeline *pipeline = &r->pipeline;
   // so far, so good, eh?
   AGGPlan *plan = AREQ_AGGPlan(r);
   rc = AGGPLN_Distribute(plan, &status);
