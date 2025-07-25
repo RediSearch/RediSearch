@@ -679,6 +679,7 @@ run_micro_benchmarks() {
 
   if [[ "$HAS_FAILURES" == "1" ]]; then
     echo "Some micro-benchmarks failed. Check the logs above for details."
+    exit 1
   else
     echo "All micro-benchmarks completed successfully."
     echo "Results saved to $MICRO_BENCH_DIR/*_results.json"
