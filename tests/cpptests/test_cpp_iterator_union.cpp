@@ -487,3 +487,101 @@ TEST_F(UnionIteratorRevalidateTest, RevalidateMoved) {
   ASSERT_EQ(ui_base->lastDocId, 50); // Should have moved to the next valid result
   ASSERT_FALSE(ui_base->atEOF); // Still not at EOF
 }
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateChildAtEOFBeforeValidation) {
+  // Scenario 1: A child is at EOF before the revalidation
+
+  // Read all documents from child 0 first to bring it to EOF
+  while (mockChildren[0]->base.Read(&mockChildren[0]->base) == ITERATOR_OK) {
+    // Continue reading until EOF
+  }
+  ASSERT_TRUE(mockChildren[0]->base.atEOF);
+
+  // Set revalidate results: child 0 (at EOF) returns OK, others return OK
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[1]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Position union iterator at first document
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 15); // Should be 15 since child 0 is at EOF
+
+  // Revalidate should return VALIDATE_OK since no changes occurred
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify union iterator continues to work correctly with remaining children
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 20);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateChildMovesToEOFDuringValidation) {
+  // Scenario 2: A child moves to EOF due to the validation
+
+  // Position union iterator and children properly
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 10);
+
+  // Simulate child 0 moving to EOF during validation
+  // We'll manually set it to EOF and configure VALIDATE_MOVED
+  mockChildren[0]->base.atEOF = true;
+  mockChildren[0]->nextIndex = mockChildren[0]->docIds.size(); // Set to end
+  mockChildren[0]->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Other children remain valid
+  mockChildren[1]->SetRevalidateResult(VALIDATE_OK);
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Revalidate should return VALIDATE_MOVED since one child moved and affected the union state
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // The union should now show the next minimum docId from remaining active children
+  // Since child 0 is at EOF, minimum should be from children 1 and 2
+  ASSERT_EQ(ui_base->lastDocId, 15); // Next available doc from remaining children
+
+  // Verify union iterator continues to work correctly
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 20);
+}
+
+TEST_F(UnionIteratorRevalidateTest, RevalidateAllChildrenAtEOFAfterValidation) {
+  // Scenario 3: All children are at EOF after the validation
+
+  // First, advance union iterator near the end
+  IteratorStatus rc;
+  t_docId lastValidDocId = 0;
+  while ((rc = ui_base->Read(ui_base)) == ITERATOR_OK) {
+    lastValidDocId = ui_base->lastDocId;
+  }
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_TRUE(ui_base->atEOF);
+  ASSERT_EQ(lastValidDocId, 60); // Should be the last document
+
+  // Manually reset EOF state to test the scenario where children move to EOF during validation
+  ui_base->atEOF = false;
+  ui_base->lastDocId = lastValidDocId;
+
+  // Set all children to EOF during validation
+  for (auto& child : mockChildren) {
+    child->base.atEOF = true;
+    child->nextIndex = child->docIds.size(); // Set to end
+    child->SetRevalidateResult(VALIDATE_MOVED);
+  }
+
+  // When all children are at EOF after validation, the union iterator's lastDocId won't change
+  // because there are no active children to provide a new minimum docId.
+  // Therefore, it should return VALIDATE_OK (not VALIDATE_MOVED) since the lastDocId is unchanged.
+  ValidateStatus status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Union iterator should now be at EOF since all children are at EOF
+  ASSERT_TRUE(ui_base->atEOF);
+
+  // The lastDocId should remain unchanged at the last valid document
+  ASSERT_EQ(ui_base->lastDocId, lastValidDocId);
+
+  // Further reads should return EOF
+  ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
+  ASSERT_EQ(ui_base->SkipTo(ui_base, lastValidDocId + 1), ITERATOR_EOF);
+}
