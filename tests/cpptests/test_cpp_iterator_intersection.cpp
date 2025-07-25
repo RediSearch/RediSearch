@@ -587,9 +587,9 @@ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF) {
   ASSERT_EQ(rc, ITERATOR_EOF);
   ASSERT_TRUE(ii_base->atEOF);
 
-  // Set all children to return VALIDATE_OK
+  // Set all children to return VALIDATE_MOVED
   for (auto& child : mockChildren) {
-    child->SetRevalidateResult(VALIDATE_OK);
+    child->SetRevalidateResult(VALIDATE_MOVED);
   }
 
   // Revalidate should return VALIDATE_OK when already at EOF
