@@ -93,6 +93,9 @@ typedef enum {
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
+  // Is an FT.HYBRID command
+  QEXEC_F_IS_HYBRID = 0x100000000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -156,7 +159,7 @@ typedef struct AREQ {
   QueryIterator qiter;
 
   /** Flags controlling query output */
-  uint32_t reqflags;
+  uint64_t reqflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;
