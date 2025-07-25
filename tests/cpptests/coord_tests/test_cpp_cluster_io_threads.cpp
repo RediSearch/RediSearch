@@ -113,16 +113,19 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   // make sure topology is applied, it either is put before the async, or the Topology timer will triggerPendingQueues.
   // Since the order of the callbacks is not guaranteed, we can't assert on the counters (even if 2 async_t are sent in an specific order,
   // the order of processing is not guaranteed in the uvloop)
-  bool all_done;
-  do {
-    usleep(1);
-    all_done = true;
+  // Wait up to 30 seconds for callbacks to complete
+  int attempt = 0;
+  for (; attempt < 30'000'000; attempt++) {
+    bool all_done = true;
     for (int i = 0; i < cluster->num_io_threads; i++) {
       if (counters[i] < target) {
         all_done = false;
       }
     }
-  } while (!all_done);
+    if (all_done) break;
+    usleep(1); // Sleep 1us
+  }
+  ASSERT_LT(attempt, 30'000'000) << "Timeout waiting for callbacks to complete";
 
   // Change number of IO threads (increase)
   UpdateNumIOThreads(cluster, 5);
