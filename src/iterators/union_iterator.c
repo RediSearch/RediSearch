@@ -97,7 +97,7 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
   if (base->atEOF) {
     return ITERATOR_EOF;
   }
-  t_docId minId = UINT64_MAX;
+  t_docId minId = MAX_DOC_ID;
   IndexResult_ResetAggregate(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
@@ -145,7 +145,7 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   const t_docId lastId = ui->base.lastDocId;
-  t_docId minId = UINT64_MAX;
+  t_docId minId = MAX_DOC_ID;
   IndexResult_ResetAggregate(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
@@ -183,7 +183,7 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
   if (base->atEOF) {
     return ITERATOR_EOF;
   }
-  t_docId minId = UINT64_MAX;
+  t_docId minId = MAX_DOC_ID;
   QueryIterator *minIt;
   IndexResult_ResetAggregate(ui->base.current);
   // TODO: performance improvement?
