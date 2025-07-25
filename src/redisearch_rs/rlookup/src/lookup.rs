@@ -356,6 +356,7 @@ impl<'a> RLookupKey<'a> {
         unsafe { Pin::new_unchecked(b) }
     }
 
+    #[cfg(any(debug_assertions, test))]
     fn is_tombstone(&self) -> bool {
         self.name.is_null()
             && self.name_len == usize::MAX
