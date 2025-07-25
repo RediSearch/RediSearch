@@ -143,7 +143,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
     // reset the state of the reader
     base->Rewind(base);
     IteratorStatus rc = base->SkipTo(base, lastDocId);
-    if (rc == ITERATOR_NOTFOUND) {
+    if (rc != ITERATOR_OK) {
       ret = VALIDATE_MOVED;
     }
   }
