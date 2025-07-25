@@ -167,12 +167,15 @@ pub unsafe extern "C" fn AggregateResultIter_Next(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
+/// - `iter` must point to a valid `RSAggregateResultIter`.
 /// - The iterator must have been created using [`AggregateResult_Iter`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResultIter_Free(iter: *mut RSAggregateResultIter<'static>) {
-    debug_assert!(!iter.is_null(), "iter must not be null");
+    // Don't free if the pointer is `NULL` - just like the C free function
+    if iter.is_null() {
+        return;
+    }
 
-    // SAFETY: Caller is to ensure `iter` is non-null and was allocated using `AggregateResult_Iter`
+    // SAFETY: Caller is to ensure `iter` was allocated using `AggregateResult_Iter`
     let _boxed_iter = unsafe { Box::from_raw(iter) };
 }

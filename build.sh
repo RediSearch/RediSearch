@@ -352,7 +352,7 @@ build_redisearch_rs() {
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
   pushd .
   cd "$REDISEARCH_RS_DIR"
-  cargo build --profile="$RUST_PROFILE"
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --profile="$RUST_PROFILE"
 
   # Copy artifacts to the target directory
   mkdir -p "$REDISEARCH_RS_BINDIR"
@@ -527,7 +527,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -668,12 +668,18 @@ run_micro_benchmarks() {
       benchmark_name=${benchmark#benchmark_}
 
       echo "Running $benchmark..."
-      ./"$benchmark" --benchmark_out_format=json --benchmark_out="${benchmark_name}_results.json" || HAS_FAILURES=1
+      if ./"$benchmark" --benchmark_out_format=json --benchmark_out="${benchmark_name}_results.json"; then
+        echo "✓ $benchmark completed successfully"
+      else
+        echo "✗ $benchmark FAILED"
+        HAS_FAILURES=1
+      fi
     fi
   done
 
   if [[ "$HAS_FAILURES" == "1" ]]; then
     echo "Some micro-benchmarks failed. Check the logs above for details."
+    exit 1
   else
     echo "All micro-benchmarks completed successfully."
     echo "Results saved to $MICRO_BENCH_DIR/*_results.json"

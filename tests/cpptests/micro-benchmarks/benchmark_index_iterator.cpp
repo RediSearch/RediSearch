@@ -17,6 +17,7 @@
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/inverted_index_iterator.h"
+#include "src/numeric_filter.h"
 
 #include "deprecated_iterator_util.h"
 #include "src/index.h"
@@ -31,6 +32,7 @@ public:
     QueryIterator *iterator;
     IndexIterator *iterator_old;
     std::unique_ptr<MockQueryEvalCtx> q_mock;
+    NumericFilter *numericFilter;
 
     void SetUp(::benchmark::State &state) {
         if (!initialized) {
@@ -38,6 +40,7 @@ public:
             initialized = true;
         }
         q_mock = std::make_unique<MockQueryEvalCtx>();
+        numericFilter = nullptr;
 
         std::mt19937 rng(46);
         std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
@@ -78,6 +81,10 @@ public:
         if (index) {
             InvertedIndex_Free(index);
             index = nullptr;
+        }
+        if (numericFilter) {
+            NumericFilter_Free(numericFilter);
+            numericFilter = nullptr;
         }
         ids.clear();
         RSGlobalConfig.invertedIndexRawDocidEncoding = false;
@@ -159,7 +166,8 @@ protected:
         // Create an iterator based on the flags
         if (flags == Index_StoreNumeric) {
             FieldFilterContext fieldCtx = {.field = {false, 0}, .predicate = FIELD_EXPIRATION_DEFAULT};
-            iterator = NewInvIndIterator_NumericQuery(index, &q_mock->sctx, &fieldCtx, nullptr, -INFINITY, INFINITY);
+            numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+            iterator = NewInvIndIterator_NumericQuery(index, &q_mock->sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
         } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
             iterator = NewInvIndIterator_GenericQuery(index, &q_mock->sctx, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
         } else {

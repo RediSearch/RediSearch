@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, DecoderResult, Encoder, RSIndexResult};
+use crate::{Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode the delta and field mask of a record.
 ///
@@ -45,7 +45,7 @@ impl Encoder for FieldsOnly {
 }
 
 impl Decoder for FieldsOnly {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult> {
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
         let [delta, field_mask] = decoded_values;
 
@@ -53,7 +53,7 @@ impl Decoder for FieldsOnly {
             .doc_id(base + delta as t_docId)
             .field_mask(field_mask as t_fieldMask)
             .frequency(1);
-        Ok(DecoderResult::Record(record))
+        Ok(record)
     }
 }
 
@@ -84,7 +84,7 @@ impl Encoder for FieldsOnlyWide {
 }
 
 impl Decoder for FieldsOnlyWide {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult> {
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
         let delta = u32::read_as_varint(reader)?;
         let field_mask = u128::read_as_varint(reader)?;
 
@@ -92,6 +92,6 @@ impl Decoder for FieldsOnlyWide {
             .doc_id(base + delta as t_docId)
             .field_mask(field_mask)
             .frequency(1);
-        Ok(DecoderResult::Record(record))
+        Ok(record)
     }
 }

@@ -19,7 +19,6 @@
 // Helper function to create a test topology
 // Callback for regular tasks
 static void callback(void *privdata) {
-  usleep(100000); // 10ms delay
   int *counter = static_cast<int*>(privdata);
   (*counter)++;
 }
@@ -97,6 +96,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   size_t first_num_io_threads = cluster->num_io_threads;
 
   // Create counters to track callback execution
+  int target = 10;
   int counters[5] = {0};
   MRClusterTopology *topo = getDummyTopology(4096);
 
@@ -105,7 +105,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     IORuntimeCtx_Schedule_Topology(ioRuntime, topoCallback, topo, false);
     // Schedule multiple callbacks on each runtime
-    for (int j = 0; j < 10; j++) {
+    for (int j = 0; j < target; j++) {
       IORuntimeCtx_Schedule(ioRuntime, callback, &counters[i]);
     }
   }
@@ -113,7 +113,19 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   // make sure topology is applied, it either is put before the async, or the Topology timer will triggerPendingQueues.
   // Since the order of the callbacks is not guaranteed, we can't assert on the counters (even if 2 async_t are sent in an specific order,
   // the order of processing is not guaranteed in the uvloop)
-  usleep(DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT*1000); // 100ms
+  // Wait up to 30 seconds for callbacks to complete
+  int attempt = 0;
+  for (; attempt < 30'000'000; attempt++) {
+    bool all_done = true;
+    for (int i = 0; i < cluster->num_io_threads; i++) {
+      if (counters[i] < target) {
+        all_done = false;
+      }
+    }
+    if (all_done) break;
+    usleep(1); // Sleep 1us
+  }
+  ASSERT_LT(attempt, 30'000'000) << "Timeout waiting for callbacks to complete";
 
   // Change number of IO threads (increase)
   UpdateNumIOThreads(cluster, 5);
