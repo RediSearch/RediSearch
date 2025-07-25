@@ -122,6 +122,7 @@ impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
     }
 }
 
+#[cfg(not(miri))]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,7 +148,6 @@ mod tests {
     /// Here the same safety conditions hold, so we are sound.
     ///
     /// An upcoming alternative for stacked borrows with less false positives are [tree borrows](https://pldi25.sigplan.org/details/pldi-2025-papers/42/Tree-Borrows).
-    #[cfg(not(miri))]
     #[test]
     fn index_spec_cache_refcount() {
         let spcache = Box::new(ffi::IndexSpecCache {
