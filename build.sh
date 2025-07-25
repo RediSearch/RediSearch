@@ -505,7 +505,7 @@ run_rust_tests() {
 
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
-  
+
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
@@ -668,12 +668,18 @@ run_micro_benchmarks() {
       benchmark_name=${benchmark#benchmark_}
 
       echo "Running $benchmark..."
-      ./"$benchmark" --benchmark_out_format=json --benchmark_out="${benchmark_name}_results.json" || HAS_FAILURES=1
+      if ./"$benchmark" --benchmark_out_format=json --benchmark_out="${benchmark_name}_results.json"; then
+        echo "✓ $benchmark completed successfully"
+      else
+        echo "✗ $benchmark FAILED"
+        HAS_FAILURES=1
+      fi
     fi
   done
 
   if [[ "$HAS_FAILURES" == "1" ]]; then
     echo "Some micro-benchmarks failed. Check the logs above for details."
+    exit 1
   else
     echo "All micro-benchmarks completed successfully."
     echo "Results saved to $MICRO_BENCH_DIR/*_results.json"
