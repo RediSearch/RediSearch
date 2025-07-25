@@ -963,3 +963,60 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardMov
   // Should be able to continue reading
   ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);
 }
+
+// Test specific scenario: wildcard not moved, child moved, current result is real
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildMovedRealResult_WildcardOK) {
+  mockChild->SetRevalidateResult(VALIDATE_MOVED);
+  mockWildcard->SetRevalidateResult(VALIDATE_OK);
+
+  // Position at a real hit from child (15 is in both child and wildcard)
+  ASSERT_EQ(oi_base->SkipTo(oi_base, 15), ITERATOR_OK);
+  ASSERT_EQ(oi_base->lastDocId, 15);
+
+  // Verify we have a real result from child before revalidation
+  OptionalIterator *oi = (OptionalIterator *)oi_base;
+  ASSERT_EQ(oi_base->current, oi->child->current); // Real result from child
+
+  // Revalidate: child moved but wildcard OK
+  // Since current result was real and child moved, should return OK
+  // (wildcard determines position in optimized mode)
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(oi_base->lastDocId, 20); // Should move to next valid position
+  ASSERT_EQ(oi_base->current, oi->virt); // Should now be virtual result
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+}
+
+// Test specific scenario: wildcard moved ahead to ID that child also has
+TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateWildcardMovedToChildId) {
+  // Configure child and wildcard movements
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Start at position 5 (first wildcard doc, not in child)
+  ASSERT_EQ(oi_base->SkipTo(oi_base, 10), ITERATOR_OK);
+  ASSERT_EQ(oi_base->lastDocId, 10);
+
+  // Verify we have a virtual result before revalidation
+  OptionalIterator *oi = (OptionalIterator *)oi_base;
+  ASSERT_EQ(oi_base->current, oi->virt); // Virtual result
+
+  // When revalidate is called:
+  // - mockWildcard will move from 5 to next in sequence (10)
+  // - mockChild will move from 15 (first in its sequence) to next (35)
+  // The optional iterator should handle both movements
+  ValidateStatus status = oi_base->Revalidate(oi_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+
+  // After revalidation, iterator position should be updated
+  // The exact position depends on implementation but should be valid
+  ASSERT_EQ(oi_base->lastDocId, 15); // Should have moved forward
+  ASSERT_EQ(oi_base->current, oi->child->current); // Should now be a real result from child
+}
