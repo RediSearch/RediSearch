@@ -268,7 +268,7 @@ static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
     ni->child = IT_V2(NewEmptyIterator)();
   }
 
-  // 3. Branch on wildcard status
+  // 3. If the wildcard iterator has moved, we need to sync the state
   if (wcii_status == VALIDATE_MOVED) {
     // Wildcard iterator moved - first sync state
     base->lastDocId = base->current->docId = ni->wcii->lastDocId;

@@ -1036,3 +1036,38 @@ TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardMoved) {
   // Should be able to continue reading
   ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
 }
+
+// Test specific case to reach line 283: wildcard moves to same ID as child
+TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateWildcardMovesToSameIdAsChild) {
+  // Set up a specific scenario where wildcard and child will be at the same position after revalidation
+  mockChild->SetRevalidateResult(VALIDATE_OK);
+  mockWildcard->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Read a document first to establish position
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+
+  ASSERT_EQ(ni_base->lastDocId, 5);
+  ASSERT_EQ(mockChild->base.lastDocId, 10); // Child is at 10
+  ASSERT_EQ(mockWildcard->base.lastDocId, 5); // Wildcard is at 5
+
+  // Revalidate - this should trigger the scenario where wildcard moves
+  // and after syncing state, child is at the same position as wildcard
+  ValidateStatus status = ni_base->Revalidate(ni_base);
+
+  // Should return MOVED since wildcard moved
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_FALSE(ni_base->atEOF); // Should not be at EOF
+
+  // Verify both iterators were checked
+  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
+
+  // The position should have changed due to calling NI_Read_Optimized when
+  // child and wildcard were at the same position (line 283)
+  // Since ID 10 is in both wildcard and child, it should advance to next valid position
+  ASSERT_EQ(ni_base->lastDocId, 15); // Should have moved past the conflicting position
+
+  // Should be able to continue reading
+  ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
+}
