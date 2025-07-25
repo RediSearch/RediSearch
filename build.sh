@@ -352,7 +352,7 @@ build_redisearch_rs() {
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
   pushd .
   cd "$REDISEARCH_RS_DIR"
-  cargo build --profile="$RUST_PROFILE"
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --profile="$RUST_PROFILE"
 
   # Copy artifacts to the target directory
   mkdir -p "$REDISEARCH_RS_BINDIR"
@@ -505,7 +505,7 @@ run_rust_tests() {
 
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
-
+  
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
@@ -527,7 +527,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
