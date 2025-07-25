@@ -255,7 +255,7 @@ static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
   do {
 
     // find the minimal iterator
-    t_docId minDocId = UINT64_MAX;
+    t_docId minDocId = MAX_DOC_ID;
     IndexIterator *minIt = NULL;
     numActive = 0;
     int rc = INDEXREAD_EOF;
