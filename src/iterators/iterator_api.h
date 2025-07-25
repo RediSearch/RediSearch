@@ -23,7 +23,7 @@ typedef enum IteratorStatus {
   ITERATOR_TIMEOUT,
 } IteratorStatus;
 
-typedef enum VALIDATE_OK {
+typedef enum ValidateStatus {
   VALIDATE_OK,      // The iterator is still valid and at the same position - if wasn't at EOF,
                     // the `current` result is still valid
   VALIDATE_MOVED,   // The iterator is still valid but lastDocID changed, and `current` is a new valid result or
