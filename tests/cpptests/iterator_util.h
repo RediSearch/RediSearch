@@ -107,9 +107,7 @@ public:
     ValidateStatus Revalidate() {
       validationCount++;
 
-      if (revalidateResult == VALIDATE_ABORTED) {
-        base.isAborted = true;
-      } else if (revalidateResult == VALIDATE_MOVED) {
+      if (revalidateResult == VALIDATE_MOVED) {
         if (nextIndex < docIds.size()) {
           base.lastDocId = base.current->docId = docIds[nextIndex++]; // Simulate a move by incrementing nextIndex
         }

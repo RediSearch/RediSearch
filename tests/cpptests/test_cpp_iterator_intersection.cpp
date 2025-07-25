@@ -536,8 +536,6 @@ TEST_F(IntersectionIteratorRevalidateTest, RevalidateAborted) {
   // Revalidate should return VALIDATE_ABORTED since one child is aborted
   ValidateStatus status = ii_base->Revalidate(ii_base);
   ASSERT_EQ(status, VALIDATE_ABORTED);
-  // Note: The intersection iterator's isAborted flag might not be set by Revalidate itself
-  // but would be set when subsequent Read/SkipTo operations encounter the aborted child
 }
 
 TEST_F(IntersectionIteratorRevalidateTest, RevalidateMoved) {

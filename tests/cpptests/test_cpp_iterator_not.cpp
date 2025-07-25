@@ -784,7 +784,6 @@ TEST_F(NotIteratorRevalidateTest, RevalidateAborted) {
   // NOT iterator handles child abort gracefully by replacing with empty iterator
   ValidateStatus status = ni_base->Revalidate(ni_base);
   ASSERT_EQ(status, VALIDATE_OK); // NOT iterator continues even when child is aborted
-  ASSERT_FALSE(ni_base->isAborted); // NOT iterator itself is not aborted
   ASSERT_EQ(ni_base->Read(ni_base), ITERATOR_OK);
 }
 
@@ -1028,7 +1027,6 @@ TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildMoved_WildcardMoved) {
   ValidateStatus status = ni_base->Revalidate(ni_base);
   // Should return MOVED since both positions changed
   ASSERT_EQ(status, VALIDATE_MOVED);
-  ASSERT_FALSE(ni_base->isAborted);
 
   // Verify both iterators were checked
   ASSERT_EQ(mockChild->GetValidationCount(), 1);

@@ -324,7 +324,6 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
 
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  ret->isAborted = false;
   ret->current->docId = 0;
   ret->atEOF = false;
   ret->type = NOT_ITERATOR;

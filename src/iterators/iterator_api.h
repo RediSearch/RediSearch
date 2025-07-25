@@ -57,8 +57,6 @@ typedef struct QueryIterator {
   // For instance, NotIterator needs to know if the ChildIterator finishes, otherwise it may not skip the last result correctly.
   bool atEOF;
 
-  bool isAborted;
-
   // the last docId read. Initially should be 0.
   t_docId lastDocId;
 

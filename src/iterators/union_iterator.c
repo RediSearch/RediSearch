@@ -503,7 +503,6 @@ QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickE
 
   // bind the union iterator calls
   ret = &ui->base;
-  ret->isAborted = false;
   ret->type = UNION_ITERATOR;
   ret->atEOF = false;
   ret->lastDocId = 0;

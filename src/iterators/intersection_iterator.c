@@ -378,7 +378,6 @@ QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_
   ret->atEOF = false;
   ret->lastDocId = 0;
   ret->current = NewIntersectResult(num, weight);
-  ret->isAborted = false;
   ret->NumEstimated = II_NumEstimated;
   if (max_slop < 0 && !in_order) {
     // No slop and no order means every result is relevant, so we can use the fast path

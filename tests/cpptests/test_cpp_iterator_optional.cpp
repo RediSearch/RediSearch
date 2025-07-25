@@ -724,7 +724,6 @@ TEST_F(OptionalIteratorRevalidateTest, RevalidateAborted) {
   // Optional iterator handles child abort gracefully by replacing with empty iterator
   ValidateStatus status = oi_base->Revalidate(oi_base);
   ASSERT_EQ(status, VALIDATE_OK); // Optional iterator continues even when child is aborted
-  ASSERT_FALSE(oi_base->isAborted); // Optional iterator itself is not aborted
 
   // Should be able to continue reading (now all virtual hits)
   ASSERT_EQ(oi_base->Read(oi_base), ITERATOR_OK);

@@ -891,7 +891,6 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
 
             // Now Revalidate should return VALIDATE_ABORTED because the revision IDs don't match
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
-            ASSERT_TRUE(iterator->isAborted);
 
             // Restore the original revision ID for proper cleanup
             numericRangeTree->revisionId--;
@@ -913,7 +912,6 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             // Now Revalidate should return VALIDATE_ABORTED because the stored index
             // doesn't match what the lookup returns
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
-            ASSERT_TRUE(iterator->isAborted);
 
             // Clean up the dummy index
             InvertedIndex_Free(dummyIdx);
