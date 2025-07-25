@@ -506,11 +506,15 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
+  # Pin a specific working version of nightly to prevent breaking the CI because
+  # regressions in a nightly build.
+  NIGHTLY_VERSION="nightly-2025-07-20"
+
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+nightly llvm-cov"
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
     RUST_TEST_OPTIONS="
       --doctests
       --codecov
@@ -522,7 +526,7 @@ run_rust_tests() {
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+nightly miri"
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
   fi
 
   # Run cargo test with the appropriate filter
