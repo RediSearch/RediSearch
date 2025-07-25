@@ -376,8 +376,8 @@ protected:
     mockChildren[0] = new MockIterator({10UL, 30UL, 50UL});
     children[0] = reinterpret_cast<QueryIterator *>(mockChildren[0]);
 
-    // Child 1: docs [20, 40, 60]
-    mockChildren[1] = new MockIterator({20UL, 40UL, 60UL});
+    // Child 1: docs [20, 40, 50, 60]
+    mockChildren[1] = new MockIterator({20UL, 40UL, 50UL, 60UL});
     children[1] = reinterpret_cast<QueryIterator *>(mockChildren[1]);
 
     // Child 2: docs [15, 35, 55]
@@ -474,9 +474,14 @@ TEST_F(UnionIteratorRevalidateTest, RevalidateMoved) {
   // Revalidate should return VALIDATE_MOVED
   ValidateStatus status = ui_base->Revalidate(ui_base);
   ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(ui_base->lastDocId, 15); // Last doc ID should have moved forward
 
-  // After revalidation with VALIDATE_MOVED, each child advances by one position
-  // The union iterator should handle the moved children appropriately
-  // We don't make specific assertions about the exact document ID since the
-  // union logic will need to re-synchronize the children
+  // Edge case: child returns VALIDATE_OK due to EOF, its current result is invalid
+  ASSERT_EQ(ui_base->SkipTo(ui_base, 40), ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 40);
+  // Revalidate should still return VALIDATE_MOVED since we moved to a valid result
+  status = ui_base->Revalidate(ui_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(ui_base->lastDocId, 50); // Should have moved to the next valid result
+  ASSERT_FALSE(ui_base->atEOF); // Still not at EOF
 }

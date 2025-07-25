@@ -110,8 +110,9 @@ public:
       if (revalidateResult == VALIDATE_ABORTED) {
         base.isAborted = true;
       } else if (revalidateResult == VALIDATE_MOVED) {
-        RS_LOG_ASSERT(nextIndex < docIds.size(), "BAD TEST: Requested `VALIDATE_MOVED` but nextIndex is out of bounds (real iterators should return VALIDATE_OK on EOF)");
-        base.lastDocId = base.current->docId = docIds[nextIndex++]; // Simulate a move by incrementing nextIndex
+        if (nextIndex < docIds.size()) {
+          base.lastDocId = base.current->docId = docIds[nextIndex++]; // Simulate a move by incrementing nextIndex
+        }
       }
 
       return revalidateResult;
