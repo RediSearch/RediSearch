@@ -119,6 +119,53 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   HybridRequest_Free(result);
 }
 
+TEST_F(ParseHybridTest, testValidInputWithParams) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "@title:($param1)", "VSIM", "world",
+                      "PARAMS", "2", "param1", "hello", "DIALECT", "2");
+
+  // Create a fresh sctx for this test since parseHybridCommand takes ownership
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // // Debug: Print error details if parsing failed
+  // if (!result) {
+  //   printf("Parsing failed: code=%d, detail='%s'\n", status.code, status.detail ? status.detail : "NULL");
+  //   fflush(stdout);
+  // }
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify the structure contains expected number of requests
+  ASSERT_EQ(result->nrequests, 2);
+
+  // Verify default scoring type is RRF
+  assertRRFScoringCtx(1, 20);
+
+  // Verify timeout is set to default
+  ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result->requests[1]->reqConfig.queryTimeoutMS, 500);
+
+  // Verify dialect is set to default
+  ASSERT_EQ(result->requests[0]->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result->requests[1]->reqConfig.dialectVersion, 2);
+
+  // parseHybridCommand calls AREQ_ApplyContext which takes ownership of test_sctx
+  // No need to free test_sctx as it's now owned by the result
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   QueryError status = {QueryErrorCode(0)};
 

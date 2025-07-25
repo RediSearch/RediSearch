@@ -246,7 +246,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   Pipeline *mergePipeline = NULL;
   uint32_t mergeReqflags = 0;
   RequestConfig mergeReqConfig = RSGlobalConfig.requestConfigParams;
-  RSSearchOptions mergeSearchopts;
+  RSSearchOptions mergeSearchopts = {0};
   CursorConfig mergeCursorConfig = {0};
   size_t mergeMaxSearchResults = RSGlobalConfig.maxSearchResults;
   size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
@@ -305,8 +305,11 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       goto error;
     }
 
-    searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
-    vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+    if (mergeSearchopts.params) {
+      searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+      vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+      Param_DictFree(mergeSearchopts.params);
+    }
 
     // Copy request configuration using the helper function
     copyRequestConfig(&searchRequest->reqConfig, &mergeReqConfig);
@@ -401,6 +404,11 @@ error:
   if (hybridParams) {
     HybridScoringContext_Free(hybridParams->scoringCtx);
     rm_free(hybridParams);
+  }
+
+  if (mergePipeline) {
+    Pipeline_Clean(mergePipeline);
+    rm_free(mergePipeline);
   }
 
   return NULL;
