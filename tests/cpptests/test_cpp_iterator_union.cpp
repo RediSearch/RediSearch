@@ -449,16 +449,18 @@ TEST_F(UnionIteratorRevalidateTest, RevalidatePartiallyAborted) {
   // Read a document first
   ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
   t_docId docIdBeforeRevalidate = ui_base->lastDocId;
+  ASSERT_EQ(docIdBeforeRevalidate, 10);
 
   // Revalidate should return VALIDATE_OK or VALIDATE_MOVED (not ABORTED)
   // since not all children are aborted
+  ASSERT_EQ(mockChildren[0]->base.lastDocId, ui_base->lastDocId); // Child with a matching doc ID is OK
   ValidateStatus status = ui_base->Revalidate(ui_base);
-  ASSERT_TRUE(status == VALIDATE_OK || status == VALIDATE_MOVED);
-  ASSERT_NE(status, VALIDATE_ABORTED);
+  ASSERT_EQ(status, VALIDATE_OK);
 
   // Should be able to continue reading after removing aborted child
   IteratorStatus read_status = ui_base->Read(ui_base);
-  ASSERT_TRUE(read_status == ITERATOR_OK || read_status == ITERATOR_EOF);
+  ASSERT_EQ(read_status, ITERATOR_OK);
+  ASSERT_EQ(ui_base->lastDocId, 15); // Should read the next valid doc ID
 }
 
 TEST_F(UnionIteratorRevalidateTest, RevalidateMoved) {
@@ -474,7 +476,7 @@ TEST_F(UnionIteratorRevalidateTest, RevalidateMoved) {
   // Revalidate should return VALIDATE_MOVED
   ValidateStatus status = ui_base->Revalidate(ui_base);
   ASSERT_EQ(status, VALIDATE_MOVED);
-  ASSERT_EQ(ui_base->lastDocId, 15); // Last doc ID should have moved forward
+  ASSERT_EQ(ui_base->lastDocId, 30); // Last doc ID should have moved forward (to the minimum of the second result of each child)
 
   // Edge case: child returns VALIDATE_OK due to EOF, its current result is invalid
   ASSERT_EQ(ui_base->SkipTo(ui_base, 40), ITERATOR_OK);

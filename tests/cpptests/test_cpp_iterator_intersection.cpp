@@ -569,25 +569,14 @@ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults) {
   // Revalidate should return VALIDATE_MOVED (if any child moved)
   ValidateStatus status = ii_base->Revalidate(ii_base);
   ASSERT_EQ(status, VALIDATE_MOVED);
+  ASSERT_EQ(ii_base->lastDocId, 20);
 
-  // Should be able to continue reading (intersection will handle the moved child)
-  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
-}
-
-
-TEST_F(IntersectionIteratorRevalidateTest, RevalidateMovedToEOF) {
-  // Mix of different revalidate results
-  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
-  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
-  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
-
-  // Read a document first
   ASSERT_EQ(ii_base->SkipTo(ii_base, commonDocIds.back()), ITERATOR_OK);
   ASSERT_EQ(ii_base->lastDocId, 50);
 
-  // Revalidate should return VALIDATE_OK (a child moved but we are at EOF)
-  ValidateStatus status = ii_base->Revalidate(ii_base);
-  ASSERT_EQ(status, VALIDATE_OK);
+  // Revalidate should return VALIDATE_MOVED, but atEOF should be true
+  status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
   ASSERT_TRUE(ii_base->atEOF);
   ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
 }
