@@ -195,12 +195,8 @@ static ValidateStatus OI_Revalidate_NotOptimized(QueryIterator *base) {
   }
 
   // 4. Current result is real and child was moved (or aborted) - we need to re-read
-  IteratorStatus read_status = base->Read(base);
-  if (read_status == ITERATOR_OK) {
-    return VALIDATE_MOVED;
-  } else {
-    return VALIDATE_OK; // EOF or other stable state
-  }
+  base->Read(base);
+  return VALIDATE_MOVED;
 }
 
 // Revalidate for OPTIONAL iterator - Optimized version.
@@ -231,12 +227,8 @@ static ValidateStatus OI_Revalidate_Optimized(QueryIterator *base) {
     }
     // If the child iterator was moved and the current result is real,
     // we need to read to get the next valid result.
-    IteratorStatus read_status = base->Read(base);
-    if (read_status == ITERATOR_OK) {
-      return VALIDATE_MOVED;
-    } else {
-      return VALIDATE_OK; // EOF or other stable state
-    }
+    base->Read(base);
+    return VALIDATE_MOVED;
   } else {
     RS_ASSERT(wcii_status == VALIDATE_MOVED);
     // If the wildcard iterator was moved, we need to advance the iterator

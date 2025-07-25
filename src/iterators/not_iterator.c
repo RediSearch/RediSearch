@@ -245,7 +245,7 @@ static ValidateStatus NI_Revalidate_NotOptimized(QueryIterator *base) {
   // Now the child is either at EOF, OK or MOVED.
   // if the child is at EOF or OK, we can return VALIDATE_OK.
   // if the child is MOVED, it must have advanced beyond the iterator's lastDocId, so the current result is still valid in this case.
-  RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
+  RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->atEOF || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
   return VALIDATE_OK;
 }
 
@@ -269,29 +269,21 @@ static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
   }
 
   // 3. Branch on wildcard status
-  if (wcii_status == VALIDATE_OK) {
-    // Same logic as non-optimized case
-    RS_LOG_ASSERT(child_status != VALIDATE_MOVED || ni->child->lastDocId > base->lastDocId, "Moved but still not beyond lastDocId");
-    base->atEOF = ni->wcii->atEOF; // sync EOF state with wildcard iterator
-    return VALIDATE_OK;
-  } else {
-    RS_ASSERT(wcii_status == VALIDATE_MOVED);
+  if (wcii_status == VALIDATE_MOVED) {
+    // Wildcard iterator moved - first sync state
     base->lastDocId = base->current->docId = ni->wcii->lastDocId;
-    // Check child position relative to our current position
-    if (ni->child->atEOF || ni->child->lastDocId > base->lastDocId) {
-      // Child is ahead or at EOF - our position is still valid, but wildcard moved
-      return VALIDATE_MOVED;
-    } else {
-      // Child is behind or at the same ID - need to read next valid position
-      IteratorStatus read_status = base->Read(base);
-      if (read_status == ITERATOR_OK) {
-        return VALIDATE_MOVED;
-      } else {
-        // EOF or timeout
-        return VALIDATE_OK;
-      }
+    base->atEOF = ni->wcii->atEOF;
+    // If child is behind the last ID - need to skip to the lastDocId
+    if (ni->child->lastDocId < base->lastDocId) {
+      ni->child->SkipTo(ni->child, base->lastDocId);
+    }
+    if (ni->child->lastDocId == base->lastDocId) {
+      // Child is at the same position - this is not a valid result.
+      // We need to read the next valid position
+      NI_Read_Optimized(base);
     }
   }
+  return wcii_status;
 }
 
 /*

@@ -310,7 +310,7 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
 
 static ValidateStatus II_Revalidate(QueryIterator *base) {
   IntersectionIterator *ii = (IntersectionIterator *)base;
-  bool any_child_moved = false;
+  bool any_child_moved = false, movedToEOF = false;
   t_docId max_child_docId = 0;
 
   // Step 1: Revalidate all children and track status
@@ -325,7 +325,9 @@ static ValidateStatus II_Revalidate(QueryIterator *base) {
     if (child_status == VALIDATE_MOVED) {
       any_child_moved = true;
       // Track the maximum docId among moved children
-      if (child->lastDocId > max_child_docId) {
+      if (child->atEOF) {
+        movedToEOF = true; // If any child moved and now at EOF, the intersection is also at EOF now
+      } else if (child->lastDocId > max_child_docId) {
         max_child_docId = child->lastDocId;
       }
     }
@@ -335,19 +337,19 @@ static ValidateStatus II_Revalidate(QueryIterator *base) {
   if (!any_child_moved) {
     // All children returned OK - simply return OK
     return VALIDATE_OK;
+  } else if (base->atEOF) {
+    // If the intersection was already at EOF, we return OK
+    return VALIDATE_OK;
+  } else if (movedToEOF) {
+    // If any child is at EOF, the intersection is also moved to EOF
+    base->atEOF = true;
+    return VALIDATE_MOVED;
   }
 
   // Step 3: At least one child moved - need to find new intersection position
   // Skip to the maximal docId among moved children
-  IteratorStatus skip_rc = base->SkipTo(base, max_child_docId);
-
-  // Step 4: Return based on skip result
-  if (skip_rc == ITERATOR_OK || skip_rc == ITERATOR_NOTFOUND) {
-    return VALIDATE_MOVED;
-  } else {
-    // Skip failed (EOF, TIMEOUT, etc.) - return OK (iterator still valid at original position)
-    return VALIDATE_OK;
-  }
+  base->SkipTo(base, max_child_docId);
+  return VALIDATE_MOVED;
 }
 
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight) {
