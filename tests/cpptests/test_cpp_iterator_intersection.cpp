@@ -578,3 +578,67 @@ TEST_F(IntersectionIteratorRevalidateTest, RevalidateMixedResults) {
   ASSERT_TRUE(ii_base->atEOF);
   ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
 }
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateAfterEOF) {
+  // Test case 1: Revalidate after EOF - make sure all children were revalidated regardless, and returned OK
+
+  // First, advance intersection iterator to EOF
+  IteratorStatus rc = ii_base->SkipTo(ii_base, commonDocIds.back() + 1);
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_TRUE(ii_base->atEOF);
+
+  // Set all children to return VALIDATE_OK
+  for (auto& child : mockChildren) {
+    child->SetRevalidateResult(VALIDATE_OK);
+  }
+
+  // Revalidate should return VALIDATE_OK when already at EOF
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_OK);
+
+  // Verify all children were revalidated regardless of iterator being at EOF
+  for (auto& child : mockChildren) {
+    ASSERT_EQ(child->GetValidationCount(), 1) << "All children should be revalidated even when iterator is at EOF";
+  }
+
+  // Iterator should still be at EOF
+  ASSERT_TRUE(ii_base->atEOF);
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+}
+
+TEST_F(IntersectionIteratorRevalidateTest, RevalidateSomeChildrenMovedToEOF) {
+  // Test case 2: Some children (at least one) moved to EOF while revalidating
+
+  // Position intersection iterator at a valid document
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+  ASSERT_EQ(ii_base->lastDocId, 10);
+
+  // Simulate some children moving to EOF during validation
+  // Child 0: stays valid
+  mockChildren[0]->SetRevalidateResult(VALIDATE_OK);
+
+  // Child 1: moves to EOF
+  mockChildren[1]->base.atEOF = true;
+  mockChildren[1]->nextIndex = mockChildren[1]->docIds.size(); // Set to end
+  mockChildren[1]->SetRevalidateResult(VALIDATE_MOVED);
+
+  // Child 2: stays valid
+  mockChildren[2]->SetRevalidateResult(VALIDATE_OK);
+
+  // Revalidate should return VALIDATE_MOVED and set intersection to EOF
+  // because if any child is at EOF, the intersection has no more results
+  ValidateStatus status = ii_base->Revalidate(ii_base);
+  ASSERT_EQ(status, VALIDATE_MOVED);
+
+  // Intersection iterator should now be at EOF since one child moved to EOF
+  ASSERT_TRUE(ii_base->atEOF);
+
+  // Verify all children were revalidated
+  for (auto& child : mockChildren) {
+    ASSERT_EQ(child->GetValidationCount(), 1);
+  }
+
+  // Further reads should return EOF
+  ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+  ASSERT_EQ(ii_base->SkipTo(ii_base, 100), ITERATOR_EOF);
+}
