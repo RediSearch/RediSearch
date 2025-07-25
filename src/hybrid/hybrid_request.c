@@ -136,15 +136,21 @@ void HybridRequest_Free(HybridRequest *req) {
     for (size_t i = 0; i < req->nrequests; i++) {
       // Check if we need to manually free the thread-safe context
       if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
-
-        // Free the search context
         RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
         RedisSearchCtx *sctx = req->requests[i]->sctx;
-        SearchCtx_Free(sctx);
-        // Free the thread-safe context
-        if (thctx) {
-          RedisModule_FreeThreadSafeContext(thctx);
+
+        // Check if we're running in background thread
+        if (RunInThread()) {
+          // Background thread: schedule cleanup on main thread
+          ScheduleContextCleanup(thctx, sctx);
+        } else {
+          // Main thread: safe to free directly
+          SearchCtx_Free(sctx);
+          if (thctx) {
+            RedisModule_FreeThreadSafeContext(thctx);
+          }
         }
+
         req->requests[i]->sctx = NULL;
       }
 
