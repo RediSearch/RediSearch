@@ -757,6 +757,7 @@ version = "0.0.1"
 dependencies = [
  "enumflags2",
  "ffi",
+ "low_memory_thin_vec",
  "pretty_assertions",
  "proptest",
  "qint",

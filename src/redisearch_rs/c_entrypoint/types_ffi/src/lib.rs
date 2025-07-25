@@ -11,6 +11,23 @@
 
 use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult};
 
+/// Check if the result is an aggregate result.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult) -> bool {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.is_aggregate()
+}
+
 /// Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
 /// if the index is out of bounds.
 ///
@@ -105,6 +122,53 @@ pub unsafe extern "C" fn AggregateResult_Reset(agg: *mut RSAggregateResult) {
     let agg = unsafe { &mut *agg };
 
     agg.reset();
+}
+
+/// Create a new aggregate result with the specified capacity. This function will make the result
+/// in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
+/// should return to Rust to free up any heap memory using [`AggregateResult_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult {
+    RSAggregateResult::with_capacity(cap)
+}
+
+/// Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
+/// free the individual children pointers, but rather the heap allocations owned by the aggregate
+/// result itself (such as the internal vector buffer). The caller is responsible for managing the
+/// memory of the children pointers before this call if needed.
+///
+/// The `agg` parameter should have been created with [`AggregateResult_New`].
+#[unsafe(no_mangle)]
+pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
+    drop(agg); // Explicit for clarity - automatically frees LowMemoryThinVec buffer
+}
+
+/// Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
+/// the `child` and will therefore not free it. Instead, the caller is responsible for managing
+/// the memory of the `child` pointer *after* the `parent` has been freed.
+///
+/// If the `parent` is not an aggregate type, then this is a no-op.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `child` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_AddChild(
+    parent: *mut RSIndexResult,
+    child: *mut RSIndexResult,
+) {
+    debug_assert!(!parent.is_null(), "parent must not be null");
+    debug_assert!(!child.is_null(), "child must not be null");
+
+    // SAFETY: Caller is to ensure that `parent` is a valid, non-null pointer to an `RSIndexResult`
+    let parent = unsafe { &mut *parent };
+
+    // SAFETY: Caller is to ensure that `child` is a valid, non-null pointer to an `RSIndexResult`
+    let child = unsafe { &*child };
+
+    parent.push(child);
 }
 
 /// Create an iterator over the aggregate result. This iterator should be freed
