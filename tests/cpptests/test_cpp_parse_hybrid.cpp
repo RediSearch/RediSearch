@@ -11,6 +11,7 @@
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "common.h"
+#include "src/hybrid/hybrid_request.h"
 #include "src/hybrid/parse_hybrid.h"
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
@@ -68,8 +69,23 @@ class ParseHybridTest : public ::testing::Test {
     }
   }
 
-
 };
+
+
+#define assertLinearScoringCtx(Weight0, Weight1) { \
+  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
+  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, HYBRID_REQUEST_NUM_SUBQUERIES); \
+  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL); \
+  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], Weight0); \
+  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], Weight1); \
+}
+
+#define assertRRFScoringCtx(K, Window) { \
+  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
+  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, K); \
+  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, Window); \
+}
+
 
 TEST_F(ParseHybridTest, testBasicValidInput) {
   QueryError status = {QueryErrorCode(0)};
@@ -77,11 +93,11 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", TEST_BLOB_DATA);
 
-  // Create a fresh sctx for this test since parseHybridRequest takes ownership
+  // Create a fresh sctx for this test since parseHybridCommand takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Verify the request was parsed successfully
   ASSERT_TRUE(result != NULL);
@@ -91,14 +107,61 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, 1);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, 20);
+  assertRRFScoringCtx(1, 20);
 
-  // parseHybridRequest calls AREQ_ApplyContext which takes ownership of test_sctx
+  // Verify timeout is set to default
+  ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result->requests[1]->reqConfig.queryTimeoutMS, 500);
+
+  // Verify dialect is set to default
+  ASSERT_EQ(result->requests[0]->reqConfig.dialectVersion, 1);
+  ASSERT_EQ(result->requests[1]->reqConfig.dialectVersion, 1);
+
+  // parseHybridCommand calls AREQ_ApplyContext which takes ownership of test_sctx
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", TEST_BLOB_DATA, "TIMEOUT", "240", "DIALECT", "2");
+
+  // Create a fresh sctx for this test since parseHybridCommand takes ownership
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify the structure contains expected number of requests
+  ASSERT_EQ(result->nrequests, 2);
+
+  // Verify default scoring type is RRF
+  assertRRFScoringCtx(1, 20);
+
+  // Verify timeout is set correctly
+  ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 240);
+  ASSERT_EQ(result->requests[1]->reqConfig.queryTimeoutMS, 240);
+
+  // Verify dialect is set correctly
+  ASSERT_EQ(result->requests[0]->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result->requests[1]->reqConfig.dialectVersion, 2);
+
+  // parseHybridCommand calls AREQ_ApplyContext which takes ownership of test_sctx
+  // No need to free test_sctx as it's now owned by the result
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -111,7 +174,7 @@ TEST_F(ParseHybridTest, testMissingSearchParameter) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
@@ -132,7 +195,7 @@ TEST_F(ParseHybridTest, testMissingQueryStringAfterSearch) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
@@ -154,7 +217,7 @@ TEST_F(ParseHybridTest, testMissingSecondSearchParameter) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
@@ -175,7 +238,7 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // // Debug: Print error details if parsing failed
   // if (!result) {
@@ -188,13 +251,11 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify LINEAR scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
-  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, 2);
-  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], 0.7);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], 0.3);
+  assertLinearScoringCtx(0.7, 0.3);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
   QueryError_ClearError(&status);
 }
@@ -209,7 +270,7 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Verify the request was parsed successfully
   ASSERT_TRUE(result != NULL);
@@ -227,11 +288,11 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   ASSERT_EQ(memcmp(vecReq->ast.root->vn.vq->knn.vector, expectedBlob, expectedBlobLen), 0);
 
   // Verify RRF scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, 1);
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, 20);
+  assertRRFScoringCtx(1, 20);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -245,7 +306,7 @@ TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
@@ -255,7 +316,6 @@ TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
   SearchCtx_Free(test_sctx);
   QueryError_ClearError(&status);
 }
-
 
 
 TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
@@ -269,7 +329,7 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Debug: Print error details if parsing failed
   if (!result) {
@@ -289,6 +349,8 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], 0.3);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -311,7 +373,7 @@ TEST_F(ParseHybridTest, testMultiLineCommand) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Debug: Print error details if parsing failed
   if (!result) {
@@ -331,6 +393,8 @@ TEST_F(ParseHybridTest, testMultiLineCommand) {
   ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], 0.3);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -349,7 +413,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
 
@@ -383,6 +447,8 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -399,7 +465,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
 
@@ -436,6 +502,8 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   ASSERT_TRUE(foundEfRuntime);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -452,7 +520,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
 
@@ -483,6 +551,8 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -499,7 +569,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
 
@@ -524,6 +594,8 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -540,7 +612,7 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
 
@@ -571,6 +643,8 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -587,7 +661,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
 
@@ -624,6 +698,8 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_TRUE(foundEpsilon);
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -639,7 +715,7 @@ TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Verify the request was parsed unsuccessfully
   ASSERT_TRUE(result == NULL);
@@ -660,7 +736,7 @@ TEST_F(ParseHybridTest, testVsimKNNOddParamCount) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
@@ -680,7 +756,7 @@ TEST_F(ParseHybridTest, testVsimRangeOddParamCount) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
@@ -700,7 +776,7 @@ TEST_F(ParseHybridTest, testVsimSubqueryMissingK) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
@@ -720,7 +796,7 @@ TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EDUPPARAM);
@@ -740,7 +816,7 @@ TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EDUPPARAM);
@@ -760,7 +836,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
@@ -780,7 +856,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
@@ -800,7 +876,7 @@ TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EDUPPARAM);
@@ -820,7 +896,7 @@ TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EDUPPARAM);
@@ -840,7 +916,7 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
 
@@ -879,6 +955,8 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   ASSERT_EQ(vq->knn.vecLen, strlen(TEST_BLOB_DATA));
 
   // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -892,7 +970,7 @@ TEST_F(ParseHybridTest, testBlobWithoutParams) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
   // Verify parsing failed - $BLOB parameter requires PARAMS section
   ASSERT_TRUE(result == NULL);
@@ -912,7 +990,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT);
 
@@ -934,7 +1012,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* result = parseHybridRequest(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY);
 

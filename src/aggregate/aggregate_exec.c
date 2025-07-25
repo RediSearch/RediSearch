@@ -1308,7 +1308,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *err, bool coord) {
-  Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorMaxIdle, err);
+  Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorConfig.maxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
@@ -1327,12 +1327,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
 
   if (!num) {
-    num = req->cursorChunkSize;
+    num = req->cursorConfig.chunkSize;
     if (!num) {
       num = RSGlobalConfig.cursorReadSize;
     }
   }
-  req->cursorChunkSize = num;
+  req->cursorConfig.chunkSize = num;
 
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock

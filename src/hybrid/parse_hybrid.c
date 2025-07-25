@@ -363,12 +363,11 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
 
   // Parse parameters based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    // For LINEAR, we expect exactly 2 weight values
-    combineCtx->linearCtx.linearWeights = rm_calloc(2, sizeof(double));
-    combineCtx->linearCtx.numWeights = 2;
+    combineCtx->linearCtx.linearWeights = rm_calloc(HYBRID_REQUEST_NUM_SUBQUERIES, sizeof(double));
+    combineCtx->linearCtx.numWeights = HYBRID_REQUEST_NUM_SUBQUERIES;
 
-    // Parse the two weight values directly
-    for (size_t i = 0; i < 2; i++) {
+    // Parse the weight values directly
+    for (size_t i = 0; i < HYBRID_REQUEST_NUM_SUBQUERIES; i++) {
       double weight;
       if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
@@ -430,78 +429,32 @@ error:
 }
 
 
-HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
-  HybridRequest *req = rm_calloc(1, sizeof(*req));
-  req->requests = requests;
-  req->nrequests = nrequests;
-
-  // Initialize error tracking for each individual request
-  req->errors = array_new(QueryError, nrequests);
-
-  // Initialize the tail pipeline that will merge results from all requests
-  req->tailPipeline = rm_calloc(1, sizeof(Pipeline));
-  AGPLN_Init(&req->tailPipeline->ap);
-  QueryError_Init(&req->tailError);
-  Pipeline_Initialize(req->tailPipeline, requests[0]->pipeline->qctx.timeoutPolicy, &req->tailError);
-
-  // Initialize pipelines for each individual request
-  for (size_t i = 0; i < nrequests; i++) {
-    QueryError_Init(&req->errors[i]);
-    Pipeline_Initialize(requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &req->errors[i]);
-  }
-  return req;
+// Copy request configuration from source to destination
+static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
+  dest->queryTimeoutMS = src->queryTimeoutMS;
+  dest->dialectVersion = src->dialectVersion;
+  dest->timeoutPolicy = src->timeoutPolicy;
+  dest->printProfileClock = src->printProfileClock;
+  dest->BM25STD_TanhFactor = src->BM25STD_TanhFactor;
 }
 
-int HybridRequest_BuildPipeline(HybridRequest *req) { return REDISMODULE_OK; }
-
-void HybridRequest_Free(HybridRequest *hybridRequest) {
-  if (!hybridRequest) return;
-
-  // Free the tail pipeline
-  if (hybridRequest->tailPipeline) {
-    Pipeline_Clean(hybridRequest->tailPipeline);
-    rm_free(hybridRequest->tailPipeline);
-    hybridRequest->tailPipeline = NULL;
-  }
-
-  // Free all individual AREQ requests
-  for (size_t i = 0; i < hybridRequest->nrequests; i++) {
-    // Check if we need to manually free the thread-safe context
-    if (hybridRequest->requests[i]->sctx && hybridRequest->requests[i]->sctx->redisCtx) {
-
-      // Free the search context
-      RedisModuleCtx *thctx = hybridRequest->requests[i]->sctx->redisCtx;
-      RedisSearchCtx *sctx = hybridRequest->requests[i]->sctx;
-      SearchCtx_Free(sctx);
-      // Free the thread-safe context
-      if (thctx) {
-        RedisModule_FreeThreadSafeContext(thctx);
-      }
-      hybridRequest->requests[i]->sctx = NULL;
-    }
-
-    AREQ_Free(hybridRequest->requests[i]);
-  }
-
-  // Free the scoring context resources
-  HybridScoringContext_Free(hybridRequest->hybridParams->scoringCtx);
-
-  // Free the aggregation search context
-  if(hybridRequest->hybridParams->aggregation.common.sctx) {
-    SearchCtx_Free(hybridRequest->hybridParams->aggregation.common.sctx);
-  }
-  // Free the hybrid parameters
-  rm_free(hybridRequest->hybridParams);
-
-  // Free the arrays and tail pipeline
-  array_free(hybridRequest->requests);
-  array_free(hybridRequest->errors);
-
-  rm_free(hybridRequest);
-}
-
-
-HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+/**
+ * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
+ *
+ * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
+ *                  [COMBINE <method> [params]] [aggregation_options]
+ *
+ * @param ctx Redis module context
+ * @param argv Command arguments array (starting with "FT.HYBRID")
+ * @param argc Number of arguments in argv
+ * @param sctx Search context for the index (takes ownership)
+ * @param indexname Name of the index to search
+ * @param status Output parameter for error reporting
+ * @return HybridRequest* on success, NULL on error
+ *
+ * @note Takes ownership of sctx. Exposed for testing.
+ */
+HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                  RedisSearchCtx *sctx, const char *indexname,
                                  QueryError *status) {
   AREQ *searchRequest = AREQ_New();
@@ -522,7 +475,15 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
   vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
 
-  AREQ *mergeAreq = NULL;
+  // Individual variables used for parsing the tail of the command
+  Pipeline *mergePipeline = NULL;
+  uint32_t mergeReqflags = 0;
+  RequestConfig mergeReqConfig = RSGlobalConfig.requestConfigParams;
+  RSSearchOptions mergeSearchopts = {0};
+  CursorConfig mergeCursorConfig = {0};
+  size_t mergeMaxSearchResults = RSGlobalConfig.maxSearchResults;
+  size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
+
   AREQ **requests = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
   vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
@@ -557,18 +518,41 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   bool hasMerge = false;
   if (remainingArgs > 0) {
     hasMerge = true;
-    mergeAreq = AREQ_New();
 
-    AGPLN_Init(AREQ_AGGPlan(mergeAreq));
-    RSSearchOptions_Init(&mergeAreq->searchopts);
-    if (parseAggPlan(mergeAreq, &ac, status) != REDISMODULE_OK) {
+    mergePipeline = rm_calloc(1, sizeof(Pipeline));
+    AGPLN_Init(&mergePipeline->ap);
+    RSSearchOptions_Init(&mergeSearchopts);
+
+    ParseAggPlanContext papCtx = {
+      .plan = &mergePipeline->ap,
+      .reqflags = &mergeReqflags,
+      .reqConfig = &mergeReqConfig,
+      .searchopts = &mergeSearchopts,
+      .prefixesOffset = NULL,               // Invalid in FT.HYBRID
+      .cursorConfig = &mergeCursorConfig,   // TODO: Confirm if this is supported
+      .requiredFields = NULL,               // Invalid in FT.HYBRID
+      .maxSearchResults = &mergeMaxSearchResults,
+      .maxAggregateResults = &mergeMaxAggregateResults
+    };
+    if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
       goto error;
     }
 
-    mergeAreq->protocol = is_resp3(ctx) ? 3 : 2;
+    if (mergeSearchopts.params) {
+      searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+      vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+      Param_DictFree(mergeSearchopts.params);
+    }
 
-    searchRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
-    vectorRequest->searchopts.params = Param_DictClone(mergeAreq->searchopts.params);
+    // Copy request configuration using the helper function
+    copyRequestConfig(&searchRequest->reqConfig, &mergeReqConfig);
+    copyRequestConfig(&vectorRequest->reqConfig, &mergeReqConfig);
+
+    // Copy max results limits
+    searchRequest->maxSearchResults = mergeMaxSearchResults;
+    searchRequest->maxAggregateResults = mergeMaxAggregateResults;
+    vectorRequest->maxSearchResults = mergeMaxSearchResults;
+    vectorRequest->maxAggregateResults = mergeMaxAggregateResults;
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
@@ -576,7 +560,7 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
 
   // Create the hybrid request with proper structure
-  requests = array_new(AREQ*, 2);
+  requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   array_ensure_append_1(requests, searchRequest);
   array_ensure_append_1(requests, vectorRequest);
 
@@ -588,42 +572,34 @@ HybridRequest* parseHybridRequest(RedisModuleCtx *ctx, RedisModuleString **argv,
     }
   });
 
-  HybridRequest *hybridRequest = HybridRequest_New(requests, 2);
+  HybridRequest *hybridRequest = HybridRequest_New(requests, HYBRID_REQUEST_NUM_SUBQUERIES);
   hybridRequest->hybridParams = hybridParams;
 
   // thread safe context
   const AggregationPipelineParams params = {
       .common =
           {
-              .pln = NULL,  // I think. should be copied in HybridRequest_BuildPipeline
               .sctx = sctx,  // should be a separate context?
-              .reqflags = hasMerge ? mergeAreq->reqflags : 0,
+              .reqflags = hasMerge ? mergeReqflags : 0,
               .optimizer = NULL,  // is it?
           },
       .outFields = NULL,
-      .maxResultsLimit = hasMerge ? mergeAreq->maxAggregateResults : RSGlobalConfig.maxAggregateResults,
+      .maxResultsLimit = mergeMaxAggregateResults,
       .language = searchRequest->searchopts.language,
   };
 
-  hybridParams->aggregation = params;
+  hybridParams->aggregationParams = params;
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
-    // Now we can simply transfer the pointer
+    // Create and transfer the pipeline
     if (hybridRequest->tailPipeline) {
       Pipeline_Clean(hybridRequest->tailPipeline);
       rm_free(hybridRequest->tailPipeline);
     }
 
-    // Transfer ownership of the pipeline
-    hybridRequest->tailPipeline = mergeAreq->pipeline;
-
-    // Prevent double free
-    mergeAreq->pipeline = NULL;
-  }
-
-  if (mergeAreq) {
-    AREQ_Free(mergeAreq);
+    hybridRequest->tailPipeline = mergePipeline;
+    mergePipeline = NULL;  // Prevent double free
   }
 
   return hybridRequest;
@@ -653,9 +629,6 @@ error:
     AREQ_Free(vectorRequest);
   }
 
-  if (mergeAreq) {
-    AREQ_Free(mergeAreq);
-  }
   if (requests) {
     array_free(requests);
   }
@@ -665,10 +638,21 @@ error:
     rm_free(hybridParams);
   }
 
+  if (mergePipeline) {
+    Pipeline_Clean(mergePipeline);
+    rm_free(mergePipeline);
+  }
+
   return NULL;
 }
 
-int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/**
+ * Main command handler for FT.HYBRID command.
+ *
+ * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
+ * and prepares for hybrid search execution.
+ */
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -687,12 +671,12 @@ int execHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   QueryError status = {0};
 
-  HybridRequest *hybridRequest = parseHybridRequest(ctx, argv, argc, sctx, indexname, &status);
+  HybridRequest *hybridRequest = parseHybridCommand(ctx, argv, argc, sctx, indexname, &status);
   if (!hybridRequest) {
     goto error;
   }
 
-  if (HybridRequest_BuildPipeline(hybridRequest) != REDISMODULE_OK) {
+  if (HybridRequest_BuildPipeline(hybridRequest, hybridRequest->hybridParams) != REDISMODULE_OK) {
     goto error;
   }
 
