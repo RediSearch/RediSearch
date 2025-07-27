@@ -145,7 +145,7 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     QueryError_Init(&hybridReq->tailPipelineError);
-    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
