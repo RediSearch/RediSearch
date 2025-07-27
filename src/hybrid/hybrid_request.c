@@ -10,8 +10,7 @@ extern "C" {
 #endif
 
 // Field names for implicit LOAD step
-#define HYBRID_IMPLICIT_DOC_ID "doc_id"
-#define HYBRID_IMPLICIT_COMBINED_SCORE "combined_score"
+#define HYBRID_IMPLICIT_KEY_FIELD "key"
 
 /**
  * Build the complete hybrid search pipeline for processing multiple search requests.
@@ -66,7 +65,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
           nkeys = loadStep->nkeys;
         } else {
           // If load was not specified, implicitly load doc key
-          RLookupKey *docIdKey = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_DOC_ID, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+          RLookupKey *docIdKey = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_KEY_FIELD, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
           implicitLoadKeys[0] = docIdKey;
           keys = implicitLoadKeys;
           nkeys = 1;
