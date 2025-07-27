@@ -399,6 +399,15 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     }
   }
 
+  // Check for "SORTBY 0" which means no sorting (0 arguments specified)
+  if (!isLegacy && AC_NumRemaining(&subArgs) == 0) {
+    // SORTBY 0 - disable sorting
+    arng->noSort = true;
+    arng->sortKeys = NULL;
+    arng->sortAscMap = 0;
+    return REDISMODULE_OK;
+  }
+
   keys = array_new(const char *, 8);
 
   if (isLegacy) {

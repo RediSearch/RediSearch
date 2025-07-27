@@ -170,6 +170,7 @@ PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   ret = rm_calloc(1, sizeof(*ret));
   ret->base.type = PLN_T_ARRANGE;
   ret->base.dtor = arrangeDtor;
+  ret->noSort = false;
   AGPLN_AddStep(pln, &ret->base);
   return ret;
 }

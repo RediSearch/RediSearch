@@ -428,3 +428,96 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
+
+TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test SORTBY 0 to disable implicit sorting
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "world", "SORTBY", "0");
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify that an arrange step was created with noSort flag set
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_TRUE(arrangeStep != NULL);
+  const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
+  ASSERT_TRUE(arng->noSort);
+  ASSERT_TRUE(arng->sortKeys == NULL);
+
+  // Verify default RRF scoring type was set
+  assertRRFScoringCtx(1, 20);
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test SORTBY with actual field (not 0) - should not disable implicit sorting
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "world", "SORTBY", "1", "@score");
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify that an arrange step was created with normal sorting (not noSort)
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_TRUE(arrangeStep != NULL);
+  const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
+  ASSERT_FALSE(arng->noSort);
+  ASSERT_TRUE(arng->sortKeys != NULL);
+
+  // Verify default RRF scoring type was set
+  assertRRFScoringCtx(1, 20);
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test without SORTBY - should not disable implicit sorting (default behavior)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "world");
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify that no arrange step exists (so implicit sorting will be applied)
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_TRUE(arrangeStep == NULL);
+
+  // Verify default RRF scoring type was set
+  assertRRFScoringCtx(1, 20);
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}

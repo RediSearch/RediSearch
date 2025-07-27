@@ -95,15 +95,12 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
-    // Check if user has provided an explicit SORTBY clause in the tail pipeline
-    // If no arrange step exists, add implicit sort-by-score to ensure results are sorted by hybrid scores
+    // Add implicit sorting by score
     const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&req->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
     if (!arrangeStep) {
-        // No explicit SORTBY found - add implicit sort by score (descending order, highest scores first)
-        // Use maxResultsLimit from aggregation params to determine sorter capacity
         size_t maxResults = params->aggregationParams.maxResultsLimit;
         if (!maxResults) {
-            maxResults = DEFAULT_LIMIT;  // Use default limit if not specified
+            maxResults = DEFAULT_LIMIT;
         }
         ResultProcessor *sorter = RPSorter_NewByScore(maxResults);
         QITR_PushRP(&req->tailPipeline->qctx, sorter);
