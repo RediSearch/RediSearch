@@ -469,7 +469,6 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
-// Test implicit LOAD feature (MOD-10249): automatic @__key and @__score when no LOAD specified
 TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   // Create test index spec
   IndexSpec *spec = CreateTestIndexSpec(ctx, "test_implicit_basic", &qerr);
@@ -518,6 +517,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
+  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
   // Verify that implicit LOAD functionality is implemented via RPLoader result processors
   // (not PLN_LoadStep aggregation plan steps) in individual request pipelines
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
@@ -525,14 +525,22 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
     // Check that no PLN_LoadStep exists in the aggregation plan (implicit loading uses RPLoader instead)
     PLN_LoadStep *requestLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&areq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
     EXPECT_EQ(nullptr, requestLoadStep) << "Request " << i << " should not have PLN_LoadStep (uses RPLoader instead)";
-  }
-
-  // Verify individual request pipeline structures include loaders for document key loading
-  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
-  for (size_t i = 0; i < hybridReq->nrequests; i++) {
-    AREQ *areq = hybridReq->requests[i];
     std::string pipelineName = "Request " + std::to_string(i) + " pipeline with implicit LOAD";
     VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
+
+    // Verify implicit load creates "key" field with path "__key"
+    RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    ASSERT_NE(nullptr, lookup);
+
+    bool foundKeyField = false;
+    for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
+      if (key->name && strcmp(key->name, "key") == 0) {
+        EXPECT_STREQ("__key", key->path);
+        foundKeyField = true;
+        break;
+      }
+    }
+    EXPECT_TRUE(foundKeyField);
   }
 
   // Clean up

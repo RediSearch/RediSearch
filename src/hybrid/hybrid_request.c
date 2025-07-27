@@ -85,8 +85,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Release the sync reference as depleters now hold their own references
     StrongRef_Release(sync_ref);
 
-    // Create the hybrid merger that combines results from all depleter processors
-    // This is where the magic happens - results from different search modalities are merged
     const RLookupKey *scoreKey = NULL;
     if (!loadStep) {
         // implicit load score as well as key
