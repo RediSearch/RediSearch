@@ -1718,6 +1718,7 @@ dictType dictTypeHybridSearchResult = {
    dictIterator *iterator; // Iterator for yielding results
    bool timedOut;
    bool error;
+   const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
  } RPHybridMerger;
 
  /* Helper function to store a result from an upstream into the hybrid merger's dictionary */
@@ -1780,6 +1781,11 @@ dictType dictTypeHybridSearchResult = {
 
    SearchResult_Override(r, hybridResult->searchResult);
    r->score = hybridScore;
+
+   // Add score as field if scoreKey is provided
+   if (self->scoreKey) {
+     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(hybridScore));
+   }
 
    return RS_RESULT_OK;
  }
@@ -1856,10 +1862,19 @@ dictType dictTypeHybridSearchResult = {
    rm_free(self);
  }
 
+ const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp) {
+   if (!rp || rp->type != RP_HYBRID_MERGER) {
+     return NULL;
+   }
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+   return self->scoreKey;
+ }
+
  /* Create a new Hybrid Merger processor */
  ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                      ResultProcessor **upstreams,
-                                     size_t numUpstreams) {
+                                     size_t numUpstreams,
+                                     const RLookupKey *scoreKey) {
    RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
    RS_ASSERT(numUpstreams > 0);
@@ -1867,6 +1882,9 @@ dictType dictTypeHybridSearchResult = {
 
    // Store the context by pointer - RPHybridMerger takes ownership and is responsible for freeing it
    ret->hybridScoringCtx = hybridScoringCtx;
+
+   // Store the scoreKey for writing scores as fields when QEXEC_F_SEND_SCORES_AS_FIELD is set
+   ret->scoreKey = scoreKey;
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
