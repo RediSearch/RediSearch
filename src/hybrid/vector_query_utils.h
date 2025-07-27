@@ -23,7 +23,7 @@ typedef struct ParsedVectorQuery {
   const char *fieldName;      // Field name string (NOT owned - points to args)
   const void *vector;         // Vector data OR parameter name (NOT owned - points to args)
   size_t vectorLen;           // Vector length
-  bool isParameter;           // true if vector is parameter name, false if direct data
+  bool isParameter;           // true if vector is a parameter name, false if direct data
   VectorQueryType type;       // KNN or RANGE
   union {
     size_t k;                 // For KNN

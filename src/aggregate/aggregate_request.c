@@ -30,9 +30,7 @@ extern RSConfig RSGlobalConfig;
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
  * @param req the request
- * @param name the name of the option that requires simple mode. Used for error
- *   formatting
- * @param status the error object
+ * @return true if the request is in simple mode, false otherwise
  */
 static bool ensureSimpleMode(AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {

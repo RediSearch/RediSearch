@@ -84,7 +84,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
     return REDISMODULE_ERR;
   }
 
-  bool hasK = false;
+  bool hasK = false;  // codespell:ignore
   bool hasEF = false;
   bool hasYieldDistanceAs = false;
   const char *current;
@@ -99,7 +99,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
       }
     }
     if (!strcasecmp(current, "K")){
-      if (hasK) {
+      if (hasK) { // codespell:ignore
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate K parameter");
         return REDISMODULE_ERR;
       } else {
@@ -110,7 +110,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
           return REDISMODULE_ERR;
         }
         pvq->k = (size_t)kValue;
-        hasK = true;
+        hasK = true;  // codespell:ignore
       }
     } else if (!strcasecmp(current, "EF_RUNTIME")) {
       if (hasEF) {
@@ -160,7 +160,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
       return REDISMODULE_ERR;
     }
   }
-  if (!hasK) {
+  if (!hasK) { // codespell:ignore
     QueryError_SetError(status, QUERY_EPARSEARGS, "Missing K parameter");
     return REDISMODULE_ERR;
   }
@@ -350,7 +350,17 @@ error:
   return REDISMODULE_ERR;
 }
 
-
+/**
+ * Parse COMBINE clause parameters for hybrid scoring configuration.
+ *
+ * Supports LINEAR (requires HYBRID_REQUEST_NUM_SUBQUERIES weight values) and RRF (optional K and WINDOW parameters).
+ * Defaults to RRF if no method specified.
+ *
+ * @param ac Arguments cursor positioned after "COMBINE"
+ * @param combineCtx Hybrid scoring context to populate
+ * @param status Output parameter for error reporting
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
+ */
 static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
   // Check if a specific method is provided
   if (AC_AdvanceIfMatch(ac, "LINEAR")) {
