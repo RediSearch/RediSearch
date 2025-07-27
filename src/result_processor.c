@@ -1852,6 +1852,7 @@ dictType dictTypeHybridSearchResult = {
    // Free the hybrid scoring context - RPHybridMerger is responsible for freeing it
    if (self->hybridScoringCtx) {
      HybridScoringContext_Free(self->hybridScoringCtx);
+     self->hybridScoringCtx = NULL;
    }
 
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
@@ -1859,6 +1860,14 @@ dictType dictTypeHybridSearchResult = {
 
    // Free the processor itself
    rm_free(self);
+ }
+
+ const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp) {
+   if (!rp || rp->type != RP_HYBRID_MERGER) {
+     return NULL;
+   }
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+   return self->scoreKey;
  }
 
  /* Create a new Hybrid Merger processor */

@@ -15,7 +15,6 @@
 #include "util/timeout.h"
 #include "util/workers.h"
 #include "score_explain.h"
-#include "commands.h"
 #include "profile.h"
 #include "query_optimizer.h"
 #include "resp3.h"
@@ -1145,7 +1144,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   }
 
   // This function also builds the RedisSearchCtx
-  // It will search for the spec according the the name given in the argv array,
+  // It will search for the spec according to the name given in the argv array,
   // and ensure the spec is valid.
   if (buildRequest(ctx, argv, argc, type, status, r_ptr) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -1311,7 +1310,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *err, bool coord) {
-  Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorMaxIdle, err);
+  Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->cursorConfig.maxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;
   }
@@ -1330,12 +1329,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
 
   if (!num) {
-    num = req->cursorChunkSize;
+    num = req->cursorConfig.chunkSize;
     if (!num) {
       num = RSGlobalConfig.cursorReadSize;
     }
   }
-  req->cursorChunkSize = num;
+  req->cursorConfig.chunkSize = num;
 
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
