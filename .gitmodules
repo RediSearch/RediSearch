@@ -1,0 +1,6 @@
+[submodule "deps/RediSearch"]
+	path = deps/RediSearch
+	url = https://github.com/RediSearch/RediSearch.git
+[submodule "deps/RedisFlex"]
+	path = deps/RedisFlex
+	url = https://github.com/redislabsdev/Redis.git
