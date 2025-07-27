@@ -64,26 +64,26 @@ typedef struct InvIndIterator {
 
 typedef struct {
   InvIndIterator base;
-  NumericRangeTree *rt;
+  const NumericRangeTree *rt;
   uint32_t revisionId;
 } NumericInvIndIterator;
 
 typedef struct {
   InvIndIterator base;
-  TagIndex *tagIdx; // not const, may reopen on revalidation
+  const TagIndex *tagIdx; // not const, may reopen on revalidation
 } TagInvIndIterator;
 
 // API for full index scan. Not suitable for queries
-QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx);
+QueryIterator *NewInvIndIterator_NumericFull(const InvertedIndex *idx);
 // API for full index scan. Not suitable for queries
-QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx);
+QueryIterator *NewInvIndIterator_TermFull(const InvertedIndex *idx);
 
 // Returns an iterator for a numeric index, suitable for queries
-QueryIterator *NewInvIndIterator_NumericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
+QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, double rangeMin, double rangeMax);
 
 // Returns an iterator for a term index, suitable for queries
-QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight);
 
 // Returns an iterator for a generic index, suitable for queries
@@ -92,14 +92,14 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
 // It is assumed that the index will not be dropped while the iterator is in use
 // (for general inverted indexes like terms, tags, this is NOT guaranteed,
 // if all the documents are deleted, the index will be dropped by the garbage collector).
-QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+QueryIterator *NewInvIndIterator_GenericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                               enum FieldExpirationPredicate predicate, double weight);
 
 // API for full index scan with TagIndex. Not suitable for queries
-QueryIterator *NewInvIndIterator_TagFull(InvertedIndex *idx, TagIndex *tagIdx);
+QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagIndex *tagIdx);
 
 // Returns an iterator for a tag index, suitable for queries
-QueryIterator *NewInvIndIterator_TagQuery(InvertedIndex *idx, TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                           RSQueryTerm *term, double weight);
 
 #ifdef __cplusplus

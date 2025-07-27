@@ -134,10 +134,8 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
+QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex);
-
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc, array_t *iters);
 
 /* Open the tag index key in redis */
 TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *formattedKey, bool create_if_missing);

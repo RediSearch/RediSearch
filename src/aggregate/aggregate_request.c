@@ -1461,7 +1461,8 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
+  ResultProcessor *rp = RPQueryIterator_New(req->rootiter);
+  req->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();

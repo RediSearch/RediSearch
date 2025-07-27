@@ -818,10 +818,9 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // Setting the timeout context should be done in the same thread that executes the query.
   SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
 
-  ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, req->reqflags, status);
+  req->rootiter = QAST_Iterate(ast, opts, sctx, req->reqflags, status);
 
-  // check possible optimization after creation of IndexIterator tree
+  // check possible optimization after creation of QueryIterator tree
   if (IsOptimized(req)) {
     QOptimizer_Iterators(req, req->optimizer);
   }

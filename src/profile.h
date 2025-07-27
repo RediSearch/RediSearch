@@ -30,7 +30,7 @@
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
 // Print the profile of a single shard, in full format
 
-void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, double cpuTime,
+void printReadIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters, double cpuTime,
                 PrintProfileConfig *config);
 
 #define PROFILE_STR "Profile"
@@ -53,3 +53,35 @@ typedef void (*ProfilePrinterCB)(RedisModule_Reply *reply, void *ctx);
 void Profile_PrintInFormat(RedisModule_Reply *reply,
                            ProfilePrinterCB shards_cb, void *shards_ctx,
                            ProfilePrinterCB coordinator_cb, void *coordinator_ctx);
+
+/**
+ * @brief Print the profile information to the Redis reply
+ *
+ * @param reply The Redis reply object
+ * @param root The root iterator
+ * @param counters The profile counters
+ * @param cpuTime The CPU time
+ * @param depth The current depth in the iterator tree
+ * @param limited Whether to limit the output
+ * @param config The print configuration
+ */
+void printProfileIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters,
+                   double cpuTime, int depth, int limited, PrintProfileConfig *config);
+
+/**
+ * @brief Add profile iterators to all nodes in the iterator tree
+ *
+ * This recursively adds profile iterators to all nodes in the iterator tree.
+ *
+ * @param root The root iterator
+ */
+void Profile_AddIters(QueryIterator **root);
+
+typedef struct {
+    IteratorsConfig *iteratorsConfig;
+    int printProfileClock;
+} PrintProfileConfig;
+
+// Print profile of iterators
+void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters,
+                          double cpuTime, int depth, int limited, PrintProfileConfig *config);

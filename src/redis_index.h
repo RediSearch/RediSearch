@@ -19,13 +19,11 @@
 /* Open an inverted index reader on a redis DMA string, for a specific term.
  * If singleWordMode is set to 1, we do not load the skip index, only the score index
  */
-IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
-                              double weight);
+QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+                                 t_fieldMask fieldMask, double weight);
 
 InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *term, size_t len,
                                          int write, bool *outIsNew);
-void Redis_CloseReader(IndexReader *r);
 
 /*
  * Select a random term from the index that matches the index prefix and inveted key format.

@@ -83,7 +83,7 @@ static void OPT_Rewind(void *ctx) {
 
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= optIt->numericFieldIndex}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   // create new numeric filter
-  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
+  optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
 
   optIt->heapOldSize = heap_count(heap);
   optIt->numIterations++;
@@ -246,7 +246,7 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
 
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   oi->numericFieldIndex = field->index;
-  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, qOpt->conc, INDEXFLD_T_NUMERIC, config, &filterCtx);
+  oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
     oi->base.ctx = oi;
     OptimizerIterator_Free(&oi->base);

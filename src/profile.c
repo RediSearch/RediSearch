@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
+#include "iterators/profile_iterator.h"
 #include "reply_macros.h"
 #include "util/units.h"
 
-void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
+void printReadIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
@@ -162,7 +163,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // print into array with a recursive function over result processors
 
       // Print profile of iterators
-      IndexIterator *root = QITR_GetRootFilter(&req->qiter);
+      QueryIterator *root = QITR_GetRootFilter(&req->qiter);
       // Coordinator does not have iterators
       if (root) {
         RedisModule_Reply_SimpleString(reply, "Iterators profile");
@@ -213,4 +214,260 @@ void Profile_PrintInFormat(RedisModule_Reply *reply,
 // Will be used as ProfilePrinterCtx*
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintInFormat(reply, Profile_Print, ctx, NULL, NULL);
+}
+
+/** Add Profile iterator before any iterator in the tree */
+void Profile_AddIters(QueryIterator **root) {
+  if (*root == NULL) return;
+
+  // Add profile iterator before child iterators
+  switch((*root)->type) {
+    case NOT_ITERATOR: {
+      QueryIterator *child = ((NotIterator *)((*root)->ctx))->child;
+      Profile_AddIters(&child);
+      ((NotIterator *)((*root)->ctx))->child = child;
+      break;
+    }
+    case OPTIONAL_ITERATOR: {
+      QueryIterator *child = ((OptionalIterator *)((*root)->ctx))->child;
+      Profile_AddIters(&child);
+      ((OptionalIterator *)((*root)->ctx))->child = child;
+      break;
+    }
+    case HYBRID_ITERATOR: {
+      QueryIterator *child = ((HybridIterator *)((*root)->ctx))->child;
+      Profile_AddIters(&child);
+      ((HybridIterator *)((*root)->ctx))->child = child;
+      break;
+    }
+    case OPTIMUS_ITERATOR: {
+      QueryIterator *child = ((OptimizerIterator *)((*root)->ctx))->child;
+      Profile_AddIters(&child);
+      ((OptimizerIterator *)((*root)->ctx))->child = child;
+      break;
+    }
+    case UNION_ITERATOR: {
+      UnionIterator *ui = (*root)->ctx;
+      for (int i = 0; i < ui->norig; i++) {
+        Profile_AddIters(&(ui->origits[i]));
+      }
+      UI_SyncIterList(ui);
+      break;
+    }
+    case INTERSECT_ITERATOR: {
+      IntersectIterator *ini = (*root)->ctx;
+      for (int i = 0; i < ini->num; i++) {
+        Profile_AddIters(&(ini->its[i]));
+      }
+      break;
+    }
+    case WILDCARD_ITERATOR:
+    case READ_ITERATOR:
+    case EMPTY_ITERATOR:
+    case ID_LIST_ITERATOR:
+    case METRIC_ITERATOR:
+      break;
+    case PROFILE_ITERATOR:
+    case MAX_ITERATOR:
+      RS_ABORT("Error");
+      break;
+  }
+
+  // Create a profile iterator and update outparam pointer
+  *root = NewProfileIterator(*root);
+}
+
+#define PRINT_PROFILE_FUNC(name) static void name(RedisModule_Reply *reply,   \
+                                                  IndexIterator *root,        \
+                                                  ProfileCounters *counters,  \
+                                                  double cpuTime,             \
+                                                  int depth,                  \
+                                                  int limited,                \
+                                                  PrintProfileConfig *config)
+
+PRINT_PROFILE_FUNC(printUnionIt) {
+  UnionIterator *ui = (UnionIterator *)root;
+  int printFull = !limited  || (ui->origType & QN_UNION);
+
+  RedisModule_Reply_Map(reply);
+
+  printProfileType("UNION");
+
+  RedisModule_Reply_SimpleString(reply, "Query type");
+  char *unionTypeStr;
+  switch (ui->origType) {
+  case QN_GEO : unionTypeStr = "GEO"; break;
+  case QN_GEOMETRY : unionTypeStr = "GEOSHAPE"; break;
+  case QN_TAG : unionTypeStr = "TAG"; break;
+  case QN_UNION : unionTypeStr = "UNION"; break;
+  case QN_FUZZY : unionTypeStr = "FUZZY"; break;
+  case QN_PREFIX : unionTypeStr = "PREFIX"; break;
+  case QN_NUMERIC : unionTypeStr = "NUMERIC"; break;
+  case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
+  case QN_WILDCARD_QUERY : unionTypeStr = "WILDCARD"; break;
+  default:
+    RS_ABORT_ALWAYS("Invalid type for union");
+  }
+  if (!ui->qstr) {
+    RedisModule_Reply_SimpleString(reply, unionTypeStr);
+  } else {
+    const char *qstr = ui->qstr;
+    if (isUnsafeForSimpleString(qstr)) qstr = escapeSimpleString(qstr);
+    RedisModule_Reply_SimpleStringf(reply, "%s - %s", unionTypeStr, qstr);
+    if (qstr != ui->qstr) rm_free((char*)qstr);
+  }
+
+  if (config->printProfileClock) {
+    printProfileTime(cpuTime);
+  }
+
+  printProfileCounters(counters);
+
+  RedisModule_Reply_SimpleString(reply, "Child iterators");
+  if (printFull) {
+    RedisModule_Reply_Array(reply);
+      for (int i = 0; i < ui->norig; i++) {
+        printIteratorProfile(reply, ui->origits[i], 0, 0, depth + 1, limited, config);
+      }
+    RedisModule_Reply_ArrayEnd(reply);
+  } else {
+    RedisModule_Reply_SimpleStringf(reply, "The number of iterators in the union is %d", ui->norig);
+  }
+
+  RedisModule_Reply_MapEnd(reply);
+}
+
+PRINT_PROFILE_FUNC(printIntersectIt) {
+  IntersectIterator *ii = (IntersectIterator *)root;
+
+  RedisModule_Reply_Map(reply);
+
+  printProfileType("INTERSECT");
+
+  if (config->printProfileClock) {
+    printProfileTime(cpuTime);
+  }
+
+  printProfileCounters(counters);
+
+  RedisModule_ReplyKV_Array(reply, "Child iterators");
+    for (int i = 0; i < ii->num; i++) {
+      if (ii->its[i]) {
+        printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
+      } else {
+        RedisModule_Reply_Null(reply);
+      }
+    }
+  RedisModule_Reply_ArrayEnd(reply);
+
+  RedisModule_Reply_MapEnd(reply);
+}
+
+PRINT_PROFILE_FUNC(printMetricIt) {
+  RedisModule_Reply_Map(reply);
+
+  switch (GetMetric(root)) {
+    case VECTOR_DISTANCE: {
+      printProfileType("METRIC - VECTOR DISTANCE");
+      break;
+    }
+    default: {
+      RS_ABORT("Invalid type for metric");
+      break;
+    }
+  }
+
+  if (config->printProfileClock) {
+    printProfileTime(cpuTime);
+  }
+
+  printProfileCounters(counters);
+
+  RedisModule_Reply_MapEnd(reply);
+}
+
+void PrintIteratorChildProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, double cpuTime,
+                  int depth, int limited, PrintProfileConfig *config, IndexIterator *child, const char *text) {
+  size_t nlen = 0;
+  RedisModule_Reply_Map(reply);
+    printProfileType(text);
+    if (config->printProfileClock) {
+      printProfileTime(cpuTime);
+    }
+    printProfileCounters(counters);
+
+    if (root->type == HYBRID_ITERATOR) {
+      HybridIterator *hi = root->ctx;
+      if (hi->searchMode == VECSIM_HYBRID_BATCHES ||
+          hi->searchMode == VECSIM_HYBRID_BATCHES_TO_ADHOC_BF) {
+        printProfileNumBatches(hi);
+      }
+    }
+
+    if (root->type == OPTIMUS_ITERATOR) {
+      OptimizerIterator *oi = root->ctx;
+      printProfileOptimizationType(oi);
+    }
+
+    if (child) {
+      RedisModule_Reply_SimpleString(reply, "Child iterator");
+      printIteratorProfile(reply, child, 0, 0, depth + 1, limited, config);
+    }
+  RedisModule_Reply_MapEnd(reply);
+}
+
+#define PRINT_PROFILE_SINGLE_NO_CHILD(name, text)                                      \
+  PRINT_PROFILE_FUNC(name) {                                                           \
+    PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config, \
+      NULL, (text));                                                                   \
+  }
+
+#define PRINT_PROFILE_SINGLE(name, IterType, text)                                     \
+  PRINT_PROFILE_FUNC(name) {                                                           \
+    PrintIteratorChildProfile(reply, (root), counters, cpuTime, depth, limited, config, \
+      ((IterType *)(root))->child, (text));                                            \
+  }
+
+PRINT_PROFILE_SINGLE_NO_CHILD(printWildcardIt,          "WILDCARD");
+PRINT_PROFILE_SINGLE_NO_CHILD(printIdListIt,            "ID-LIST");
+PRINT_PROFILE_SINGLE_NO_CHILD(printEmptyIt,             "EMPTY");
+PRINT_PROFILE_SINGLE(printNotIt, NotIterator,           "NOT");
+PRINT_PROFILE_SINGLE(printOptionalIt, OptionalIterator, "OPTIONAL");
+PRINT_PROFILE_SINGLE(printHybridIt, HybridIterator,     "VECTOR");
+PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
+
+PRINT_PROFILE_FUNC(printProfileIt) {
+  ProfileIteratorCtx *pi = (ProfileIteratorCtx *)root;
+  printIteratorProfile(reply, pi->child, &pi->counters,
+    (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
+}
+
+void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters,
+                          double cpuTime, int depth, int limited, PrintProfileConfig *config) {
+  if (root == NULL) return;
+
+  // protect against limit of 7 reply layers
+  if (depth == REDIS_ARRAY_LIMIT && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT)) {
+    RedisModule_Reply_Null(reply);
+    return;
+  }
+
+  switch (root->type) {
+    // Reader
+    case READ_ITERATOR:       { printReadIt(reply, root, counters, cpuTime, config);                       break; }
+    // Multi values
+    case UNION_ITERATOR:      { printUnionIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
+    case INTERSECT_ITERATOR:  { printIntersectIt(reply, root, counters, cpuTime, depth, limited, config);  break; }
+    // Single value
+    case NOT_ITERATOR:        { printNotIt(reply, root, counters, cpuTime, depth, limited, config);        break; }
+    case OPTIONAL_ITERATOR:   { printOptionalIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
+    case WILDCARD_ITERATOR:   { printWildcardIt(reply, root, counters, cpuTime, depth, limited, config);   break; }
+    case EMPTY_ITERATOR:      { printEmptyIt(reply, root, counters, cpuTime, depth, limited, config);      break; }
+    case ID_LIST_ITERATOR:    { printIdListIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case PROFILE_ITERATOR:    { printProfileIt(reply, root, 0, 0, depth, limited, config);                break; }
+    case HYBRID_ITERATOR:     { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case METRIC_ITERATOR:     { printMetricIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
+    case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);    break; }
+    case MAX_ITERATOR:        { RS_ABORT("nope");   break; }
+  }
 }

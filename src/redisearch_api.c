@@ -561,7 +561,7 @@ size_t RediSearch_QueryNodeNumChildren(const QueryNode* qn) {
 }
 
 typedef struct RS_ApiIter {
-  IndexIterator* internal;
+  QueryIterator* internal;
   RedisSearchCtx sctx;
   RSIndexResult* res;
   const RSDocumentMetadata* lastmd;

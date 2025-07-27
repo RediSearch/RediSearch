@@ -206,22 +206,22 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
 }
 
 // creates an intersect from root and numeric
-static void updateRootIter(AREQ *req, IndexIterator *root, IndexIterator *new) {
+static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   if (root->type == INTERSECT_ITERATOR) {
     AddIntersectIterator(root, new);
   } else {
-    IndexIterator **its = rm_malloc(2 * sizeof(*its));
+    QueryIterator **its = rm_malloc(2 * sizeof(*its));
     its[0] = req->rootiter;
     its[1] = new;
     // use slop==-1 and inOrder==0 since not applicable
     // use weight 1 since we checked at `checkQueryTypes`
-    req->rootiter = NewIntersectIterator(its, 2, NULL, 0, -1, 0, 1);
+    req->rootiter = NewIntersectionIterator(its, 2, NULL, 0, -1, 0, 1);
   }
 }
 
 void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
   IndexSpec *spec = req->sctx->spec;
-  IndexIterator *root = req->rootiter;
+  QueryIterator *root = req->rootiter;
 
   switch (opt->type) {
     case Q_OPT_HYBRID:
@@ -253,9 +253,8 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
         opt->type = Q_OPT_NONE;
         const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
         FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
-        IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
-                                                             &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
-                                                             &filterCtx);
+        QueryIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf, INDEXFLD_T_NUMERIC,
+                                                              &req->ast.config, &filterCtx);
         updateRootIter(req, root, numericIter);
         return;
       }
