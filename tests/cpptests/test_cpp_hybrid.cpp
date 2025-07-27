@@ -511,7 +511,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Verify no LOAD step exists initially in any pipeline
-  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
   EXPECT_EQ(nullptr, loadStep) << "No LOAD step should exist initially";
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
@@ -563,7 +563,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
     EXPECT_TRUE(foundKeyField);
   }
 
-  ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->pipeline.qctx.endProc);
+  ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->tailPipeline->qctx.endProc);
   const RLookupKey *scoreKey = RPHybridMerger_GetScoreKey(hybridMerger);
   ASSERT_NE(nullptr, scoreKey) << "scoreKey should be set for implicit load case";
   EXPECT_STREQ(UNDERSCORE_SCORE, scoreKey->name) << "scoreKey should point to UNDERSCORE_SCORE field";
@@ -597,10 +597,10 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
 
   // Add explicit LOAD step with custom fields
   const char *loadFields[] = {"title", "category", "score"};
-  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
+  AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 3);
 
   // Verify explicit LOAD step exists
-  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
   ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should exist";
   EXPECT_EQ(3, loadStep->nkeys) << "Explicit LOAD should have 3 fields";
 
@@ -628,11 +628,11 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify that the explicit LOAD step is preserved (still 3 fields, not 2)
-  loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+  loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
   ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should still exist";
   EXPECT_EQ(3, loadStep->nkeys) << "Explicit LOAD should still have 3 fields (not replaced by implicit)";
 
-  ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->pipeline.qctx.endProc);
+  ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->tailPipeline->qctx.endProc);
   const RLookupKey *scoreKey = RPHybridMerger_GetScoreKey(hybridMerger);
   EXPECT_EQ(nullptr, scoreKey) << "scoreKey should be NULL for explicit load case";
 

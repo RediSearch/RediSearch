@@ -88,7 +88,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     const RLookupKey *scoreKey = NULL;
     if (!loadStep) {
         // implicit load score as well as key
-        RLookup *lookup = AGPLN_GetLookup(&req->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+        RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
         scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
