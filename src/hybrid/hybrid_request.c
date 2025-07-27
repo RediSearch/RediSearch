@@ -3,6 +3,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
+#include "aggregate/aggregate.h"
 #include "rmutil/args.h"
 
 #ifdef __cplusplus
@@ -93,6 +94,20 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->pipeline.qctx, merger);
+
+    // Check if user has provided an explicit SORTBY clause in the tail pipeline
+    // If no arrange step exists, add implicit sort-by-score to ensure results are sorted by hybrid scores
+    const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&req->pipeline.ap, NULL, NULL, PLN_T_ARRANGE);
+    if (!arrangeStep) {
+        // No explicit SORTBY found - add implicit sort by score (descending order, highest scores first)
+        // Use maxResultsLimit from aggregation params to determine sorter capacity
+        size_t maxResults = params->aggregationParams.maxResultsLimit;
+        if (!maxResults) {
+            maxResults = DEFAULT_LIMIT;  // Use default limit if not specified
+        }
+        ResultProcessor *sorter = RPSorter_NewByScore(maxResults);
+        QITR_PushRP(&req->pipeline.qctx, sorter);
+    }
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts
     // during aggregation pipeline building, then restore it afterwards

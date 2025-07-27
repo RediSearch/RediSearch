@@ -265,9 +265,8 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
     VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
   }
 
-  // Verify tail pipeline structure (basic: just hybrid merger)
-  // TODO: Add sorter once MOD-10549 is done MOD-10549
-  std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
+  // Verify tail pipeline structure (hybrid merger + implicit sort-by-score)
+  std::vector<ResultProcessorType> expectedTailPipeline = {RP_SORTER, RP_HYBRID_MERGER};
   VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline");
 
   // Clean up
@@ -338,9 +337,8 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
     VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
   }
 
-  // Verify tail pipeline structure (basic: just hybrid merger)
-  // TODO: Add sorter once MOD-10549 is done MOD-10549
-  std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
+  // Verify tail pipeline structure (hybrid merger + implicit sort-by-score)
+  std::vector<ResultProcessorType> expectedTailPipeline = {RP_SORTER, RP_HYBRID_MERGER};
   VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline");
 
   // Clean up
@@ -606,6 +604,137 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
   ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should still exist";
   EXPECT_EQ(3, loadStep->nkeys) << "Explicit LOAD should still have 3 fields (not replaced by implicit)";
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
+// Test that implicit sort-by-score is NOT added when explicit SORTBY exists
+TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitSort) {
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_no_implicit_sort", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  // Create AREQ requests
+  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr);
+  ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
+
+  AREQ *req2 = CreateTestAREQ(ctx, "learning", spec, &qerr);
+  ASSERT_TRUE(req2 != nullptr) << "Failed to create second AREQ: " << QueryError_GetUserError(&qerr);
+
+  // Create array of requests
+  AREQ **requests = array_new(AREQ*, 2);
+  requests = array_ensure_append_1(requests, req1);
+  requests = array_ensure_append_1(requests, req2);
+
+  // Create HybridRequest
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  ASSERT_TRUE(hybridReq != nullptr);
+
+  // Add explicit LOAD and SORT steps
+  const char *loadFields[] = {"title", "score"};
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 2);
+
+  const char *sortFields[] = {"title"};  // Sort by title, not score
+  AddSortStepToPlan(&hybridReq->pipeline.ap, sortFields, 1, SORTASCMAP_INIT);
+
+  // Verify explicit SORT step exists
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_NE(nullptr, arrangeStep) << "Explicit SORT step should exist";
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_RRF;
+  scoringCtx->rrfCtx.k = 10;
+  scoringCtx->rrfCtx.window = 100;
+
+  HybridPipelineParams params = {
+      .aggregationParams = {
+        .common = {
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 10,
+      },
+      .synchronize_read_locks = true,
+      .scoringCtx = scoringCtx,
+  };
+
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+
+  // Verify tail pipeline structure: should have explicit sorter from aggregation, NOT implicit sort-by-score
+  // The pipeline should be: SORTER (from aggregation) -> HYBRID_MERGER
+  std::vector<ResultProcessorType> expectedTailPipeline = {RP_SORTER, RP_HYBRID_MERGER};
+  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline with explicit sort");
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
+// Test that implicit sort-by-score IS added when no explicit SORTBY exists
+TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_implicit_sort", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  // Create AREQ requests
+  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr);
+  ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
+
+  AREQ *req2 = CreateTestAREQ(ctx, "intelligence", spec, &qerr);
+  ASSERT_TRUE(req2 != nullptr) << "Failed to create second AREQ: " << QueryError_GetUserError(&qerr);
+
+  // Create array of requests
+  AREQ **requests = array_new(AREQ*, 2);
+  requests = array_ensure_append_1(requests, req1);
+  requests = array_ensure_append_1(requests, req2);
+
+  // Create HybridRequest
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  ASSERT_TRUE(hybridReq != nullptr);
+
+  // Add LOAD step but NO SORT step - this should trigger implicit sort-by-score
+  const char *loadFields[] = {"title", "category"};
+  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 2);
+
+  // Verify NO explicit SORT step exists
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_ARRANGE);
+  EXPECT_EQ(nullptr, arrangeStep) << "No explicit SORT step should exist initially";
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_LINEAR;
+  scoringCtx->linearCtx.linearWeights = (double*)rm_calloc(2, sizeof(double));
+  scoringCtx->linearCtx.linearWeights[0] = 0.7;
+  scoringCtx->linearCtx.linearWeights[1] = 0.3;
+  scoringCtx->linearCtx.numWeights = 2;
+
+  HybridPipelineParams params = {
+      .aggregationParams = {
+        .common = {
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = hybridReq->requests[0]->reqflags,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 20,  // Test with different limit
+      },
+      .synchronize_read_locks = true,
+      .scoringCtx = scoringCtx,
+  };
+
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+
+  // Verify tail pipeline structure: should have implicit sort-by-score added
+  // The pipeline should be: SORTER (implicit sort-by-score) -> HYBRID_MERGER
+  std::vector<ResultProcessorType> expectedTailPipeline = {RP_SORTER, RP_HYBRID_MERGER};
+  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline with implicit sort-by-score");
 
   // Clean up
   HybridRequest_Free(hybridReq);
