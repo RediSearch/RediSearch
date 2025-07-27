@@ -67,7 +67,8 @@ AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, Qu
   }
 
   const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, specName, true);
+  RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx1, specName, true);
   if (!sctx) {
     AREQ_Free(req);
     return nullptr;
@@ -204,7 +205,7 @@ TEST_F(HybridRequestTest, testHybridRequestCreationBasic) {
   ASSERT_TRUE(hybridReq->requests != nullptr);
 
   // Verify the merge pipeline is initialized
-  ASSERT_TRUE(hybridReq->pipeline.ap.steps.next != nullptr);
+  ASSERT_TRUE(hybridReq->tailPipeline->ap.steps.next != nullptr);
   // Clean up
   HybridRequest_Free(hybridReq);
 }
@@ -232,7 +233,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   ASSERT_TRUE(hybridReq != nullptr);
 
   const char *loadFields[] = {"title", "score"};
-  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 2);
+  AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 2);
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
   HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
@@ -268,7 +269,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   // Verify tail pipeline structure (basic: just hybrid merger)
   // TODO: Add sorter once MOD-10549 is done MOD-10549
   std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
-  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline");
+  VerifyPipelineChain(hybridReq->tailPipeline->qctx.endProc, expectedTailPipeline, "Tail pipeline");
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -305,7 +306,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   ASSERT_EQ(hybridReq->nrequests, 3);
 
   const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
+  AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 3);
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
   HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
@@ -341,7 +342,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   // Verify tail pipeline structure (basic: just hybrid merger)
   // TODO: Add sorter once MOD-10549 is done MOD-10549
   std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
-  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedTailPipeline, "Tail pipeline");
+  VerifyPipelineChain(hybridReq->tailPipeline->qctx.endProc, expectedTailPipeline, "Tail pipeline");
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -419,14 +420,14 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
 
   // Add complex AGGPlan with LOAD + SORT + APPLY steps
   const char *loadFields[] = {"title", "score", "category"};
-  AddLoadStepToPlan(&hybridReq->pipeline.ap, loadFields, 3);
+  AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 3);
 
   // Add SORT step
   const char *sortFields[] = {"score"};
-  AddSortStepToPlan(&hybridReq->pipeline.ap, sortFields, 1, SORTASCMAP_INIT);
+  AddSortStepToPlan(&hybridReq->tailPipeline->ap, sortFields, 1, SORTASCMAP_INIT);
 
   // Add APPLY step to create a boosted score field
-  AddApplyStepToPlan(&hybridReq->pipeline.ap, "@score * 2", "boosted_score");
+  AddApplyStepToPlan(&hybridReq->tailPipeline->ap, "@score * 2", "boosted_score");
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
   HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
@@ -462,7 +463,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   }
 
   std::vector<ResultProcessorType> expectedComplexTailPipeline = {RP_PROJECTOR, RP_SORTER, RP_HYBRID_MERGER};
-  VerifyPipelineChain(hybridReq->pipeline.qctx.endProc, expectedComplexTailPipeline, "Complex tail pipeline");
+  VerifyPipelineChain(hybridReq->tailPipeline->qctx.endProc, expectedComplexTailPipeline, "Complex tail pipeline");
 
   // Clean up
   HybridRequest_Free(hybridReq);
