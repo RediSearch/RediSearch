@@ -146,6 +146,8 @@ void processResultFormat(uint32_t *flags, MRReply *map);
 int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
+
 #ifdef __cplusplus
 }
 #endif

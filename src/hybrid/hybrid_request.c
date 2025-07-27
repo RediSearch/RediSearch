@@ -1,10 +1,16 @@
 #include "hybrid/hybrid_request.h"
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
+#include "document.h"
+#include "aggregate/aggregate_plan.h"
+#include "rmutil/args.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Field names for implicit LOAD step
+#define HYBRID_IMPLICIT_KEY_FIELD "key"
 
 /**
  * Build the complete hybrid search pipeline for processing multiple search requests.
@@ -34,6 +40,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
     // Array to collect depleter processors from each individual request pipeline
     arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
+
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
@@ -49,12 +56,22 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         }
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-        RLookup *lastLookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_LAST);
+        RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+        RLookupKey **keys;
+        size_t nkeys;
+        RLookupKey *implicitLoadKeys[1];
         if (loadStep) {
-            // Add a loader to load the fields specified in the LOAD step
-            ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lastLookup, loadStep->keys, loadStep->nkeys, false, &areq->stateflags);
-            QITR_PushRP(qctx, loader);
+          keys = loadStep->keys;
+          nkeys = loadStep->nkeys;
+        } else {
+          // If load was not specified, implicitly load doc key
+          RLookupKey *docIdKey = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_KEY_FIELD, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+          implicitLoadKeys[0] = docIdKey;
+          keys = implicitLoadKeys;
+          nkeys = 1;
         }
+        ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lookup, keys, nkeys, false, &areq->stateflags);
+        QITR_PushRP(qctx, loader);
 
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
@@ -68,9 +85,13 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Release the sync reference as depleters now hold their own references
     StrongRef_Release(sync_ref);
 
-    // Create the hybrid merger that combines results from all depleter processors
-    // This is where the magic happens - results from different search modalities are merged
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests);
+    const RLookupKey *scoreKey = NULL;
+    if (!loadStep) {
+        // implicit load score as well as key
+        RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+        scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+    }
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts
@@ -136,15 +157,21 @@ void HybridRequest_Free(HybridRequest *req) {
     for (size_t i = 0; i < req->nrequests; i++) {
       // Check if we need to manually free the thread-safe context
       if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
-
-        // Free the search context
         RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
         RedisSearchCtx *sctx = req->requests[i]->sctx;
-        SearchCtx_Free(sctx);
-        // Free the thread-safe context
-        if (thctx) {
-          RedisModule_FreeThreadSafeContext(thctx);
+
+        // Check if we're running in background thread
+        if (RunInThread()) {
+          // Background thread: schedule cleanup on main thread
+          ScheduleContextCleanup(thctx, sctx);
+        } else {
+          // Main thread: safe to free directly
+          SearchCtx_Free(sctx);
+          if (thctx) {
+            RedisModule_FreeThreadSafeContext(thctx);
+          }
         }
+
         req->requests[i]->sctx = NULL;
       }
 

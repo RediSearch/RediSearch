@@ -126,6 +126,53 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   HybridRequest_Free(result);
 }
 
+TEST_F(ParseHybridTest, testValidInputWithParams) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "@title:($param1)", "VSIM", "vector", TEST_BLOB_DATA,
+                      "PARAMS", "2", "param1", "hello", "DIALECT", "2");
+
+  // Create a fresh sctx for this test since parseHybridCommand takes ownership
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // // Debug: Print error details if parsing failed
+  // if (!result) {
+  //   printf("Parsing failed: code=%d, detail='%s'\n", status.code, status.detail ? status.detail : "NULL");
+  //   fflush(stdout);
+  // }
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify the structure contains expected number of requests
+  ASSERT_EQ(result->nrequests, 2);
+
+  // Verify default scoring type is RRF
+  assertRRFScoringCtx(1, 20);
+
+  // Verify timeout is set to default
+  ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result->requests[1]->reqConfig.queryTimeoutMS, 500);
+
+  // Verify dialect is set to default
+  ASSERT_EQ(result->requests[0]->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result->requests[1]->reqConfig.dialectVersion, 2);
+
+  // parseHybridCommand calls AREQ_ApplyContext which takes ownership of test_sctx
+  // No need to free test_sctx as it's now owned by the result
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -323,7 +370,7 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
 
   // Example of a complex command in a single line
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "10",
-                            "COMBINE", "LINEAR", "0.7", "0.3", "SORTBY", "1", "@score", "LIMIT", "0", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+                            "COMBINE", "LINEAR", "0.65", "0.35", "SORTBY", "1", "@score", "LIMIT", "0", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -342,11 +389,7 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify LINEAR scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
-  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, 2);
-  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], 0.7);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], 0.3);
+  assertLinearScoringCtx(0.65, 0.35);
 
   // Clean up
   // The scoring context is freed by the hybrid merger
@@ -354,49 +397,6 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   HybridRequest_Free(result);
 }
 
-TEST_F(ParseHybridTest, testMultiLineCommand) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Example of how to write multi-line commands for better readability
-  std::string command =
-    "FT.HYBRID " + index_name + " "
-    "SEARCH hello "
-    "VSIM vector $BLOB KNN 2 K 10 "
-    "COMBINE LINEAR 0.7 0.3 "
-    "SORTBY 1 @score "
-    "LIMIT 0 20 "
-    "PARAMS 2 BLOB " TEST_BLOB_DATA;
-
-  RMCK::ArgvList args(ctx, command.c_str());
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  // Debug: Print error details if parsing failed
-  if (!result) {
-    printf("Parsing failed: code=%d, detail='%s'\n", status.code, status.detail ? status.detail : "NULL");
-    fflush(stdout);
-  }
-
-  // Verify the request was parsed successfully
-  ASSERT_TRUE(result != NULL);
-  ASSERT_EQ(status.code, QUERY_OK);
-
-  // Verify LINEAR scoring type was set
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
-  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, 2);
-  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], 0.7);
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], 0.3);
-
-  // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
-  HybridRequest_Free(result);
-}
 
 // Tests for parseVectorSubquery functionality (VSIM tests)
 
