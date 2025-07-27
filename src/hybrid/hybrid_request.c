@@ -58,7 +58,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
-        const RLookupKey **keys;
+        RLookupKey **keys;
         size_t nkeys;
         RLookupKey *implicitLoadKeys[1];
         if (loadStep) {
