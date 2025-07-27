@@ -271,16 +271,18 @@ static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
   // 3. If the wildcard iterator has moved, we need to sync the state
   if (wcii_status == VALIDATE_MOVED) {
     // Wildcard iterator moved - first sync state
-    base->lastDocId = base->current->docId = ni->wcii->lastDocId;
     base->atEOF = ni->wcii->atEOF;
-    // If child is behind the last ID - need to skip to the lastDocId
-    if (ni->child->lastDocId < base->lastDocId) {
-      ni->child->SkipTo(ni->child, base->lastDocId);
-    }
-    if (ni->child->lastDocId == base->lastDocId) {
-      // Child is at the same position - this is not a valid result.
-      // We need to read the next valid position
-      NI_Read_Optimized(base);
+    if (!base->atEOF) {
+      base->lastDocId = base->current->docId = ni->wcii->lastDocId;
+      // If child is behind the last ID - need to skip to the lastDocId
+      if (ni->child->lastDocId < base->lastDocId) {
+        ni->child->SkipTo(ni->child, base->lastDocId);
+      }
+      if (ni->child->lastDocId == base->lastDocId) {
+        // Child is at the same position - this is not a valid result.
+        // We need to read the next valid position
+        NI_Read_Optimized(base);
+      }
     }
   }
   return wcii_status;

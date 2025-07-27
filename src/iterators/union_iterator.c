@@ -477,7 +477,7 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
       minId = ui->its[i]->lastDocId;
     }
   }
-  if (ui->num) base->lastDocId = minId;
+  if (ui->num > 0) base->lastDocId = minId;
   // Set the current result based on the minimum docId found, regardless of quick exit or algorithm
   UI_SetFullFlat(ui);
 

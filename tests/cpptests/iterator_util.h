@@ -110,6 +110,8 @@ public:
       if (revalidateResult == VALIDATE_MOVED) {
         if (nextIndex < docIds.size()) {
           base.lastDocId = base.current->docId = docIds[nextIndex++]; // Simulate a move by incrementing nextIndex
+        } else {
+          base.atEOF = true; // If no more documents, set EOF
         }
       }
 
