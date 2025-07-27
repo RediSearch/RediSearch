@@ -1751,8 +1751,6 @@ void AREQ_Free(AREQ *req) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
 
-  ConcurrentSearchCtx_Free(&req->conc);
-
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.
   RedisModuleCtx *thctx = NULL;

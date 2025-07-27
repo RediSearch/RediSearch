@@ -77,7 +77,6 @@ typedef struct QOptimizer {
     QueryIterator *root;
 
     RedisSearchCtx *sctx;
-    ConcurrentSearchCtx *conc;
 } QOptimizer;
 
 /* create a new QOptimizer struct */

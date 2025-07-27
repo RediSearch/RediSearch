@@ -79,7 +79,7 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
 void LegacyGeoFilter_Free(LegacyGeoFilter *gf);
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config);
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, IteratorsConfig *config);
 
 /*****************************************************************************/
 
