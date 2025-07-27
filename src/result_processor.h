@@ -359,6 +359,11 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
                                      size_t numUpstreams,
                                      const RLookupKey *scoreKey);
 
+ /*
+  * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.
+  */
+ const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp);
+
 #ifdef __cplusplus
 }
 #endif

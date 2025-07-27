@@ -1861,6 +1861,14 @@ dictType dictTypeHybridSearchResult = {
    rm_free(self);
  }
 
+ const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp) {
+   if (!rp || rp->type != RP_HYBRID_MERGER) {
+     return NULL;
+   }
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+   return self->scoreKey;
+ }
+
  /* Create a new Hybrid Merger processor */
  ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                      ResultProcessor **upstreams,

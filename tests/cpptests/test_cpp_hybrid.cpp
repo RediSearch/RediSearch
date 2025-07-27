@@ -13,6 +13,7 @@
 #include "pipeline/pipeline_construction.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_scoring.h"
+#include "document.h"
 #include "result_processor.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
@@ -183,6 +184,24 @@ void AddApplyStepToPlan(AGGPlan *plan, const char *expression, const char *alias
   }
 
   AGPLN_AddStep(plan, &applyStep->base);
+}
+
+/**
+ * Helper function to find the HybridMerger processor in a pipeline chain.
+ * Traverses the pipeline from the end processor to find the HybridMerger.
+ *
+ * @param endProc The end processor of the pipeline chain
+ * @return Pointer to the HybridMerger processor, or NULL if not found
+ */
+ResultProcessor* FindHybridMergerInPipeline(ResultProcessor *endProc) {
+  ResultProcessor *current = endProc;
+  while (current != nullptr) {
+    if (current->type == RP_HYBRID_MERGER) {
+      return current;
+    }
+    current = current->upstream;
+  }
+  return nullptr;
 }
 
 // Tests that don't require full Redis Module integration
@@ -543,6 +562,11 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
     EXPECT_TRUE(foundKeyField);
   }
 
+  ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->pipeline.qctx.endProc);
+  const RLookupKey *scoreKey = RPHybridMerger_GetScoreKey(hybridMerger);
+  ASSERT_NE(nullptr, scoreKey) << "scoreKey should be set for implicit load case";
+  EXPECT_STREQ(UNDERSCORE_SCORE, scoreKey->name) << "scoreKey should point to UNDERSCORE_SCORE field";
+
   // Clean up
   HybridRequest_Free(hybridReq);
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
@@ -606,6 +630,10 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
   ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should still exist";
   EXPECT_EQ(3, loadStep->nkeys) << "Explicit LOAD should still have 3 fields (not replaced by implicit)";
+
+  ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->pipeline.qctx.endProc);
+  const RLookupKey *scoreKey = RPHybridMerger_GetScoreKey(hybridMerger);
+  EXPECT_EQ(nullptr, scoreKey) << "scoreKey should be NULL for explicit load case";
 
   // Clean up
   HybridRequest_Free(hybridReq);
