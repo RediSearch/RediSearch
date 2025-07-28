@@ -104,13 +104,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         }
         ResultProcessor *sorter = RPSorter_NewByScore(maxResults);
         QITR_PushRP(&req->tailPipeline->qctx, sorter);
-    } else {
-        // Check if SORTBY 0 was specified (noSort flag)
-        const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
-        if (arng->noSort) {
-            // SORTBY 0 specified - don't add any implicit sorting
-            // The arrange step exists but should not add any sorter
-        }
     }
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts

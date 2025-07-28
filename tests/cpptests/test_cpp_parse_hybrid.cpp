@@ -523,19 +523,6 @@ TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
   HybridRequest_Free(result);
 }
 
-// Integration test to verify noSort flag prevents sorter creation in pipeline
-// This test caught the bug where SORTBY 0 was not preventing score-based sorter creation
-int CountResultProcessors(ResultProcessor *rp, ResultProcessorType type) {
-  int count = 0;
-  while (rp) {
-    if (rp->type == type) {
-      count++;
-    }
-    rp = rp->upstream;
-  }
-  return count;
-}
-
 // Test that SORTBY 0 correctly sets noSort flag and clears sortKeys
 TEST_F(ParseHybridTest, ParseSortby0_SetsNoSortFlagAndClearsSortKeys) {
   QueryError qerr = {QueryErrorCode(0)};
