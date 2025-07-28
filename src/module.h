@@ -13,7 +13,6 @@
 #include <query_node.h>
 #include <coord/rmr/reply.h>
 #include <util/heap.h>
-#include "profile_clock.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -112,7 +111,7 @@ typedef struct {
   long long offset;
   long long limit;
   long long requestedResultsCount;
-  profile_clock initClock;
+  long long initClock;
   long long timeout;
   int withScores;
   int withExplainScores;
