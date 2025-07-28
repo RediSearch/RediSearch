@@ -122,7 +122,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          (double)(req->profileTotalTime / CLOCKS_PER_MILLISEC));
+          (double)(req->profileTotalTime / TIMESPEC_PER_MILLISEC));
 
       // Print query parsing time
       if (profile_verbose)
