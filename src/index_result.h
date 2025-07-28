@@ -24,14 +24,6 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-static inline void ResultMetrics_Concat(RSIndexResult *parent, RSIndexResult *child) {
-  if (child->metrics) {
-    // Passing ownership over the RSValues in the child metrics, but not on the array itself
-    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
-    array_clear(child->metrics);
-  }
-}
-
 /* Add the metrics of a child to a parent index result. */
 void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
 
