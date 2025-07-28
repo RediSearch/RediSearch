@@ -14,20 +14,20 @@
 
 typedef struct {
     struct timespec start;
-} profile_clock;
+} rs_wall_clock;
 
 #define TIMESPEC_PER_SEC 1000000000L
 #define TIMESPEC_PER_MILLISEC TIMESPEC_PER_SEC / 1000
 
-typedef uint64_t profile_clock_ns_t;
+typedef uint64_t rs_wall_clock_ns_t;
 
 // Initializes the clock with current time
-static inline void profile_clock_init(profile_clock *clk) {
+static inline void rs_wall_clock_init(rs_wall_clock *clk) {
     clock_gettime(CLOCK_MONOTONIC, &clk->start);
 }
 
 // Returns time elapsed since start, in nanoseconds
-static inline uint64_t profile_clock_elapsed_ns(profile_clock *clk) {
+static inline uint64_t rs_wall_clock_elapsed_ns(rs_wall_clock *clk) {
     struct timespec end;
     clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -37,19 +37,19 @@ static inline uint64_t profile_clock_elapsed_ns(profile_clock *clk) {
     return sec_diff * 1000000000ULL + nsec_diff;
 }
 
-static inline uint64_t profile_clock_now_ns(void) {
+static inline uint64_t rs_wall_clock_now_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
 
-static inline profile_clock_ns_t profile_clock_diff_ns(profile_clock *start, profile_clock *end) {
-    return profile_clock_elapsed_ns(end) - profile_clock_elapsed_ns(start);
+static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start, rs_wall_clock *end) {
+    return rs_wall_clock_elapsed_ns(end) - rs_wall_clock_elapsed_ns(start);
 }
 
-// Convert profile_clock to clock_t based on the elapsed time in nanoseconds
-static inline clock_t profile_clock_to_clock_t(profile_clock *clk) {
-    profile_clock_ns_t ns_total = profile_clock_elapsed_ns(clk);
+// Convert rs_wall_clock to clock_t based on the elapsed time in nanoseconds
+static inline clock_t rs_wall_clock_to_clock_t(rs_wall_clock *clk) {
+    rs_wall_clock_ns_t ns_total = rs_wall_clock_elapsed_ns(clk);
 
     // Convert nanoseconds to seconds, then to clock_t units
     // CLOCKS_PER_SEC is usually 1,000,000 (µs)

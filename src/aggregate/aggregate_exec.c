@@ -427,7 +427,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
   }
 
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    TotalGlobalStats_CountQuery(req->reqflags, profile_clock_to_clock_t(&req->profileInitClock));
+    TotalGlobalStats_CountQuery(req->reqflags, rs_wall_clock_to_clock_t(&req->profileInitClock));
   }
 
   // Reset the total results length:
@@ -839,17 +839,17 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     Profile_AddIters(&req->rootiter);
   }
 
-  profile_clock parseClock;
+  rs_wall_clock parseClock;
   bool is_profile = IsProfile(req);
   if (is_profile) {
-    profile_clock_init(&parseClock);
-    req->profileParseTime = profile_clock_diff_ns(&req->profileInitClock, &parseClock);
+    rs_wall_clock_init(&parseClock);
+    req->profileParseTime = rs_wall_clock_diff_ns(&req->profileInitClock, &parseClock);
   }
 
   rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
-    req->profilePipelineBuildTime = profile_clock_elapsed_ns(&parseClock);
+    req->profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
   }
 
   if (IsDebug(req)) {
@@ -943,7 +943,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
-    profile_clock_init(&r->profileInitClock);
+    rs_wall_clock_init(&r->profileInitClock);
   }
 
   if (r->qiter.isProfile) {
@@ -1188,7 +1188,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
   }
 
   if (IsProfile(req) || !IsInternal(req)) {
-    profile_clock_init(&req->profileInitClock); // Reset the clock for the current cursor read
+    rs_wall_clock_init(&req->profileInitClock); // Reset the clock for the current cursor read
   }
 
   runCursor(reply, cursor, count);
