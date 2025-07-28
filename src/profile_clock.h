@@ -33,3 +33,9 @@ static inline uint64_t profile_clock_elapsed_ns(const profile_clock *clk) {
 
     return sec_diff * 1000000000ULL + nsec_diff;
 }
+
+static inline uint64_t profile_clock_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
