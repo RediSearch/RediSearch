@@ -1013,6 +1013,15 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
         DMD_Return(deletedDoc);
     }
 
+    // Edge case: iterator revalidated after GC and before it was read
+    iterator->Rewind(iterator);
+    ASSERT_FALSE(iterator->atEOF); // Should not be at EOF yet
+    idx->gcMarker++; // Increment gcMarker to simulate a new GC cycle
+    result = iterator->Revalidate(iterator);
+    ASSERT_EQ(result, VALIDATE_OK);
+    ASSERT_FALSE(iterator->atEOF); // Should not be at EOF after revalidation
+    ASSERT_EQ(iterator->lastDocId, 0); // Should be at the beginning
+
     // Edge case: iterator at the last document, and it's deleted.
     // We expect the revalidation to still return VALIDATE_MOVED (and set atEOF)
     ASSERT_EQ(iterator->SkipTo(iterator, n_docs), ITERATOR_OK);
