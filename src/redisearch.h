@@ -35,8 +35,7 @@ typedef uint64_t t_uniqueId;
 #define LOG_10_ON_256_UPPER_BOUND 3 // 2^8 = 10 ^ y, 2^16 = 2^8 * 2^8 = 10^y * 10^y = 10^2y -> y == 2.40824 -> upper bound for y is 3
 #define MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND ((sizeof(t_uniqueId) * LOG_10_ON_256_UPPER_BOUND) + SIGN_CHAR_LENGTH)
 
-#define MAX_DOC_ID UINT64_MAX
-#define DOCID_MAX MAX_DOC_ID  // Legacy alias for backward compatibility
+#define DOCID_MAX UINT64_MAX
 
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
 /* 64 bit architectures use 128 bit field masks and up to 128 fields */
