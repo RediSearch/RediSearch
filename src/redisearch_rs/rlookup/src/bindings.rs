@@ -9,11 +9,18 @@
 
 //! Bindings and wrapper types for as-of-yet unported types and modules. This makes the actual RLookup code cleaner and safer
 //! isolating much of the unsafe FFI code.
+//!
+//! It also contains wrappers for some RedisModule types, using new-type pattern to ensure proper memory/lock management.
+//!
+//! - [RedisString]: A wrapper around `RedisModuleString` that ensures proper memory management.
+//! - [RedisKey]: A wrapper around `RedisModuleKey` that ensures proper resource management (open/close)
+//! - [RedisScanCursor]: A wrapper around `RedisModuleScanCursor` that ensures proper resource management (create/destroy).
 
 use core::slice;
 use enumflags2::{BitFlags, bitflags};
 use std::{
     ffi::{CStr, c_char},
+    fmt::Display,
     ptr::{self, NonNull},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -223,7 +230,13 @@ impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
 /// A new-type wrapper around `RedisModuleString` that ensures proper memory management.
 /// It is designed to be used with the RAII pattern, where the string is automatically freed when it goes out of scope.
 ///
-/// Use [`RedisString::from_raw_parts`] to create an instance from raw parts. The c string is accessible via [`RedisString::as_c_str`].
+/// Use [`RedisString::from_raw_parts`] to create an instance of a `RedisModuleString`. Accessing the `RedisModuleString` differs
+/// depending on the caller-side, so far we identified two access patterns:
+///
+/// 1. Using both the pointer and the len assuming non null-terminated data stored in the `RedisModuleString`.
+/// 2. Using only the pointer and assuming a null-terminated C string stored in the `RedisModuleString`, e.g. `Document_LoadPairwiseArgs()` in document_basic.c
+///
+/// The c string is accessible via [`RedisString::try_as_c_str`].
 /// The methods [`RedisString::to_i64`] and [`RedisString::to_f64`] can be used to convert the string to integers or floating-point numbers, respectively.
 ///
 /// Safety:
@@ -240,7 +253,7 @@ pub struct RedisString {
 
 impl Drop for RedisString {
     fn drop(&mut self) {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_FreeString }.unwrap();
 
         // Safety: RAII pattern ensures that free is called only once
@@ -249,6 +262,8 @@ impl Drop for RedisString {
 }
 
 impl RedisString {
+    /// Creates a new `RedisString` from raw parts, i.e. a context, a pointer to a memory buffer, and its length.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn from_raw_parts(ctx: *mut RedisModuleCtx, ptr: *const c_char, len: libc::size_t) -> Self {
         debug_assert!(
@@ -256,7 +271,7 @@ impl RedisString {
             "RedisString::from_raw_parts called with null pointer"
         );
 
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_CreateString.unwrap() };
 
         // Safety: String allocations are done by the C side, so we assume that the pointer is valid.
@@ -268,27 +283,48 @@ impl RedisString {
     }
 
     /// Returns a pointer to the underlying `RedisModuleString` object.
-    /// This is useful for passing the string to C functions that expect a `RedisModuleString
+    ///
+    /// This is useful for passing the string to C functions that expect a `RedisModuleString`
+    ///
     /// Safety: The returned pointer is still managed by this object and should only be used with RedisModule functions.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn as_ptr(&mut self) -> *mut ffi::RedisModuleString {
         self.str.as_ptr()
     }
 
+    /// Directly wraps the `RedisModule_StringPtrLen` function from the C API to get the pointer and length of the string. Prefer use
+    /// different methods like [`RedisString::try_as_c_str`] or [`RedisString::to_i64`] if possible.
+    #[inline]
+    #[expect(unused, reason = "Used by follow-up PRs")]
+    pub fn string_ptr_len(&self) -> (*const c_char, libc::size_t) {
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
+        let gs = unsafe { RedisModule_StringPtrLen.unwrap() };
+
+        // Safety: By RAII we assure to provide a valid pointer to the string and we assume then the c-side will be safe to call.
+        let mut len = 0;
+
+        // Safety: By RAII we assure to provide a valid pointer to the string and we assume then the c-side will be safe to call.
+        let ptr = unsafe { gs(self.str.as_ptr(), ptr::from_mut(&mut len)) };
+
+        (ptr, len)
+    }
+
     /// Converts a raw `RedisModuleString` pointer to a C-style string reference [`&CStr`].
-    /// This is useful at points where the Rust wrapper is not accessible, e.g. callbacks.
     ///
-    /// If possible prefer [RedisString::as_c_str] which is safer and more idiomatic.
+    /// This is useful at points where the Rust wrapper is not accessible, e.g. callbacks.
+    /// If possible prefer [RedisString::try_as_c_str] which is safer and more idiomatic.
     ///
     /// It uses the `RedisModule_StringPtrLen` function from the C API to convert the string to a C-style string.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
-    pub fn raw_into_cstr(raw_str: *mut RedisModuleString) -> Option<&'static CStr> {
+    pub fn try_raw_into_cstr(raw_str: *mut RedisModuleString) -> Option<&'static CStr> {
         let mut len = 0;
         if raw_str.is_null() {
             return None;
         }
 
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_StringPtrLen.unwrap() };
 
         // Safety: By RAII we assure to provide a valid pointer to the string and we assume then the c-side will be safe to call.
@@ -299,16 +335,17 @@ impl RedisString {
         } else {
             // Safety: We assume the ptr and len given by the c-side are valid.
             let bytes = unsafe { slice::from_raw_parts(ptr.cast(), len) };
-            Some(CStr::from_bytes_with_nul(bytes).unwrap())
+            CStr::from_bytes_with_nul(bytes).ok()
         }
     }
 
     /// Converts the string to a C-style string reference [&CStr], uses the `RedisModule_StringPtrLen` function from the C API.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
-    pub fn as_c_str(&self) -> Option<&CStr> {
+    pub fn try_as_c_str(&self) -> Option<&CStr> {
         let mut len = 0;
 
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_StringPtrLen.unwrap() };
 
         // Safety: By RAII we assure to provide a valid pointer to the string and we assume then the c-side will be safe to call.
@@ -322,13 +359,14 @@ impl RedisString {
             Some(CStr::from_bytes_with_nul(bytes).unwrap())
         }
     }
+
     /// Converts the string to an integer (i64), uses the `RedisModule_StringToLongLong` function from the C API.
     #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn to_i64(&self) -> Option<i64> {
         let mut out: i64 = 0;
 
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_StringToLongLong.unwrap() };
 
         // Safety: By RAII we assure to provide a valid pointer to the string and we assume then the c-side will be safe to call.
@@ -347,7 +385,7 @@ impl RedisString {
     pub fn to_f64(&self) -> Option<f64> {
         let mut out: f64 = 0.0;
 
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_StringToDouble.unwrap() };
 
         // Safety: By RAII we assure to provide a valid pointer to the string and we assume then the c-side will be safe to call.
@@ -357,6 +395,27 @@ impl RedisString {
             Some(out)
         } else {
             None
+        }
+    }
+}
+
+// this also implements the to_string trait, which is useful for debug error handling, such that we can attach the string to an error message
+impl Display for RedisString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
+        let gs = unsafe { RedisModule_StringPtrLen.unwrap() };
+
+        let mut len = 0;
+        // Safety: We assume it is safe to call RedisModule_StringPtrLen with a valid RedisString.
+        let ptr = unsafe { gs(self.str.as_ptr(), ptr::from_mut(&mut len)) };
+
+        if ptr.is_null() {
+            debug_assert!(false, "RedisModlue::StringPtrLen returned a null pointer.");
+            write!(f, "<null RedisString>")
+        } else {
+            // Safety: We assume the ptr and len given by the c-side are valid.
+            let bytes = unsafe { slice::from_raw_parts(ptr.cast(), len) };
+            write!(f, "{}", String::from_utf8_lossy(bytes))
         }
     }
 }
@@ -372,7 +431,7 @@ pub struct RedisKey(NonNull<ffi::RedisModuleKey>);
 
 impl Drop for RedisKey {
     fn drop(&mut self) {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { ffi::RedisModule_CloseKey }.unwrap();
         // Safety: RAII pattern ensures that close is called only once
         unsafe { gs(self.0.as_ptr()) }
@@ -382,11 +441,12 @@ impl Drop for RedisKey {
 impl RedisKey {
     /// Opens a key with the given context and name, using the specified [KeyModes] mode.
     /// Uses the `RedisModule_OpenKey` function from the C API.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn open(ctx: *mut RedisModuleCtx, name: *mut RedisModuleString, mode: KeyModes) -> Self {
         debug_assert!(!name.is_null(), "RedisKey::open called with null pointer");
 
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { ffi::RedisModule_OpenKey.unwrap() };
 
         // Safety:
@@ -395,9 +455,10 @@ impl RedisKey {
     }
 
     /// Returns the type of the key, using the `RedisModule_KeyType` function from the C API.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn ty(&self) -> KeyTypes {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_KeyType.unwrap() };
 
         // Safety: RAII pattern ensures that the ptr is created with the right c function
@@ -426,7 +487,7 @@ pub struct RedisScanCursor {
 
 impl Drop for RedisScanCursor {
     fn drop(&mut self) {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_ScanCursorDestroy.unwrap() };
 
         // Safety: RAII pattern ensures that destroy is called only once and that `RedisModule_ScanCursorCreate`` was called for creation.
@@ -436,9 +497,10 @@ impl Drop for RedisScanCursor {
 
 impl RedisScanCursor {
     /// Creates a new scan cursor for the given key.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn new_from_key(key: RedisKey) -> Self {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_ScanCursorCreate.unwrap() };
 
         // Safety: Assumption: it is safe to call RedisModule_ScanCursorCreate with a valid RedisKey.
@@ -455,9 +517,10 @@ impl RedisScanCursor {
     ///
     /// Safety:
     /// The callback provides by the callee must be safe to call and must not mutate the state of the cursor.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn scan_key_loop_unsafe_callback(&mut self, callback: ScanCursorCallbackType) {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_ScanKey.unwrap() };
 
         // Safety: Provides that the callback is safe to call and that the cursor is valid, we
@@ -485,9 +548,10 @@ impl RedisScanCursor {
 pub struct RedisCallReply(NonNull<ffi::RedisModuleCallReply>);
 
 /// Calls the `HGETALL` command on the given key and returns a `Option<RedisCallReplyHgetall>` instance.
+#[inline]
 #[expect(unused, reason = "Used by follow-up PRs")]
 pub fn call_hgetall(ctx: *mut RedisModuleCtx, krstr: &RedisString) -> Option<RedisCallReply> {
-    // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+    // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
     let gs = unsafe { ffi::RedisModule_Call.unwrap() };
 
     // Safety: We assume it is safe to call RedisModule_Call with a valid context
@@ -505,7 +569,7 @@ pub fn call_hgetall(ctx: *mut RedisModuleCtx, krstr: &RedisString) -> Option<Red
 
 impl Drop for RedisCallReply {
     fn drop(&mut self) {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { ffi::RedisModule_FreeCallReply.unwrap() };
 
         // Safety: RAII pattern ensures that free is called only once
@@ -517,15 +581,17 @@ impl RedisCallReply {
     /// Returns a pointer to the underlying `RedisModuleCallReply` object.
     /// This is useful for passing the call reply to C functions that expect a `RedisModuleCallReply
     /// Safety: The returned pointer should only be used with RedisModule functions.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub unsafe fn get_ptr(&self) -> *mut ffi::RedisModuleCallReply {
         self.0.as_ptr()
     }
 
     /// Returns the type of the reply, using the `RedisModule_CallReplyType` function from the C API.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn ty(&self) -> ReplyTypes {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_CallReplyType.unwrap() };
 
         // Safety: RAII pattern ensures that the ptr is valid (created by "RedisModule_Call" with HGETCALL params)
@@ -536,9 +602,10 @@ impl RedisCallReply {
     }
 
     /// Returns the length of the reply if it is an array, using the `RedisModule_CallReplyLength` function from the C API.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn length(&self) -> libc::size_t {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_CallReplyLength.unwrap() };
 
         // Safety: RAII pattern ensures that the ptr is valid (created by "RedisModule_Call" with HGETCALL params)
@@ -547,9 +614,10 @@ impl RedisCallReply {
 
     /// Returns the array element at the given index, using the `RedisModule_CallReplyArrayElement` function from the C API.
     /// Returns none if the index is out of bounds, or the result is not an array.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
     pub fn array_element(&self, idx: libc::size_t) -> Option<&RedisCallReply> {
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_CallReplyArrayElement.unwrap() };
 
         // Safety: RAII pattern ensures that the ptr is valid (created by "RedisModule_Call" with HGETCALL params)
@@ -568,21 +636,43 @@ impl RedisCallReply {
         }
     }
 
+    /// Returns the string pointer and length of the reply if it is a string or an error. If not it returns `None`.
+    #[inline]
+    #[expect(unused, reason = "Used by follow-up PRs")]
+    pub fn str_ptr_len(&self) -> Option<(*const c_char, libc::size_t)> {
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
+        let gs = unsafe { RedisModule_CallReplyStringPtr.unwrap() };
+
+        // Safety: RAII pattern ensures that the ptr is valid (created by "RedisModule_Call" with HGETCALL params)
+        let mut len = 0;
+
+        // Safety: We assume it is safe to call RedisModule_CallReplyStringPtr and that zero
+        // is returned when the reply is not a string or an error.
+        let ptr = unsafe { gs(self.0.as_ptr(), ptr::from_mut(&mut len)) };
+
+        if ptr.is_null() {
+            None
+        } else {
+            Some((ptr, len))
+        }
+    }
+
     /// Tries to generate a string slice from the reply if it is a string.
     ///
     /// Call this to retrieve null-terminated C strings. It checks if the RedisModule String ends with a null byte
     /// and if it does not, it returns `None`.
     ///
     /// Uses the `RedisModule_CallReplyStringPtr` function from the C API.
+    #[inline]
     #[expect(unused, reason = "Used by follow-up PRs")]
-    pub fn string_ptr(&self) -> Option<&CStr> {
+    pub fn try_as_cstr(&self) -> Option<&CStr> {
         let mut len = 0;
 
-        // Safety: Assumption: c-side initialized the function ptr it is is never changed.
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed.
         let gs = unsafe { RedisModule_CallReplyStringPtr.unwrap() };
 
         // Safety: We assume it is safe to call RedisModule_CallReplyStringPtr and that zero
-        // is returned when the reply is not a string.
+        // is returned when the reply is not a string or an error.
         let ptr = unsafe { gs(self.0.as_ptr(), ptr::from_mut(&mut len)) };
 
         if ptr.is_null() {
