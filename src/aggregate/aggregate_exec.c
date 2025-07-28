@@ -427,7 +427,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
   }
 
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    TotalGlobalStats_CountQuery(req->reqflags, clock() - req->initClock);
+    TotalGlobalStats_CountQuery(req->reqflags, profile_clock_now_ns() - req->initClock);
   }
 
   // Reset the total results length:
@@ -839,17 +839,17 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     Profile_AddIters(&req->rootiter);
   }
 
-  clock_t parseClock;
+  profile_clock_ns_t parseClock;
   bool is_profile = IsProfile(req);
   if (is_profile) {
-    parseClock = clock();
+    parseClock = profile_clock_now_ns();
     req->parseTime = parseClock - req->initClock;
   }
 
   rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
-    req->pipelineBuildTime = clock() - parseClock;
+    req->pipelineBuildTime = profile_clock_now_ns() - parseClock;
   }
 
   if (IsDebug(req)) {
@@ -943,11 +943,11 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
-    r->initClock = clock();
+    r->initClock = profile_clock_now_ns();
   }
 
   if (r->qiter.isProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &r->qiter.initTime);
+    profile_clock_start(&r->qiter.initTime);
   }
 
   // This function also builds the RedisSearchCtx
@@ -971,10 +971,10 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
     if (r->qiter.isProfile){
-      struct timespec time;
-      clock_gettime(CLOCK_MONOTONIC, &time);
-      rs_timersub(&time, &r->qiter.initTime, &time);
-      rs_timeradd(&time, &r->qiter.GILTime, &r->qiter.GILTime);
+      profile_clock_ns_t time;
+      time  = profile_clock_now_ns();
+      time -= r->initClock;
+      time += profile_clock_convert_ms_to_ns(r->qiter.GILTime);
     }
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
@@ -1188,7 +1188,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
   }
 
   if (IsProfile(req) || !IsInternal(req)) {
-    req->initClock = clock(); // Reset the clock for the current cursor read
+    req->initClock = profile_clock_now_ns(); // Reset the clock for the current cursor read
   }
 
   runCursor(reply, cursor, count);

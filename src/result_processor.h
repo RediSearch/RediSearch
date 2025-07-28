@@ -81,8 +81,10 @@ typedef struct {
   // Contains our spec
   RedisSearchCtx *sctx;
 
-  struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  struct timespec GILTime;  //milliseconds
+
+  // Fields for profiling
+  profile_clock initTime;
+  profile_clock_ms_t GILTime;
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers
@@ -172,7 +174,8 @@ typedef struct ResultProcessor {
   // Type of result processor
   ResultProcessorType type;
 
-  struct timespec GILTime;
+  // Time spent in GIL for profiling
+  profile_clock_ms_t GILTime;
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
    * not read, so it is the responsibility of the caller to ensure that there
