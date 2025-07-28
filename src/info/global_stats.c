@@ -66,7 +66,7 @@ size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type) {
   return FieldIndexErrorCounter[INDEXTYPE_TO_POS(field_type)];
 }
 
-void TotalGlobalStats_CountQuery(uint32_t reqflags, clock_t duration) {
+void TotalGlobalStats_CountQuery(uint32_t reqflags, profile_clock_ns_t duration) {
   if (reqflags & QEXEC_F_INTERNAL) return; // internal queries are not counted
 
   INCR(RSGlobalStats.totalStats.queries.total_query_commands);
@@ -82,7 +82,7 @@ QueriesGlobalStats TotalGlobalStats_GetQueryStats() {
   QueriesGlobalStats stats = {0};
   stats.total_queries_processed = READ(RSGlobalStats.totalStats.queries.total_queries_processed);
   stats.total_query_commands = READ(RSGlobalStats.totalStats.queries.total_query_commands);
-  stats.total_query_execution_time = READ(RSGlobalStats.totalStats.queries.total_query_execution_time) / CLOCKS_PER_MILLISEC;
+  stats.total_query_execution_time = READ(RSGlobalStats.totalStats.queries.total_query_execution_time) / TIMESPEC_PER_MILLISEC;
   return stats;
 }
 

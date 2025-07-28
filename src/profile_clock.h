@@ -42,3 +42,7 @@ static inline uint64_t profile_clock_now_ns(void) {
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }
+
+static inline profile_clock_ns_t profile_clock_diff_ns(profile_clock *start, profile_clock *end) {
+    return profile_clock_elapsed_ns(end) - profile_clock_elapsed_ns(start);
+}

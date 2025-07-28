@@ -114,7 +114,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   bool bgScanOOM = profileCtx->bgScanOOM;
-  req->totalTime += clock() - req->initClock;
+  req->profileTotalTime += profile_clock_elapsed_ns(&req->profileInitClock);
 
   //-------------------------------------------------------------------------------------------
   RedisModule_Reply_Map(reply);
@@ -122,17 +122,17 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          (double)(req->totalTime / CLOCKS_PER_MILLISEC));
+          (double)(req->profileTotalTime / CLOCKS_PER_MILLISEC));
 
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          (double)(req->parseTime / CLOCKS_PER_MILLISEC));
+          (double)(req->profileParseTime / CLOCKS_PER_MILLISEC));
 
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+            (double)(req->profilePipelineBuildTime / CLOCKS_PER_MILLISEC));
 
       //Print total GIL time
         if (profile_verbose){

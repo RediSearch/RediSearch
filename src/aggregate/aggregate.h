@@ -182,10 +182,10 @@ typedef struct AREQ {
 
 
   /** Profile variables */
-  clock_t initClock;         // Time of start. Reset for each cursor call
-  clock_t totalTime;         // Total time. Used to accumulate cursors times
-  clock_t parseTime;         // Time for parsing the query
-  clock_t pipelineBuildTime; // Time for creating the pipeline
+  profile_clock profileInitClock;              // Time of start. Reset for each cursor call
+  profile_clock_ns_t profileTotalTime;         // Total time. Used to accumulate cursors times
+  clock_t profileParseTime;                    // Time for parsing the query
+  clock_t profilePipelineBuildTime;            // Time for creating the pipeline
 
   const char** requiredFields;
 
