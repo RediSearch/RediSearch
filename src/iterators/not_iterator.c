@@ -238,7 +238,7 @@ static ValidateStatus NI_Revalidate_NotOptimized(QueryIterator *base) {
     // Free child and replace with empty iterator
     // When child is aborted, NOT iterator becomes "NOT nothing" = everything
     ni->child->Free(ni->child);
-    ni->child = IT_V2(NewEmptyIterator)();
+    ni->child = NewEmptyIterator();
     // Continue processing - this doesn't invalidate our current position
   }
 
@@ -265,7 +265,7 @@ static ValidateStatus NI_Revalidate_Optimized(QueryIterator *base) {
     // Free child and replace with empty iterator
     // When child is aborted, NOT iterator becomes "NOT nothing" = everything
     ni->child->Free(ni->child);
-    ni->child = IT_V2(NewEmptyIterator)();
+    ni->child = NewEmptyIterator();
   }
 
   // 3. If the wildcard iterator has moved, we need to sync the state
@@ -298,9 +298,9 @@ static QueryIterator* NotIteratorReducer(QueryIterator *it, t_docId maxDocId, do
   RS_ASSERT(q);
   QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
-    ret = IT_V2(NewWildcardIterator)(q, weight);
+    ret = NewWildcardIterator(q, weight);
   } else if (IsWildcardIterator(it)) {
-    ret = IT_V2(NewEmptyIterator)();
+    ret = NewEmptyIterator();
   }
   if (ret != NULL) {
     if (it) {
@@ -310,7 +310,7 @@ static QueryIterator* NotIteratorReducer(QueryIterator *it, t_docId maxDocId, do
   return ret;
 }
 
-QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
+QueryIterator *NewNotIterator(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
   QueryIterator *ret = NotIteratorReducer(it, maxDocId, weight, timeout, q);
   if (ret != NULL) {
     return ret;
@@ -319,7 +319,7 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   ret = &ni->base;
   bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   if (optimized) {
-    ni->wcii = IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
+    ni->wcii = NewWildcardIterator_Optimized(q->sctx, weight);
   }
   ni->child = it;
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
@@ -341,7 +341,7 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
 }
 
 // LCOV_EXCL_START
-QueryIterator *IT_V2(_New_NotIterator_With_WildCardIterator)(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout) {
+QueryIterator *_New_NotIterator_With_WildCardIterator(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout) {
   NotIterator *ni = rm_calloc(1, sizeof(*ni));
   QueryIterator *ret = &ni->base;
   ni->child = child;

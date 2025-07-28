@@ -98,9 +98,9 @@ QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 
   // Move ownership on the arrays to the iterator.
   if (yields_metric) {
-    return IT_V2(NewMetricIterator)(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+    return NewMetricIterator(docIdsList, metricList, res_num, VECTOR_DISTANCE);
   } else {
-    return IT_V2(NewIdListIterator)(docIdsList, res_num, 1.0);
+    return NewIdListIterator(docIdsList, res_num, 1.0);
   }
 }
 

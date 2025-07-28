@@ -67,7 +67,7 @@ bool IsWildcardIterator(QueryIterator *it) {
 }
 
 /* Create a new wildcard iterator */
-QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t numDocs, double weight) {
+QueryIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs, double weight) {
   WildcardIterator *wi = rm_calloc(1, sizeof(*wi));
   wi->currentId = 0;
   wi->topId = maxId;
@@ -87,7 +87,7 @@ QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t num
   return ret;
 }
 
-QueryIterator *IT_V2(NewWildcardIterator_Optimized)(const RedisSearchCtx *sctx, double weight) {
+QueryIterator *NewWildcardIterator_Optimized(const RedisSearchCtx *sctx, double weight) {
   RS_ASSERT(sctx->spec->rule->index_all);
   QueryIterator *ret = NULL;
   if (sctx->spec->existingDocs) {
@@ -96,7 +96,7 @@ QueryIterator *IT_V2(NewWildcardIterator_Optimized)(const RedisSearchCtx *sctx, 
     InvIndIterator *it = (InvIndIterator *)ret;
     it->isWildcard = true;
   } else {
-    ret = IT_V2(NewEmptyIterator)(); // Index all and no index, means the spec is currently empty.
+    ret = NewEmptyIterator(); // Index all and no index, means the spec is currently empty.
   }
   return ret;
 }
@@ -104,12 +104,12 @@ QueryIterator *IT_V2(NewWildcardIterator_Optimized)(const RedisSearchCtx *sctx, 
 // Returns a new wildcard iterator.
 // If the spec tracks all existing documents, it will return an iterator over those documents.
 // Otherwise, it will return a non-optimized wildcard iterator
-QueryIterator *IT_V2(NewWildcardIterator)(const QueryEvalCtx *q, double weight) {
+QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight) {
   QueryIterator *ret = NULL;
   if (q->sctx->spec->rule->index_all == true) {
-    return IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
+    return NewWildcardIterator_Optimized(q->sctx, weight);
   } else {
     // Non-optimized wildcard iterator, using a simple doc-id increment as its base.
-    return IT_V2(NewWildcardIterator_NonOptimized)(q->docTable->maxDocId, q->docTable->size, weight);
+    return NewWildcardIterator_NonOptimized(q->docTable->maxDocId, q->docTable->size, weight);
   }
 }

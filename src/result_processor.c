@@ -112,7 +112,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     if (rc == VALIDATE_ABORTED) {
       // The iterator is no longer valid, we should not use it.
       self->iterator->Free(self->iterator);
-      self->iterator = IT_V2(NewEmptyIterator)(); // Replace with a new empty iterator
+      self->iterator = NewEmptyIterator(); // Replace with a new empty iterator
     } else if (rc == VALIDATE_MOVED && !it->atEOF) {
       // The iterator is still valid, but the current result has changed, or we are at EOF.
       // If we are at EOF, we can enter the loop and let it handle it. (reading again should be safe)

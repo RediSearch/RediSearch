@@ -38,7 +38,7 @@ protected:
 
     // Create optional iterator with child
     MockQueryEvalCtx ctx(maxDocId, numDocs);
-    iterator_base = IT_V2(NewOptionalIterator)(child, &ctx.qctx, weight);
+    iterator_base = NewOptionalIterator(child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -198,7 +198,7 @@ protected:
 
     // Create optional iterator with timeout child
     MockQueryEvalCtx ctx(maxDocId, numDocs);
-    iterator_base = IT_V2(NewOptionalIterator)(child, &ctx.qctx, weight);
+    iterator_base = NewOptionalIterator(child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -302,9 +302,9 @@ protected:
 
   void SetUp() override {
     // Create optional iterator with empty child (no real hits, all virtual)
-    empty_child = IT_V2(NewEmptyIterator)();
+    empty_child = NewEmptyIterator();
     MockQueryEvalCtx ctx(maxDocId, numDocs);
-    iterator_base = IT_V2(NewOptionalIterator)(empty_child, &ctx.qctx, weight);
+    iterator_base = NewOptionalIterator(empty_child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -427,7 +427,7 @@ protected:
     if (lastFromChild) {
       q->spec.docs.maxDocId = childDocIds.back(); // Ensure maxDocId is set to include last child doc
     }
-    iterator = IT_V2(NewOptionalIterator)(child, &q->qctx, 4.6);
+    iterator = NewOptionalIterator(child, &q->qctx, 4.6);
   }
 
   void TearDown() override {
@@ -562,7 +562,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithNullChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create optional iterator with NULL child
-  QueryIterator *it = IT_V2(NewOptionalIterator)(nullptr, &ctx.qctx, weight);
+  QueryIterator *it = NewOptionalIterator(nullptr, &ctx.qctx, weight);
 
   // Verify iterator type
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -586,10 +586,10 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithEmptyChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create empty child iterator
-  QueryIterator *emptyChild = IT_V2(NewEmptyIterator)();
+  QueryIterator *emptyChild = NewEmptyIterator();
 
   // Create optional iterator with empty child
-  QueryIterator *it = IT_V2(NewOptionalIterator)(emptyChild, &ctx.qctx, weight);
+  QueryIterator *it = NewOptionalIterator(emptyChild, &ctx.qctx, weight);
 
   // Verify iterator type
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -613,10 +613,10 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create wildcard child iterator
-  QueryIterator *wildcardChild = IT_V2(NewWildcardIterator_NonOptimized)(maxDocId, numDocs, childWeight);
+  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, numDocs, childWeight);
 
   // Create optional iterator with wildcard child - should return the child directly
-  QueryIterator *it = IT_V2(NewOptionalIterator)(wildcardChild, &ctx.qctx, 2.0);
+  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, 2.0);
 
   // Verify it's the same iterator (optimization returns child directly)
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -658,7 +658,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
   invIdxIt->isWildcard = true;
 
   // Create optional iterator with wildcard child - should return the child directly
-  QueryIterator *it = IT_V2(NewOptionalIterator)(wildcardChild, &ctx.qctx, 2.0);
+  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, 2.0);
 
   // Verify it's the same iterator (optimization returns child directly)
   ASSERT_TRUE(it->type == INV_IDX_ITERATOR);
@@ -684,7 +684,7 @@ protected:
 
     // Create non-optimized optional iterator with child
     mockCtx = new MockQueryEvalCtx(maxDocId, numDocs);
-    oi_base = IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
+    oi_base = NewOptionalIterator(child, &mockCtx->qctx, weight);
   }
 
   void TearDown() override {
@@ -782,7 +782,7 @@ protected:
     // Create optimized optional iterator (will create wildcard internally)
     std::vector<t_docId> wildcard = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95};
     mockCtx = std::make_unique<MockQueryEvalCtx>(wildcard);
-    oi_base = IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
+    oi_base = NewOptionalIterator(child, &mockCtx->qctx, weight);
 
     // Replace the wildcard iterator with a mock for testing
     OptionalIterator *oi = (OptionalIterator *)oi_base;

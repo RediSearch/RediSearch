@@ -11,6 +11,11 @@
 
 #include "benchmark/benchmark.h"
 #include "redismock/util.h"
+#include "redisearch.h"
+#include "iterators/iterator_api.h"
+#include "iterators/intersection_iterator.h"
+#include "iterators/union_iterator.h"
+#include "iterators/idlist_iterator.h"
 
 #include <random>
 #include <vector>
@@ -140,15 +145,15 @@ private:
 
 public:
     // Helper function to create union iterators with idlist children
-    IndexIterator* createUnionIterator(size_t unionIdx) {
+    QueryIterator* createUnionIterator(size_t unionIdx) {
         const size_t numIdLists = unionData[unionIdx].size();
-        IndexIterator **idListIterators = createIdListIterators(unionIdx, numIdLists);
+        QueryIterator **idListIterators = createIdListIterators(unionIdx, numIdLists);
         return NewUnionIterator(idListIterators, numIdLists, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
     }
 
     // Helper function to create intersection iterator with two union children
-    IndexIterator* createIntersectionIterator() {
-        IndexIterator **unionIterators = (IndexIterator **)rm_malloc(sizeof(IndexIterator *) * 2);
+    QueryIterator* createIntersectionIterator() {
+        QueryIterator **unionIterators = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 2);
         unionIterators[0] = createUnionIterator(0);
         unionIterators[1] = createUnionIterator(1);
         return NewIntersectIterator(unionIterators, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1.0);
@@ -156,8 +161,8 @@ public:
 
 private:
     // Create array of idlist iterators for a union
-    IndexIterator** createIdListIterators(size_t unionIdx, size_t numIdLists) {
-        IndexIterator **idListIterators = (IndexIterator **)rm_malloc(sizeof(IndexIterator *) * numIdLists);
+    QueryIterator** createIdListIterators(size_t unionIdx, size_t numIdLists) {
+        QueryIterator **idListIterators = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * numIdLists);
 
         for (size_t i = 0; i < numIdLists; i++) {
             t_docId *ids = copyIds(unionData[unionIdx][i]);
@@ -193,7 +198,7 @@ bool BM_IntersectionIterator::initialized = false;
 // - Sparse (jumps of 100): IDs have gaps of 100 between them
 // - Consecutive modulo: Consecutive IDs distributed round-robin across idlist iterators
 BENCHMARK_DEFINE_F(BM_IntersectionIterator, Read)(benchmark::State &state) {
-    IndexIterator *intersectionIt = createIntersectionIterator();
+    QueryIterator *intersectionIt = createIntersectionIterator();
     RSIndexResult *hit;
 
     for (auto _ : state) {
@@ -212,7 +217,7 @@ BENCHMARK_DEFINE_F(BM_IntersectionIterator, Read)(benchmark::State &state) {
 // - Sparse (jumps of 100): IDs have gaps of 100 between them
 // - Consecutive modulo: Consecutive IDs distributed round-robin across idlist iterators
 BENCHMARK_DEFINE_F(BM_IntersectionIterator, SkipTo)(benchmark::State &state) {
-    IndexIterator *intersectionIt = createIntersectionIterator();
+    QueryIterator *intersectionIt = createIntersectionIterator();
     RSIndexResult *hit;
     t_offset step = 50;
     t_docId lastDocId = 0;

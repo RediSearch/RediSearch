@@ -186,7 +186,7 @@ static ValidateStatus OI_Revalidate_NotOptimized(QueryIterator *base) {
   if (child_status == VALIDATE_ABORTED) {
     // Free child and replace with empty iterator
     oi->child->Free(oi->child);
-    oi->child = IT_V2(NewEmptyIterator)();
+    oi->child = NewEmptyIterator();
   }
 
   // 3. If the current result is virtual, or if the child was not moved, we can return VALIDATE_OK
@@ -215,7 +215,7 @@ static ValidateStatus OI_Revalidate_Optimized(QueryIterator *base) {
   if (child_status == VALIDATE_ABORTED) {
     // Free child and replace with empty iterator
     oi->child->Free(oi->child);
-    oi->child = IT_V2(NewEmptyIterator)();
+    oi->child = NewEmptyIterator();
   }
 
   // 3. Validate the current result
@@ -262,7 +262,7 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
   QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
     // If the child is NULL, we return a wildcard iterator. All will be virtual hits
-    ret = IT_V2(NewWildcardIterator)(q, weight);
+    ret = NewWildcardIterator(q, weight);
     if (it) {
       it->Free(it);
     }
@@ -274,7 +274,7 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
 }
 
 // Create a new OPTIONAL iterator - Non-Optimized version.
-QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, double weight) {
+QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight) {
   RS_ASSERT(q && q->sctx && q->sctx->spec && q->docTable);
   QueryIterator *ret = OptionalIteratorReducer(it, q, weight);
   if (ret != NULL) {
@@ -283,7 +283,7 @@ QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, do
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   if (optimized) {
-    oi->wcii = IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
+    oi->wcii = NewWildcardIterator_Optimized(q->sctx, weight);
   }
   oi->child = it;
   oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);

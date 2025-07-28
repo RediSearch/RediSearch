@@ -489,7 +489,7 @@ QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
   Vector_Free(v);
 
   QueryNodeType type = (!f || NumericFilter_IsNumeric(f)) ? QN_NUMERIC : QN_GEO;
-  return IT_V2(NewUnionIterator)(its, n, true, 1.0, type, NULL, config);
+  return NewUnionIterator(its, n, true, 1.0, type, NULL, config);
 }
 
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"

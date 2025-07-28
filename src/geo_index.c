@@ -176,7 +176,7 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
     rm_free(iters);
     return it;
   }
-  return IT_V2(NewUnionIterator)(iters, itersCount, true, 1, QN_GEO, NULL, config);
+  return NewUnionIterator(iters, itersCount, true, 1, QN_GEO, NULL, config);
 }
 
 GeoDistance GeoDistance_Parse(const char *s) {

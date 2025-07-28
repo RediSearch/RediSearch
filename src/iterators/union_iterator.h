@@ -47,7 +47,7 @@ typedef struct {
  * @param q_str - slice of the query that yielded this union node - used by profile iterator
  * @param config - pointer to a valid configuration struct for construction decisions
  */
-QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit, double weight,
+QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit, double weight,
                                 QueryNodeType type, const char *q_str, IteratorsConfig *config);
 
 #ifdef __cplusplus
