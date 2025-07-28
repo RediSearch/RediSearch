@@ -24,7 +24,7 @@ static inline void profile_clock_start(profile_clock *clk) {
 }
 
 // Returns time elapsed since start, in nanoseconds
-static inline uint64_t profile_clock_elapsed_ns(const profile_clock *clk) {
+static inline uint64_t profile_clock_elapsed_ns(profile_clock *clk) {
     struct timespec end;
     clock_gettime(CLOCK_MONOTONIC, &end);
 
