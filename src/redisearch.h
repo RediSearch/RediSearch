@@ -276,7 +276,6 @@ typedef struct {
 } RSVirtualRecord;
 
 
-#define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 #define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
 
 // Forward declaration of needed structs
@@ -298,8 +297,6 @@ RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t)
 RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res);
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res);
-
-int RSIndexResult_IsAggregate(const RSIndexResult *r);
 
 /* RS_SCORE_FILTEROUT is a special value (-inf) that should be returned by scoring functions in
  * order to completely filter out results and disregard them in the totals count */

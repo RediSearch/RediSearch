@@ -237,9 +237,6 @@ void IndexResult_Free(RSIndexResult *r) {
   rm_free(r);
 }
 
-inline int RSIndexResult_IsAggregate(const RSIndexResult *r) {
-  return (r->type & RS_RESULT_AGGREGATE) != 0;
-}
 #define __absdelta(x, y) (x > y ? x - y : y - x)
 /**
 Find the minimal distance between members of the vectos.
@@ -248,7 +245,7 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list
 */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
-  if (!RSIndexResult_IsAggregate(r) || AggregateResult_NumChildren(&r->data.agg) <= 1) {
+  if (!IndexResult_IsAggregate(r) || AggregateResult_NumChildren(&r->data.agg) <= 1) {
     return 1;
   }
 
