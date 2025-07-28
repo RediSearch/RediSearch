@@ -16,8 +16,8 @@ typedef struct {
     struct timespec start;
 } rs_wall_clock;
 
-#define TIMESPEC_PER_SEC 1000000000L
-#define TIMESPEC_PER_MILLISEC TIMESPEC_PER_SEC / 1000
+#define RS_WALL_CLOCK_PER_SEC 1000000000L
+#define RS_WALL_CLOCK_PER_MILLISEC RS_WALL_CLOCK_PER_SEC / 1000
 
 typedef uint64_t rs_wall_clock_ns_t;
 

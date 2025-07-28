@@ -95,7 +95,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
 
-  double totalRPTime = (double)(RPProfile_GetClock(rp) / TIMESPEC_PER_MILLISEC);
+  double totalRPTime = (double)(RPProfile_GetClock(rp) / RS_WALL_CLOCK_PER_MILLISEC);
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
@@ -122,17 +122,17 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          (double)(req->profileTotalTime / TIMESPEC_PER_MILLISEC));
+          (double)(req->profileTotalTime / RS_WALL_CLOCK_PER_MILLISEC));
 
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          (double)(req->profileParseTime / TIMESPEC_PER_MILLISEC));
+          (double)(req->profileParseTime / RS_WALL_CLOCK_PER_MILLISEC));
 
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            (double)(req->profilePipelineBuildTime / TIMESPEC_PER_MILLISEC));
+            (double)(req->profilePipelineBuildTime / RS_WALL_CLOCK_PER_MILLISEC));
 
       //Print total GIL time
         if (profile_verbose){

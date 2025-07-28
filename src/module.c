@@ -2719,8 +2719,8 @@ struct PrintCoordProfile_ctx {
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(rs_wall_clock_elapsed_ns(pCtx->totalTime)) / TIMESPEC_PER_MILLISEC);
-  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(rs_wall_clock_now_ns() - pCtx->postProcessTime) / TIMESPEC_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(rs_wall_clock_elapsed_ns(pCtx->totalTime)) / RS_WALL_CLOCK_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(rs_wall_clock_now_ns() - pCtx->postProcessTime) / RS_WALL_CLOCK_PER_MILLISEC);
   RedisModule_Reply_MapEnd(reply);
 }
 
