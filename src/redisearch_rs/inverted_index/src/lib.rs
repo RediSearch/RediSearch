@@ -449,7 +449,8 @@ impl RSIndexResult {
     /// - The child's field mask will contribute to this result's field mask
     /// - If the child has metrics, then they will be concatenated to this result's metrics
     ///
-    /// If this is not an aggregate result, then nothing happens.
+    /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
+    /// to make sure this is an aggregate result.
     ///
     /// # Safety
     ///
