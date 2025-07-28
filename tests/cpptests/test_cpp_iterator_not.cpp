@@ -944,8 +944,7 @@ TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardOK) {
   ASSERT_EQ(status, VALIDATE_OK); // NOT iterator continues even when child is aborted
 
   // Verify both iterators were checked
-  ASSERT_NE(mockChild, reinterpret_cast<NotIterator *>(ni_base)->child) << "Child should be replaced with empty iterator";
-  ASSERT_EQ(reinterpret_cast<NotIterator *>(ni_base)->child->type, EMPTY_ITERATOR);
+  ASSERT_EQ(reinterpret_cast<NotIterator *>(ni_base)->child->type, EMPTY_ITERATOR) << "Child should be replaced with empty iterator";
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
   ASSERT_EQ(ni_base->lastDocId, originalDocId); // Position should remain valid
 
@@ -1012,8 +1011,7 @@ TEST_F(NotIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardMoved)
   ASSERT_EQ(status, VALIDATE_MOVED);
 
   // Verify both iterators were checked
-  ASSERT_NE(mockChild, reinterpret_cast<NotIterator *>(ni_base)->child) << "Child should be replaced with empty iterator";
-  ASSERT_EQ(reinterpret_cast<NotIterator *>(ni_base)->child->type, EMPTY_ITERATOR);
+  ASSERT_EQ(reinterpret_cast<NotIterator *>(ni_base)->child->type, EMPTY_ITERATOR) << "Child should be replaced with empty iterator";
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
   ASSERT_GT(ni_base->lastDocId, originalDocId); // Position might change due to wildcard movement
 }
