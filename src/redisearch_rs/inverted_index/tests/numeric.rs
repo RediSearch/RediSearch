@@ -459,7 +459,8 @@ fn encode_f64_with_compression() {
 fn test_empty_buffer() {
     let buffer = Vec::new();
     let mut buffer = Cursor::new(buffer.as_ref());
-    let res = Numeric::new().decode(&mut buffer, 0);
+    let decoder = Numeric::new();
+    let res = decoder.decode(&mut buffer, 0);
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();

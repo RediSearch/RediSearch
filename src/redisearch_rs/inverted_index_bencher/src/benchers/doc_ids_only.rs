@@ -156,7 +156,8 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = DocIdsOnly::default().decode(buffer, 100);
+                        let decoder = DocIdsOnly::default();
+                        let result = decoder.decode(buffer, 100);
 
                         let _ = black_box(result);
                     },

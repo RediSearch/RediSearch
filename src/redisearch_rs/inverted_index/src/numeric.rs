@@ -401,7 +401,11 @@ impl Encoder for Numeric {
 }
 
 impl Decoder for Numeric {
-    fn decode(&self, cursor: &mut Cursor<&[u8]>, base: t_docId) -> std::io::Result<RSIndexResult> {
+    fn decode(
+        &self,
+        cursor: &mut Cursor<&[u8]>,
+        base: t_docId,
+    ) -> std::io::Result<RSIndexResult<'_>> {
         let mut header = [0; 1];
         cursor.read_exact(&mut header)?;
 
