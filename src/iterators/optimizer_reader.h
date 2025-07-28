@@ -22,7 +22,7 @@ typedef int (*OptimizerCompareFunc)(const void *e1, const void *e2, const void *
 #define OPTIM_OWN_NF 0x01
 
 typedef struct {
-  IndexIterator base;
+  QueryIterator base;
   QOptimizer *optim;
   t_docId lastDocId;
   int flags;
@@ -37,9 +37,9 @@ typedef struct {
   size_t offset;
 
   // child iterator with old root and numeric iterator for sortby field
-  IndexIterator *child;
+  QueryIterator *child;
   t_docId childLastId;
-  IndexIterator *numericIter;
+  QueryIterator *numericIter;
   t_docId numericLastId;
 
 
@@ -58,7 +58,7 @@ typedef struct {
 extern "C" {
 #endif
 
-IndexIterator *NewOptimizerIterator(QOptimizer *q_opt, IndexIterator *root, IteratorsConfig *config);
+QueryIterator *NewOptimizerIterator(QOptimizer *q_opt, QueryIterator *root, IteratorsConfig *config);
 
 #ifdef __cplusplus
 }

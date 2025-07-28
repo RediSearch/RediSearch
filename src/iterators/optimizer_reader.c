@@ -33,40 +33,38 @@ static inline double getSuccessRatio(const OptimizerIterator *optIt) {
 }
 
 
-static size_t OPT_NumEstimated(void *ctx) {
-  OptimizerIterator *opt = ctx;
-  return MIN(opt->child->NumEstimated(opt->child->ctx) ,
-              opt->numericIter->NumEstimated(opt->numericIter->ctx));
+static size_t OPT_NumEstimated(QueryIterator *self) {
+  OptimizerIterator *opt = (OptimizerIterator *)self;
+  return MIN(opt->child->NumEstimated(opt->child) ,
+              opt->numericIter->NumEstimated(opt->numericIter));
 }
 
-static size_t OPT_Len(void *ctx) {
-  return OPT_NumEstimated(ctx);
+// TODO: handle MOVED better
+static ValidateStatus OPT_Validate(QueryIterator *self) {
+  OptimizerIterator *opt = (OptimizerIterator *)self;
+  if (opt->child->Revalidate(opt->child) != VALIDATE_OK) {
+    return VALIDATE_ABORTED;
+  }
+  if (opt->numericIter->Revalidate(opt->numericIter) != VALIDATE_OK) {
+    return VALIDATE_ABORTED;
+  }
+  return VALIDATE_OK;
 }
 
-static void OPT_Abort(void *ctx) {
-  OptimizerIterator *opt = ctx;
-  opt->base.isValid = 0;
-}
-
-static t_docId OPT_LastDocId(void *ctx) {
-  OptimizerIterator *opt = ctx;
-  return opt->lastDocId;
-}
-
-static void OPT_Rewind(void *ctx) {
-  OptimizerIterator *optIt = ctx;
+static void OPT_Rewind(QueryIterator *self) {
+  OptimizerIterator *optIt = (OptimizerIterator *)self;
   QOptimizer *qOpt = optIt->optim;
   heap_t *heap = optIt->heap;
-  IndexIterator *child = optIt->child;
+  QueryIterator *child = optIt->child;
 
   // rewind child iterator
-  child->Rewind(child->ctx);
+  child->Rewind(child);
 
   // update numeric filter with old iterator result estimation
   // used to skip ranges when creating new numeric iterator
-  IndexIterator *numeric = optIt->numericIter;
+  QueryIterator *numeric = optIt->numericIter;
   NumericFilter *nf = qOpt->nf;
-  nf->offset += numeric->NumEstimated(numeric->ctx);
+  nf->offset += numeric->NumEstimated(numeric);
   numeric->Free(numeric);
   optIt->numericIter = NULL;
 
@@ -89,13 +87,8 @@ static void OPT_Rewind(void *ctx) {
   optIt->numIterations++;
 }
 
-static int OPT_HasNext(void *ctx) {
-  OptimizerIterator *opt = ctx;
-  return opt->base.isValid;
-}
-
-void OptimizerIterator_Free(struct indexIterator *self) {
-  OptimizerIterator *it = self->ctx;
+void OptimizerIterator_Free(QueryIterator *self) {
+  OptimizerIterator *it = (OptimizerIterator *)self;
   if (it == NULL) {
     return;
   }
@@ -118,22 +111,25 @@ void OptimizerIterator_Free(struct indexIterator *self) {
   rm_free(it);
 }
 
-int OPT_ReadYield(void *ctx, RSIndexResult **e) {
-  OptimizerIterator *it = ctx;
+IteratorStatus OPT_ReadYield(QueryIterator *self) {
+  OptimizerIterator *it = (OptimizerIterator *)self;
   if (heap_count(it->heap) > 0) {
-    *e = heap_poll(it->heap);
-    return INDEXREAD_OK;
+    if (self->current) {
+      IndexResult_Free(self->current);
+    }
+    self->current = heap_poll(it->heap);
+    return ITERATOR_OK;
   }
-  return INDEXREAD_EOF;
+  return ITERATOR_EOF;
 }
 
-int OPT_Read(void *ctx, RSIndexResult **e) {
-  int rc1, rc2;
-  OptimizerIterator *it = ctx;
+IteratorStatus OPT_Read(QueryIterator *self) {
+  IteratorStatus rc1, rc2;
+  OptimizerIterator *it = (OptimizerIterator *)self;
   QOptimizer *opt = it->optim;
 
-  IndexIterator *child = it->child;
-  IndexIterator *numeric = it->numericIter;
+  QueryIterator *child = it->child;
+  QueryIterator *numeric = it->numericIter;
   RSIndexResult *childRes = NULL;
   RSIndexResult *numericRes = NULL;
 
@@ -146,18 +142,20 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
     while (1) {
       // get next result
       if (numericRes == NULL || childRes->docId == numericRes->docId) {
-        rc1 = child->Read(child->ctx, &childRes);
-        if (rc1 == INDEXREAD_EOF) break;
-        rc2 = numeric->SkipTo(numeric->ctx, childRes->docId, &numericRes);
+        rc1 = child->Read(child);
+        if (rc1 == ITERATOR_EOF) break;
+        rc2 = numeric->SkipTo(numeric, child->lastDocId);
       } else if (childRes->docId > numericRes->docId) {
-        rc2 = numeric->SkipTo(numeric->ctx, childRes->docId, &numericRes);
+        rc2 = numeric->SkipTo(numeric, childRes->docId);
       } else {
-        rc1 = child->SkipTo(child->ctx, numericRes->docId, &childRes);
+        rc1 = child->SkipTo(child, numericRes->docId);
       }
 
-      if (rc1 == INDEXREAD_EOF || rc2 == INDEXREAD_EOF) {
+      if (rc1 == ITERATOR_EOF || rc2 == ITERATOR_EOF) {
         break;
       }
+      childRes = child->current;
+      numericRes = numeric->current;
 
       it->hitCounter++;
       if (childRes->docId == numericRes->docId) {
@@ -199,7 +197,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
     // Not enough result, try to rewind
     if (heap_size(it->heap) > heap_count(it->heap) && it->offset < it->childEstimate) {
       if (getSuccessRatio(it) < 1) {
-        OPT_Rewind(it->base.ctx);
+        OPT_Rewind(it->base);
         childRes = numericRes = NULL;
         // rewind was successful, continue iteration
         if (it->numericIter != NULL) {
@@ -216,11 +214,11 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
     }
 
     it->base.Read = OPT_ReadYield;
-    return OPT_ReadYield(ctx, e);
+    return OPT_ReadYield(self);
   }
 }
 
-IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, IteratorsConfig *config) {
+QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, IteratorsConfig *config) {
   OptimizerIterator *oi = rm_calloc(1, sizeof(*oi));
   oi->child = root;
   oi->optim = qOpt;
@@ -233,7 +231,7 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   heap_init(oi->heap, oi->cmp, NULL, qOpt->limit);
 
   oi->numDocs = qOpt->sctx->spec->docs.size;
-  oi->childEstimate = root->NumEstimated(root->ctx);
+  oi->childEstimate = root->NumEstimated(root);
 
   const FieldSpec *field = IndexSpec_GetFieldWithLength(qOpt->sctx->spec, qOpt->fieldName, strlen(qOpt->fieldName));
   // if there is no numeric range query but sortby, create a Numeric Filter
@@ -248,25 +246,20 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   oi->numericFieldIndex = field->index;
   oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
-    oi->base.ctx = oi;
     OptimizerIterator_Free(&oi->base);
     return NewEmptyIterator();
   }
 
-  oi->offset = oi->numericIter->NumEstimated(oi->numericIter->ctx);
+  oi->offset = oi->numericIter->NumEstimated(oi->numericIter);
   oi->config = config;
 
-  IndexIterator *ri = &oi->base;
-  ri->ctx = oi;
+  QueryIterator *ri = &oi->base;
   ri->type = OPTIMUS_ITERATOR;
 
   ri->NumEstimated = OPT_NumEstimated;
-  ri->LastDocId = OPT_LastDocId;
   ri->Free = OptimizerIterator_Free;
-  ri->Len = OPT_Len;
-  ri->Abort = OPT_Abort;
   ri->Rewind = OPT_Rewind;
-  ri->HasNext = OPT_HasNext;
+  ri->Revalidate = OPT_Validate;
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
   ri->current = NewNumericResult();

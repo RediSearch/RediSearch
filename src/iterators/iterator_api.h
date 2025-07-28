@@ -11,8 +11,8 @@
 #define __ITERATOR_API_H__
 
 #include <stdint.h>
-#include "src/redisearch.h"
-#include "src/index_result.h"
+#include "redisearch.h"
+#include "index_result.h"
 
 struct RLookupKey; // Forward declaration
 
