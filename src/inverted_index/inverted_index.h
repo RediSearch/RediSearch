@@ -107,53 +107,18 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 
-static inline t_docId IndexBlock_FirstId(const IndexBlock *b) {
-  return b->firstId;
-}
-
-static inline t_docId IndexBlock_LastId(const IndexBlock *b) {
-  return b->lastId;
-}
-
-static inline uint16_t IndexBlock_NumEntries(const IndexBlock *b) {
-  return b->numEntries;
-}
-
-static inline char *IndexBlock_Data(const IndexBlock *b) {
-  return b->buf.data;
-}
-
-static inline char **IndexBlock_DataPtr(IndexBlock *b) {
-  return &b->buf.data;
-}
-
-static inline void IndexBlock_DataFree(const IndexBlock *b) {
-  rm_free(b->buf.data);
-}
-
-static inline size_t IndexBlock_Cap(const IndexBlock *b) {
-  return b->buf.cap;
-}
-
-static inline void IndexBlock_SetCap(IndexBlock *b, size_t cap) {
-  b->buf.cap = cap;
-}
-
-static inline size_t IndexBlock_Len(const IndexBlock *b) {
-  return b->buf.offset;
-}
-
-static inline size_t *IndexBlock_LenPtr(IndexBlock *b) {
-  return &b->buf.offset;
-}
-
-static inline Buffer *IndexBlock_Buffer(IndexBlock *b) {
-  return &b->buf;
-}
-
-static inline void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
-  b->buf = buf;
-}
+t_docId IndexBlock_FirstId(const IndexBlock *b);
+t_docId IndexBlock_LastId(const IndexBlock *b);
+uint16_t IndexBlock_NumEntries(const IndexBlock *b);
+char *IndexBlock_Data(const IndexBlock *b);
+char **IndexBlock_DataPtr(IndexBlock *b);
+void IndexBlock_DataFree(const IndexBlock *b);
+size_t IndexBlock_Cap(const IndexBlock *b);
+void IndexBlock_SetCap(IndexBlock *b, size_t cap);
+size_t IndexBlock_Len(const IndexBlock *b);
+size_t *IndexBlock_LenPtr(IndexBlock *b);
+Buffer *IndexBlock_Buffer(IndexBlock *b);
+void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf);
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:

@@ -73,6 +73,54 @@ size_t indexBlock_Free(IndexBlock *blk) {
   return Buffer_Free(IndexBlock_Buffer(blk));
 }
 
+t_docId IndexBlock_FirstId(const IndexBlock *b) {
+  return b->firstId;
+}
+
+t_docId IndexBlock_LastId(const IndexBlock *b) {
+  return b->lastId;
+}
+
+uint16_t IndexBlock_NumEntries(const IndexBlock *b) {
+  return b->numEntries;
+}
+
+char *IndexBlock_Data(const IndexBlock *b) {
+  return b->buf.data;
+}
+
+char **IndexBlock_DataPtr(IndexBlock *b) {
+  return &b->buf.data;
+}
+
+void IndexBlock_DataFree(const IndexBlock *b) {
+  rm_free(b->buf.data);
+}
+
+size_t IndexBlock_Cap(const IndexBlock *b) {
+  return b->buf.cap;
+}
+
+void IndexBlock_SetCap(IndexBlock *b, size_t cap) {
+  b->buf.cap = cap;
+}
+
+size_t IndexBlock_Len(const IndexBlock *b) {
+  return b->buf.offset;
+}
+
+size_t *IndexBlock_LenPtr(IndexBlock *b) {
+  return &b->buf.offset;
+}
+
+Buffer *IndexBlock_Buffer(IndexBlock *b) {
+  return &b->buf;
+}
+
+void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
+  b->buf = buf;
+}
+
 void InvertedIndex_Free(void *ctx) {
   InvertedIndex *idx = ctx;
   TotalIIBlocks -= idx->size;
