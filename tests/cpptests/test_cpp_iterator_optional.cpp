@@ -864,10 +864,11 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardO
 
   // Optimized optional iterator handles child abort gracefully
   ValidateStatus status = oi_base->Revalidate(oi_base);
+  //////// Cannot access `mockChild` after it has been replaced
   ASSERT_EQ(status, VALIDATE_OK);
 
   // Verify both iterators were checked
-  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(reinterpret_cast<OptionalIterator *>(oi_base)->child->type, EMPTY_ITERATOR);
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
 
   // Should be able to continue reading (all wildcard docs now virtual)
@@ -900,10 +901,11 @@ TEST_F(OptionalIteratorOptimizedRevalidateTest, RevalidateChildAborted_WildcardM
 
   // Child aborted but wildcard moved - should handle gracefully
   ValidateStatus status = oi_base->Revalidate(oi_base);
+  //////// Cannot access `mockChild` after it has been replaced
   ASSERT_EQ(status, VALIDATE_MOVED);
 
   // Verify both iterators were checked
-  ASSERT_EQ(mockChild->GetValidationCount(), 1);
+  ASSERT_EQ(reinterpret_cast<OptionalIterator *>(oi_base)->child->type, EMPTY_ITERATOR);
   ASSERT_EQ(mockWildcard->GetValidationCount(), 1);
 }
 
