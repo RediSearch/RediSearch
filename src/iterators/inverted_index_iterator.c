@@ -76,7 +76,6 @@ static ValidateStatus NumericCheckAbort(QueryIterator *base) {
   if (nit->rt->revisionId != nit->revisionId) {
     // The numeric tree was either completely deleted or a node was split or removed.
     // The cursor is invalidated.
-    base->isAborted = true;
     return VALIDATE_ABORTED;
   }
 
@@ -95,7 +94,6 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
     // for this specific inverted index.
-    base->isAborted = true;
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -115,7 +113,6 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
     // We will not continue reading those new results and instead abort reading
     // for this specific inverted index.
 
-    base->isAborted = true;
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -145,8 +142,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
     t_docId lastDocId = base->lastDocId;
     // reset the state of the reader
     base->Rewind(base);
-    IteratorStatus rc = base->SkipTo(base, lastDocId);
-    if (rc == ITERATOR_NOTFOUND) {
+    if (lastDocId && base->SkipTo(base, lastDocId) != ITERATOR_OK) { // Cannot skip to 0!
       ret = VALIDATE_MOVED;
     }
   }
@@ -518,7 +514,6 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, InvertedIndex *idx,
 
   QueryIterator *base = &it->base;
   base->current = res;
-  base->isAborted = false;
   base->type = READ_ITERATOR;
   base->atEOF = false;
   base->lastDocId = 0;

@@ -891,7 +891,6 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
 
             // Now Revalidate should return VALIDATE_ABORTED because the revision IDs don't match
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
-            ASSERT_TRUE(iterator->isAborted);
 
             // Restore the original revision ID for proper cleanup
             numericRangeTree->revisionId--;
@@ -913,7 +912,6 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             // Now Revalidate should return VALIDATE_ABORTED because the stored index
             // doesn't match what the lookup returns
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
-            ASSERT_TRUE(iterator->isAborted);
 
             // Clean up the dummy index
             InvertedIndex_Free(dummyIdx);
@@ -968,8 +966,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     std::vector<RSDocumentMetadata*> tempDocs;
     for (size_t i = 0; i < n_docs; ++i) {
         char docKey[32];
-        snprintf(docKey, sizeof(docKey), "doc%zu", i);
-        RSDocumentMetadata* dmd = DocTable_Put(&tempDocTable, docKey, strlen(docKey), 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+        size_t len = snprintf(docKey, sizeof(docKey), "doc%zu", i);
+        RSDocumentMetadata* dmd = DocTable_Put(&tempDocTable, docKey, len, 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
         if (dmd) {
             tempDocs.push_back(dmd);
         }
@@ -977,8 +975,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
 
     // Now mark the third document as deleted
     char thirdDocKey[32];
-    snprintf(thirdDocKey, sizeof(thirdDocKey), "doc2"); // thirdDocId corresponds to doc2 (0-indexed)
-    RSDocumentMetadata *deletedDoc = DocTable_Pop(&tempDocTable, thirdDocKey, strlen(thirdDocKey));
+    size_t len = snprintf(thirdDocKey, sizeof(thirdDocKey), "doc2"); // thirdDocId corresponds to doc2 (0-indexed)
+    RSDocumentMetadata *deletedDoc = DocTable_Pop(&tempDocTable, thirdDocKey, len);
 
     // Use IndexBlock_Repair to remove deleted documents from the index
     // This will actually remove the thirdDocId from the inverted index blocks
@@ -994,6 +992,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
     idx->gcMarker = originalGcMarker + 1;
+    idx->lastId = idx->blocks[idx->size - 1].lastId;
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
     // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
@@ -1008,6 +1007,45 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     // 3. IndexBlock_Repair successfully removes deleted documents
     // 4. SkipTo returns ITERATOR_NOTFOUND for deleted documents, triggering VALIDATE_MOVED
     ASSERT_EQ(result, VALIDATE_MOVED);
+
+    // Clean up the temporary DocTable
+    if (deletedDoc) {
+        DMD_Return(deletedDoc);
+    }
+
+    // Edge case: iterator revalidated after GC and before it was read
+    iterator->Rewind(iterator);
+    ASSERT_FALSE(iterator->atEOF); // Should not be at EOF yet
+    idx->gcMarker++; // Increment gcMarker to simulate a new GC cycle
+    result = iterator->Revalidate(iterator);
+    ASSERT_EQ(result, VALIDATE_OK);
+    ASSERT_FALSE(iterator->atEOF); // Should not be at EOF after revalidation
+    ASSERT_EQ(iterator->lastDocId, 0); // Should be at the beginning
+
+    // Edge case: iterator at the last document, and it's deleted.
+    // We expect the revalidation to still return VALIDATE_MOVED (and set atEOF)
+    ASSERT_EQ(iterator->SkipTo(iterator, n_docs), ITERATOR_OK);
+
+    len = snprintf(thirdDocKey, sizeof(thirdDocKey), "doc%zu", n_docs - 1);
+    deletedDoc = DocTable_Pop(&tempDocTable, thirdDocKey, len);
+
+    for (uint32_t blockIdx = 0; blockIdx < idx->size; ++blockIdx) {
+        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, idx->flags, &repairParams);
+    }
+
+    // Update index metadata after repair
+    idx->numDocs -= repairParams.entriesCollected;
+
+    // Increment gcMarker to trigger the SkipTo path in revalidation
+    idx->gcMarker++;
+    idx->lastId = idx->blocks[idx->size - 1].lastId;
+
+    // Now Revalidate should trigger the SkipTo path because gcMarkers differ
+    // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
+    ASSERT_FALSE(iterator->atEOF); // Should not be at EOF yet
+    result = iterator->Revalidate(iterator);
+    ASSERT_EQ(result, VALIDATE_MOVED);
+    ASSERT_TRUE(iterator->atEOF); // Should be at EOF after revalidation
 
     // Clean up the temporary DocTable
     if (deletedDoc) {
