@@ -50,9 +50,9 @@ typedef struct RSAggregateResultIter RSAggregateResultIter;
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct LowMemoryThinVec______RSIndexResult {
+typedef struct LowMemoryThinVecRSIndexResult {
   Header *ptr;
-} LowMemoryThinVec______RSIndexResult;
+} LowMemoryThinVecRSIndexResult;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -187,7 +187,7 @@ typedef struct RSAggregateResult {
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  struct LowMemoryThinVec______RSIndexResult records;
+  struct LowMemoryThinVecRSIndexResult records;
   /**
    * A map of the aggregate type of the underlying records
    */

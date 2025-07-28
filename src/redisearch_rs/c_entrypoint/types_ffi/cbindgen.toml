@@ -30,3 +30,6 @@ include = ["enumflags2", "inverted_index", "low_memory_thin_vec"]
 [export]
 # Don't export the `low_memory_thin_vec::Header` again
 exclude = ["Header"]
+
+[export.rename]
+"LowMemoryThinVec______RSIndexResult" = "LowMemoryThinVecRSIndexResult"
