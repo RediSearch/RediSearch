@@ -9,6 +9,7 @@
 #pragma once
 
 #include "spec.h"
+#include "profile_clock.h"
 
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
@@ -78,7 +79,7 @@ size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type);
 /**
  * Increase all relevant counters in the global stats object.
  */
-void TotalGlobalStats_CountQuery(uint32_t reqflags, clock_t duration);
+void TotalGlobalStats_CountQuery(uint32_t reqflags, profile_clock_ns_t duration);
 
 /**
  * Safely reads and returns a copy of the global queries stats.

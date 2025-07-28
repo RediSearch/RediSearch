@@ -1864,7 +1864,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
-  req->initClock = clock();
+  profile_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -2770,7 +2770,7 @@ static bool should_return_error(MRReply *reply) {
 static bool should_return_timeout_error(searchRequestCtx *req) {
   return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
          && req->timeout != 0
-         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
+         && ((double)(profile_clock_elapsed_ns(&req->initClock)) / TIMESPEC_PER_MILLISEC) > req->timeout;
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
@@ -2879,7 +2879,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
   }
 
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, profile_clock_elapsed_ns(&req->initClock));
 
 cleanup:
   RedisModule_EndReply(reply);
