@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes};
+use crate::bindings::{
+    FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache,
+};
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
 use std::{
@@ -81,6 +83,20 @@ const GET_KEY_FLAGS: RLookupKeyFlags =
 /// Flags do not persist to the key, they are just options to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
 const TRANSIENT_FLAGS: RLookupKeyFlags =
     make_bitflags!(RLookupKeyFlag::{Override | ForceLoad | NameAlloc});
+
+#[bitflags]
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RLookupOption {
+    /// If the key cannot be found, do not mark it as an error, but create it and
+    /// mark it as F_UNRESOLVED
+    AllowUnresolved = 0x01,
+
+    /// If a loader was added to load the entire document, this flag will allow
+    /// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
+    AllLoaded = 0x02,
+}
+pub type RLookupOptions = BitFlags<RLookupOption>;
 
 /// RLookup key
 ///
@@ -163,9 +179,22 @@ pub struct RLookupKey<'a> {
     _path: Option<Cow<'a, CStr>>,
 }
 
-/// An append-only list of [`RlookupKey`]s.
+/// An append-only list of [`RLookupKey`]s.
 ///
-/// This type allows the creation and retrieval of [`RlookupKey`]s.
+/// This type maintains a mapping from string names to [`RLookupKey`]s.
+#[derive(Debug)]
+#[repr(C)]
+pub struct RLookup<'a> {
+    keys: KeyList<'a>,
+
+    // Flags/options
+    options: RLookupOptions,
+
+    // If present, then GetKey will consult this list if the value is not found in
+    // the existing list of keys.
+    index_spec_cache: Option<IndexSpecCache>,
+}
+
 #[derive(Debug)]
 #[repr(C)]
 struct KeyList<'a> {
@@ -471,6 +500,7 @@ impl<'a> KeyList<'a> {
             // Safety: We know we can borrow tail here, since we mutably borrow the KeyList
             // which owns all keys allocated within it. This ensures the KeyList and all keys outlive
             // this method call AND that we have exclusive access to mutate the key.
+            // Safety: we need to continue to treat the key as pinned
             let tail = unsafe { tail.as_mut() };
             // Safety: we need to continue to treat the key as pinned
             let tail = unsafe { Pin::new_unchecked(tail) };
@@ -821,11 +851,41 @@ impl<'list, 'a> Iterator for CursorMut<'list, 'a> {
     }
 }
 
+// ===== impl RLookup =====
+
+impl Default for RLookup<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'a> RLookup<'a> {
+    pub fn new() -> Self {
+        Self {
+            keys: KeyList::new(),
+            options: RLookupOptions::empty(),
+            index_spec_cache: None,
+        }
+    }
+
+    pub fn init(&mut self, spcache: IndexSpecCache) {
+        // c version used memset to zero initialize, We behave the same way in release, but add a debug assert to catch misuses.
+        if self.index_spec_cache.is_some() {
+            debug_assert!(false, "RLookup already initialized with an IndexSpecCache");
+            *self = Self::new();
+        }
+        self.index_spec_cache = Some(spcache);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::mem::MaybeUninit;
-
     use super::*;
+    use std::mem::MaybeUninit;
+    use std::{
+        mem::offset_of,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     // Make sure that the `into_ptr` and `from_ptr` functions are inverses of each other.
     #[test]
@@ -1444,6 +1504,53 @@ mod tests {
         assert_eq!(override2, keylist.tail.unwrap());
     }
 
+    #[test]
+    fn rlookup_init() {
+        let mut rlookup = RLookup::new();
+
+        let spcache = Box::new(ffi::IndexSpecCache {
+            fields: ptr::null_mut(),
+            nfields: 0,
+            refcount: 1,
+        });
+        let spcache =
+            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+
+        rlookup.init(spcache);
+
+        assert!(rlookup.index_spec_cache.is_some());
+    }
+
+    #[test]
+    #[cfg_attr(debug_assertions, should_panic)]
+    fn rlookup_no_reinit() {
+        let mut rlookup = RLookup::new();
+
+        let spcache = Box::new(ffi::IndexSpecCache {
+            fields: ptr::null_mut(),
+            nfields: 0,
+            refcount: 1,
+        });
+        let spcache =
+            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+
+        rlookup.init(spcache);
+        assert!(rlookup.index_spec_cache.is_some());
+
+        let spcache = Box::new(ffi::IndexSpecCache {
+            fields: ptr::null_mut(),
+            nfields: 0,
+            refcount: 1,
+        });
+        let spcache =
+            unsafe { IndexSpecCache::from_raw(NonNull::new_unchecked(Box::into_raw(spcache))) };
+
+        // this should panic
+        rlookup.init(spcache);
+    }
+
+    // ===== mock implementations for testing purposes =====
+
     #[repr(C)]
     struct UserString {
         user: *const c_char,
@@ -1490,5 +1597,21 @@ mod tests {
         );
 
         drop(unsafe { Box::from_raw(value.cast_mut().cast::<UserString>()) });
+    }
+
+    /// Mock implementation of `IndexSpecCache_Decref` from spec.h for testing purposes
+    #[unsafe(no_mangle)]
+    extern "C" fn IndexSpecCache_Decref(s: Option<NonNull<ffi::IndexSpecCache>>) {
+        let s = s.unwrap();
+        let refcount = unsafe {
+            s.byte_add(offset_of!(ffi::IndexSpecCache, refcount))
+                .cast::<usize>()
+        };
+
+        let refcount = unsafe { AtomicUsize::from_ptr(refcount.as_ptr()) };
+
+        if refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
+            drop(unsafe { Box::from_raw(s.as_ptr()) });
+        }
     }
 }
