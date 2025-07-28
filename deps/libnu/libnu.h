@@ -11,6 +11,7 @@
 #include "validate.h"
 #include "version.h"
 #include "udb.h"
+#include "unaccent.h"
 #include "utf16.h"
 #include "utf16be.h"
 #include "utf16he.h"
