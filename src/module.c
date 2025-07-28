@@ -65,6 +65,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
+#include "rs_wall_clock.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1724,7 +1725,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
-    req->profileClock = clock();
+    rs_wall_clock_init(&req->profileClock);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       req->profileLimited = 1;
       req->profileArgs++;
@@ -2712,20 +2713,20 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 struct PrintCoordProfile_ctx {
-  clock_t totalTime;
-  clock_t postProcessTime;
+  rs_wall_clock *totalTime;
+  rs_wall_clock_ns_t postProcessTime;
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - pCtx->totalTime) / CLOCKS_PER_MILLISEC);
-  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - pCtx->postProcessTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(rs_wall_clock_elapsed_ns(pCtx->totalTime)) / TIMESPEC_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(rs_wall_clock_now_ns() - pCtx->postProcessTime) / TIMESPEC_PER_MILLISEC);
   RedisModule_Reply_MapEnd(reply);
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProcessTime) {
+                               rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
   bool has_map = RedisModule_HasMap(reply);
   RedisModule_Reply_Map(reply); // root
     // Have a named map for the results for RESP3
@@ -2876,7 +2877,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(reply, &rCtx);
   } else {
-    profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
+    profileSearchReply(reply, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   }
 
   TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
