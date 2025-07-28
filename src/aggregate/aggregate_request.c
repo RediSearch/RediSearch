@@ -1139,10 +1139,6 @@ static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, 
   int n_written = rm_asprintf(&vq->scoreField, "__%s_score", pvq->fieldName);
   RS_ASSERT(n_written != -1);
 
-  // Initialize empty params (will be populated by attributes)
-  vq->params.params = array_new(VecSimRawParam, 0);
-  vq->params.needResolve = array_new(bool, 0);
-
   // Set vector data and parameters based on type
   switch (pvq->type) {
     case VECSIM_QT_KNN:
