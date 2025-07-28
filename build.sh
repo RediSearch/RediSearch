@@ -33,6 +33,7 @@ BUILD_TESTS=0    # Build test binaries
 RUN_UNIT_TESTS=0 # Run C/C++ unit tests
 RUN_PYTEST=0     # Run Python tests
 RUN_ALL_TESTS=0  # Run all test types
+RUN_MICRO_BENCHMARKS=0 # Run micro-benchmarks
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -52,6 +53,9 @@ parse_arguments() {
         ;;
       DEBUG|debug)
         DEBUG=1
+        ;;
+      PROFILE|profile)
+        PROFILE=1
         ;;
       TESTS|tests)
         BUILD_TESTS=1

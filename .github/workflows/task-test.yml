@@ -174,14 +174,14 @@ jobs:
         env:
           SAN: ${{ inputs.san }}
           ENABLE_ASSERT: 1
-        run: ./build.sh TESTS
+        run: make build TESTS=1
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
         env:
           SAN: ${{ inputs.san }}
           COORD: 1
           ENABLE_ASSERT: 1
-        run: ./build.sh TESTS
+        run: make build TESTS=1
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
@@ -192,7 +192,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_UNIT_TESTS
+        run: make unit-tests
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -205,7 +205,7 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: coordinator_unit_tests
         if: ${{ inputs.coordinator }}
@@ -216,7 +216,7 @@ jobs:
           CLEAR_LOGS: 0
           COORD: 1
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_UNIT_TESTS
+        run: make unit-tests
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -230,7 +230,7 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
