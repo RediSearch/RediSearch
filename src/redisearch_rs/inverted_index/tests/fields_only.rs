@@ -58,7 +58,9 @@ fn test_encode_fields_only() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let record_decoded = FieldsOnly
+
+        let decoder = FieldsOnly::default();
+        let record_decoded = decoder
             .decode(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 

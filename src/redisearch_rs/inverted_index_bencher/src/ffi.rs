@@ -22,7 +22,7 @@ mod bindings {
     #![allow(improper_ctypes)]
     #![allow(dead_code)]
 
-    use inverted_index::{RSIndexResult, RSOffsetVector, t_docId, t_fieldMask};
+    use inverted_index::{RSIndexResult, t_docId, t_fieldMask};
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }

@@ -278,7 +278,7 @@ impl Decoder for Dummy {
         &self,
         cursor: &mut Cursor<&[u8]>,
         prev_doc_id: u64,
-    ) -> std::io::Result<RSIndexResult> {
+    ) -> std::io::Result<RSIndexResult<'_>> {
         let mut buffer = [0; 4];
         cursor.read_exact(&mut buffer)?;
 
@@ -313,18 +313,21 @@ fn reading_records() {
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
+    drop(record);
 
     let record = ir
         .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(11));
+    drop(record);
 
     let record = ir
         .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(100));
+    drop(record);
 
     let record = ir
         .next_record()
@@ -363,12 +366,14 @@ fn reading_over_empty_blocks() {
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
+    drop(record);
 
     let record = ir
         .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(30));
+    drop(record);
 
     let record = ir
         .next_record()
@@ -385,7 +390,7 @@ fn read_using_the_first_block_id_as_the_base() {
             &self,
             cursor: &mut Cursor<&[u8]>,
             prev_doc_id: u64,
-        ) -> std::io::Result<RSIndexResult> {
+        ) -> std::io::Result<RSIndexResult<'_>> {
             let mut buffer = [0; 4];
             cursor.read_exact(&mut buffer)?;
 
@@ -414,12 +419,14 @@ fn read_using_the_first_block_id_as_the_base() {
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
+    drop(record);
 
     let record = ir
         .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(11));
+    drop(record);
 
     let record = ir
         .next_record()
