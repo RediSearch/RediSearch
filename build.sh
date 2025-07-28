@@ -35,6 +35,8 @@ RUN_MICRO_BENCHMARKS=0 # Run micro-benchmarks
 RUST_PROFILE=""  # Which profile should be used to build/test Rust code
                  # If unspecified, the correct profile will be determined based
                  # the operations to be performed
+RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
+RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -48,6 +50,9 @@ parse_arguments() {
         ;;
       DEBUG|debug)
         DEBUG=1
+        ;;
+      PROFILE|profile)
+        PROFILE=1
         ;;
       TESTS|tests)
         BUILD_TESTS=1
@@ -75,6 +80,15 @@ parse_arguments() {
         ;;
       RUST_PROFILE=*)
         RUST_PROFILE="${arg#*=}"
+        ;;
+      RUST_DYN_CRT=*)
+        RUST_DYN_CRT="${arg#*=}"
+        ;;
+      RUN_MIRI=*)
+        RUN_MIRI="${arg#*=}"
+        ;;
+      RUST_DENY_WARNS=*)
+        RUST_DENY_WARNS="${arg#*=}"
         ;;
       SAN=*)
         SAN="${arg#*=}"
@@ -505,6 +519,11 @@ run_rust_tests() {
 
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
+  
+  # Set up RUSTFLAGS for warnings
+  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
+  fi
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
@@ -521,7 +540,7 @@ run_rust_tests() {
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
-  elif [[ -n "$SAN" ]]; then # using `elif` as we shouldn't run with both
+  elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
     RUST_EXTENSIONS="+nightly miri"
   fi
 

@@ -17,7 +17,7 @@ jobs:
         working-directory: .install
         run: ./install_script.sh sudo
       - name: Build RediSearch
-        run: ./build.sh
+        run: make build
       - name: Download Latest Baseline Artifact from master
         id: get-artifact
         if: github.event_name == 'pull_request'
