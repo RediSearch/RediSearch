@@ -95,7 +95,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
 
-  double totalRPTime = (double)(RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC);
+  double totalRPTime = (double)(RPProfile_GetClock(rp) / TIMESPEC_PER_MILLISEC);
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }

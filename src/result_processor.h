@@ -19,6 +19,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "profile_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -276,7 +277,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+profile_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryIterator *qiter);

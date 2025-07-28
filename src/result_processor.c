@@ -15,6 +15,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
+#include "profile_clock.h"
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1081,16 +1082,17 @@ const char *RPTypeToString(ResultProcessorType type) {
 
 typedef struct {
   ResultProcessor base;
-  clock_t profileTime;
+  uint64_t profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  profile_clock start;
+  profile_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  self->profileTime += profile_clock_elapsed_ns(&start);
   self->profileCount++;
   return rc;
 }
@@ -1113,7 +1115,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-clock_t RPProfile_GetClock(ResultProcessor *rp) {
+profile_clock_ns_t RPProfile_GetClock(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }

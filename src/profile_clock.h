@@ -16,10 +16,13 @@ typedef struct {
     struct timespec start;
 } profile_clock;
 
+#define TIMESPEC_PER_SEC 1000000000L
+#define TIMESPEC_PER_MILLISEC TIMESPEC_PER_SEC / 1000
+
 typedef uint64_t profile_clock_ns_t;
 
 // Initializes the clock with current time
-static inline void profile_clock_start(profile_clock *clk) {
+static inline void profile_clock_init(profile_clock *clk) {
     clock_gettime(CLOCK_MONOTONIC, &clk->start);
 }
 
