@@ -30,3 +30,10 @@ pub extern "C" fn ResultMetrics_Free(result: *mut inverted_index::RSIndexResult)
         unsafe { *metrics }
     );
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Term_Free(t: *mut ::ffi::RSQueryTerm) {
+    if !t.is_null() {
+        panic!("Nothing should have created a term record");
+    }
+}
