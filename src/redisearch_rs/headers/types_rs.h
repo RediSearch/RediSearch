@@ -367,7 +367,7 @@ bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndex
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
+ * - `iter` must point to a valid `RSAggregateResultIter`.
  * - The iterator must have been created using [`AggregateResult_Iter`].
  */
 void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
