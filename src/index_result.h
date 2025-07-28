@@ -59,12 +59,7 @@ static inline void IndexResult_Clear(RSIndexResult *r) {
 static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
-
-  if (IndexResult_IsAggregate(r)) {
-    // Reset the aggregate result
-    AggregateResult_Reset(&r->data.agg);
-  }
-
+  AggregateResult_Reset(&r->data.agg);
   IndexResult_Clear(r);
 }
 /* Allocate a new intersection result with a given capacity*/
