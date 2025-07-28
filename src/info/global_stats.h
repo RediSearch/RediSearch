@@ -39,7 +39,7 @@ typedef struct {
 typedef struct {
   size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
   size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
-  profile_clock_ns_t total_query_execution_time;   // Total time spent on queries (in wall clock time)
+  clock_t total_query_execution_time;   // Total time spent on queries (in clock ticks)
 } QueriesGlobalStats;
 
 typedef struct {
