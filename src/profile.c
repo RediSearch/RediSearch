@@ -127,7 +127,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          (double)(req->profileParseTime / CLOCKS_PER_MILLISEC));
+          (double)(req->profileParseTime / TIMESPEC_PER_MILLISEC));
 
       // Print iterators creation time
         if (profile_verbose)
