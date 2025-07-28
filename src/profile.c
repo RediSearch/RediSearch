@@ -132,7 +132,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            (double)(req->profilePipelineBuildTime / CLOCKS_PER_MILLISEC));
+            (double)(req->profilePipelineBuildTime / TIMESPEC_PER_MILLISEC));
 
       //Print total GIL time
         if (profile_verbose){
