@@ -357,11 +357,7 @@ callgrind:
 		--save "" --appendonly no \
 		--loadmodule $$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1)
 
-sanbox:
-	@echo "Starting development container..."
-	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE \
-		--security-opt seccomp=unconfined redisfab/clang:16-x64-bullseye bash
 
-.PHONY: help setup fetch build clean test unit-tests rust-tests pytest
-.PHONY: c-tests cpp-tests run lint fmt license-check pack upload-artifacts
-.PHONY: docker benchmark micro-benchmarks vecsim-bench callgrind sanbox parsers verify-deps
+.PHONY: help build clean test unit-tests rust-tests pytest
+.PHONY: run lint fmt license-check pack upload-artifacts
+.PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
