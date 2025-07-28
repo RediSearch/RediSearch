@@ -449,8 +449,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
       break;
     // for hybrid - just take the non-vector child score (the second one).
     case RSResultType_HybridMetric:
-      const RSIndexResult *child = AggregateResult_Get(&r->data.agg, 1);
-      return dismaxRecursive(ctx, child, scrExp);
+      return dismaxRecursive(ctx, AggregateResult_Get(&r->data.agg, 1), scrExp);
   }
   return r->weight * ret;
 }
