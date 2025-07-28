@@ -118,6 +118,7 @@ IteratorStatus OPT_ReadYield(QueryIterator *self) {
       IndexResult_Free(self->current);
     }
     self->current = heap_poll(it->heap);
+    self->lastDocId = self->current->docId;
     return ITERATOR_OK;
   }
   return ITERATOR_EOF;
@@ -159,7 +160,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
 
       it->hitCounter++;
       if (childRes->docId == numericRes->docId) {
-        it->lastDocId = childRes->docId;
+        self->lastDocId = childRes->docId;
 
         // copy the numeric result for the sorting heap
         if (numericRes->type == RSResultType_Numeric) {
@@ -222,7 +223,6 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   OptimizerIterator *oi = rm_calloc(1, sizeof(*oi));
   oi->child = root;
   oi->optim = qOpt;
-  oi->lastDocId = 0;
 
   oi->cmp = qOpt->asc ? cmpAsc : cmpDesc;
   oi->resArr = rm_malloc((qOpt->limit + 1) * sizeof(RSIndexResult));
@@ -255,7 +255,8 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
 
   QueryIterator *ri = &oi->base;
   ri->type = OPTIMUS_ITERATOR;
-
+  ri->atEOF = false;
+  ri->lastDocId = 0;
   ri->NumEstimated = OPT_NumEstimated;
   ri->Free = OptimizerIterator_Free;
   ri->Rewind = OPT_Rewind;

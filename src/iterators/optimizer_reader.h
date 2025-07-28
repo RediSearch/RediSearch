@@ -24,7 +24,6 @@ typedef int (*OptimizerCompareFunc)(const void *e1, const void *e2, const void *
 typedef struct {
   QueryIterator base;
   QOptimizer *optim;
-  t_docId lastDocId;
   int flags;
 
   size_t numDocs;               // total number of documents in index
