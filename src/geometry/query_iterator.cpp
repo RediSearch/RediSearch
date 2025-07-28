@@ -47,7 +47,7 @@ IteratorStatus CPPQueryIterator::read() noexcept {
   } while (rc == ITERATOR_NOTFOUND);
   return rc;
 }
-int CPPQueryIterator::skip_to(t_docId docId) {
+IteratorStatus CPPQueryIterator::skip_to(t_docId docId) {
   if (!has_next()) {
     return ITERATOR_EOF;
   }
@@ -74,13 +74,13 @@ int CPPQueryIterator::skip_to(t_docId docId) {
 t_docId CPPQueryIterator::current() const noexcept {
   return base_.current->docId;
 }
-int QueryIterator::has_next() const noexcept {
+bool CPPQueryIterator::has_next() const noexcept {
   return index_ < len();
 }
-std::size_t QueryIterator::len() const noexcept {
+std::size_t CPPQueryIterator::len() const noexcept {
   return iter_.size();
 }
-void QueryIterator::rewind() noexcept {
+void CPPQueryIterator::rewind() noexcept {
   base_.atEOF = false;
   base_.current->docId = 0;
   index_ = 0;
@@ -112,15 +112,16 @@ void QIter_Rewind(QueryIterator *ctx) {
 
 QueryIterator CPPQueryIterator::init_base() {
   return QueryIterator{
-      .atEOF = false,
-      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
       .type = ID_LIST_ITERATOR,
+      .atEOF = false,
+      .lastDocId = 0,
+      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
       .NumEstimated = QIter_NumEstimated,
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
+      .Revalidate = Default_Revalidate,
       .Free = QIter_Free,
       .Rewind = QIter_Rewind,
-      .Revalidate = Default_Revalidate,
   };
 }
 }  // namespace GeoShape

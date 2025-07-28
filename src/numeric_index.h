@@ -20,6 +20,7 @@
 #include "inverted_index.h"
 #include "numeric_filter.h"
 #include "hll/hll.h"
+#include "config.h"
 
 #ifdef __cplusplus
 extern "C" {

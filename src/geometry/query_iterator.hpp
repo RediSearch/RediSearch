@@ -52,6 +52,7 @@ struct CPPQueryIterator {
   IteratorStatus read() noexcept;
   IteratorStatus skip_to(t_docId docId);
   t_docId current() const noexcept;
+  bool has_next() const noexcept;
   std::size_t len() const noexcept;
   void rewind() noexcept;
 
