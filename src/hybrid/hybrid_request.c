@@ -95,7 +95,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
-    // Add implicit sorting by score unless SORTBY 0 was specified
+    // Add implicit sorting by score
     const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&req->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
     if (!arrangeStep) {
         size_t maxResults = params->aggregationParams.maxResultsLimit;
