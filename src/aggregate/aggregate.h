@@ -16,7 +16,6 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "reply.h"
-#include "profile_clock.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -183,10 +182,10 @@ typedef struct AREQ {
 
 
   /** Profile variables */
-  profile_clock_ns_t initClock;         // Time of start. Reset for each cursor call
-  profile_clock_ns_t totalTime;         // Total time. Used to accumulate cursors times
-  profile_clock_ns_t parseTime;         // Time for parsing the query
-  profile_clock_ns_t pipelineBuildTime; // Time for creating the pipeline
+  clock_t initClock;         // Time of start. Reset for each cursor call
+  clock_t totalTime;         // Total time. Used to accumulate cursors times
+  clock_t parseTime;         // Time for parsing the query
+  clock_t pipelineBuildTime; // Time for creating the pipeline
 
   const char** requiredFields;
 

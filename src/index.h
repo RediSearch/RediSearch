@@ -109,7 +109,7 @@ typedef struct {
 
 // Print profile of iterators
 void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters,
-                          profile_clock_ns_t wallTime, int depth, int limited, PrintProfileConfig *config);
+                          double cpuTime, int depth, int limited, PrintProfileConfig *config);
 
 #ifdef __cplusplus
 }

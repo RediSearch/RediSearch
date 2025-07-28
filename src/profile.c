@@ -9,9 +9,8 @@
 #include "profile.h"
 #include "reply_macros.h"
 #include "util/units.h"
-#include "profile_clock.h"
 
-void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, profile_clock_ns_t wallTime, PrintProfileConfig *config) {
+void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
@@ -42,7 +41,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters 
 
   // print counter and clock
   if (config->printProfileClock) {
-    printProfileTime(wallTime);
+    printProfileTime(cpuTime);
   }
 
   printProfileCounters(counters);
@@ -115,7 +114,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   bool bgScanOOM = profileCtx->bgScanOOM;
-  req->totalTime += profile_clock_elapsed_ns(req->initClock);
+  req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
   RedisModule_Reply_Map(reply);
@@ -138,9 +137,13 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       //Print total GIL time
         if (profile_verbose){
           if (RunInThread()){
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", (double)req->qiter.GILTime);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time",
+            rs_timer_ms(&req->qiter.GILTime));
           } else {
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", (double)profile_clock_elapsed_ms(req->initClock));
+            struct timespec rpEndTime;
+            clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
+            rs_timersub(&rpEndTime, &req->qiter.initTime, &rpEndTime);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_timer_ms(&rpEndTime));
           }
         }
 
