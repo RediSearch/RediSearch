@@ -129,6 +129,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     case RSResultType_Intersection:
     case RSResultType_Union:
     case RSResultType_HybridMetric:
+    {
       // allocate a new child pointer array
       size_t numChildren = AggregateResult_NumChildren(&src->data.agg);
 
@@ -148,6 +149,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
       AggregateResultIter_Free(iter);
 
       break;
+    }
 
     // copy term results
     case RSResultType_Term:
@@ -303,6 +305,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
   switch (r->type) {
     case RSResultType_Intersection:
     case RSResultType_Union:
+    {
       RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
       RSIndexResult *child = NULL;
 
@@ -313,6 +316,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
       AggregateResultIter_Free(iter);
 
       break;
+    }
     case RSResultType_Term:
       if (r->data.term.term) {
         const char *s = r->data.term.term->str;
