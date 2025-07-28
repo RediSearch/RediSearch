@@ -427,7 +427,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
   }
 
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    TotalGlobalStats_CountQuery(req->reqflags, profile_clock_elapsed_ns(&req->profileInitClock));
+    TotalGlobalStats_CountQuery(req->reqflags, profile_clock_to_clock_t(&req->profileInitClock));
   }
 
   // Reset the total results length:

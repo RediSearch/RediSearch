@@ -46,3 +46,12 @@ static inline uint64_t profile_clock_now_ns(void) {
 static inline profile_clock_ns_t profile_clock_diff_ns(profile_clock *start, profile_clock *end) {
     return profile_clock_elapsed_ns(end) - profile_clock_elapsed_ns(start);
 }
+
+// Convert profile_clock to clock_t based on the elapsed time in nanoseconds
+static inline clock_t profile_clock_to_clock_t(profile_clock *clk) {
+    profile_clock_ns_t ns_total = profile_clock_elapsed_ns(clk);
+
+    // Convert nanoseconds to seconds, then to clock_t units
+    // CLOCKS_PER_SEC is usually 1,000,000 (µs)
+    return (clock_t)(ns_total * CLOCKS_PER_SEC / 1000000000ULL);
+}
