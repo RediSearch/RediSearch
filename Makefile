@@ -295,7 +295,7 @@ license-check:
 	@echo "Checking license headers..."
 	@cd $(ROOT)/src/redisearch_rs && cargo license-check
 
-pack:
+pack: build
 	@echo "Creating installation packages..."
 	@if [ -z "$(MODULE_PATH)" ]; then \
 		if [ "$(COORD)" = "rlec" ]; then \
