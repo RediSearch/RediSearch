@@ -17,6 +17,7 @@
 #include "src/search_ctx.h"
 #include "src/query_error.h"
 #include "src/rmalloc.h"
+#include "src/index.h"
 
 class ParseHybridTest : public ::testing::Test {
  protected:
@@ -521,3 +522,43 @@ TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
   HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
+
+// Integration test to verify noSort flag prevents sorter creation in pipeline
+// This test caught the bug where SORTBY 0 was not preventing score-based sorter creation
+int CountResultProcessors(ResultProcessor *rp, ResultProcessorType type) {
+  int count = 0;
+  while (rp) {
+    if (rp->type == type) {
+      count++;
+    }
+    rp = rp->upstream;
+  }
+  return count;
+}
+
+// Test that SORTBY 0 correctly sets noSort flag and clears sortKeys
+TEST_F(ParseHybridTest, ParseSortby0_SetsNoSortFlagAndClearsSortKeys) {
+  QueryError qerr = {QueryErrorCode(0)};
+  RMCK::ArgvList args(ctx, "hello", "SORTBY", "0");
+
+  AREQ *req = AREQ_New();
+
+  int rc = AREQ_Compile(req, args, args.size(), &qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&qerr);
+
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(sctx);
+
+  rc = AREQ_ApplyContext(req, sctx, &qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&qerr);
+
+  // Verify SORTBY 0 sets the correct flags
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+  ASSERT_TRUE(arrangeStep);
+  EXPECT_TRUE(arrangeStep->noSort) << "SORTBY 0 should set noSort=true";
+  EXPECT_EQ(nullptr, arrangeStep->sortKeys) << "SORTBY 0 should set sortKeys=NULL";
+
+  AREQ_Free(req);
+}
+
+

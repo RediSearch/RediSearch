@@ -392,20 +392,22 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       goto err;
     }
   } else {
+    // Check for SORTBY 0 before calling AC_GetVarArgs
+    const char *firstArg;
+    if (AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK && !strcmp(firstArg, "0")) {
+      // SORTBY 0 means disable all sorting
+      AC_Advance(ac); // Consume the "0" argument
+      arng->noSort = true;
+      arng->sortKeys = NULL;
+      arng->sortAscMap = SORTASCMAP_INIT;
+      return REDISMODULE_OK;
+    }
+
     rv = AC_GetVarArgs(ac, &subArgs);
     if (rv != AC_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for SORTBY: %s", AC_Strerror(rv));
       goto err;
     }
-  }
-
-  // Check for "SORTBY 0" which means no sorting (0 arguments specified)
-  if (!isLegacy && AC_NumRemaining(&subArgs) == 0) {
-    // SORTBY 0 - disable sorting
-    arng->noSort = true;
-    arng->sortKeys = NULL;
-    arng->sortAscMap = 0;
-    return REDISMODULE_OK;
   }
 
   keys = array_new(const char *, 8);

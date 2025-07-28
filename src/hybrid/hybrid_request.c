@@ -58,7 +58,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
-        RLookupKey **keys;
+        const RLookupKey **keys;
         size_t nkeys;
         RLookupKey *implicitLoadKeys[1];
         if (loadStep) {
@@ -95,7 +95,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
-    // Add implicit sorting by score
+    // Add implicit sorting by score unless SORTBY 0 was specified
     const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&req->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
     if (!arrangeStep) {
         size_t maxResults = params->aggregationParams.maxResultsLimit;
@@ -104,6 +104,13 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         }
         ResultProcessor *sorter = RPSorter_NewByScore(maxResults);
         QITR_PushRP(&req->tailPipeline->qctx, sorter);
+    } else {
+        // Check if SORTBY 0 was specified (noSort flag)
+        const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
+        if (arng->noSort) {
+            // SORTBY 0 specified - don't add any implicit sorting
+            // The arrange step exists but should not add any sorter
+        }
     }
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts

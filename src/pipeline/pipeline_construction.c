@@ -157,7 +157,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  if (params->common.optimizer->type != Q_OPT_NO_SORTER) {
+  if (params->common.optimizer->type != Q_OPT_NO_SORTER && !astp->noSort) {
     if (astp->sortKeys) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
