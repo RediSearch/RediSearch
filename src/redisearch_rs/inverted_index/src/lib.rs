@@ -832,5 +832,39 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
     }
 }
 
+/// A reader that filters out records that do not match a given field mask. It is used to
+/// filter records in an index based on their field mask, allowing only those that match the
+/// specified mask to be returned.
+pub struct FilterMaskReader<I> {
+    /// Mask which a record needs to match to be valid
+    mask: t_fieldMask,
+
+    /// The inner reader that will be used to read the records from the index.
+    inner: I,
+}
+
+impl<I: Iterator<Item = RSIndexResult>> FilterMaskReader<I> {
+    /// Create a new filter mask reader with the given mask and inner iterator
+    pub fn new(mask: t_fieldMask, inner: I) -> Self {
+        Self { mask, inner }
+    }
+}
+
+impl<I: Iterator<Item = RSIndexResult>> Iterator for FilterMaskReader<I> {
+    type Item = RSIndexResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let next = self.inner.next()?;
+
+            if next.field_mask & self.mask == 0 {
+                continue;
+            }
+
+            return Some(next);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
