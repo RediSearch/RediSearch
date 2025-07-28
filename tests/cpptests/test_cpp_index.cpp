@@ -1137,13 +1137,13 @@ TEST_F(IndexTest, testMetric_SkipTo) {
   IndexIterator *metric_it = NewMetricIterator(ids_arr, metrics_arr, VECTOR_DISTANCE, false);
   RSIndexResult *h = NULL;
 
-  // Copy the behaviour of READ_ITERATOR in terms of SkipTo. That is, the iterator will return the
+  // Copy the behaviour of INV_IDX_ITERATOR in terms of SkipTo. That is, the iterator will return the
   // next docId whose id is equal or greater than the given id, as if we call Read and returned
   // that id (hence the iterator will advance its pointer).
   ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 1, &h), INDEXREAD_NOTFOUND);
   ASSERT_EQ(h->docId, 2);
 
-  // This situation should not occur in practice, but this is READ_ITERATOR's behavior.
+  // This situation should not occur in practice, but this is INV_IDX_ITERATOR's behavior.
   ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 2, &h), INDEXREAD_NOTFOUND);
   ASSERT_EQ(h->docId, 4);
 

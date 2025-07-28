@@ -10,7 +10,6 @@
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
-#include "index.h"
 #include "redis_index.h"
 #include "tag_index.h"
 #include "numeric_index.h"

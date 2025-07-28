@@ -207,6 +207,10 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
                                        RSIndexResult *entry);
 
+/* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
+ */
+IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
+
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
 #ifdef __cplusplus

@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "redisearch.h"
-#include "index.h"
 #include "inverted_index.h"
 #include "spec.h"
 #include "rmutil/alloc.h"

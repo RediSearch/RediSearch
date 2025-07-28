@@ -70,7 +70,7 @@ static IteratorStatus HR_ReadInBatch(HybridIterator *hr, RSIndexResult *out) {
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
   IndexResult_ConcatMetrics(*vec_res, child_res); // Pass child metrics, if there are any
-  ResultMetrics_Add(*vec_res, hr->base.ownKey, RS_NumVal((*vec_res)->data.num.value));
+  ResultMetrics_Add(*vec_res, hr->ownKey, RS_NumVal((*vec_res)->data.num.value));
 
   if (hr->topResults->count < hr->query.k) {
     // Insert to heap, allocate new memory for the next result.
@@ -93,7 +93,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   AggregateResult_AddChild(res, IndexResult_DeepCopy(vec_res));
   AggregateResult_AddChild(res, IndexResult_DeepCopy(child_res));
   res->isCopy = true; // Mark as copy, so when we free it, it will also free its children.
-  ResultMetrics_Add(res, hr->base.ownKey, RS_NumVal(vec_res->data.num.value));
+  ResultMetrics_Add(res, hr->ownKey, RS_NumVal(vec_res->data.num.value));
 
   if (hr->topResults->count < hr->query.k) {
     mmh_insert(hr->topResults, res);
@@ -302,7 +302,7 @@ static IteratorStatus HR_ReadHybridUnsortedSingle(HybridIterator *hr) {
       && !DocTable_CheckFieldExpirationPredicate(&hr->sctx->spec->docs, hr->base.current->docId, fieldIndex, hr->filterCtx.predicate, &hr->sctx->time.current)) {
     return ITERATOR_NOTFOUND;
   }
-  hr->lastDocId = hr->base.current->docId;
+  hr->base.lastDocId = hr->base.current->docId;
   return ITERATOR_OK;
 }
 
@@ -341,7 +341,7 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
   }
 
   hr->base.lastDocId = hr->base.current->docId;
-  ResultMetrics_Add(hr->base.current, hr->base.ownKey, RS_NumVal(hr->base.current->data.num.value));
+  ResultMetrics_Add(hr->base.current, hr->ownKey, RS_NumVal(hr->base.current->data.num.value));
   return ITERATOR_OK;
 }
 
@@ -402,9 +402,9 @@ void HybridIterator_Free(QueryIterator *self) {
   if (it->topResults) {   // Iterator is in one of the hybrid modes.
     mmh_free(it->topResults);
   }
-  if (hr->base.current) {
-    IndexResult_Free(hr->base.current);
-    hr->base.current = NULL;
+  if (it->base.current) {
+    IndexResult_Free(it->base.current);
+    it->base.current = NULL;
   }
   VecSimQueryReply_Free(it->reply);
   VecSimQueryReply_IteratorFree(it->iter);

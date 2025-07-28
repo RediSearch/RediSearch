@@ -661,7 +661,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
   QueryIterator *it = IT_V2(NewOptionalIterator)(wildcardChild, &ctx.qctx, 2.0);
 
   // Verify it's the same iterator (optimization returns child directly)
-  ASSERT_TRUE(it->type == READ_ITERATOR);
+  ASSERT_TRUE(it->type == INV_IDX_ITERATOR);
   ASSERT_EQ(it, wildcardChild);
   it->Free(it);
   InvertedIndex_Free(idx);

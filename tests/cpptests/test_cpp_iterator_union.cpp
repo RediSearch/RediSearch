@@ -356,7 +356,7 @@ TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
   children[2] = nullptr;
   children[3] = IT_V2(NewEmptyIterator)();
   QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-  ASSERT_EQ(ui_base->type, READ_ITERATOR);
+  ASSERT_EQ(ui_base->type, INV_IDX_ITERATOR);
   ui_base->Free(ui_base);
   InvertedIndex_Free(idx);
 }

@@ -16,8 +16,6 @@
 #include <vector>
 #include <algorithm>
 
-#include "index.h"
-
 // ID distribution types for benchmark scenarios
 enum IdDistributionType {
     CONSECUTIVE = 0,        // IDs within each idlist iterator are consecutive
@@ -186,7 +184,7 @@ bool BM_IntersectionIterator::initialized = false;
 // Parameter 1: Number of documents per idlist iterator (1000, 5000)
 // Parameter 2: ID distribution type (CONSECUTIVE, SPARSE_JUMPS_100, CONSECUTIVE_MODULO)
 #define INTERSECTION_SCENARIOS() \
-  ArgNames({"IdListsPerUnion", "DocsPerIdList", "IdDistributionType"})-> \ 
+  ArgNames({"IdListsPerUnion", "DocsPerIdList", "IdDistributionType"})-> \
   ArgsProduct({{10, 25, 50}, {1000, 5000}, {CONSECUTIVE, SPARSE_JUMPS_100, CONSECUTIVE_MODULO}})
 
 // Benchmark intersection iterator Read() performance

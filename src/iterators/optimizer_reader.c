@@ -198,7 +198,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
     // Not enough result, try to rewind
     if (heap_size(it->heap) > heap_count(it->heap) && it->offset < it->childEstimate) {
       if (getSuccessRatio(it) < 1) {
-        OPT_Rewind(it->base);
+        OPT_Rewind(&it->base);
         childRes = numericRes = NULL;
         // rewind was successful, continue iteration
         if (it->numericIter != NULL) {

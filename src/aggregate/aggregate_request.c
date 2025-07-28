@@ -1451,7 +1451,6 @@ static bool hasQuerySortby(const AGGPlan *pln) {
  */
 static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   RedisSearchCtx *sctx = req->sctx;
-  req->qiter.conc = &req->conc;
   req->qiter.sctx = sctx;
   req->qiter.err = Status;
 

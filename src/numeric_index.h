@@ -21,6 +21,7 @@
 #include "numeric_filter.h"
 #include "hll/hll.h"
 #include "config.h"
+#include "iterators/iterator_api.h"
 
 #ifdef __cplusplus
 extern "C" {

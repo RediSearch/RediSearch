@@ -36,7 +36,7 @@ public:
 private:
 
     static void setBase(IndexIterator *base) {
-        base->type = READ_ITERATOR;
+        base->type = INV_IDX_ITERATOR;
         base->isValid = true;
         base->LastDocId = MockOldIterator_LastDocId;
         base->current = NewVirtualResult(1, RS_FIELDMASK_ALL);

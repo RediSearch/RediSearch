@@ -145,8 +145,8 @@ TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *formattedKey, 
  * If a new index was created, the size of the new index is returned in *sz,
  * otherwise *sz is set to 0
 */
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
-                                          size_t len, int create_if_missing, size_t *sz);
+struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
+                                         size_t len, int create_if_missing, size_t *sz);
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);

@@ -518,7 +518,7 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
 
   QueryIterator *base = &it->base;
   base->current = res;
-  base->type = READ_ITERATOR;
+  base->type = INV_IDX_ITERATOR;
   base->atEOF = false;
   base->lastDocId = 0;
   base->NumEstimated = InvIndIterator_NumEstimated;

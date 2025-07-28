@@ -12,6 +12,7 @@
 #include "iterator_api.h"
 #include "util/heap.h"
 #include "query_node.h"
+#include "config.h"
 
 #ifdef __cplusplus
 extern "C" {

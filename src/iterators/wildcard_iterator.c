@@ -59,7 +59,7 @@ bool IsWildcardIterator(QueryIterator *it) {
   if (it && it->type == WILDCARD_ITERATOR) {
     return true;
   }
-  if (it && it->type == READ_ITERATOR) {
+  if (it && it->type == INV_IDX_ITERATOR) {
     InvIndIterator *invIdxIt = (InvIndIterator *)it;
     return invIdxIt->isWildcard;
   }

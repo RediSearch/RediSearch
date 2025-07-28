@@ -13,7 +13,6 @@
 #include <sys/param.h>
 
 #include "geo_index.h"
-#include "index.h"
 #include "query.h"
 #include "config.h"
 #include "redis_index.h"
@@ -951,7 +950,7 @@ static QueryIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
     return NULL;
   }
 
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->conc, q->config);
+  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
 }
 
 static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
@@ -1456,11 +1455,7 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     // a union stage with one child is the same as the child, so we just return it
     ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, node->fs);
     if (ret) {
-      if (q->conc) {
-        TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
-      } else {
-        array_free(total_its);
-      }
+      array_free(total_its);
     }
     goto done;
   }
@@ -1481,11 +1476,7 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   if (total_its) {
-    if (q->conc) {
-      TagIndex_RegisterConcurrentIterators(idx, q->conc, (array_t *)total_its);
-    } else {
-      array_free(total_its);
-    }
+    array_free(total_its);
   }
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs

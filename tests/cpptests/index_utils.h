@@ -6,7 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "index.h"
+
+#pragma once
+
+#include "query_ctx.h"
 #include "inverted_index.h"
 #include "numeric_index.h"
 #include "ttl_table.h"

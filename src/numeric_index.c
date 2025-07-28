@@ -13,7 +13,6 @@
 #include "sys/param.h"
 #include "rmutil/vector.h"
 #include "rmutil/util.h"
-#include "index.h"
 #include "util/arr.h"
 #include <math.h>
 #include "redismodule.h"

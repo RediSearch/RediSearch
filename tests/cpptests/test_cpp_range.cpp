@@ -11,7 +11,6 @@
 #include "gtest/gtest.h"
 
 #include "numeric_index.h"
-#include "index.h"
 #include "rmutil/alloc.h"
 #include "index_utils.h"
 #include "redisearch_api.h"

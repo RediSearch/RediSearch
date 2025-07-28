@@ -32,7 +32,7 @@ typedef enum ValidateStatus {
 } ValidateStatus;
 
 enum IteratorType {
-  READ_ITERATOR,
+  INV_IDX_ITERATOR,
   HYBRID_ITERATOR,
   UNION_ITERATOR,
   INTERSECT_ITERATOR,

@@ -671,7 +671,7 @@ TEST_F(NotIteratorReducerTest, TestNotWithEmptyChildOptimized) {
   QueryIterator *it = IT_V2(NewNotIterator)(emptyChild, maxDocId, 1.0, timeout, &mockQctx.qctx);
 
   // Should return a wildcard iterator
-  ASSERT_EQ(it->type, READ_ITERATOR);
+  ASSERT_EQ(it->type, INV_IDX_ITERATOR);
   it->Free(it);
 }
 

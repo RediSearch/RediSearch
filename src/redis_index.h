@@ -10,11 +10,11 @@
 #define __REDIS_INDEX__
 
 #include "document.h"
-#include "index.h"
 #include "inverted_index.h"
 #include "search_ctx.h"
 #include "concurrent_ctx.h"
 #include "spec.h"
+#include "iterators/iterator_api.h"
 
 /* Open an inverted index reader on a redis DMA string, for a specific term.
  * If singleWordMode is set to 1, we do not load the skip index, only the score index
