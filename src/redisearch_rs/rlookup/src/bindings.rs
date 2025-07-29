@@ -55,6 +55,25 @@ pub type FieldSpecTypes = BitFlags<FieldSpecType>;
 pub struct IndexSpecCache(NonNull<ffi::IndexSpecCache>);
 
 impl IndexSpecCache {
+    /// Creates an [`IndexSpecCache`] from a slice of [`ffi::FieldSpec`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the slice outlived the [`IndexSpecCache`].
+    pub unsafe fn from_slice(slice: &[ffi::FieldSpec]) -> Self {
+        let spcache = Box::new(ffi::IndexSpecCache {
+            fields: slice.as_ptr().cast_mut(),
+            nfields: slice.len(),
+            refcount: 1,
+        });
+
+        // Safety: we just allocated it, the ptr cannot be null
+        let ptr = unsafe { NonNull::new_unchecked(Box::into_raw(spcache)) };
+
+        // Safety: we allocate the `ffi::IndexSpecCache` here, and free it in Free which ensured the it remains valid
+        unsafe { IndexSpecCache::from_raw(ptr) }
+    }
+
     /// # Safety
     ///
     /// The caller must ensure the following invariants are upheld for the *entire lifetime* of this [`crate::RLookup`]:
@@ -79,10 +98,9 @@ impl IndexSpecCache {
     pub fn find_field(&self, name: &CStr) -> Option<&ffi::FieldSpec> {
         self.fields().iter().find(|field| {
             debug_assert!(!field.fieldName.is_null());
-
             // Safety: we have to trust that the `fieldName` pointer is valid
             unsafe {
-                ffi::HiddenString_CompareC(field.fieldName, name.as_ptr(), name.count_bytes()) != 0
+                ffi::HiddenString_CompareC(field.fieldName, name.as_ptr(), name.count_bytes()) == 0
             }
         })
     }
