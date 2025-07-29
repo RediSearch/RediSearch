@@ -58,7 +58,7 @@ void InvIndIterator_Rewind(QueryIterator *base) {
 
 size_t InvIndIterator_NumEstimated(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
-  return it->idx->numDocs;
+  return InvertedIndex_NumDocs(it->idx);
 }
 
 static ValidateStatus EmptyCheckAbort(QueryIterator *base) {
@@ -660,8 +660,8 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs);
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->docs.size, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx));
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->docs.size, InvertedIndex_NumDocs(idx));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);

@@ -163,7 +163,7 @@ TEST_P(IndexIteratorTest, Read) {
     ASSERT_EQ(it_base->Read(it_base), ITERATOR_EOF); // Reading after EOF should return EOF
     ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
     ASSERT_EQ(it_base->NumEstimated(it_base), resultSet.size());
-    ASSERT_EQ(it_base->NumEstimated(it_base), idx->numDocs);
+    ASSERT_EQ(it_base->NumEstimated(it_base), InvertedIndex_NumDocs(idx));
 }
 
 TEST_P(IndexIteratorTest, SkipTo) {
@@ -990,7 +990,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     }
 
     // Update index metadata after repair
-    idx->numDocs -= repairParams.entriesCollected;
+    InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - repairParams.entriesCollected);
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
     InvertedIndex_SetGcMarker(idx, originalGcMarker + 1);
@@ -1036,7 +1036,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     }
 
     // Update index metadata after repair
-    idx->numDocs -= repairParams.entriesCollected;
+    InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - repairParams.entriesCollected);
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
     InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
@@ -1064,6 +1064,6 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     DocTable_Free(&tempDocTable);
 
     // Restore the original index state
-    idx->numDocs += repairParams.entriesCollected; // Restore original numDocs
+    InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) + repairParams.entriesCollected); // Restore original numDocs
     InvertedIndex_SetGcMarker(idx, originalIndexGcMarker);
 }

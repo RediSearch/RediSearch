@@ -69,6 +69,14 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   return idx;
 }
 
+uint32_t InvertedIndex_NumDocs(const InvertedIndex *idx) {
+  return idx->numDocs;
+}
+
+void InvertedIndex_SetNumDocs(InvertedIndex *idx, uint32_t numDocs) {
+  idx->numDocs = numDocs;
+}
+
 uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx) {
   return idx->gcMarker;
 }
@@ -1011,7 +1019,7 @@ IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti) {
 
 size_t IR_NumEstimated(void *ctx) {
   IndexReader *ir = ctx;
-  return ir->idx->numDocs;
+  return InvertedIndex_NumDocs(ir->idx);
 }
 
 #define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
@@ -1323,8 +1331,8 @@ IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx
                                 RSQueryTerm *term, double weight) {
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs);
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx));
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
   // Get the decoder
