@@ -358,7 +358,7 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
     return ITERATOR_EOF;
   }
 
-  if (docId > it->idx->lastId) {
+  if (docId > InvertedIndex_LastId(it->idx)) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
@@ -388,7 +388,7 @@ IteratorStatus InvIndIterator_SkipTo_CheckExpiration(QueryIterator *base, t_docI
     return ITERATOR_EOF;
   }
 
-  if (docId > it->idx->lastId) {
+  if (docId > InvertedIndex_LastId(it->idx)) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
@@ -418,7 +418,7 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
     return ITERATOR_EOF;
   }
 
-  if (docId > it->idx->lastId) {
+  if (docId > InvertedIndex_LastId(it->idx)) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
@@ -456,7 +456,7 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker_CheckExpiration(QueryIterator *b
     return ITERATOR_EOF;
   }
 
-  if (docId > it->idx->lastId) {
+  if (docId > InvertedIndex_LastId(it->idx)) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }

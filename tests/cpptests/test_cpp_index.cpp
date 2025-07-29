@@ -231,7 +231,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   } else {
     ASSERT_EQ(1, idx->size);
   }
-  ASSERT_EQ(200, idx->lastId);
+  ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
     QueryIterator *ir = NewInvIndIterator_TermFull(idx);
@@ -430,7 +430,7 @@ TEST_F(IndexTest, testNot) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
   irs[0] = NewInvIndIterator_TermFull(w);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermFull(w2), w2->lastId, 1, {0}, &ctx->qctx);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermFull(w2), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -450,7 +450,7 @@ TEST_F(IndexTest, testNot) {
 TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
   auto ctx = std::make_unique<MockQueryEvalCtx>();
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermFull(w), w->lastId + 5, 1, {0}, &ctx->qctx);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermFull(w), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -524,7 +524,7 @@ TEST_F(IndexTest, testNumericInverted) {
     }
     buff_cap += expected_sz;
   }
-  ASSERT_EQ(75, idx->lastId);
+  ASSERT_EQ(75, InvertedIndex_LastId(idx));
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 

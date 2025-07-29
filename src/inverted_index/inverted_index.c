@@ -62,6 +62,14 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   return idx;
 }
 
+t_docId InvertedIndex_LastId(const InvertedIndex *idx) {
+  return idx->lastId;
+}
+
+void InvertedIndex_SetLastId(InvertedIndex *idx, t_docId lastId) {
+  idx->lastId = lastId;
+}
+
 uint32_t InvertedIndex_NumDocs(const InvertedIndex *idx) {
   return idx->numDocs;
 }
