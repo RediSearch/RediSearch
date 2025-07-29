@@ -1,8 +1,19 @@
-//! This module contains mocked implementations of some Redis C functions.
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! This module contains mocked implementations of Redis C functions used in
+//! [RLookup] for testing purposes. It mocks the ref counting of the cache and
+//! the `HiddenString` type used in the C code.
 
 use std::{
     cmp,
-    ffi::{CStr, c_char, c_int},
+    ffi::{c_char, c_int},
     mem::offset_of,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
@@ -67,26 +78,46 @@ extern "C" fn HiddenString_CompareC(
     right: *const c_char,
     right_length: usize,
 ) -> c_int {
-    let Some(left) = left else {
-        return -1 * c_int::try_from(right_length).unwrap();
+    let Some(left_ptr) = left else {
+        // Treat None as empty; compare to right's length.
+        return if right_length == 0 { 0 } else { -1 };
     };
 
-    let left = unsafe { left.cast::<UserString>().as_ref() };
+    let left = unsafe { left_ptr.cast::<UserString>().as_ref() };
 
-    unsafe {
-        let left = (!left.user.is_null()).then(|| CStr::from_ptr(left.user));
-        let right = (!right.is_null()).then(|| CStr::from_ptr(right));
-        println!("HiddenString_CompareC = left {left:?} right {right:?}",);
+    let left_ptr = if left.user.is_null() {
+        std::ptr::null()
+    } else {
+        left.user
+    };
+    let left_length = left.length;
+
+    let right_ptr = if right.is_null() {
+        std::ptr::null()
+    } else {
+        right
+    };
+
+    // Handle empty cases early to avoid UB in strncmp.
+    if left_length == 0 && right_length == 0 {
+        return 0;
+    } else if left_length == 0 {
+        return -1;
+    } else if right_length == 0 {
+        return 1;
     }
 
-    let result = unsafe { libc::strncmp(left.user, right, cmp::min(left.length, right_length)) };
+    // Safe to call strncmp now (pointers non-null).
+    let min_len = cmp::min(left_length, right_length);
+    let result = unsafe { libc::strncmp(left_ptr, right_ptr, min_len) };
 
-    println!("HiddenString_CompareC = result = {result}");
-
-    if result != 0 || left.length == right_length {
+    if result != 0 {
         result
     } else {
-        c_int::try_from(left.length).unwrap() - c_int::try_from(right_length).unwrap()
+        // Length difference (saturate to i32 to avoid panic).
+        let left_len_i32 = c_int::try_from(left_length).unwrap_or(c_int::MAX);
+        let right_len_i32 = c_int::try_from(right_length).unwrap_or(c_int::MAX);
+        left_len_i32 - right_len_i32
     }
 }
 

@@ -269,7 +269,7 @@ impl<'a> RLookupKey<'a> {
             debug_assert!(!path_ptr.is_null());
             // Safety: We assume the `path_ptr` and `length` information returned by the field spec
             // point to a valid null-terminated C string. Importantly `length` here is value as returned by
-            // `strlen` so **does not** include the null terminator (that is why we do `path_len  1` below)
+            // `strlen` so **does not** include the null terminator (that is why we do `path_len + 1` below)
             let bytes = unsafe { slice::from_raw_parts(path_ptr.cast::<u8>(), path_len + 1) };
             let path = CStr::from_bytes_with_nul(bytes)
                 .expect("string returned by HiddenString_GetUnsafe is malformed");
@@ -905,7 +905,9 @@ impl<'a> RLookup<'a> {
         // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
         let me = unsafe { &*(self as *const Self) };
         if let Some(c) = me.keys.find_by_name(name) {
-            return Some(c.into_current().unwrap());
+            // A cursor returned from `KeyList::find_by_name()` will always always points to a valid RLookupKey
+            // therefore `into_current()` is not None here.
+            return c.into_current();
         }
 
         // If we didn't find the key at the lookup table, check if it exists in
@@ -941,7 +943,7 @@ impl<'a> RLookup<'a> {
         let fs = self.index_spec_cache.as_ref()?.find_field(name)?;
         let fs_options = FieldSpecOptions::from_bits(fs.options()).unwrap();
 
-        // FIXME: LOAD ALL loads the key properties by their name, and we won't find their value by the field name
+        // FIXME: (from C code) LOAD ALL loads the key properties by their name, and we won't find their value by the field name
         //        if the field has a different name (alias) than its path.
         if !fs_options.contains(FieldSpecOption::Sortable)
             && !self.options.contains(RLookupOption::AllLoaded)
@@ -1628,162 +1630,183 @@ mod tests {
 
     #[cfg(not(miri))]
     proptest! {
-        // assert that a key can in the keylist can be retrieved by its name
-        #[test]
-        fn rlookup_get_key_read_found(name in "\\PC+") {
+         // assert that a key can in the keylist can be retrieved by its name
+         #[test]
+         fn rlookup_get_key_read_found(name in "\\PC+") {
+             let name = CString::new(name).unwrap();
+
+             let mut rlookup = RLookup::new();
+
+             rlookup
+                 .keys
+                 .push(RLookupKey::new(&name, RLookupKeyFlags::empty()));
+
+             let key = rlookup
+                 .get_key_read(&name, RLookupKeyFlags::empty())
+                 .unwrap();
+             assert_eq!(key._name.as_ref(), name.as_ref());
+             assert!(key._path.is_none());
+         }
+
+         // Assert that a key cannot be retrieved by any other string
+         #[test]
+         fn rlookup_get_key_read_not_found(name in "\\PC+", wrong_name in "\\PC+") {
             let name = CString::new(name).unwrap();
+            let wrong_name = CString::new(wrong_name).unwrap();
 
-            let mut rlookup = RLookup::new();
+            if wrong_name == name {
+                // skip this test if the wrong name is the same as the name
+                return Ok(());
+            }
 
-            rlookup
-                .keys
-                .push(RLookupKey::new(&name, RLookupKeyFlags::empty()));
+             let mut rlookup = RLookup::new();
 
-            let key = rlookup
-                .get_key_read(&name, RLookupKeyFlags::empty())
-                .unwrap();
-            assert_eq!(key._name.as_ref(), name.as_ref());
-            assert!(key._path.is_none());
-        }
+             rlookup
+                 .keys
+                 .push(RLookupKey::new(&name, RLookupKeyFlags::empty()));
 
-        // Assert that a key cannot be retrieved by any other string
-        #[test]
-        fn rlookup_get_key_read_not_found(name in "\\PC+", wrong_name: CString) {
-            let name = CString::new(name).unwrap();
+             let not_key = rlookup
+                 .get_key_read(&wrong_name, RLookupKeyFlags::empty());
+             prop_assert!(not_key.is_none());
+         }
 
-            let mut rlookup = RLookup::new();
+         // Assert that - if the key cannot be found in the rlookups keylist - it will be loaded from the index spec cache
+         // and inserted into the list
+         #[test]
+         fn rlookup_get_key_read_not_found_spcache_hit(name in "\\PC+", path in "\\PC+", sort_idx in 0i16..i16::MAX) {
+             let name = CString::new(name).unwrap();
+             let path = CString::new(path).unwrap();
 
-            rlookup
-                .keys
-                .push(RLookupKey::new(&name, RLookupKeyFlags::empty()));
+             let mut rlookup = RLookup::new();
 
-            let not_key = rlookup
-                .get_key_read(&wrong_name, RLookupKeyFlags::empty());
-            prop_assert!(not_key.is_none());
-        }
+             let mut arr = unsafe {
+                 [
+                     MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
+                 ]
+             };
 
-        // Assert that - if the key cannot be found in the rlookups keylist - it will be loaded from the index spec cache
-        // and inserted into the list
-        #[test]
-        fn rlookup_get_key_read_not_found_spcache_hit(name in "\\PC+", path in "\\PC+", sort_idx in 0i16..i16::MAX) {
-            let name = CString::new(name).unwrap();
-            let path = CString::new(path).unwrap();
+             let field_name = name.as_c_str();
+             arr[0].fieldName =
+                 unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+             let field_path = path.as_c_str();
+             arr[0].fieldPath =
+                 unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+             arr[0].set_options(
+                 ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
+             );
+             arr[0].sortIdx = sort_idx;
 
-            let mut rlookup = RLookup::new();
+             let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
-            let mut arr = unsafe {
-                [
-                    MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
-                ]
-            };
+             rlookup.init(spcache);
 
-            let field_name = name.as_c_str();
-            arr[0].fieldName =
-                unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
-            let field_path = path.as_c_str();
-            arr[0].fieldPath =
-                unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
-            arr[0].set_options(
-                ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
-            );
-            arr[0].sortIdx = sort_idx;
+             // the first call will load from the index spec cache
+             let key = rlookup
+                 .get_key_read(&name, RLookupKeyFlags::empty()).unwrap();
 
-            let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+             prop_assert_eq!(key.name, name.as_ptr());
+             prop_assert_eq!(key._name.as_ref(), name.as_c_str());
+             prop_assert_eq!(key.path, path.as_ptr());
+             prop_assert_eq!(key._path.as_ref().unwrap().as_ref(), path.as_c_str());
 
-            rlookup.init(spcache);
+             // the second call will load from the keylist
+             // to ensure this we zero out the cache
+             rlookup.index_spec_cache = None;
 
-            // the first call will load from the index spec cache
-            let key = rlookup
-                .get_key_read(&name, RLookupKeyFlags::empty()).unwrap();
+             let key = rlookup
+                 .get_key_read(&name, RLookupKeyFlags::empty())
+                 .unwrap();
+             prop_assert_eq!(key.name, name.as_ptr());
+             prop_assert_eq!(key._name.as_ref(), name.as_c_str());
+             prop_assert_eq!(key.path, path.as_ptr());
+             prop_assert_eq!(key._path.as_ref().unwrap().as_ref(), path.as_c_str());
+         }
 
-            prop_assert_eq!(key.name, name.as_ptr());
-            prop_assert_eq!(key._name.as_ref(), name.as_c_str());
-            prop_assert_eq!(key.path, path.as_ptr());
-            prop_assert_eq!(key._path.as_ref().unwrap().as_ref(), path.as_c_str());
+        // Assert that, even though there is a key in the list AND a a field space in the cache, we won't load the key
+        // if it is a wrong name, i.e. a name that's neither part of the list nor the cache.
+         #[test]
+         fn rlookup_get_key_read_not_found_no_spcache_hit(name1 in "\\PC+", name2 in "\\PC+", wrong_name in "\\PC+") {
+             let name1 = CString::new(name1).unwrap();
+             let name2 = CString::new(name2).unwrap();
+             let wrong_name = CString::new(wrong_name).unwrap();
 
-            // the second call will load from the keylist
-            // to ensure this we zero out the cache
-            rlookup.index_spec_cache = None;
+            if name1 == wrong_name || name2 == wrong_name {
+                // skip this test if the wrong name is the same as one of the other random names
+                return Ok(());
+            }
 
-            let key = rlookup
-                .get_key_read(&name, RLookupKeyFlags::empty())
-                .unwrap();
-            prop_assert_eq!(key.name, name.as_ptr());
-            prop_assert_eq!(key._name.as_ref(), name.as_c_str());
-            prop_assert_eq!(key.path, path.as_ptr());
-            prop_assert_eq!(key._path.as_ref().unwrap().as_ref(), path.as_c_str());
-        }
+             let mut rlookup = RLookup::new();
 
-        // Assert that, even though there is a key in the list AND a a field space in the cache
-        #[test]
-        fn rlookup_get_key_read_not_found_no_spcache_hit(name1 in "\\PC+", name2 in "\\PC+", wrong_name: CString) {
-            let name1 = CString::new(name1).unwrap();
-            let name2 = CString::new(name2).unwrap();
+             // push a key to the keylist
+             rlookup
+                 .keys
+                 .push(RLookupKey::new(&name1, RLookupKeyFlags::empty()));
 
-            let mut rlookup = RLookup::new();
+             // push a field spec to the cache
+             let mut arr = unsafe {
+                 [
+                     MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
+                 ]
+             };
 
-            // push a key to the keylist
-            rlookup
-                .keys
-                .push(RLookupKey::new(&name1, RLookupKeyFlags::empty()));
+             let field_name = name2.as_c_str();
+             arr[0].fieldName =
+                 unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
 
-            // push a field spec to the cache
-            let mut arr = unsafe {
-                [
-                    MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
-                ]
-            };
+             let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
-            let field_name = name2.as_c_str();
-            arr[0].fieldName =
-                unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+             // set the cache as the rlookup cache
+             rlookup.init(spcache);
 
-            let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+             let not_key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty());
+             prop_assert!(not_key.is_none());
+         }
 
-            // set the cache as the rlookup cache
-            rlookup.init(spcache);
+        // Assert that, even though there is a key in the list AND a a field space in the cache, we won't load the key
+        // if it is a wrong name, however if the flag `AllowUnresolved` is set, we will create an unresolved key instead.
+         #[test]
+         fn rlookup_get_key_read_not_found_no_spcache_hit_allow_unresolved(name1 in "\\PC+", name2 in "\\PC+", wrong_name in "\\PC+") {
+             let name1 = CString::new(name1).unwrap();
+             let name2 = CString::new(name2).unwrap();
+             let wrong_name = CString::new(wrong_name).unwrap();
 
-            let not_key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty());
-            prop_assert!(not_key.is_none());
-        }
+            if name1 == wrong_name || name2 == wrong_name {
+                // skip this test if the wrong name is the same as one of the other random names
+                return Ok(());
+            }
 
-        #[test]
-        fn rlookup_get_key_read_not_found_no_spcache_hit_allow_unresolved(name1 in "\\PC+", name2 in "\\PC+", wrong_name: CString) {
-            let name1 = CString::new(name1).unwrap();
-            let name2 = CString::new(name2).unwrap();
+             let mut rlookup = RLookup::new();
 
-            let mut rlookup = RLookup::new();
+             // push a key to the keylist
+             rlookup
+                 .keys
+                 .push(RLookupKey::new(&name1, RLookupKeyFlags::empty()));
 
-            // push a key to the keylist
-            rlookup
-                .keys
-                .push(RLookupKey::new(&name1, RLookupKeyFlags::empty()));
+             // push a field spec to the cache
+             let mut arr = unsafe {
+                 [
+                     MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
+                 ]
+             };
 
-            // push a field spec to the cache
-            let mut arr = unsafe {
-                [
-                    MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init(),
-                ]
-            };
+             let field_name = name2.as_c_str();
+             arr[0].fieldName =
+                 unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
 
-            let field_name = name2.as_c_str();
-            arr[0].fieldName =
-                unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+             let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
 
-            let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+             // set the cache as the rlookup cache
+             rlookup.init(spcache);
 
-            // set the cache as the rlookup cache
-            rlookup.init(spcache);
+             // set the AllowUnresolved option to allow unresolved keys in this rlookup
+             rlookup.options.set(RLookupOption::AllowUnresolved, true);
 
-            // set the AllowUnresolved option to allow unresolved keys in this rlookup
-            rlookup.options.set(RLookupOption::AllowUnresolved, true);
-
-            let key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty()).unwrap();
-            prop_assert!(key.flags.contains(RLookupKeyFlag::Unresolved));
-            prop_assert_eq!(key.name, wrong_name.as_ptr());
-            prop_assert_eq!(key._name.as_ref(), wrong_name.as_c_str());
-            prop_assert_eq!(key.path, wrong_name.as_ptr());
-            prop_assert!(key._path.is_none());
+             let key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty()).unwrap();
+             prop_assert!(key.flags.contains(RLookupKeyFlag::Unresolved));
+             prop_assert_eq!(key.name, wrong_name.as_ptr());
+             prop_assert_eq!(key._name.as_ref(), wrong_name.as_c_str());
+             prop_assert_eq!(key.path, wrong_name.as_ptr());
+             prop_assert!(key._path.is_none());
         }
     }
 }
