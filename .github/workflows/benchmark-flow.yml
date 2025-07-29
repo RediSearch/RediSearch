@@ -13,10 +13,10 @@ on:
         default: bin/linux-x64-release/search/redisearch.so
       rejson_branch:
         type: string
-        default: '2.6'
+        default: '2.4'
       rejson_module_path:
         type: string
-        default: bin/linux-x64-release/RedisJSON/2.6/rejson.so
+        default: bin/linux-x64-release/RedisJSON/2.4/rejson.so
       profile_env:
         type: number # for default of 0
       cluster_env:
@@ -44,19 +44,11 @@ jobs:
     runs-on: ubuntu-latest
     container: ${{ inputs.container }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: install terraform
+        uses: hashicorp/setup-terraform@v2
         with:
-          submodules: recursive
-      - name: Setup specific  # assuming node20 supported
-        working-directory: .install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
-
-      - name: Setup tests dependencies
-        run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-          .install/test_deps/install_rust.sh
+          terraform_version: 1.11.1
+          terraform_wrapper: false
       - name: Get Redis
         uses: actions/checkout@v4
         with:
@@ -66,23 +58,30 @@ jobs:
       - name: Build Redis
         working-directory: redis
         run: make install
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup specific  # assuming node20 supported
+        working-directory: .install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Install Python dependencies
+        run: |
+          pip3 install --upgrade pip
+          python3 -m pip install -r tests/benchmarks/requirements.txt
+      - name: Setup tests dependencies
+        run: |
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/install_rust.sh
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
       - name: Build RediSearch
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
           COORD=${{ inputs.cluster_env }}
           PROFILE=${{ inputs.profile_env }}
           REDISEARCH_MT_BUILD=0
-      - name: Install Python dependencies
-        run: |
-          pip3 install --upgrade pip  
-          python3 -m pip install -r tests/benchmarks/requirements.txt
-      - name: install terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.11.1
-          terraform_wrapper: false
       - name: Prepare ReJSON Module
         run: |
-          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
           REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
