@@ -98,12 +98,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Add implicit sorting by score
     const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&req->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
     if (!arrangeStep) {
-        size_t maxResults = params->aggregationParams.maxResultsLimit;
-        if (!maxResults) {
-            maxResults = DEFAULT_LIMIT;
-        }
-        ResultProcessor *sorter = RPSorter_NewByScore(maxResults);
-        QITR_PushRP(&req->tailPipeline->qctx, sorter);
+        AGPLN_GetOrCreateArrangeStep(&req->tailPipeline->ap);
     }
 
     // Temporarily remove the LOAD step from the tail pipeline to avoid conflicts
