@@ -1125,8 +1125,11 @@ static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, 
 
   // Resolve field spec
   const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(sctx->spec, pvq->fieldName, strlen(pvq->fieldName));
-  if (!vectorField || !FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
-    QueryError_SetError(status, QUERY_ENOOPTION, "Vector field not found");
+  if (!vectorField) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown field", " `%s`", pvq->fieldName);
+    return REDISMODULE_ERR;
+  } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", pvq->fieldName);
     return REDISMODULE_ERR;
   }
 
@@ -1138,18 +1141,14 @@ static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, 
   // Set default scoreField using vector field name
   VectorQuery_SetDefaultScoreField(vq, pvq->fieldName, strlen(pvq->fieldName));
 
-  // Set vector data and parameters based on type
+  // Set non-vector parameters based on type
   switch (pvq->type) {
     case VECSIM_QT_KNN:
-      vq->knn.vector = (void*)pvq->vector;  // Cast away const - VectorQuery expects non-const
-      vq->knn.vecLen = pvq->vectorLen;
-      vq->knn.k = pvq->k;  // Directly assign size_t to size_t
+      vq->knn.k = pvq->k;
       vq->knn.order = BY_SCORE;
       break;
     case VECSIM_QT_RANGE:
-      vq->range.vector = (void*)pvq->vector;  // Cast away const - VectorQuery expects non-const
-      vq->range.vecLen = pvq->vectorLen;
-      vq->range.radius = pvq->radius;  // Directly assign double to double
+      vq->range.radius = pvq->radius;
       vq->range.order = BY_SCORE;
       break;
   }
@@ -1200,16 +1199,10 @@ static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, 
   // Apply attributes if any (this will transfer ownership of attribute values)
   if (pvq->attributes && array_len(pvq->attributes) > 0) {
     QueryNode_ApplyAttributes(vecNode, pvq->attributes, array_len(pvq->attributes), status);
-    array_free_ex(pvq->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
-    pvq->attributes = NULL;  // Clear the pointer to avoid double-free
   }
 
   QueryNode_AddChild(vecNode, ast->root);
   ast->root = vecNode;
-
-  // ParsedVectorQuery retains ownership of vector data
-  // VectorQuery just references it, and VectorQuery_Free won't free it
-  // ParsedVectorQuery will be cleaned up in AREQ_Free
 
   return REDISMODULE_OK;
 }
@@ -1287,9 +1280,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   if (req->parsedVectorQuery) {
     ast->validationFlags |= QAST_HYBRID_VSIM_FILTER_CLAUSE;
-    // ParsedVectorQuery retains ownership of vector data
-    // VectorQuery just references it, and VectorQuery_Free won't free it
-    // ParsedVectorQuery will be cleaned up in AREQ_Free
     int rv = ApplyParsedVectorQuery(req->parsedVectorQuery, sctx, ast, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;

@@ -263,6 +263,8 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
     return REDISMODULE_ERR;
   }
+  // Initialize aggregation plan for vector request
+  AGPLN_Init(AREQ_AGGPlan(vreq));
 
   // Allocate ParsedVectorQuery
   ParsedVectorQuery *pvq = rm_calloc(1, sizeof(ParsedVectorQuery));
@@ -275,7 +277,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   const char *vectorParam;
   if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK ) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector blob");
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector parameter");
     goto error;
   }
 

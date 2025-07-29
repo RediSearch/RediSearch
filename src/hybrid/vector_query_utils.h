@@ -19,6 +19,10 @@
 extern "C" {
 #endif
 
+/**
+ * OWNERSHIP: fieldName/vector NOT owned (point to args), attributes OWNED.
+ * VectorQuery only references this data, doesn't free it.
+ */
 typedef struct ParsedVectorQuery {
   const char *fieldName;      // Field name string (NOT owned - points to args)
   const void *vector;         // Vector data OR parameter name (NOT owned - points to args)
