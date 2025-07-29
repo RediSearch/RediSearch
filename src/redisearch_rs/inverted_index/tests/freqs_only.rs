@@ -61,8 +61,7 @@ fn test_encode_freqs_only() {
 #[test]
 fn test_encode_freqs_only_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
-    let mut buf = [0u8; 3];
-    let buf = &mut buf[0..1];
+    let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::virt().doc_id(10).frequency(5);
