@@ -95,7 +95,7 @@ ifeq ($(REDISEARCH_MT_BUILD),1)
 endif
 
 ifeq ($(MT),1)
-	$(info ### Multithreading enabled)
+$(info ### Multithreading enabled)
 	CC_FLAGS.common += -DMT_BUILD
 	_CMAKE_FLAGS += -DMT_BUILD=ON
 	override REDISEARCH_MT_BUILD=1
@@ -103,7 +103,7 @@ ifeq ($(MT),1)
 endif
 
 ifeq ($(MT),0)
-	$(info ### Multithreading disabled)
+$(info ### Multithreading disabled)
 	override REDISEARCH_MT_BUILD=0
 	export REDISEARCH_MT_BUILD
 endif
