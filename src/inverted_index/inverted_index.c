@@ -90,6 +90,19 @@ void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker) {
   idx->gcMarker = marker;
 }
 
+t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx) {
+  if (idx->flags & Index_StoreFieldFlags) {
+    return idx->fieldMask;
+  }
+  return (t_fieldMask)0; // No field mask stored
+}
+
+void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask) {
+  if (idx->flags & Index_StoreFieldFlags) {
+    idx->fieldMask |= fieldMask;
+  }
+}
+
 uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx) {
   return (idx->flags & Index_StoreNumeric) ? idx->numEntries : 0;
 }

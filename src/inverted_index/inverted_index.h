@@ -113,6 +113,8 @@ uint32_t InvertedIndex_NumDocs(const InvertedIndex *idx);
 void InvertedIndex_SetNumDocs(InvertedIndex *idx, uint32_t numDocs);
 uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx);
 void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker);
+t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx);
+void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask);
 uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx);
 void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries);
 

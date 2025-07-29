@@ -111,7 +111,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       IndexerYieldWhileLoading(ctx->redisCtx);
       writeIndexEntry(spec, invidx, encoder, entry);
       if (Index_StoreFieldMask(spec)) {
-        invidx->fieldMask |= entry->fieldMask;
+        InvertedIndex_OrFieldMask(invidx, entry->fieldMask);
       }
     }
 
