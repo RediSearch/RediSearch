@@ -46,6 +46,8 @@ static inline void ResultMetrics_Reset(RSIndexResult *r) {
 static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
+  r->freq = 0;
+  r->fieldMask = 0;
   AggregateResult_Reset(&r->data.agg);
   ResultMetrics_Free(r);
 }

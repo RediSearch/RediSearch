@@ -106,7 +106,7 @@ QueryIterator *NewWildcardIterator_Optimized(const RedisSearchCtx *sctx, double 
 // Otherwise, it will return a non-optimized wildcard iterator
 QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight) {
   QueryIterator *ret = NULL;
-  if (q->sctx->spec->rule->index_all == true) {
+  if (q->sctx->spec->rule && q->sctx->spec->rule->index_all == true) { // LLAPI spec may not have a rule
     return NewWildcardIterator_Optimized(q->sctx, weight);
   } else {
     // Non-optimized wildcard iterator, using a simple doc-id increment as its base.

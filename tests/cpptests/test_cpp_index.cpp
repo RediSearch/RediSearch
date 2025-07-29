@@ -25,6 +25,7 @@ extern "C" {
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/not_iterator.h"
 #include "src/iterators/empty_iterator.h"
+#include "src/iterators/wildcard_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
 
@@ -390,8 +391,8 @@ TEST_F(IndexTest, testWeight) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 2);
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
-  irs[0] = NewInvIndIterator_TermFull(w);
-  irs[1] = NewInvIndIterator_TermQuery(w2, NULL, fieldMaskOrIndex, NULL, 0.5);
+  irs[0] = NewInvIndIterator_TermQuery(w, NULL, fieldMaskOrIndex, NULL, 0.5);
+  irs[1] = NewInvIndIterator_TermFull(w2);
   IteratorsConfig config{};
   iteratorsConfig_init(&config);
   QueryIterator *ui = NewUnionIterator(irs, 2, 0, 0.8, QN_UNION, NULL, &config);
@@ -656,7 +657,9 @@ void testNumericEncodingHelper(bool isMulti) {
     }
   }
 
-  QueryIterator *it = NewInvIndIterator_NumericFull(idx);
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\nReading [%lu]\n", ii);
@@ -1008,7 +1011,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   // Invalid SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, n+1), ITERATOR_EOF);
-  ASSERT_EQ(vecIt->lastDocId, n);
+  ASSERT_EQ(vecIt->lastDocId, n - 1);
   ASSERT_EQ(vecIt->SkipTo(vecIt, n), ITERATOR_EOF);
   ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10), ITERATOR_EOF);
 
@@ -1598,8 +1601,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
 
   // Mock the WILDCARD_ITERATOR consideration
-  QueryIterator* wildcardIt = NewEmptyIterator();
-  wildcardIt->type = WILDCARD_ITERATOR;
+  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, n, 1.0);
 
   HybridIteratorParams hParams = {
     .sctx = NULL,

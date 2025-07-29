@@ -72,7 +72,8 @@ protected:
                 SetNumericInvIndex();
                 FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
                 FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-                it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
+                numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+                it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
             }
                 break;
             case TYPE_GENERIC:
@@ -249,7 +250,8 @@ public:
         ASSERT_TRUE(idx != nullptr);
         FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-        iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, min, max);
+        flt = NewNumericFilter(min, max, 1, 1, 1, nullptr);
+        iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, flt, nullptr, min, max);
         ASSERT_TRUE(iterator != nullptr);
     }
 };
@@ -370,7 +372,8 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           // Create the iterator based on the flags
           if (flags & Index_StoreNumeric) {
               FieldFilterContext fieldCtx = {.field = {false, fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
-              it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
+              numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+              it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
           } else if (flags == Index_DocIdsOnly) {
               it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, fieldIndex, FIELD_EXPIRATION_DEFAULT, 1.0);
           } else {
