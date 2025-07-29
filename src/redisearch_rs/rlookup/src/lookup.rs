@@ -954,6 +954,11 @@ impl<'a> RLookup<'a> {
         Some(key)
     }
 
+    /// Writes a key to the lookup table, if the key already exists, it is either overwritten if flags is set to `RLookupKeyFlag::Override`
+    /// or returns `None` if the key is in exclusive mode.
+    ///
+    /// This will never get a key from the cache, it will either create a new key, override an existing key or return `None` if the key
+    /// is in exclusive mode.
     pub fn get_key_write(
         &mut self,
         name: &'a CStr,
@@ -998,10 +1003,11 @@ impl<'a> RLookup<'a> {
 mod tests {
     use super::*;
 
+    use std::ffi::CString;
     use std::mem::MaybeUninit;
 
     #[cfg(not(miri))]
-    use {proptest::prelude::*, std::ffi::CString};
+    use proptest::prelude::*;
 
     // Make sure that the `into_ptr` and `from_ptr` functions are inverses of each other.
     #[test]
@@ -1663,6 +1669,59 @@ mod tests {
 
         // this should panic
         rlookup.init(spcache);
+    }
+
+    // Assert that we can successfully write keys to the rlookup
+    #[test]
+    fn rlookup_write_new_key() {
+        let name = CString::new("new_key").unwrap();
+        let flags = RLookupKeyFlags::empty();
+        let mut rlookup = RLookup::new();
+
+        // Assert that we can write a new key
+        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name, name.as_ptr());
+        assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
+    }
+
+    // Assert that we fail to write a key if the key already exists and no overwrite is allowed
+    #[test]
+    fn rlookup_write_key_multiple_times_fails() {
+        let name = CString::new("new_key").unwrap();
+        let flags = RLookupKeyFlags::empty();
+        let mut rlookup = RLookup::new();
+
+        // Assert that we can write a new key
+        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name, name.as_ptr());
+        assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
+
+        // Assert that we cannot write the same key again without allowing overwrites
+        let not_key = rlookup.get_key_write(name.as_c_str(), flags);
+        assert!(not_key.is_none());
+    }
+
+    // Assert that we can override an existing key
+    #[test]
+    fn rlookup_write_key_override() {
+        let name = CString::new("new_key").unwrap();
+        let flags = RLookupKeyFlags::empty();
+        let mut rlookup = RLookup::new();
+
+        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name, name.as_ptr());
+        assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
+
+        let new_flags = make_bitflags!(RLookupKeyFlag::{ExplicitReturn | Override});
+
+        let new_key = rlookup.get_key_write(name.as_c_str(), new_flags).unwrap();
+        assert_eq!(new_key._name.as_ref(), name.as_c_str());
+        assert_eq!(new_key.name, name.as_ptr());
+        assert!(new_key.flags.contains(RLookupKeyFlag::QuerySrc));
+        assert!(new_key.flags.contains(RLookupKeyFlag::ExplicitReturn));
     }
 
     #[cfg(not(miri))]
