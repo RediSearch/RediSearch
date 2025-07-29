@@ -632,9 +632,8 @@ QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagInde
 }
 
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
-                                              const NumericFilter *flt, double rangeMin, double rangeMax) {
+                                              const NumericFilter *flt, const FieldSpec *fieldSpec, double rangeMin, double rangeMax) {
   IndexDecoderCtx decoderCtx = {.filter = flt};
-  const FieldSpec *fieldSpec = flt->fieldSpec;
   QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), fieldSpec, fieldCtx, true, sctx, &decoderCtx);
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;

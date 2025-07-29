@@ -683,6 +683,7 @@ int RediSearch_QueryNodeType(QueryNode* qn) {
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, size_t* len) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
   while (iter->internal->Read(iter->internal) == ITERATOR_OK) {
+    iter->res = iter->internal->current;
     const RSDocumentMetadata* md = DocTable_Borrow(&sp->docs, iter->res->docId);
     if (md == NULL) {
       continue;

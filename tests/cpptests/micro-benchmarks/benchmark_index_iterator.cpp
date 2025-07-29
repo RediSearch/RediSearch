@@ -131,8 +131,7 @@ public:
         // Create an iterator based on the flags
         if (flags == Index_StoreNumeric) {
             FieldFilterContext fieldCtx = {.field = {false, 0}, .predicate = FIELD_EXPIRATION_DEFAULT};
-            numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
-            iterator = NewInvIndIterator_NumericQuery(index, &q_mock->sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
+            iterator = NewInvIndIterator_NumericQuery(index, &q_mock->sctx, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
         } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
             iterator = NewInvIndIterator_GenericQuery(index, &q_mock->sctx, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
         } else {
