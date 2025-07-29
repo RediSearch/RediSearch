@@ -69,6 +69,10 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   return idx;
 }
 
+IndexFlags InvertedIndex_Flags(const InvertedIndex *idx) {
+  return idx->flags;
+}
+
 t_docId InvertedIndex_LastId(const InvertedIndex *idx) {
   return idx->lastId;
 }
@@ -1344,14 +1348,14 @@ IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx
   }
 
   // Get the decoder
-  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(idx->flags);
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(InvertedIndex_Flags(idx));
 
   RSIndexResult *record = NewTokenRecord(term, weight);
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
   IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
+  if (fieldMaskOrIndex.isFieldMask && (InvertedIndex_Flags(idx) & Index_WideSchema))
     dctx.wideMask = fieldMaskOrIndex.value.mask;
   else if (fieldMaskOrIndex.isFieldMask)
     dctx.mask = fieldMaskOrIndex.value.mask;
@@ -1371,7 +1375,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx) {
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
                                    t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate) {
   IndexDecoderCtx dctx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(idx->flags);
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(InvertedIndex_Flags(idx));
   FieldFilterContext fieldFilterCtx = {.field.isFieldMask = false, .field.value.index = fieldIndex, .predicate = predicate };
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = freq;

@@ -95,8 +95,8 @@ private:
         // This function should populate the InvertedIndex with terms
         size_t memsize;
         idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(idx->flags);
-        ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr); // Expect a seeker with the default flags
+        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
+        ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr); // Expect a seeker with the default flags
         for (size_t i = 0; i < n_docs; ++i) {
             ForwardIndexEntry h = {0};
             h.docId = resultSet[i];
@@ -125,7 +125,7 @@ private:
         // This function should populate the InvertedIndex with generic data
         size_t memsize;
         idx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(idx->flags);
+        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
         for (size_t i = 0; i < n_docs; ++i) {
             RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
             InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
@@ -290,7 +290,7 @@ TEST_F(IndexIteratorTestEdges, GetCorrectValue) {
 }
 
 TEST_F(IndexIteratorTestEdges, EOFAfterFiltering) {
-    ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker == nullptr);
+    ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker == nullptr);
     // Fill the index with entries, all with value 1.0
     AddEntries(1, 1234, 1.0);
     // Create an iterator that reads only entries with value 2.0
@@ -304,8 +304,8 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     size_t memsize;
     InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
     ASSERT_TRUE(idx != nullptr);
-    ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
-    auto encoder = InvertedIndex_GetEncoder(idx->flags);
+    ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
+    auto encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
     for (t_docId i = 1; i < 1000; ++i) {
         auto res = (RSIndexResult) {
             .docId = i,
@@ -706,7 +706,7 @@ private:
         bool isNew;
         termIdx = Redis_OpenInvertedIndex(sctx, "term", strlen("term"), 1, &isNew);
         ASSERT_TRUE(termIdx != nullptr);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(termIdx->flags);
+        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(termIdx));
 
         // Populate with term data
         for (size_t i = 0; i < n_docs; ++i) {
@@ -986,7 +986,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     repairParams.limit = SIZE_MAX; // Process all blocks
 
     for (uint32_t blockIdx = 0; blockIdx < idx->size; ++blockIdx) {
-        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, idx->flags, &repairParams);
+        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, InvertedIndex_Flags(idx), &repairParams);
     }
 
     // Update index metadata after repair
@@ -1032,7 +1032,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     deletedDoc = DocTable_Pop(&tempDocTable, thirdDocKey, len);
 
     for (uint32_t blockIdx = 0; blockIdx < idx->size; ++blockIdx) {
-        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, idx->flags, &repairParams);
+        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, InvertedIndex_Flags(idx), &repairParams);
     }
 
     // Update index metadata after repair
