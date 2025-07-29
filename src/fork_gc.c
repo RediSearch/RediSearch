@@ -756,7 +756,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   rm_free(idxData->changedBlocks);
   idxData->changedBlocks = NULL;
 
-  idx->numDocs -= info->ndocsCollected;
+  InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - info->ndocsCollected);
   InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
   RS_LOG_ASSERT(idx->size, "Index should have at least one block");
   idx->lastId = IndexBlock_LastId(&idx->blocks[idx->size - 1]); // Update lastId
@@ -880,7 +880,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
   FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
 
-  if (idx->numDocs == 0) {
+  if (InvertedIndex_NumDocs(idx) == 0) {
 
     // inverted index was cleaned entirely lets free it
     RedisModuleString *termKey = fmtRedisTermKey(sctx, term, len);
@@ -982,7 +982,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     rt->invertedIndexesSize -= ninfo.info.nbytesCollected;
     rt->invertedIndexesSize += ninfo.info.nbytesAdded;
 
-    if (ninfo.node->range->entries->numDocs == 0) {
+    if (InvertedIndex_NumDocs(ninfo.node->range->entries) == 0) {
       rt->emptyLeaves++;
     }
 
@@ -1084,7 +1084,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
 
     // if tag value is empty, let's remove it.
-    if (idx->numDocs == 0) {
+    if (InvertedIndex_NumDocs(idx) == 0) {
       // get memory before deleting the inverted index
       info.nbytesCollected += InvertedIndex_MemUsage(idx);
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
@@ -1152,7 +1152,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
 
   FGC_applyInvertedIndex(gc, &idxbufs, &info, idx);
 
-  if (idx->numDocs == 0) {
+  if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely lets free it
     if (sctx->spec->missingFieldDict) {
       info.nbytesCollected += InvertedIndex_MemUsage(idx);
@@ -1214,7 +1214,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
   // We don't count the records that we removed, because we also don't count
   // their addition (they are duplications so we have no such desire).
 
-  if (idx->numDocs == 0) {
+  if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely, let's free it
     info.nbytesCollected += InvertedIndex_MemUsage(idx);
     InvertedIndex_Free(idx);

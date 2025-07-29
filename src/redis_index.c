@@ -200,7 +200,7 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, Do
     goto err;
   }
 
-  if (!idx->numDocs ||
+  if (!InvertedIndex_NumDocs(idx) ||
      (Index_StoreFieldMask(ctx->spec) && !(idx->fieldMask & fieldMask))) {
     // empty index! or index does not have results from requested field.
     // pass

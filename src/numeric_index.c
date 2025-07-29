@@ -255,10 +255,10 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {
       if (!nf->offset) {
-        *total += n->range->entries->numDocs;
+        *total += InvertedIndex_NumDocs(n->range->entries);
         Vector_Push(v, n->range);
       } else {
-        *total += n->range->entries->numDocs;
+        *total += InvertedIndex_NumDocs(n->range->entries);
         if (*total > nf->offset) {
           Vector_Push(v, n->range);
         }
@@ -290,7 +290,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
       }
     }
   } else if (NumericRange_Overlaps(n->range, min, max)) {
-    *total += (*total == 0 && nf->offset == 0) ? 1 : n->range->entries->numDocs;
+    *total += (*total == 0 && nf->offset == 0) ? 1 : InvertedIndex_NumDocs(n->range->entries);
     if (*total > nf->offset) {
       Vector_Push(v, n->range);
     }
@@ -371,7 +371,7 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   NumericRangeNode *n = *node;
   // stop condition - we are at leaf
   if (NumericRangeNode_IsLeaf(n)) {
-    if (n->range->entries->numDocs == 0) {
+    if (InvertedIndex_NumDocs(n->range->entries) == 0) {
       return CHILD_EMPTY;
     } else {
       return CHILD_NOT_EMPTY;
@@ -390,7 +390,7 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
     return CHILD_NOT_EMPTY;
   }
 
-  if (n->range && n->range->entries->numDocs != 0) {
+  if (n->range && InvertedIndex_NumDocs(n->range->entries) != 0) {
     // We are on a non-leaf node, with some data in it but some of its children are empty.
     // Ideally we would like to trim the empty children, but today we don't fix missing ranges
     // of inner nodes, so we better keep the node as is.

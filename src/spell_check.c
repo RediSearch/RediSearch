@@ -97,7 +97,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
   QueryIterator *iter = NewInvIndIterator_TermQuery(invidx, scCtx->sctx, fieldMaskOrIndex, NULL, 1);
   if (iter->Read(iter) == ITERATOR_OK) {
     // we have at least one result, the suggestion is relevant.
-    retVal = invidx->numDocs;
+    retVal = InvertedIndex_NumDocs(invidx);
   } else {
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;

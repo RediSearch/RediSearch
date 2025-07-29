@@ -58,7 +58,7 @@ void InvIndIterator_Rewind(QueryIterator *base) {
 
 size_t InvIndIterator_NumEstimated(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
-  return it->idx->numDocs;
+  return InvertedIndex_NumDocs(it->idx);
 }
 
 static ValidateStatus EmptyCheckAbort(QueryIterator *base) {
@@ -658,8 +658,8 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs); // FIXME: docs.size starts at 1???
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx)); // FIXME: docs.size starts at 1???
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -686,8 +686,8 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs); // FIXME: docs.size starts at 1???
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx)); // FIXME: docs.size starts at 1???
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);

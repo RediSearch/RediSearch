@@ -225,7 +225,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     VVW_Free(h.vw);
   }
 
-  ASSERT_EQ(200, idx->numDocs);
+  ASSERT_EQ(200, InvertedIndex_NumDocs(idx));
   if (enc != docIdEnc) {
     ASSERT_EQ(2, idx->size);
   } else {
