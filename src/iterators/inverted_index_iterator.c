@@ -165,7 +165,7 @@ static inline bool VerifyFieldMaskExpirationForCurrent(InvIndIterator *it) {
       it->filterCtx.predicate,
       &it->sctx->time.current
     );
-  } else if (it->idx->flags & Index_WideSchema) {
+  } else if (InvertedIndex_Flags(it->idx) & Index_WideSchema) {
     return DocTable_CheckWideFieldMaskExpirationPredicate(
       &it->sctx->spec->docs,
       it->base.current->docId,
@@ -497,7 +497,7 @@ static inline bool HasExpiration(const InvIndIterator *it) {
 // Returns true if the iterator should skip multi-values from the same document
 static inline bool ShouldSkipMulti(const InvIndIterator *it) {
   return it->skipMulti &&                       // Skip multi-values is requested
-        (it->idx->flags & Index_HasMultiValue); // The index holds multi-values (if not, no need to check)
+        (InvertedIndex_Flags(it->idx) & Index_HasMultiValue); // The index holds multi-values (if not, no need to check)
 }
 
 static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
@@ -505,7 +505,7 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
   it->idx = idx;
   it->currentBlock = 0;
   it->gcMarker = InvertedIndex_GcMarker(idx);
-  it->decoders = InvertedIndex_GetDecoder(idx->flags);
+  it->decoders = InvertedIndex_GetDecoder(InvertedIndex_Flags(idx));
   it->decoderCtx = *decoderCtx;
   it->skipMulti = skipMulti; // Original request, regardless of what implementation is chosen
   it->sctx = sctx;
@@ -667,7 +667,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   record->freq = 1;
 
   IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
+  if (fieldMaskOrIndex.isFieldMask && (InvertedIndex_Flags(idx) & Index_WideSchema))
     dctx.wideMask = fieldMaskOrIndex.value.mask;
   else if (fieldMaskOrIndex.isFieldMask)
     dctx.mask = fieldMaskOrIndex.value.mask;
@@ -695,7 +695,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   record->freq = 1;
 
   IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
+  if (fieldMaskOrIndex.isFieldMask && (InvertedIndex_Flags(idx) & Index_WideSchema))
     dctx.wideMask = fieldMaskOrIndex.value.mask;
   else if (fieldMaskOrIndex.isFieldMask)
     dctx.mask = fieldMaskOrIndex.value.mask;

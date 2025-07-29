@@ -139,9 +139,9 @@ static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *inv
   REPLY_WITH_LONG_LONG("numDocs", InvertedIndex_NumDocs(invidx), invIdxBulkLen);
   REPLY_WITH_LONG_LONG("numEntries", invidx->numEntries, invIdxBulkLen);
   REPLY_WITH_LONG_LONG("lastId", InvertedIndex_LastId(invidx), invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("flags", invidx->flags, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("flags", InvertedIndex_Flags(invidx), invIdxBulkLen);
   REPLY_WITH_LONG_LONG("numberOfBlocks", invidx->size, invIdxBulkLen);
-  if (invidx->flags & Index_StoreNumeric) {
+  if (InvertedIndex_Flags(invidx) & Index_StoreNumeric) {
     REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/numberOfBlocks)", InvertedIndexGetEfficiency(invidx), invIdxBulkLen);
   }
   return invIdxBulkLen;

@@ -1313,8 +1313,8 @@ TEST_F(IndexTest, testIndexFlags) {
   // sizeof(IndexBlock)                   48
   // INDEX_BLOCK_INITIAL_CAP               6
   ASSERT_EQ(102, index_memsize);
-  IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
-  ASSERT_TRUE(w->flags == flags);
+  IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
+  ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   ASSERT_EQ(10, sz);
   InvertedIndex_Free(w);
@@ -1322,8 +1322,8 @@ TEST_F(IndexTest, testIndexFlags) {
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
   ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
-  enc = InvertedIndex_GetEncoder(w->flags);
+  ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
+  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   ASSERT_EQ(sz2, 0);
   InvertedIndex_Free(w);
@@ -1331,8 +1331,8 @@ TEST_F(IndexTest, testIndexFlags) {
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
   ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((w->flags & Index_WideSchema));
-  enc = InvertedIndex_GetEncoder(w->flags);
+  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
+  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   h.fieldMask = 0xffffffffffff;
   ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
   InvertedIndex_Free(w);
@@ -1340,8 +1340,8 @@ TEST_F(IndexTest, testIndexFlags) {
   flags |= Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
   ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((w->flags & Index_WideSchema));
-  enc = InvertedIndex_GetEncoder(w->flags);
+  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
+  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   ASSERT_EQ(19, sz);
@@ -1356,9 +1356,9 @@ TEST_F(IndexTest, testIndexFlags) {
   // sizeof(IndexBlock)                   48
   // INDEX_BLOCK_INITIAL_CAP               6
   ASSERT_EQ(86, index_memsize);
-  ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
-  ASSERT_TRUE(!(w->flags & Index_StoreFieldFlags));
-  enc = InvertedIndex_GetEncoder(w->flags);
+  ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
+  ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
+  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   ASSERT_EQ(0, sz);
   InvertedIndex_Free(w);
@@ -1366,9 +1366,9 @@ TEST_F(IndexTest, testIndexFlags) {
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
   ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((w->flags & Index_WideSchema));
-  ASSERT_TRUE((w->flags & Index_StoreFieldFlags));
-  enc = InvertedIndex_GetEncoder(w->flags);
+  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
+  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
+  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
   ASSERT_EQ(4, sz);
@@ -1477,7 +1477,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
 
-  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+  IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
   ASSERT_EQ(idx->size, 1);
 
@@ -1516,7 +1516,7 @@ TEST_F(IndexTest, testRawDocId) {
   RSGlobalConfig.invertedIndexRawDocidEncoding = true;
   size_t index_memsize = 0;
   InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1, &index_memsize);
-  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+  IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {

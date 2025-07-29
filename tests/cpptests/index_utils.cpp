@@ -28,7 +28,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
     size_t sz;
     InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &sz);
 
-    IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+    IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
     t_docId id = start_with > 0 ? start_with : idStep;
     for (int i = 0; i < size; i++) {
         // if (i % 10000 == 1) {

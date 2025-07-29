@@ -32,12 +32,12 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
   InvIndIterator *it = (InvIndIterator *)root;
 
   RedisModule_Reply_Map(reply);
-  if (it->idx->flags == Index_DocIdsOnly) {
+  if (InvertedIndex_Flags(it->idx) == Index_DocIdsOnly) {
     if (root->current->data.term.term != NULL) {
       printProfileType("TAG");
       REPLY_KVSTR_SAFE("Term", root->current->data.term.term->str);
     }
-  } else if (it->idx->flags & Index_StoreNumeric) {
+  } else if (InvertedIndex_Flags(it->idx) & Index_StoreNumeric) {
     const NumericFilter *flt = it->decoderCtx.filter;
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");

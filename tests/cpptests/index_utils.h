@@ -96,7 +96,7 @@ public:
     spec.stats.numDocuments = docs.size();
     rule.index_all = true; // Enable index_all for wildcard iterator tests
     spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &spec.stats.invertedSize);
-    IndexEncoder enc = InvertedIndex_GetEncoder(spec.existingDocs->flags);
+    IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(spec.existingDocs));
     for (t_docId docId : docs) {
       RSIndexResult rec = {.docId = docId, .type = RSResultType_Virtual};
       InvertedIndex_WriteEntryGeneric(spec.existingDocs, enc, &rec);

@@ -62,6 +62,10 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   return idx;
 }
 
+IndexFlags InvertedIndex_Flags(const InvertedIndex *idx) {
+  return idx->flags;
+}
+
 t_docId InvertedIndex_LastId(const InvertedIndex *idx) {
   return idx->lastId;
 }
