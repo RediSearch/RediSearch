@@ -1822,6 +1822,266 @@ mod tests {
         assert!(new_key.flags.contains(RLookupKeyFlag::ExplicitReturn));
     }
 
+    // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
+    #[test]
+    fn rlookup_get_key_load_override_no_field_in_cache() {
+        // setup:
+        let key_name = c"key_no_cache";
+        let field_name = c"name_in_doc";
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
+
+        // we don't use the cache
+        let empty_field_array = [];
+        let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
+
+        let mut rlookup = RLookup::new();
+        rlookup.init(spcache);
+        rlookup.keys.push(key);
+
+        let retrieved_key = rlookup
+            .get_key_load(
+                key_name,
+                field_name,
+                make_bitflags!(RLookupKeyFlag::Override),
+            )
+            .expect("expected to find key by name");
+
+        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name, key_name.as_ptr());
+        assert_eq!(retrieved_key.path, field_name.as_ptr());
+        assert_eq!(retrieved_key._path.as_ref().unwrap().as_ref(), field_name);
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
+    }
+
+    // Assert that a key can be retrieved by its name and is been overridden with the `DocSrc` and `IsLoaded` flags.
+    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[test]
+    fn rlookup_get_key_load_override_with_field_in_cache() {
+        // setup:
+        let key_name = c"key_also_cache";
+        let cache_field_name = c"name_in_doc";
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
+
+        // Let's create a cache with one field spec
+        let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
+        let field_name = key_name;
+        arr[0].fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        let field_path = cache_field_name;
+        arr[0].fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        arr[0].set_options(ffi::FieldSpecOptions_FieldSpec_Sortable);
+        arr[0].sortIdx = 12;
+        let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+
+        let mut rlookup = RLookup::new();
+        rlookup.init(spcache);
+        rlookup.keys.push(key);
+
+        let retrieved_key = rlookup
+            .get_key_load(
+                key_name,
+                field_name,
+                make_bitflags!(RLookupKeyFlag::Override),
+            )
+            .expect("expected to find key by name");
+
+        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name, key_name.as_ptr());
+        assert_eq!(retrieved_key.path, cache_field_name.as_ptr());
+        assert_eq!(
+            retrieved_key._path.as_ref().unwrap().as_ref(),
+            cache_field_name
+        );
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
+    }
+
+    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[test]
+    fn rlookup_get_key_load_override_with_field_in_cache_but_value_availabe() {
+        // setup:
+        let key_name = c"key_also_cache";
+        let cache_field_name = c"name_in_doc";
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
+
+        // Let's create a cache with one field spec
+        let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
+        let field_name = key_name;
+        arr[0].fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        let field_path = cache_field_name;
+        arr[0].fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        arr[0].set_options(
+            ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
+        );
+        arr[0].sortIdx = 12;
+        let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+
+        let mut rlookup = RLookup::new();
+        rlookup.init(spcache);
+        rlookup.keys.push(key);
+
+        let retrieved_key = rlookup.get_key_load(
+            key_name,
+            field_name,
+            make_bitflags!(RLookupKeyFlag::Override),
+        );
+
+        // we should access the sorting vector instead
+        assert!(retrieved_key.is_none());
+    }
+
+    #[cfg(not(miri))] // uses strncmp under the hood for HiddenString
+    #[test]
+    fn rlookup_get_key_load_override_with_field_in_cache_but_value_availabe_however_force_load() {
+        // setup:
+        let key_name = c"key_also_cache";
+        let cache_field_name = c"name_in_doc";
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
+
+        // Let's create a cache with one field spec
+        let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
+        let field_name = key_name;
+        arr[0].fieldName =
+            unsafe { ffi::NewHiddenString(field_name.as_ptr(), field_name.count_bytes(), false) };
+        let field_path = cache_field_name;
+        arr[0].fieldPath =
+            unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
+        arr[0].set_options(
+            ffi::FieldSpecOptions_FieldSpec_Sortable | ffi::FieldSpecOptions_FieldSpec_UNF,
+        );
+        arr[0].sortIdx = 12;
+        let spcache = unsafe { IndexSpecCache::from_slice(&arr) };
+
+        let mut rlookup = RLookup::new();
+        rlookup.init(spcache);
+        rlookup.keys.push(key);
+
+        let retrieved_key = rlookup
+            .get_key_load(
+                key_name,
+                field_name,
+                make_bitflags!(RLookupKeyFlag::{Override | ForceLoad}),
+            )
+            .expect("expected to find key by name");
+
+        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name, key_name.as_ptr());
+        assert_eq!(retrieved_key.path, cache_field_name.as_ptr());
+        assert_eq!(
+            retrieved_key._path.as_ref().unwrap().as_ref(),
+            cache_field_name
+        );
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
+    }
+
+    // Assert the the cases in which None is returned also the key could be found
+    #[test]
+    fn rlookup_get_key_load_returns_none_although_key_is_available() {
+        // setup:
+        let key_name = c"key_no_cache";
+        let field_name = c"name_in_doc";
+        let key_flags = [
+            RLookupKeyFlag::ValAvailable,
+            RLookupKeyFlag::IsLoaded,
+            RLookupKeyFlag::QuerySrc,
+        ];
+
+        for flag in key_flags {
+            let key = RLookupKey::new(key_name, flag.into());
+
+            // we don't use the cache
+            let empty_field_array = [];
+            let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
+
+            let mut rlookup = RLookup::new();
+            rlookup.init(spcache);
+            rlookup.keys.push(key);
+
+            let retrieved_key =
+                rlookup.get_key_load(key_name, field_name, RLookupKeyFlags::empty());
+            assert!(retrieved_key.is_none());
+            if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
+                assert!(!key.flags.contains(RLookupKeyFlag::ExplicitReturn));
+            } else {
+                panic!("expected to find key by name");
+            }
+
+            // let's use the load to tag explicit return
+            let opt =
+                rlookup.get_key_load(key_name, field_name, RLookupKeyFlag::ExplicitReturn.into());
+            assert!(opt.is_none(), "expected None, got {opt:?}");
+
+            if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
+                assert!(key.flags.contains(RLookupKeyFlag::ExplicitReturn));
+            } else {
+                panic!("expected to find key by name");
+            }
+        }
+    }
+
+    #[test]
+    fn rlookup_get_load_key_on_empty_rlookup_and_cache() {
+        // setup:
+        let key_name = c"key_no_cache";
+        let field_name = c"name_in_doc";
+
+        // we don't use the cache
+        let empty_field_array = [];
+        let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
+
+        let mut rlookup = RLookup::new();
+        rlookup.init(spcache);
+
+        let retrieved_key = rlookup
+            .get_key_load(
+                key_name,
+                field_name,
+                make_bitflags!(RLookupKeyFlag::Override),
+            )
+            .expect("expected to find key by name");
+
+        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name, key_name.as_ptr());
+        assert_eq!(retrieved_key.path, field_name.as_ptr());
+        assert_eq!(retrieved_key._path.as_ref().unwrap().as_ref(), field_name);
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
+    }
+
+    #[test]
+    fn rlookup_get_load_key_name_equals_field_name() {
+        // setup:
+        let key_name = c"key_no_cache";
+        let field_name = c"key_no_cache";
+
+        // we don't use the cache
+        let empty_field_array = [];
+        let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
+
+        let mut rlookup = RLookup::new();
+        rlookup.init(spcache);
+
+        let retrieved_key = rlookup
+            .get_key_load(
+                key_name,
+                field_name,
+                make_bitflags!(RLookupKeyFlag::Override),
+            )
+            .expect("expected to find key by name");
+
+        assert_eq!(retrieved_key._name.as_ref(), key_name);
+        assert_eq!(retrieved_key.name, key_name.as_ptr());
+        assert_eq!(retrieved_key.path, field_name.as_ptr());
+        assert_eq!(retrieved_key._path.as_ref().unwrap().as_ref(), field_name);
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::DocSrc));
+        assert!(retrieved_key.flags.contains(RLookupKeyFlag::IsLoaded));
+    }
+
     #[cfg(not(miri))]
     proptest! {
          // assert that a key can in the keylist can be retrieved by its name
