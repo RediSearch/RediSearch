@@ -59,14 +59,12 @@ def testProfileSearch(env):
 
   # test PREFIX
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hel*', 'nocontent')
-  expected_res = ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 1, 'Child iterators', [
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  expected_res = ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
   # test FUZZY
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'nocontent') # codespell:ignore hel
-  expected_res = ['Type', 'UNION', 'Query type', 'FUZZY - hel', 'Counter', 1, 'Child iterators', [
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  expected_res = ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
   # test ID LIST iter with INKEYS
@@ -427,12 +425,8 @@ def testNotIterator(env):
   res = [[1, '1', ['t', 'foo']],
          ['Shards', [[
             'Warning', 'None',
-            'Iterators profile',
-            ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
-              [['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1],
-                ['Type', 'NOT', 'Counter', 1, 'Child iterator',
-                ['Type', 'EMPTY', 'Counter', 0]]]],
-                #['Type', 'WILDCARD', 'Counter', 1]]], (After Optimization and new iterators are used, NOT ITERATOR should change to this)
+            'Iterators profile', # Static query optimization: foo && -@t:baz => foo && -(EMPTY) => foo && ALL => foo
+            ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1],
             'Result processors profile',
              [['Type', 'Index',  'Counter', 1],
               ['Type', 'Scorer', 'Counter', 1],
