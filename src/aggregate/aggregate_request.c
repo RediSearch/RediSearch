@@ -58,7 +58,7 @@ static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *
   return 1;
 }
 
-static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int allowLegacy);
+static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, ParseAggPlanContext *papCtx);
 
 static void ReturnedField_Free(ReturnedField *field) {
   rm_free(field->highlightSettings.openTag);
@@ -290,7 +290,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     }
   } else if (AC_AdvanceIfMatch(ac, "SORTBY")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
-    if ((parseSortby(arng, ac, status, *papCtx->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
+    if ((parseSortby(arng, ac, status, papCtx)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
@@ -358,7 +358,8 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
   return ARG_HANDLED;
 }
 
-static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, int isLegacy) {
+static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, ParseAggPlanContext *papCtx) {
+  bool isLegacy = *papCtx->reqflags & QEXEC_F_IS_SEARCH;
   // Prevent multiple SORTBY steps
   if (arng->sortKeys != NULL) {
     if (isLegacy) {
@@ -394,8 +395,10 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   } else {
     // Check for SORTBY 0 before calling AC_GetVarArgs
     const char *firstArg;
-    if (AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK && !strcmp(firstArg, "0")) {
-      // SORTBY 0 means disable all sorting
+    bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
+                        && !strcmp(firstArg, "0");
+    if (*papCtx->reqflags & QEXEC_F_IS_HYBRID && isSortby0) {
+      // SORTBY 0 means disable all sorting in Hybrid requests
       AC_Advance(ac); // Consume the "0" argument
       arng->noSort = true;
       arng->sortKeys = NULL;

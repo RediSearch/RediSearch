@@ -31,7 +31,8 @@ typedef struct Grouper Grouper;
 struct QOptimizer;
 
 typedef enum {
-  QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
+  /* Is an aggregate command. A query can be either a search, an aggregate or a hybrid. */
+  QEXEC_F_IS_AGGREGATE = 0x01,
   QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
   QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
   QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
@@ -52,7 +53,7 @@ typedef enum {
    */
   QEXEC_F_RUN_IN_BACKGROUND = 0x100,
 
-  /* The inverse of IS_AGGREGATE. The two cannot coexist together */
+  /* Is a search command. A query can be either a search, an aggregate or a hybrid. */
   QEXEC_F_IS_SEARCH = 0x200,
 
   /* Highlight/summarize options are active */
@@ -91,6 +92,9 @@ typedef enum {
 
   // The query is internal (responding to a command from the coordinator)
   QEXEC_F_INTERNAL = 0x400000,
+
+  // The query is a Hybrid Request. A query can be either a search, an aggregate or a hybrid.
+  QEXEC_F_IS_HYBRID = 0x800000,
 
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
