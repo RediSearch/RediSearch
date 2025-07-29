@@ -86,7 +86,7 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
  * like QuickSelect or an approximation algorithm for the median.
  */
 static double NumericRange_GetMedian(IndexReader *ir) {
-  size_t median_idx = ir->idx->numEntries / 2;
+  size_t median_idx = InvertedIndex_NumEntries(ir->idx) / 2;
   double_heap_t *low_half = double_heap_new(median_idx);
   RSIndexResult *cur;
 
@@ -174,7 +174,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
   // free resources
   rv->sz -= temp->invertedIndexSize;
-  rv->numRecords -= temp->entries->numEntries;
+  rv->numRecords -= InvertedIndex_NumEntries(temp->entries);
   InvertedIndex_Free(temp->entries);
   hll_destroy(&temp->hll);
   rm_free(temp);
@@ -241,7 +241,7 @@ static void NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double va
 
     size_t card = getCardinality(n->range);
     if (card >= getSplitCardinality(depth) ||
-        (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
+        (InvertedIndex_NumEntries(n->range->entries) > NR_MAXRANGE_SIZE && card > 1)) {
 
       // split this node but don't delete its range
       NumericRangeNode_Split(n, rv);
