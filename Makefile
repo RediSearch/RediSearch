@@ -349,5 +349,5 @@ callgrind:
 
 
 .PHONY: help build clean test unit-tests pytest
-.PHONY: run fmt license-check pack upload-artifacts
+.PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
