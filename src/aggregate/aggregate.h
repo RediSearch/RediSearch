@@ -20,6 +20,7 @@
 #include "pipeline/pipeline_construction.h"
 #include "reply.h"
 #include "vector_index.h"
+#include "hybrid/vector_query_utils.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -144,9 +145,6 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-// Forward declaration - full definition in hybrid/vector_query_types.h
-typedef struct ParsedVectorQuery ParsedVectorQuery;
-
 void ParsedVectorQuery_Free(ParsedVectorQuery *pvq);
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
@@ -159,6 +157,7 @@ typedef struct AREQ {
   const char *query;
 
   ParsedVectorQuery *parsedVectorQuery;
+
   /** Fields to be output and otherwise processed */
   FieldList outFields;
 

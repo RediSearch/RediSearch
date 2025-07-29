@@ -12,7 +12,7 @@
 #include "../util/arr.h"
 
 void ParsedVectorQuery_Free(ParsedVectorQuery *pvq) {
-  if (!pvq) return;
+  RS_ASSERT(pvq);
 
   // Vector data is NOT owned (just a reference to args) - don't free it
 
