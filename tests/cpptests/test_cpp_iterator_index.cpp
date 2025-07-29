@@ -957,7 +957,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     InvIndIterator *invIt = (InvIndIterator *)iterator;
     InvertedIndex *idx = const_cast<InvertedIndex *>(invIt->idx);
     uint32_t originalGcMarker = invIt->gcMarker;
-    uint32_t originalIndexGcMarker = idx->gcMarker;
+    uint32_t originalIndexGcMarker = InvertedIndex_GcMarker(idx);
 
     // We need access to the DocTable to mark documents as deleted
     // For this test, we'll create a temporary DocTable and mark thirdDocId as deleted
@@ -993,7 +993,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     idx->numDocs -= repairParams.entriesCollected;
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
-    idx->gcMarker = originalGcMarker + 1;
+    InvertedIndex_SetGcMarker(idx, originalGcMarker + 1);
     idx->lastId = idx->blocks[idx->size - 1].lastId;
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
@@ -1018,7 +1018,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     // Edge case: iterator revalidated after GC and before it was read
     iterator->Rewind(iterator);
     ASSERT_FALSE(iterator->atEOF); // Should not be at EOF yet
-    idx->gcMarker++; // Increment gcMarker to simulate a new GC cycle
+    InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1); // Increment gcMarker to simulate a new GC cycle
     result = iterator->Revalidate(iterator);
     ASSERT_EQ(result, VALIDATE_OK);
     ASSERT_FALSE(iterator->atEOF); // Should not be at EOF after revalidation
@@ -1039,7 +1039,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     idx->numDocs -= repairParams.entriesCollected;
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
-    idx->gcMarker++;
+    InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
     idx->lastId = idx->blocks[idx->size - 1].lastId;
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
@@ -1065,5 +1065,5 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
 
     // Restore the original index state
     idx->numDocs += repairParams.entriesCollected; // Restore original numDocs
-    idx->gcMarker = originalIndexGcMarker;
+    InvertedIndex_SetGcMarker(idx, originalIndexGcMarker);
 }

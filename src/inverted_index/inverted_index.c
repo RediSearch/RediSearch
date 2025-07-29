@@ -69,6 +69,14 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   return idx;
 }
 
+uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx) {
+  return idx->gcMarker;
+}
+
+void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker) {
+  idx->gcMarker = marker;
+}
+
 size_t indexBlock_Free(IndexBlock *blk) {
   return Buffer_Free(IndexBlock_Buffer(blk));
 }
@@ -167,7 +175,7 @@ void IndexReader_OnReopen(IndexReader *ir) {
     return;
   }
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
-  if (ir->gcMarker == ir->idx->gcMarker) {
+  if (ir->gcMarker == InvertedIndex_GcMarker(ir->idx)) {
     // no GC - we just go to the same offset we were at
     size_t offset = ir->br.pos;
     ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
@@ -1278,7 +1286,7 @@ static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, Inver
   // The default ctx is needed because filterCtx can be null in the case of NewOptimizerIterator
   ret->currentBlock = 0;
   ret->idx = idx;
-  ret->gcMarker = idx->gcMarker;
+  ret->gcMarker = InvertedIndex_GcMarker(idx);
   ret->record = record;
   ret->len = 0;
   ret->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ret));
@@ -1382,7 +1390,7 @@ void IR_Rewind(void *ctx) {
   IndexReader *ir = ctx;
   IR_SetAtEnd(ir, 0);
   ir->currentBlock = 0;
-  ir->gcMarker = ir->idx->gcMarker;
+  ir->gcMarker = InvertedIndex_GcMarker(ir->idx);
   ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
   ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
   ir->sameId = 0;
