@@ -1136,8 +1136,7 @@ static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, 
   vq->type = pvq->type;
 
   // Set default scoreField using vector field name
-  int n_written = rm_asprintf(&vq->scoreField, "__%s_score", pvq->fieldName);
-  RS_ASSERT(n_written != -1);
+  VectorQuery_SetDefaultScoreField(vq, pvq->fieldName, strlen(pvq->fieldName));
 
   // Set vector data and parameters based on type
   switch (pvq->type) {
