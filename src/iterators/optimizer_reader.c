@@ -104,7 +104,6 @@ void OptimizerIterator_Free(QueryIterator *self) {
     it->numericIter->Free(it->numericIter);
   }
 
-  IndexResult_Free(it->base.current);
   // we always use the array as RSResultType_Numeric. no need for IndexResult_Free
   rm_free(it->resArr);
   heap_free(it->heap);
@@ -115,9 +114,6 @@ void OptimizerIterator_Free(QueryIterator *self) {
 IteratorStatus OPT_ReadYield(QueryIterator *self) {
   OptimizerIterator *it = (OptimizerIterator *)self;
   if (heap_count(it->heap) > 0) {
-    if (self->current) {
-      IndexResult_Free(self->current);
-    }
     self->current = heap_poll(it->heap);
     self->lastDocId = self->current->docId;
     return ITERATOR_OK;
@@ -138,8 +134,6 @@ IteratorStatus OPT_Read(QueryIterator *self) {
   it->hitCounter = 0;
 
   while (1) {
-    ResultMetrics_Free(it->base.current);
-
 
     while (1) {
       // get next result
@@ -264,7 +258,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->Revalidate = OPT_Validate;
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
-  ri->current = NewNumericResult();
+  ri->current = NULL;
 
   return &oi->base;
 }
