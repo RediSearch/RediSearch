@@ -994,7 +994,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
     InvertedIndex_SetGcMarker(idx, originalGcMarker + 1);
-    idx->lastId = idx->blocks[idx->size - 1].lastId;
+    InvertedIndex_SetLastId(idx, IndexBlock_LastId(&idx->blocks[idx->size - 1]));
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
     // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
@@ -1040,7 +1040,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
     InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
-    idx->lastId = idx->blocks[idx->size - 1].lastId;
+    InvertedIndex_SetLastId(idx, IndexBlock_LastId(&idx->blocks[idx->size - 1]));
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
     // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF

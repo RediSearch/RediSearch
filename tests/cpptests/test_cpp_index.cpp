@@ -224,7 +224,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   } else {
     ASSERT_EQ(1, idx->size);
   }
-  ASSERT_EQ(200, idx->lastId);
+  ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
     IndexReader *ir = NewTermIndexReader(idx);
@@ -448,7 +448,7 @@ TEST_F(IndexTest, testNot) {
   // printf("Reading!\n");
   IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
   irs[0] = NewReadIterator(r1);
-  irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId, 1, {0}, NULL);
+  irs[1] = NewNotIterator(NewReadIterator(r2), InvertedIndex_LastId(w2), 1, {0}, NULL);
 
   IndexIterator *ui = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
   RSIndexResult *h = NULL;
@@ -470,9 +470,9 @@ TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
 
   IndexReader *r1 = NewTermIndexReader(w);  //
-  printf("last id: %llu\n", (unsigned long long)w->lastId);
+  printf("last id: %llu\n", (unsigned long long)InvertedIndex_LastId(w));
 
-  IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1, {0}, NULL);
+  IndexIterator *ir = NewNotIterator(NewReadIterator(r1), InvertedIndex_LastId(w) + 5, 1, {0}, NULL);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -546,7 +546,7 @@ TEST_F(IndexTest, testNumericInverted) {
     }
     buff_cap += expected_sz;
   }
-  ASSERT_EQ(75, idx->lastId);
+  ASSERT_EQ(75, InvertedIndex_LastId(idx));
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
