@@ -9,7 +9,7 @@
 
 use crate::{
     Decoder, Encoder, FilterMaskReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
-    RSIndexResult,
+    RSIndexResult, SkipDuplicatesReader,
 };
 use pretty_assertions::assert_eq;
 
@@ -404,6 +404,28 @@ fn read_using_the_first_block_id_as_the_base() {
 fn index_reader_construction_with_no_blocks() {
     let blocks: Vec<IndexBlock> = vec![];
     let _ir = IndexReader::new(&blocks, Dummy);
+}
+
+#[test]
+fn read_skipping_over_duplicates() {
+    // Make an iterator where the first two entries have the same doc ID and the third one is different
+    let iter = vec![
+        RSIndexResult::virt().doc_id(10).weight(2.0),
+        RSIndexResult::virt().doc_id(10).weight(5.0),
+        RSIndexResult::virt().doc_id(11),
+    ];
+
+    let reader = SkipDuplicatesReader::new(iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::virt().doc_id(10).weight(2.0),
+            RSIndexResult::virt().doc_id(11),
+        ],
+        "should skip duplicates"
+    );
 }
 
 #[test]
