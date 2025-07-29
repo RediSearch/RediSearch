@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
-#include "hybrid_reader.h"
+#include "iterators/hybrid_reader.h"
 #include "iterators/idlist_iterator.h"
 #include "query_param.h"
 #include "rdb.h"

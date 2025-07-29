@@ -37,6 +37,15 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 #include "iterators/inverted_index_iterator.h"
+#include "iterators/wildcard_iterator.h"
+#include "iterators/union_iterator.h"
+#include "iterators/intersection_iterator.h"
+#include "iterators/optional_iterator.h"
+#include "iterators/not_iterator.h"
+#include "iterators/idlist_iterator.h"
+#include "iterators/empty_iterator.h"
+#include "iterators/hybrid_reader.h"
+#include "iterators/optimizer_reader.h"
 
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
@@ -141,7 +150,7 @@ void RangeNumber_Free(RangeNumber *r) {
 // Add a new metric request to the metricRequests array. Returns the index of the request
 static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr) {
   MetricRequest mr = {metric_name, key_addr};
-  *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
+  array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
 }
 
@@ -512,7 +521,7 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-  return Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
+  return Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
 }
 
 static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
@@ -529,14 +538,14 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
 
   // Open an index reader
   QueryIterator *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
-                                       q->opts->fieldmask & opts->fieldMask, q->conc, 1);
+                                       q->opts->fieldmask & opts->fieldMask, 1);
 
   if (!ir) {
     Term_Free(term);
     return;
   }
 
-  (*its)[(*itsSz)++] = it;
+  (*its)[(*itsSz)++] = ir;
   if (*itsSz == *itsCap) {
     *itsCap *= 2;
     *its = rm_realloc(*its, (*itsCap) * sizeof(*its));
@@ -791,7 +800,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   tok.str = runesToStr(r, n, &tok.len);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   QueryIterator *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
-                                       q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+                                       q->opts->fieldmask & ctx->opts->fieldMask, 1);
   rm_free(tok.str);
   if (!ir) {
     Term_Free(term);
@@ -812,7 +821,7 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSToken tok = {.str = (char *)s, .len = n};
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   QueryIterator *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
-                                       q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+                                       q->opts->fieldmask & ctx->opts->fieldMask, 1);
   if (!ir) {
     Term_Free(term);
     return REDISEARCH_OK;
@@ -885,8 +894,7 @@ static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryIterator *ret;
 
   if (node->exact) {
-    ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
-                              EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
+    ret = NewIntersectionIterator(iters, QueryNode_NumChildren(qn), 0, 1, qn->opts.weight);
   } else {
     // Let the query node override the slop/order parameters
     int slop = qn->opts.maxSlop;
@@ -902,8 +910,7 @@ static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
       slop = __INT_MAX__;
     }
 
-    ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
-                              EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight);
+    ret = NewIntersectionIterator(iters, QueryNode_NumChildren(qn), slop, inOrder, qn->opts.weight);
   }
   return ret;
 }
@@ -912,7 +919,7 @@ static QueryIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_WILDCARD, "query node type should be wildcard");
   RS_LOG_ASSERT(q->docTable, "DocTable is NULL");
 
-  return NewWildcardIterator(q);
+  return NewWildcardIterator(q, qn->opts.weight);
 }
 
 static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1002,7 +1009,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // Add the score field name to the ast score field names array.
   // This function creates the array if it's the first name, and ensure its size is sufficient.
-  size_t idx = -1;
+  size_t idx;
   if (qn->vn.vq->scoreField) {
     idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
   }
@@ -1020,7 +1027,14 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If iterator was created successfully, and we have a metric to yield, update the
   // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
   if (it && qn->vn.vq->scoreField) {
-    array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &it->ownKey;
+    RS_ASSERT(it->type == HYBRID_ITERATOR || it->type == METRIC_ITERATOR);
+    if (it->type == HYBRID_ITERATOR) {
+      HybridIterator *hybridIt = (HybridIterator *)it;
+      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &hybridIt->ownKey;
+    } else {
+      MetricIterator *metricIt = (MetricIterator *)it;
+      array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &metricIt->ownKey;
+    }
   }
   if (it == NULL && child_it != NULL) {
     child_it->Free(child_it);

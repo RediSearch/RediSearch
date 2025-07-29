@@ -1110,7 +1110,7 @@ static void rpProfileFree(ResultProcessor *base) {
   rm_free(rp);
 }
 
-ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qiter) {
   RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
 
   rpp->profileCount = 0;

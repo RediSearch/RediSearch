@@ -6,7 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "optimizer_reader.h"
+#include "iterators/optimizer_reader.h"
+#include "iterators/empty_iterator.h"
 #include "aggregate/aggregate.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
