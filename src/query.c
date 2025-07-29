@@ -1042,13 +1042,13 @@ static int cmp_docids(const void *p1, const void *p2) {
 }
 
 static inline size_t deduplicateDocIdsFrom(t_docId *ids, size_t num, size_t start) {
-  size_t j = start;
+  size_t j = start - 1;
   for (size_t i = start + 1; i < num; ++i) {
     if (ids[i] != ids[j]) {
-      ids[j++] = ids[i];
+      ids[++j] = ids[i];
     }
   }
-  return j;
+  return j + 1;
 }
 
 static inline size_t deduplicateDocIds(t_docId *ids, size_t num) {
