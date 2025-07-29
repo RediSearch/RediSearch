@@ -62,23 +62,6 @@ endif
 
 ifeq ($(COV),1)
 	BUILD_ARGS += COV=1
-	CC_FLAGS.common += -DCOVERAGE
-endif
-
-ifneq ($(RUST_PROFILE),)
-	BUILD_ARGS += RUST_PROFILE=$(RUST_PROFILE)
-endif
-
-ifeq ($(RUST_DYN_CRT),1)
-	BUILD_ARGS += RUST_DYN_CRT=1
-endif
-
-ifeq ($(RUN_MIRI),1)
-	BUILD_ARGS += RUN_MIRI=1
-endif
-
-ifeq ($(RUST_DENY_WARNS),1)
-	BUILD_ARGS += RUST_DENY_WARNS=1
 endif
 
 # Test arguments
@@ -96,8 +79,6 @@ endif
 
 ifeq ($(MT),1)
 $(info ### Multithreading enabled)
-	CC_FLAGS.common += -DMT_BUILD
-	_CMAKE_FLAGS += -DMT_BUILD=ON
 	override REDISEARCH_MT_BUILD=1
 	export REDISEARCH_MT_BUILD
 endif
@@ -107,37 +88,6 @@ $(info ### Multithreading disabled)
 	override REDISEARCH_MT_BUILD=0
 	export REDISEARCH_MT_BUILD
 endif
-
-ifeq ($(VERBOSE_UTESTS),1)
-	CC_FLAGS.common += -DVERBOSE_UTESTS
-endif
-
-ifeq ($(ENABLE_ASSERT),1)
-	CC_FLAGS.common += -DENABLE_ASSERT
-endif
-
-ifeq ($(STATIC),1)
-	CMAKE_STATIC += -DBUILD_STATIC=ON
-endif
-
-ifneq ($(COORD),)
-	CMAKE_COORD += -DCOORD_TYPE=$(COORD)
-endif
-
-ifeq ($(TESTS),0)
-	CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=OFF
-else
-	CMAKE_TEST=-DBUILD_SEARCH_UNIT_TESTS=ON
-endif
-
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN) -DCOV=$(COV)
-
-ifeq ($(OS),macos)
-	_CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
-endif
-
-_CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
-
 
 # If SA is set but REDIS_STANDALONE is not, use SA as REDIS_STANDALONE
 ifneq ($(SA),)
@@ -187,8 +137,6 @@ Build:
     FORCE=1            Force clean build
     SAN=type           Build with sanitizer (address|memory|leak|thread)
     COV=1              Build with coverage instrumentation
-    RUST_PROFILE=name  Rust profile to use (default: release)
-    RUST_DYN_CRT=1     Use dynamic C runtime linking (for Alpine Linux)
     VERBOSE=1          Verbose build output
 
   make clean         Remove build artifacts
@@ -197,10 +145,6 @@ Build:
 Testing:
   make test          Run all tests
   make unit-tests    Run unit tests (C and C++)
-  make rust-tests    Run Rust tests
-    RUN_MIRI=1            Run Rust tests through miri to catch undefined behavior
-    RUST_DENY_WARNS=1     Deny all Rust compiler warnings
-    RUST_DYN_CRT=1        Use dynamic C runtime linking (for Alpine Linux)
   make pytest        Run Python tests
     COORD=oss|rlec        Test coordinator type (default: oss)
     REDIS_STANDALONE=1|0  Test with standalone/cluster Redis
@@ -214,7 +158,6 @@ Development:
     WITH_RLTEST=1      Run using RLTest framework
     GDB=1              Invoke using gdb
     CLANG=1            Use lldb instead of gdb (when GDB=1)
-  make lint          Run linters
   make fmt           Format source files
     CHECK=1            Check formatting without modifying files
 
@@ -271,10 +214,6 @@ unit-tests: $(BUILD_SCRIPT)
 	@echo "Running unit tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_UNIT_TESTS
 
-rust-tests: $(BUILD_SCRIPT)
-	@echo "Running Rust tests..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_RUST_TESTS
-
 pytest: $(BUILD_SCRIPT)
 	@echo "Running Python tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_PYTEST
@@ -326,11 +265,6 @@ run:
 			redis-server --loadmodule "$$MODULE_PATH"; \
 		fi; \
 	fi
-
-lint:
-	@echo "Running linters..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
 
 fmt:
 ifeq ($(CHECK),1)
@@ -408,6 +342,6 @@ callgrind:
 		--loadmodule $$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1)
 
 
-.PHONY: help build clean test unit-tests rust-tests pytest
-.PHONY: run lint fmt license-check pack upload-artifacts
+.PHONY: help build clean test unit-tests pytest
+.PHONY: run fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
