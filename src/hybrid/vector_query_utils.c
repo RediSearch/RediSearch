@@ -14,18 +14,11 @@
 void ParsedVectorQuery_Free(ParsedVectorQuery *pvq) {
   RS_ASSERT(pvq);
 
-  // Vector data is NOT owned (just a reference to args) - don't free it
+  // pvq.fieldName and pvq.vector are NOT owned (just a reference to args) - don't free it
 
   // Free QueryAttribute arrays with callback
   if (pvq->attributes) {
-    array_free_ex(pvq->attributes, {
-      QueryAttribute *attr = (QueryAttribute*)ptr;
-      // Only free values that weren't transferred (still non-NULL)
-      if (attr->value) {
-        rm_free((char*)attr->value);
-      }
-      // Note: .name is not freed because it points to string literals like "yield_distance_as"
-    });
+    array_free_ex(pvq->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
   }
 
   rm_free(pvq);

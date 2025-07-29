@@ -1201,6 +1201,8 @@ static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, 
   // Apply attributes if any (this will transfer ownership of attribute values)
   if (pvq->attributes && array_len(pvq->attributes) > 0) {
     QueryNode_ApplyAttributes(vecNode, pvq->attributes, array_len(pvq->attributes), status);
+    array_free_ex(pvq->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
+    pvq->attributes = NULL;  // Clear the pointer to avoid double-free
   }
 
   QueryNode_AddChild(vecNode, ast->root);
