@@ -158,6 +158,7 @@ Development:
     WITH_RLTEST=1      Run using RLTest framework
     GDB=1              Invoke using gdb
     CLANG=1            Use lldb instead of gdb (when GDB=1)
+  make lint          Run linters
   make fmt           Format source files
     CHECK=1            Check formatting without modifying files
 
@@ -266,6 +267,11 @@ run:
 		fi; \
 	fi
 
+lint:
+	@echo "Running linters..."
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
+
 fmt:
 ifeq ($(CHECK),1)
 	@echo "Checking code formatting..."
@@ -343,5 +349,5 @@ callgrind:
 
 
 .PHONY: help build clean test unit-tests pytest
-.PHONY: run fmt license-check pack upload-artifacts
+.PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
