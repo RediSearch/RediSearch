@@ -5,200 +5,9 @@
 # backward compatibility for existing make targets while using build.sh for
 # all actual build operations.
 #-----------------------------------------------------------------------------
-#-----------------------------------------------------------------------------
-# RediSearch Makefile
-#
-# This Makefile acts as a thin wrapper around the build.sh script, providing
-# backward compatibility for existing make targets while using build.sh for
-# all actual build operations.
-#-----------------------------------------------------------------------------
 
 .NOTPARALLEL:
 
-MAKEFLAGS += --no-print-directory
-
-ROOT := $(shell pwd)
-BUILD_SCRIPT := $(ROOT)/build.sh
-
-# Default target
-.DEFAULT_GOAL := build
-
-# Ensure build.sh is executable
-$(BUILD_SCRIPT):
-	@chmod +x $(BUILD_SCRIPT)
-
-#-----------------------------------------------------------------------------
-# Build script argument construction
-#-----------------------------------------------------------------------------
-
-# Convert Makefile variables to build.sh arguments
-BUILD_ARGS :=
-
-# Coordinator type
-ifeq ($(COORD),1)
-	override COORD := oss
-else ifeq ($(COORD),)
-	override COORD := oss
-endif
-BUILD_ARGS += COORD=$(COORD)
-
-# Build flags
-ifeq ($(DEBUG),1)
-	BUILD_ARGS += DEBUG
-endif
-
-ifeq ($(PROFILE),1)
-	BUILD_ARGS += PROFILE
-endif
-
-ifeq ($(TESTS),1)
-	BUILD_ARGS += TESTS
-endif
-
-ifeq ($(FORCE),1)
-	BUILD_ARGS += FORCE
-endif
-
-ifeq ($(VERBOSE),1)
-	BUILD_ARGS += VERBOSE
-endif
-
-ifneq ($(SAN),)
-	BUILD_ARGS += SAN=$(SAN)
-endif
-
-ifeq ($(COV),1)
-	BUILD_ARGS += COV=1
-endif
-
-ifneq ($(RUST_PROFILE),)
-	BUILD_ARGS += RUST_PROFILE=$(RUST_PROFILE)
-endif
-
-ifeq ($(RUST_DYN_CRT),1)
-	BUILD_ARGS += RUST_DYN_CRT=1
-endif
-
-ifeq ($(RUN_MIRI),1)
-	BUILD_ARGS += RUN_MIRI=1
-endif
-
-ifeq ($(RUST_DENY_WARNS),1)
-	BUILD_ARGS += RUST_DENY_WARNS=1
-endif
-
-# Test arguments
-ifneq ($(TEST),)
-	BUILD_ARGS += TEST=$(TEST)
-endif
-
-ifeq ($(QUICK),1)
-	BUILD_ARGS += QUICK=1
-endif
-
-# If SA is set but REDIS_STANDALONE is not, use SA as REDIS_STANDALONE
-ifneq ($(SA),)
-ifeq ($(REDIS_STANDALONE),)
-    override REDIS_STANDALONE := $(SA)
-endif
-endif
-
-# Pass REDIS_STANDALONE to build script (SA is handled as fallback in test scripts)
-ifneq ($(REDIS_STANDALONE),)
-    BUILD_ARGS += REDIS_STANDALONE=$(REDIS_STANDALONE)
-endif
-
-# Package variables (used by pack target)
-MODULE_NAME := search
-PACKAGE_NAME ?=
-RAMP_VARIANT ?=
-RAMP_ARGS ?=
-
-# Set RAMP_VARIANT and PACKAGE_NAME based on COORD if not explicitly set
-ifeq ($(RAMP_VARIANT),)
-ifeq ($(COORD),rlec)
-	override RAMP_VARIANT := enterprise
-	override PACKAGE_NAME := redisearch
-else
-	override RAMP_VARIANT := community
-	override PACKAGE_NAME := redisearch-community
-endif
-endif
-
-#-----------------------------------------------------------------------------
-# Main targets
-#-----------------------------------------------------------------------------
-
-define HELPTEXT
-RediSearch Build System
-
-Setup:
-  make fetch         Download and prepare dependent modules
-
-Build:
-  make build         Compile and link
-    COORD=oss|rlec     Build coordinator (default: oss)
-    DEBUG=1            Build for debugging
-    PROFILE=1          Build with profiling support
-    TESTS=1            Build unit tests
-    FORCE=1            Force clean build
-    SAN=type           Build with sanitizer (address|memory|leak|thread)
-    COV=1              Build with coverage instrumentation
-    RUST_PROFILE=name  Rust profile to use (default: release)
-    RUST_DYN_CRT=1     Use dynamic C runtime linking (for Alpine Linux)
-    VERBOSE=1          Verbose build output
-
-  make clean         Remove build artifacts
-    ALL=1              Remove entire artifacts directory
-
-Testing:
-  make test          Run all tests
-  make unit-tests    Run unit tests (C and C++)
-  make rust-tests    Run Rust tests
-    RUN_MIRI=1            Run Rust tests through miri to catch undefined behavior
-    RUST_DENY_WARNS=1     Deny all Rust compiler warnings
-    RUST_DYN_CRT=1        Use dynamic C runtime linking (for Alpine Linux)
-  make pytest        Run Python tests
-    COORD=oss|rlec        Test coordinator type (default: oss)
-    REDIS_STANDALONE=1|0  Test with standalone/cluster Redis
-    SA=1|0                Alias for REDIS_STANDALONE
-    TEST=name             Run specified test
-    QUICK=1               Run quick test subset
-
-Development:
-  make run           Run Redis with RediSearch
-    COORD=oss|rlec     Run with coordinator type (default: oss)
-    WITH_RLTEST=1      Run using RLTest framework
-    GDB=1              Invoke using gdb
-    CLANG=1            Use lldb instead of gdb (when GDB=1)
-  make lint          Run linters
-  make fmt           Format source files
-    CHECK=1            Check formatting without modifying files
-
-Packaging:
-  make pack          Create installation packages
-    RAMP_VARIANT=name  Use specific RAMP variant (community|enterprise)
-                       Default: community for oss, enterprise for rlec
-
-Benchmarks:
-  make benchmark        Run performance benchmarks
-  make micro-benchmarks Run micro-benchmarks
-  make vecsim-bench     Run VecSim micro-benchmarks
-endef # HELPTEXT
-
-help:
-	$(info $(HELPTEXT))
-	@:
-
-fetch:
-	@echo "Fetching dependencies..."
-	@git submodule update --init --recursive
-
-build: $(BUILD_SCRIPT) verify-deps
-	@echo "Building RediSearch..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS)
-
-verify-deps:
 MAKEFLAGS += --no-print-directory
 
 ROOT := $(shell pwd)
@@ -389,45 +198,21 @@ verify-deps:
 			echo -e "\033[0;33mIGNORE_MISSING_DEPS is set. Ignoring dependency check failure.\033[0m"; \
 		else \
 			echo ""; \
-			echo ""; \
 			echo -e "\033[0;31mDependency check failed. You can bypass this check by running:\033[0m"; \
 			echo -e "\033[0;31m\033[1mmake IGNORE_MISSING_DEPS=1 ...\033[0m"; \
 			exit 1; \
 		fi; \
 	fi
-			exit 1; \
-		fi; \
-	fi
 
 clean:
-clean:
 ifeq ($(ALL),1)
-	@echo "Cleaning all build artifacts..."
-	@rm -rf $(ROOT)/bin
 	@echo "Cleaning all build artifacts..."
 	@rm -rf $(ROOT)/bin
 else
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(ROOT)/bin/*/search-*
-	@echo "Cleaning build artifacts..."
-	@rm -rf $(ROOT)/bin/*/search-*
 endif
 
-test: $(BUILD_SCRIPT)
-	@echo "Running all tests..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_TESTS
-
-unit-tests: $(BUILD_SCRIPT)
-	@echo "Running unit tests..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_UNIT_TESTS
-
-rust-tests: $(BUILD_SCRIPT)
-	@echo "Running Rust tests..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_RUST_TESTS
-
-pytest: $(BUILD_SCRIPT)
-	@echo "Running Python tests..."
-	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_PYTEST
 test: $(BUILD_SCRIPT)
 	@echo "Running all tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_TESTS
@@ -449,54 +234,11 @@ ifeq ($(FORCE),1)
 	@cd src/aggregate/expr && rm -f lexer.c parser.c
 	@$(MAKE) -C src/query_parser/v1 clean
 	@$(MAKE) -C src/query_parser/v2 clean
-	@cd src/aggregate/expr && rm -f lexer.c parser.c
-	@$(MAKE) -C src/query_parser/v1 clean
-	@$(MAKE) -C src/query_parser/v2 clean
 endif
 	@$(MAKE) -C src/aggregate/expr
 	@$(MAKE) -C src/query_parser/v1
 	@$(MAKE) -C src/query_parser/v2
-	@$(MAKE) -C src/aggregate/expr
-	@$(MAKE) -C src/query_parser/v1
-	@$(MAKE) -C src/query_parser/v2
 
-run:
-	@find_module() { \
-		if [ "$(COORD)" = "rlec" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
-			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
-				exit 1; \
-			fi; \
-		else \
-			MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
-			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
-				exit 1; \
-			fi; \
-		fi; \
-		echo "Using module: $$MODULE_PATH"; \
-	}; \
-	if [ "$(WITH_RLTEST)" = "1" ]; then \
-		echo "Starting Redis with RediSearch using RLTest..."; \
-		find_module; \
-		REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_ARGS=$(REJSON_ARGS) \
-		FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
-		$(ROOT)/tests/pytests/runtests.sh "$$MODULE_PATH"; \
-	else \
-		echo "Starting Redis with RediSearch..."; \
-		find_module; \
-		if [ "$(GDB)" = "1" ]; then \
-			echo "Starting with GDB..."; \
-			if [ "$(CLANG)" = "1" ]; then \
-				lldb -o run -- redis-server --loadmodule "$$MODULE_PATH"; \
-			else \
-				gdb -ex r --args redis-server --loadmodule "$$MODULE_PATH"; \
-			fi; \
-		else \
-			redis-server --loadmodule "$$MODULE_PATH"; \
-		fi; \
-	fi
 run:
 	@find_module() { \
 		if [ "$(COORD)" = "rlec" ]; then \
@@ -539,20 +281,12 @@ lint:
 	@echo "Running linters..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
 	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
-	@echo "Running linters..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
 
-fmt:
 fmt:
 ifeq ($(CHECK),1)
 	@echo "Checking code formatting..."
 	@cd $(ROOT)/src/redisearch_rs && cargo fmt -- --check
-	@echo "Checking code formatting..."
-	@cd $(ROOT)/src/redisearch_rs && cargo fmt -- --check
 else
-	@echo "Formatting code..."
-	@cd $(ROOT)/src/redisearch_rs && cargo fmt
 	@echo "Formatting code..."
 	@cd $(ROOT)/src/redisearch_rs && cargo fmt
 endif
@@ -593,9 +327,6 @@ pack: build
 	fi
 
 upload-artifacts:
-	@echo "Uploading artifacts..."
-	@$(ROOT)/sbin/upload-artifacts
-
 	@echo "Uploading artifacts..."
 	@$(ROOT)/sbin/upload-artifacts
 
