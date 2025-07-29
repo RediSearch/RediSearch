@@ -131,13 +131,13 @@ DEBUG_COMMAND(DumpTerms) {
 }
 
 static double InvertedIndexGetEfficiency(InvertedIndex *invidx) {
-  return ((double)invidx->numEntries)/(invidx->size);
+  return ((double)InvertedIndex_NumEntries(invidx))/(invidx->size);
 }
 
 static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *invidx) {
   size_t invIdxBulkLen = 0;
   REPLY_WITH_LONG_LONG("numDocs", InvertedIndex_NumDocs(invidx), invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numEntries", invidx->numEntries, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numEntries", InvertedIndex_NumEntries(invidx), invIdxBulkLen);
   REPLY_WITH_LONG_LONG("lastId", InvertedIndex_LastId(invidx), invIdxBulkLen);
   REPLY_WITH_LONG_LONG("flags", InvertedIndex_Flags(invidx), invIdxBulkLen);
   REPLY_WITH_LONG_LONG("numberOfBlocks", invidx->size, invIdxBulkLen);
@@ -358,7 +358,7 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
   START_POSTPONED_LEN_ARRAY(invertedIndexDump);
 
   REPLY_WITH_LONG_LONG("numDocs", InvertedIndex_NumDocs(idx), ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("numEntries", idx->numEntries, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("numEntries", InvertedIndex_NumEntries(idx), ARRAY_LEN_VAR(invertedIndexDump));
   REPLY_WITH_LONG_LONG("lastId", InvertedIndex_LastId(idx), ARRAY_LEN_VAR(invertedIndexDump));
   REPLY_WITH_LONG_LONG("size", idx->size, ARRAY_LEN_VAR(invertedIndexDump));
   REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", indexStats.blocks_efficiency, ARRAY_LEN_VAR(invertedIndexDump));

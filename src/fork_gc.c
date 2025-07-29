@@ -831,7 +831,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   MSG_IndexInfo *info = &ninfo->info;
   size_t blocksSinceFork = currNode->range->entries->size - info->nblocksOrig; // record before applying changes
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
-  currNode->range->entries->numEntries -= info->nentriesCollected;
+  InvertedIndex_SetNumEntries(currNode->range->entries, InvertedIndex_NumEntries(currNode->range->entries) - info->nentriesCollected);
   currNode->range->invertedIndexSize += info->nbytesAdded;
   currNode->range->invertedIndexSize -= info->nbytesCollected;
 

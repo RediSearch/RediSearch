@@ -90,6 +90,16 @@ void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker) {
   idx->gcMarker = marker;
 }
 
+uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx) {
+  return (idx->flags & Index_StoreNumeric) ? idx->numEntries : 0;
+}
+
+void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries) {
+  if (idx->flags & Index_StoreNumeric) {
+    idx->numEntries = numEntries;
+  }
+}
+
 size_t indexBlock_Free(IndexBlock *blk) {
   return Buffer_Free(IndexBlock_Buffer(blk));
 }

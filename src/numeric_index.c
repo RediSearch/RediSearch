@@ -135,7 +135,7 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
   rv->sz += lr->invertedIndexSize + rr->invertedIndexSize;
 
   QueryIterator *iter = NewInvIndIterator_NumericFull(r->entries);
-  double split = NumericRange_GetMedian(iter, r->entries->numEntries);
+  double split = NumericRange_GetMedian(iter, InvertedIndex_NumEntries(r->entries));
   if (split == r->minVal) {
     // make sure the split is not the same as the min value
     split = nextafter(split, INFINITY);
@@ -166,7 +166,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
   // free resources
   rv->sz -= temp->invertedIndexSize;
-  rv->numRecords -= temp->entries->numEntries;
+  rv->numRecords -= InvertedIndex_NumEntries(temp->entries);
   InvertedIndex_Free(temp->entries);
   hll_destroy(&temp->hll);
   rm_free(temp);
@@ -233,7 +233,7 @@ static void NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double va
 
     size_t card = getCardinality(n->range);
     if (card >= getSplitCardinality(depth) ||
-        (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
+        (InvertedIndex_NumEntries(n->range->entries) > NR_MAXRANGE_SIZE && card > 1)) {
 
       // split this node but don't delete its range
       NumericRangeNode_Split(n, rv);
