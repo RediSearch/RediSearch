@@ -45,6 +45,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), &areq->conc, areq->reqflags, &req->errors[i]);
+
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
         // Worth noting that in the current syntax we expect the AGGPlan to be empty
@@ -110,6 +112,53 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         AGPLN_AddStep(&req->tailPipeline->ap, &loadStep->base);
     }
     return REDISMODULE_OK;
+}
+
+/**
+ * Execute the hybrid search pipeline and send results to the client.
+ * This function creates a temporary AREQ wrapper around the tail pipeline
+ * and uses the hybrid-specific result serialization functions.
+ *
+ * @param req The HybridRequest with built pipeline
+ * @param ctx Redis module context for sending the reply
+ */
+void HybridRequest_Execute(HybridRequest *req, RedisModuleCtx *ctx) {
+    // Create temporary AREQ wrapper around tail pipeline
+    AREQ *tailAREQ = AREQ_New();
+
+    // Transfer the tail pipeline to the AREQ (without copying)
+    tailAREQ->pipeline = *req->tailPipeline;
+
+    // Set up the search context from the hybrid parameters
+    tailAREQ->sctx = req->hybridParams->aggregationParams.common.sctx;
+
+    // Copy request configuration from the first individual request
+    if (req->nrequests > 0) {
+        tailAREQ->reqflags = req->requests[0]->reqflags;
+        tailAREQ->reqConfig = req->requests[0]->reqConfig;
+        tailAREQ->maxAggregateResults = req->requests[0]->maxAggregateResults;
+        tailAREQ->maxSearchResults = req->requests[0]->maxSearchResults;
+    }
+
+    // Set up the reply
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+
+    // Set up cached variables for result serialization
+    AGGPlan *plan = AREQ_AGGPlan(tailAREQ);
+    cachedVars cv = {
+        .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+        .lastAstp = AGPLN_GetArrangeStep(plan)
+    };
+
+    // Execute the hybrid pipeline using the specialized hybrid serialization
+    sendChunk_hybrid(tailAREQ, reply, UINT64_MAX, cv);
+
+    RedisModule_EndReply(reply);
+
+    // Clean up the temporary AREQ without freeing the pipeline
+    // (the pipeline belongs to the HybridRequest)
+    tailAREQ->pipeline = (Pipeline){0}; // Clear pipeline reference
+    AREQ_Free(tailAREQ);
 }
 
 /**

@@ -275,6 +275,9 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vectorRequest, QueryError *
   }
   AC_Advance(ac);
 
+  // Initialize aggregation plan for vector request
+  AGPLN_Init(AREQ_AGGPlan(vectorRequest));
+
   // Allocate ParsedVectorQuery
   ParsedVectorQuery *pvq = rm_calloc(1, sizeof(ParsedVectorQuery));
 
@@ -656,6 +659,36 @@ error:
   return NULL;
 }
 
+
+static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
+  RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
+  RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
+
+  if (RunInThread()) {
+    // TODO: Implement multi-threaded execution
+    return REDISMODULE_ERR;
+  } else {
+    // Lock both specs for read
+    // RedisSearchCtx_LockSpecRead(sctx1);
+    // RedisSearchCtx_LockSpecRead(sctx2);
+
+    int result = REDISMODULE_OK;
+    // Build the pipeline and execute
+    if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
+      result = REDISMODULE_ERR;
+    } else {
+      HybridRequest_Execute(hreq, ctx);
+    }
+
+    // Always unlock both specs
+    // RedisSearchCtx_UnlockSpec(sctx1);
+    // RedisSearchCtx_UnlockSpec(sctx2);
+    CurrentThread_ClearIndexSpec();
+
+    return result;
+  }
+}
+
 /**
  * Main command handler for FT.HYBRID command.
  *
@@ -686,11 +719,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HybridRequest_BuildPipeline(hybridRequest, hybridRequest->hybridParams) != REDISMODULE_OK) {
+  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, &status) != REDISMODULE_OK) {
     goto error;
   }
-
-  // TODO: Add execute command here
 
   StrongRef_Release(spec_ref);
   HybridRequest_Free(hybridRequest);

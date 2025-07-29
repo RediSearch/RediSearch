@@ -54,11 +54,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   }
 }
 
-/** Cached variables to avoid serializeResult retrieving these each time */
-typedef struct {
-  RLookup *lastLk;
-  const PLN_ArrangeStep *lastAstp;
-} cachedVars;
+
 
 static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
   RedisModuleCtx *outctx = reply->ctx;
@@ -527,7 +523,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
  * not support cursors and profiling, thus this function does not handle
  * those cases. Support should be added as these features are added.
  */
-static void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
+void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
