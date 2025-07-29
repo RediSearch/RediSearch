@@ -136,7 +136,7 @@ class ReducerOptionsCXX : public ReducerOptions {
 };
 
 TEST_F(AggTest, testGroupBy) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
   RPMock ctx;
   RLookup rk_in = {0};
   const char *values[] = {"foo", "bar", "baz", "foo"};
@@ -203,7 +203,7 @@ class ArrayGenerator : public ResultProcessor {
 };
 
 TEST_F(AggTest, testGroupSplit) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
   ArrayGenerator gen;
   RLookup lk_in = {0};
   RLookup lk_out = {0};
