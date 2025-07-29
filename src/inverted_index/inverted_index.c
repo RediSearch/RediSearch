@@ -62,6 +62,14 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   return idx;
 }
 
+uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx) {
+  return idx->gcMarker;
+}
+
+void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker) {
+  idx->gcMarker = marker;
+}
+
 size_t indexBlock_Free(IndexBlock *blk) {
   return Buffer_Free(IndexBlock_Buffer(blk));
 }

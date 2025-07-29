@@ -106,6 +106,9 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 
+uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx);
+void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker);
+
 t_docId IndexBlock_FirstId(const IndexBlock *b);
 t_docId IndexBlock_LastId(const IndexBlock *b);
 uint16_t IndexBlock_NumEntries(const IndexBlock *b);

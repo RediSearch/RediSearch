@@ -757,7 +757,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   idxData->changedBlocks = NULL;
 
   idx->numDocs -= info->ndocsCollected;
-  idx->gcMarker++;
+  InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
   RS_LOG_ASSERT(idx->size, "Index should have at least one block");
   idx->lastId = IndexBlock_LastId(&idx->blocks[idx->size - 1]); // Update lastId
 }

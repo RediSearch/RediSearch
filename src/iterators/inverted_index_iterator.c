@@ -52,7 +52,7 @@ void InvIndIterator_Rewind(QueryIterator *base) {
   base->lastDocId = 0;
   base->current->docId = 0;
   it->currentBlock = 0;
-  it->gcMarker = it->idx->gcMarker;
+  it->gcMarker = InvertedIndex_GcMarker(it->idx);
   SetCurrentBlockReader(it);
 }
 
@@ -129,7 +129,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
   }
 
   // the gc marker tells us if there is a chance the keys have undergone GC while we were asleep
-  if (it->gcMarker == it->idx->gcMarker) {
+  if (it->gcMarker == InvertedIndex_GcMarker(it->idx)) {
     // no GC - we just go to the same offset we were at.
     // Reset the buffer pointer in case it was reallocated
     it->blockReader.buffReader.buf = IndexBlock_Buffer(&CURRENT_BLOCK(it));
@@ -504,7 +504,7 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   it->idx = idx;
   it->currentBlock = 0;
-  it->gcMarker = idx->gcMarker;
+  it->gcMarker = InvertedIndex_GcMarker(idx);
   it->decoders = InvertedIndex_GetDecoder(idx->flags);
   it->decoderCtx = *decoderCtx;
   it->skipMulti = skipMulti; // Original request, regardless of what implementation is chosen
