@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "low_memory_thin_vec.h"
 /**
  * Forward declarations which will be defined in `redisearch.h`
  */
@@ -45,6 +46,13 @@ typedef uint32_t RSResultType;
  * An iterator over the results in an [`RSAggregateResult`].
  */
 typedef struct RSAggregateResultIter RSAggregateResultIter;
+
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct LowMemoryThinVecRSIndexResult {
+  Header *ptr;
+} LowMemoryThinVecRSIndexResult;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -165,20 +173,21 @@ typedef BitFlags_RSResultType__u32 RSResultTypeMask;
 
 /**
  * Represents an aggregate array of values in an index record.
+ *
+ * The C code should always use `AggregateResult_New` to construct a new instance of this type
+ * using Rust since the internals cannot be constructed directly in C. The reason is because of
+ * the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+ * managed correctly.
  */
 typedef struct RSAggregateResult {
   /**
-   * The number of child records
+   * The records making up this aggregate result
+   *
+   * The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+   * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  int numChildren;
-  /**
-   * The capacity of the records array. Has no use for extensions
-   */
-  int childrenCap;
-  /**
-   * An array of records
-   */
-  struct RSIndexResult **children;
+  struct LowMemoryThinVecRSIndexResult records;
   /**
    * A map of the aggregate type of the underlying records
    */
@@ -282,6 +291,16 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Check if the result is an aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+bool IndexResult_IsAggregate(const struct RSIndexResult *result);
+
+/**
  * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
  * if the index is out of bounds.
  *
@@ -335,6 +354,38 @@ uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
 void AggregateResult_Reset(struct RSAggregateResult *agg);
+
+/**
+ * Create a new aggregate result with the specified capacity. This function will make the result
+ * in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
+ * should return to Rust to free up any heap memory using [`AggregateResult_Free`].
+ */
+struct RSAggregateResult AggregateResult_New(uintptr_t cap);
+
+/**
+ * Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
+ * free the individual children pointers, but rather the heap allocations owned by the aggregate
+ * result itself (such as the internal vector buffer). The caller is responsible for managing the
+ * memory of the children pointers before this call if needed.
+ *
+ * The `agg` parameter should have been created with [`AggregateResult_New`].
+ */
+void AggregateResult_Free(struct RSAggregateResult agg);
+
+/**
+ * Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
+ * the `child` and will therefore not free it. Instead, the caller is responsible for managing
+ * the memory of the `child` pointer *after* the `parent` has been freed.
+ *
+ * If the `parent` is not an aggregate type, then this is a no-op.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
 
 /**
  * Create an iterator over the aggregate result. This iterator should be freed

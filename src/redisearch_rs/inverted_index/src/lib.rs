@@ -8,7 +8,7 @@
 */
 
 use std::{
-    ffi::{c_char, c_int},
+    ffi::c_char,
     fmt::Debug,
     io::{BufRead, Cursor, Read, Seek, Write},
     mem::ManuallyDrop,
@@ -18,11 +18,23 @@ use std::{
 use enumflags2::{BitFlags, bitflags};
 use ffi::{FieldMask, RS_FIELDMASK_ALL};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
+use low_memory_thin_vec::LowMemoryThinVec;
 
 pub mod fields_only;
 pub mod freqs_fields;
 pub mod freqs_only;
 pub mod numeric;
+
+// Manually define some C functions, because we'll create a circular dependency if we use the FFI
+// crate to make them automatically.
+unsafe extern "C" {
+    /// Adds the metrics of a child [`RSIndexResult`] to the parent [`RSIndexResult`].
+    ///
+    /// # Safety
+    /// Both should be valid `RSIndexResult` instances.
+    #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
+    unsafe fn IndexResult_ConcatMetrics(parent: *mut RSIndexResult, child: *const RSIndexResult);
+}
 
 /// Trait used to correctly derive the delta needed for different encoders
 pub trait IdDelta
@@ -118,37 +130,48 @@ pub enum RSResultType {
 pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 
 /// Represents an aggregate array of values in an index record.
+///
+/// The C code should always use `AggregateResult_New` to construct a new instance of this type
+/// using Rust since the internals cannot be constructed directly in C. The reason is because of
+/// the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+/// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSAggregateResult {
-    /// The number of child records
-    num_children: c_int,
-
-    /// The capacity of the records array. Has no use for extensions
-    children_cap: c_int,
-
-    /// An array of records
-    children: *mut *mut RSIndexResult,
+    /// The records making up this aggregate result
+    ///
+    /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+    /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+    /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+    records: LowMemoryThinVec<*const RSIndexResult>,
 
     /// A map of the aggregate type of the underlying records
     type_mask: RSResultTypeMask,
 }
 
 impl RSAggregateResult {
+    /// Create a new empty aggregate result with the given capacity
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            records: LowMemoryThinVec::with_capacity(cap),
+            type_mask: RSResultTypeMask::empty(),
+        }
+    }
+
     /// The number of results in this aggregate result
     pub fn len(&self) -> usize {
-        self.num_children as _
+        self.records.len()
     }
 
     /// Check whether this aggregate result is empty
     pub fn is_empty(&self) -> bool {
-        self.num_children == 0
+        self.records.is_empty()
     }
 
     /// The capacity of the aggregate result
     pub fn capacity(&self) -> usize {
-        self.children_cap as _
+        self.records.capacity()
     }
 
     /// The current type mask of the aggregate result
@@ -169,16 +192,9 @@ impl RSAggregateResult {
     /// # Safety
     /// The caller must ensure that the memory at the given index is still valid
     pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
-        if index < self.num_children as usize {
-            // SAFETY: We are guaranteed that the index is within bounds because of the check above.
-            let result_ptr = unsafe { self.children.add(index) };
-
-            // SAFETY: It is safe to dereference the pointer because we correctly got it using
-            // `add` above.
-            let result_addr = unsafe { *result_ptr };
-
+        if let Some(result_addr) = self.records.get(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
-            Some(unsafe { &*result_addr })
+            Some(unsafe { &**result_addr })
         } else {
             None
         }
@@ -189,8 +205,19 @@ impl RSAggregateResult {
     /// Note, this does not deallocate the children pointers, it just resets the count and type
     /// mask. The owner of the children pointers is responsible for deallocating them when needed.
     pub fn reset(&mut self) {
-        self.num_children = 0;
+        self.records.clear();
         self.type_mask = RSResultTypeMask::empty();
+    }
+
+    /// Add a child to the aggregate result and update the type mask
+    ///
+    /// # Safety
+    /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
+    /// the child with [`Self::get()`] will cause undefined behavior.
+    pub fn push(&mut self, child: &RSIndexResult) {
+        self.records.push(child as *const _ as *mut _);
+
+        self.type_mask |= child.result_type;
     }
 }
 
@@ -213,18 +240,6 @@ impl<'a> Iterator for RSAggregateResultIter<'a> {
             Some(result)
         } else {
             None
-        }
-    }
-}
-
-impl RSAggregateResult {
-    /// Dummy until this is managed by Rust
-    pub fn with_capacity(cap: usize) -> Self {
-        Self {
-            num_children: 0,
-            children_cap: cap as _,
-            children: ptr::null_mut(),
-            type_mask: RSResultTypeMask::empty(),
         }
     }
 }
@@ -414,6 +429,59 @@ impl RSIndexResult {
             // SAFETY: We are guaranteed the record data is numeric because of the check we just
             // did on the `result_type`.
             Some(unsafe { &self.data.num })
+        } else {
+            None
+        }
+    }
+
+    /// True if this is an aggregate type
+    pub fn is_aggregate(&self) -> bool {
+        matches!(
+            self.result_type,
+            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+        )
+    }
+
+    /// If this is an aggregate result, then add a child to it. Also updates the following of this
+    /// record:
+    /// - The document ID will inherit the new child added
+    /// - The child's frequency will contribute to this result
+    /// - The child's field mask will contribute to this result's field mask
+    /// - If the child has metrics, then they will be concatenated to this result's metrics
+    ///
+    /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
+    /// to make sure this is an aggregate result.
+    ///
+    /// # Safety
+    ///
+    /// The given `result` has to stay valid for the lifetime of this index result. Else reading
+    /// from this result will cause undefined behaviour.
+    pub fn push(&mut self, child: &RSIndexResult) {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &mut self.data.agg };
+
+            agg.push(child);
+
+            self.doc_id = child.doc_id;
+            self.freq += child.freq;
+            self.field_mask |= child.field_mask;
+
+            // SAFETY: we know both arguments are valid `RSIndexResult` types
+            unsafe {
+                IndexResult_ConcatMetrics(self, child);
+            }
+        }
+    }
+
+    /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
+    /// an aggregate record or if the index is out-of-bounds.
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &self.data.agg };
+
+            agg.get(index)
         } else {
             None
         }
