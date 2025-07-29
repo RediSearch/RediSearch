@@ -659,8 +659,8 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs);
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->docs.size, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs); // FIXME: docs.size starts at 1???
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);

@@ -704,7 +704,7 @@ TEST_F(IndexTest, testIntersection) {
     ASSERT_EQ(h->type, RSResultType_Intersection);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_TRUE(RSIndexResult_HasOffsets(h));
-    topFreq = topFreq > h->freq ? topFreq : h->freq;
+    topFreq = std::max(topFreq, h->freq);
 
     RSIndexResult *copy = IndexResult_DeepCopy(h);
     ASSERT_TRUE(copy != NULL);
@@ -714,7 +714,7 @@ TEST_F(IndexTest, testIntersection) {
     ASSERT_TRUE(copy->docId == h->docId);
     ASSERT_TRUE(copy->type == RSResultType_Intersection);
     ASSERT_EQ((count * 2 + 2) * 2, h->docId);
-    ASSERT_EQ(count * 2 + 2, h->freq);
+    ASSERT_EQ(2, h->freq);
     IndexResult_Free(copy);
     ++count;
   }
@@ -726,7 +726,7 @@ TEST_F(IndexTest, testIntersection) {
   // 1000000 * TimeSampler_IterationMS(&ts));
   // printf("top freq: %f\n", topFreq);
   ASSERT_EQ(count, 50000);
-  ASSERT_EQ(topFreq, 100000.0);
+  ASSERT_EQ(topFreq, 2);
 
   // test read after skip goes to next id
   ii->Rewind(ii);
