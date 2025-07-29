@@ -44,7 +44,7 @@ static inline void UI_RemoveExhausted(UnionIterator *it, int idx) {
   it->its[idx] = it->its[--it->num]; // Also decrement the number of iterators
 }
 
-static inline void UI_SyncIterList(UnionIterator *ui) {
+void UI_SyncIterList(UnionIterator *ui) {
   ui->num = ui->num_orig;
   memcpy(ui->its, ui->its_orig, sizeof(*ui->its) * ui->num_orig);
   if (ui->heap_min_id) {

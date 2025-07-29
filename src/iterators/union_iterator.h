@@ -50,6 +50,9 @@ typedef struct {
 QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit, double weight,
                                 QueryNodeType type, const char *q_str, IteratorsConfig *config);
 
+// Sync state according to `its_orig` and `num_orig` (exposed for profile iterator injection)
+void UI_SyncIterList(UnionIterator *ui);
+
 #ifdef __cplusplus
 }
 #endif
