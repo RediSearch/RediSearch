@@ -1214,7 +1214,10 @@ def testInKeys(env):
             'ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 5, 'doc0', 'doc0', 'doc0', 'doc0', 'doc0'))
         res = env.cmd('ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 5, 'doc0', 'doc1', 'doc0', 'doc1', 'doc0')
         env.assertEqual(2, res[0])
-        env.assertEqual(set(res[1:]), {'doc0', 'doc1'})
+        env.assertEqual(sorted(res[1:]), ['doc0', 'doc1'])
+        res = env.cmd('ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 5, 'doc1', 'doc0', 'doc1', 'doc0', 'doc1')
+        env.assertEqual(2, res[0])
+        env.assertEqual(sorted(res[1:]), ['doc0', 'doc1'])
 
     with env.assertResponseError():
         env.cmd('ft.search', 'idx', 'hello', 'INKEYS', 99)
