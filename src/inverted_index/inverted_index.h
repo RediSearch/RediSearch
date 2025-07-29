@@ -107,9 +107,18 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 
-#define IndexBlock_DataBuf(b) (b)->buf.data
-#define IndexBlock_DataLen(b) (b)->buf.offset
-#define IndexBlock_DataCap(b) (b)->buf.cap
+t_docId IndexBlock_FirstId(const IndexBlock *b);
+t_docId IndexBlock_LastId(const IndexBlock *b);
+uint16_t IndexBlock_NumEntries(const IndexBlock *b);
+char *IndexBlock_Data(const IndexBlock *b);
+char **IndexBlock_DataPtr(IndexBlock *b);
+void IndexBlock_DataFree(const IndexBlock *b);
+size_t IndexBlock_Cap(const IndexBlock *b);
+void IndexBlock_SetCap(IndexBlock *b, size_t cap);
+size_t IndexBlock_Len(const IndexBlock *b);
+size_t *IndexBlock_LenPtr(IndexBlock *b);
+Buffer *IndexBlock_Buffer(IndexBlock *b);
+void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf);
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
@@ -252,7 +261,7 @@ bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSI
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
 
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
                                        RSIndexResult *entry);
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is

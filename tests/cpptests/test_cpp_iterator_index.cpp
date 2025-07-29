@@ -127,7 +127,8 @@ private:
         idx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
         IndexEncoder encoder = InvertedIndex_GetEncoder(idx->flags);
         for (size_t i = 0; i < n_docs; ++i) {
-            InvertedIndex_WriteEntryGeneric(idx, encoder, resultSet[i], nullptr);
+            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
         }
     }
 };
@@ -306,13 +307,13 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
     auto encoder = InvertedIndex_GetEncoder(idx->flags);
     for (t_docId i = 1; i < 1000; ++i) {
-      auto res = (RSIndexResult) {
-        .docId = i,
-        .fieldMask = 1,
-        .freq = 1,
-        .type = RSResultType::RSResultType_Term,
-      };
-      InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+        auto res = (RSIndexResult) {
+            .docId = i,
+            .fieldMask = 1,
+            .freq = 1,
+            .type = RSResultType::RSResultType_Term,
+        };
+        InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
     }
     // Create an iterator that reads only entries with field mask 2
     QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
@@ -353,8 +354,8 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           };
           for (size_t i = 1; i <= n_docs; ++i) {
               res.docId = i;
-              InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
-              InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res); // Second write will fail if multi-value is not supported
+              InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
+              InvertedIndex_WriteEntryGeneric(idx, encoder, &res); // Second write will fail if multi-value is not supported
           }
 
           // Make every even document ID field expired
@@ -767,7 +768,8 @@ private:
         // Populate with tag data using the simpler approach
         IndexEncoder encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
         for (size_t i = 0; i < n_docs; ++i) {
-            InvertedIndex_WriteEntryGeneric(tagInvIdx, encoder, resultSet[i], nullptr);
+            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            InvertedIndex_WriteEntryGeneric(tagInvIdx, encoder, &rec);
         }
 
         // Create iterator based on type

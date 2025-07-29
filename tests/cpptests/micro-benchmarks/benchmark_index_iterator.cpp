@@ -104,7 +104,8 @@ public:
         } else if (flags == Index_DocIdsOnly) {
             // Populate the index with document IDs only
             for (size_t i = 0; i < ids.size(); ++i) {
-                InvertedIndex_WriteEntryGeneric(index, encoder, ids[i], nullptr);
+                RSIndexResult rec = {.docId = ids[i], .type = RSResultType_Virtual};
+                InvertedIndex_WriteEntryGeneric(index, encoder, &rec);
             }
         } else if (flags == (Index_DocIdsOnly | Index_Temporary)) {
             // Special case reserved for `Index_DocIdsOnly` with raw doc IDs
@@ -112,7 +113,8 @@ public:
             RS_ASSERT_ALWAYS(encoder != InvertedIndex_GetEncoder(Index_DocIdsOnly)); // Ensure we are using the raw doc ID encoder
             encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
             for (size_t i = 0; i < ids.size(); ++i) {
-                InvertedIndex_WriteEntryGeneric(index, encoder, ids[i], nullptr);
+                RSIndexResult rec = {.docId = ids[i], .type = RSResultType_Virtual};
+                InvertedIndex_WriteEntryGeneric(index, encoder, &rec);
             }
         } else {
             // Populate the index with term data
