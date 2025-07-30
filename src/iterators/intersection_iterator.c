@@ -62,7 +62,7 @@ static IteratorStatus II_AgreeOnDocId(IntersectionIterator *it, t_docId *curTarg
     }
   }
   // All iterators agree on the docId, so we can set the current result
-  AggregateResult_Reset(it->base.current);
+  IndexResult_ResetAggregate(it->base.current);
   for (uint32_t i = 0; i < it->num_its; i++) {
     RS_ASSERT(docId == it->its[i]->current->docId);
     AggregateResult_AddChild(it->base.current, it->its[i]->current);
@@ -187,7 +187,7 @@ static void II_Rewind(QueryIterator *base) {
 
   base->atEOF = false;
   base->lastDocId = 0;
-  AggregateResult_Reset(base->current);
+  IndexResult_ResetAggregate(base->current);
 
   // rewind all child iterators
   for (uint32_t i = 0; i < ii->num_its; i++) {
@@ -308,6 +308,50 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
   return ret;
 }
 
+static ValidateStatus II_Revalidate(QueryIterator *base) {
+  IntersectionIterator *ii = (IntersectionIterator *)base;
+  bool any_child_moved = false, movedToEOF = false;
+  t_docId max_child_docId = 0;
+
+  // Step 1: Revalidate all children and track status
+  for (uint32_t i = 0; i < ii->num_its; i++) {
+    QueryIterator *child = ii->its[i];
+    ValidateStatus child_status = child->Revalidate(child);
+
+    if (child_status == VALIDATE_ABORTED) {
+      return VALIDATE_ABORTED; // Intersection fails if any child fails
+    }
+
+    if (child_status == VALIDATE_MOVED) {
+      any_child_moved = true;
+      // Track the maximum docId among moved children
+      if (child->atEOF) {
+        movedToEOF = true; // If any child moved and now at EOF, the intersection is also at EOF now
+      } else if (child->lastDocId > max_child_docId) {
+        max_child_docId = child->lastDocId;
+      }
+    }
+  }
+
+  // Step 2: Handle the result based on child status
+  if (!any_child_moved) {
+    // All children returned OK - simply return OK
+    return VALIDATE_OK;
+  } else if (base->atEOF) {
+    // If the intersection was already at EOF, we return OK
+    return VALIDATE_OK;
+  } else if (movedToEOF) {
+    // If any child is at EOF, the intersection is also moved to EOF
+    base->atEOF = true;
+    return VALIDATE_MOVED;
+  }
+
+  // Step 3: At least one child moved - need to find new intersection position
+  // Skip to the maximal docId among moved children
+  base->SkipTo(base, max_child_docId);
+  return VALIDATE_MOVED;
+}
+
 QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight) {
   RS_ASSERT(its && num > 0);
   QueryIterator *ret = IntersectionIteratorReducer(its, &num);
@@ -346,6 +390,7 @@ QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_
   }
   ret->Free = II_Free;
   ret->Rewind = II_Rewind;
+  ret->Revalidate = II_Revalidate;
 
   return ret;
 }

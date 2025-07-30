@@ -11,7 +11,7 @@
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
 
-#define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : p->data.agg.children[0])
+#define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : AggregateResult_Get(&p->data.agg, 0))
 
 static VecSimQueryReply_Code prepareResults(HybridIterator *hr); // forward declaration
 
@@ -71,7 +71,7 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
 
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
-  ResultMetrics_Concat(*vec_res, child_res); // Pass child metrics, if there are any
+  IndexResult_ConcatMetrics(*vec_res, child_res); // Pass child metrics, if there are any
   ResultMetrics_Add(*vec_res, hr->base.ownKey, RS_NumVal((*vec_res)->data.num.value));
 
   if (hr->topResults->count < hr->query.k) {
@@ -81,7 +81,7 @@ static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_r
   } else {
     // Replace the worst result and reuse its memory.
     *vec_res = mmh_exchange_max(hr->topResults, *vec_res);
-    IndexResult_Clear(*vec_res); // Reuse
+    ResultMetrics_Free(*vec_res); // Reuse
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
@@ -94,7 +94,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
   AggregateResult_AddChild(res, vec_res);
   AggregateResult_AddChild(res, child_res);
   RSIndexResult *hit = IndexResult_DeepCopy(res);
-  AggregateResult_Reset(res); // Reset the current result.
+  IndexResult_ResetAggregate(res); // Reset the current result.
   ResultMetrics_Add(hit, hr->base.ownKey, RS_NumVal(vec_res->data.num.value));
 
   if (hr->topResults->count < hr->query.k) {
@@ -104,7 +104,8 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
-  *upper_bound = worst->data.agg.children[0]->data.num.value;
+  const RSIndexResult *first = AggregateResult_Get(&worst->data.agg, 0);
+  *upper_bound = first->data.num.value;
 }
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,

@@ -47,6 +47,8 @@
 #include "reply.h"
 #include "resp3.h"
 #include "coord/rmr/rmr.h"
+#include "shard_window_ratio.h"
+
 #include "hiredis/async.h"
 #include "coord/rmr/reply.h"
 #include "coord/rmr/redis_cluster.h"
@@ -82,6 +84,7 @@
     }                                                                                                       \
   } while(0);
 
+#define CEIL_DIV(a, b) ((a + b - 1) / b)
 
 extern RSConfig RSGlobalConfig;
 
@@ -1433,6 +1436,7 @@ void RediSearch_CleanupModule(void) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+  MR_FreeCluster();
 
   // free global structures
   Extensions_Free();
@@ -2103,7 +2107,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
-  if (!result_id || !MRReply_Type(result_id) == MR_REPLY_STRING) {
+  if (!result_id || MRReply_Type(result_id) != MR_REPLY_STRING) {
     // We crash in development env, and return NULL (such that an error is raised)
     // in production.
     RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
@@ -2891,6 +2895,7 @@ cleanup:
   if (rCtx.reduceSpecialCaseCtxKnn &&
       rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
     heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
+    rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL;
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
@@ -2903,7 +2908,7 @@ cleanup:
   // and since we already replied with error in this case (in the beginning of this function),
   // we can't pass `mc` to the unblock function.
   searchRequestCtx_Free(req);
-  MR_requestCompleted();
+  MRCtx_RequestCompleted(mc);
   MRCtx_Free(mc);
   return res;
 }
@@ -3291,6 +3296,28 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
 
   cmd->protocol = protocol;
 
+  // Handle KNN with shard ratio optimization for both multi-shard and standalone
+  if (req->specialCases) {
+    for (size_t i = 0; i < array_len(req->specialCases); ++i) {
+      if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
+        specialCaseCtx* knnCtx = req->specialCases[i];
+        KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+        double ratio = knn_query->shardWindowRatio;
+
+        // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+        if (ratio < MAX_SHARD_WINDOW_RATIO) {
+          // Calculate effective K based on deployment mode
+          size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, NumShards);
+          // No modification needed if K values are the same
+          if (knn_query->k == effectiveK) break;
+          // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
+          modifyKNNCommand(cmd, 2 + req->profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
+        }
+        break; // Only handle KNN context
+      }
+    }
+  }
+
   // replace the LIMIT {offset} {limit} with LIMIT 0 {limit}, because we need all top N to merge
   int limitIndex = RMUtil_ArgExists("LIMIT", argv, argc, 3);
   if (limitIndex && req->limit > 0 && limitIndex < argc - 2) {
@@ -3411,7 +3438,7 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
     }
     searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
-    MR_requestCompleted();
+    MRCtx_RequestCompleted(mrctx);
     MRCtx_Free(mrctx);
   }
   return REDISMODULE_OK;
@@ -3508,13 +3535,7 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (MR_CurrentTopologyExists()) {
-    // If we have a topology, we must read it from the uv thread
-    MR_uvReplyClusterInfo(ctx);
-  } else {
-    // If we don't have a topology, we can reply immediately
-    MR_ReplyClusterInfo(ctx, NULL);
-  }
+  MR_uvReplyClusterInfo(ctx);
   return REDISMODULE_OK;
 }
 
@@ -3531,7 +3552,7 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+  RedisModule_Log(ctx, "debug", "SetClusterCommand: Setting number of partitions to %ld", topo->numShards);
   NumShards = topo->numShards;
 
   // send the topology to the cluster
@@ -3564,8 +3585,10 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
   }
 
-  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard);
-  MR_Init(cl, clusterConfig.timeoutMS);
+  size_t num_io_threads = clusterConfig.coordinatorIOThreads;
+  size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
+
+  MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;
 }

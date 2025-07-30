@@ -10,20 +10,39 @@
 #pragma once
 
 #include <stdlib.h>
+#include <stddef.h>
+#include <uv.h>
 
 typedef void (*MRQueueCallback)(void *);
 
-#ifndef RQ_C__
-typedef struct MRWorkQueue MRWorkQueue;
+typedef struct queueItem {
+  void *privdata;
+  MRQueueCallback cb;
+  struct queueItem *next;
+} queueItem;
 
-MRWorkQueue *RQ_New(int maxPending);
+typedef struct MRWorkQueue {
+  size_t id;
+  queueItem *head;
+  queueItem *tail;
+  int pending;
+  int maxPending;
+  size_t sz;
+  struct {
+    queueItem *head;
+    size_t warnSize;
+  } pendingInfo;
+  uv_mutex_t lock;
+} MRWorkQueue;
+
+MRWorkQueue *RQ_New(int maxPending, size_t id);
+
+void RQ_Free(MRWorkQueue *q);
+
 void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending);
 
 void RQ_Done(MRWorkQueue *q);
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata);
-struct MRClusterTopology;
-void RQ_Push_Topology(MRQueueCallback cb, struct MRClusterTopology *topo);
 
-void RQ_Debug_ClearPendingTopo();
-#endif // RQ_C__
+queueItem *RQ_Pop(MRWorkQueue *q, uv_async_t* async);
