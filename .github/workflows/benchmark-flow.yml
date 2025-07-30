@@ -83,7 +83,9 @@ jobs:
           terraform_version: 1.11.1
           terraform_wrapper: false
       - name: Prepare ReJSON Module
-        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
+        run: |
+          echo $PATH
+          REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240 # timeout for the step
