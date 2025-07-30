@@ -98,6 +98,7 @@ typedef struct {
   uint64_t sortAscMap;            // Mapping of ascending/descending. Bitwise
   bool isLimited;                 // Flag if `LIMIT` keyword was used.
   bool runLocal;                  // Indicator that this step should run only local (not in shards)
+  bool noSort;                    // Flag if `SORTBY 0` was specified (disable all sorting)
   uint64_t offset;                // Seek results. If 0, then no paging is applied
   uint64_t limit;                 // Number of rows to output
 } PLN_ArrangeStep;
