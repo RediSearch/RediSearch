@@ -10,13 +10,7 @@
 use ffi::RS_FIELDMASK_ALL;
 use inverted_index::{RSAggregateResult, RSIndexResult, RSResultType, RSResultTypeMask};
 
-#[unsafe(no_mangle)]
-pub extern "C" fn IndexResult_ConcatMetrics(
-    _parent: *mut RSIndexResult,
-    _child: *const RSIndexResult,
-) {
-    // Do nothing since the code will call this
-}
+mod c_mocks;
 
 #[test]
 fn pushing_to_aggregate_result() {

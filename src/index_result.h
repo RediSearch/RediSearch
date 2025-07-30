@@ -27,6 +27,11 @@ void Term_Free(RSQueryTerm *t);
 /* Add the metrics of a child to a parent index result. */
 void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
 
+/* Clear / free the metrics of a result */
+void ResultMetrics_Free(RSIndexResult *r);
+
+void Term_Offset_Data_Free(RSTermRecord *tr);
+
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
   r->metrics = array_ensure_append_1(r->metrics, new_element);
@@ -37,22 +42,12 @@ static inline void ResultMetrics_Reset(RSIndexResult *r) {
   array_clear(r->metrics);
 }
 
-static inline void ResultMetrics_Free(RSIndexResult *r) {
-  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
-  r->metrics = NULL;
-}
-
-/* Prepare an Index Result to be reused. Add here any relevant cleanup function */
-static inline void IndexResult_Clear(RSIndexResult *r) {
-  ResultMetrics_Free(r);
-}
-
 /* Reset the aggregate result's child vector */
 static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
   AggregateResult_Reset(&r->data.agg);
-  IndexResult_Clear(r);
+  ResultMetrics_Free(r);
 }
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight);

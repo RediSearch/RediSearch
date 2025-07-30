@@ -15,6 +15,8 @@ use inverted_index::{
     freqs_fields::{FreqsFields, FreqsFieldsWide},
 };
 
+mod c_mocks;
+
 #[test]
 fn test_encode_freqs_fields() {
     // Test cases for the freqs fields encoder and decoder.
