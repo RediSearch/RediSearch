@@ -119,7 +119,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attr
         return REDISMODULE_ERR;
       }
       long long kValue;
-      if (AC_GetLongLong(ac, &kValue, 0) != AC_OK) {
+      if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
         return REDISMODULE_ERR;
       }
@@ -279,8 +279,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
   pvd->query = vq;
 
-
-
   // Parse vector field name and store it for later resolution
   const char *fieldName;
   if (AC_GetString(ac, &fieldName, NULL, 0) != AC_OK) {
@@ -305,9 +303,12 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   const char *vectorData = vectorParam;
   size_t vectorLen = strlen(vectorParam);
 
-  if (AC_IsAtEnd(ac)) goto final;
+  // Set default KNN values before checking for more parameters
+  vq->type = VECSIM_QT_KNN;
+  vq->knn.k = 10;  // Default k value
+  vq->knn.order = BY_SCORE;
 
-  // pvd->attributes = array_new(QueryAttribute, 0);
+  if (AC_IsAtEnd(ac)) goto final;
 
   // Parse optional KNN or RANGE clause
   if (AC_AdvanceIfMatch(ac, "KNN")) {
@@ -322,11 +323,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
     vq->type = VECSIM_QT_RANGE;
     vq->range.order = BY_SCORE;
-  } else {
-    // Default to KNN with k=10 when no explicit KNN or RANGE clause is provided
-    vq->type = VECSIM_QT_KNN;
-    vq->knn.k = 10;  // Default k value
-    vq->knn.order = BY_SCORE;
   }
 
   // Check for optional FILTER clause - parameter may not be in our scope

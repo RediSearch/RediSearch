@@ -933,6 +933,18 @@ TEST_F(ParseHybridTest, testKNNInvalidKValue) {
   testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
 }
 
+TEST_F(ParseHybridTest, testKNNNegativeKValue) {
+  // Test KNN with negative K value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "-1", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
+}
+
+TEST_F(ParseHybridTest, testKNNZeroKValue) {
+  // Test KNN with zero K value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "0", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
+}
+
 TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
   // Test KNN with duplicate K parameters
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "K", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
