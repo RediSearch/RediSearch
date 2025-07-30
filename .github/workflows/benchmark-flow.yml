@@ -85,6 +85,7 @@ jobs:
       - name: Prepare ReJSON Module
         run: |
           echo $PATH
+          cargo -Vv
           REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
