@@ -140,10 +140,8 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
             rs_wall_clock_convert_to_ms(req->qiter.GILTime));
           } else {
-            struct timespec rpEndTime;
-            clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-            rs_timersub(&rpEndTime, &req->qiter.initTime.start, &rpEndTime);
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_timer_ms(&rpEndTime));
+            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_to_ms(rpEndTime));
           }
         }
 
