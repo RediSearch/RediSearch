@@ -55,7 +55,7 @@ typedef struct {
   IndexIterator base;
   IndexIterator *child;
   ProfileCounters counters;
-  clock_t cpuTime;
+  rs_wall_clock_ns_t wallTime; // This field serves as a time accumulator, so using rs_wall_clock_ns_t is required.
 } ProfileIterator, ProfileIteratorCtx;
 
 typedef struct {
@@ -1784,27 +1784,29 @@ IndexIterator *NewEmptyIterator(void) {
 
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
-  clock_t begin = clock();
+  rs_wall_clock begin;
+  rs_wall_clock_init(&begin);
   pi->counters.read++;
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) {
     pi->counters.eof = 1;
   }
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->wallTime += rs_wall_clock_elapsed_ns(&begin);
   return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
-  clock_t begin = clock();
+  rs_wall_clock begin;
+  rs_wall_clock_init(&begin);
   pi->counters.skipTo++;
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) {
     pi->counters.eof = 1;
   }
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->wallTime += rs_wall_clock_elapsed_ns(&begin);
   return ret;
 }
 
@@ -1837,7 +1839,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
   pc->child = child;
   pc->counters.read = 0;
   pc->counters.skipTo = 0;
-  pc->cpuTime = 0;
+  pc->wallTime = 0;
   pc->counters.eof = 0;
 
   IndexIterator *ret = &pc->base;
@@ -2017,7 +2019,7 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
   printIteratorProfile(reply, pi->child, &pi->counters,
-    (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
+    (double)(pi->wallTime / RS_WALL_CLOCK_PER_MILLISEC), depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters,
