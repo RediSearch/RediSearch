@@ -479,6 +479,16 @@ void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
  */
 void RSOffsetVector_CopyData(struct RSOffsetVector *dest, const struct RSOffsetVector *src);
 
+/**
+ * Retrieve the number of offsets in [`RSOffsetVector`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ */
+uint32_t RSOffsetVector_Len(const struct RSOffsetVector *offsets);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

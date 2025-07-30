@@ -372,3 +372,19 @@ pub unsafe extern "C" fn RSOffsetVector_CopyData(
         dest.data = std::ptr::null_mut();
     }
 }
+
+/// Retrieve the number of offsets in [`RSOffsetVector`].
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSOffsetVector_Len(offsets: *const RSOffsetVector) -> u32 {
+    debug_assert!(!offsets.is_null(), "offsets must not be null");
+
+    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
+    let offsets = unsafe { &*offsets };
+
+    offsets.len
+}

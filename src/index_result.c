@@ -196,7 +196,7 @@ void Term_Free(RSQueryTerm *t) {
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
-      return res->data.term.offsets.len > 0;
+      return RSOffsetVector_Len(&res->data.term.offsets) > 0;
     case RSResultType_Intersection:
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of

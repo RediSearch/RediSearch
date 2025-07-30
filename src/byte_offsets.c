@@ -49,7 +49,7 @@ void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
     Buffer_WriteU32(&w, offsets->fields[ii].lastTokPos);
   }
 
-  Buffer_WriteU32(&w, offsets->offsets.len);
+  Buffer_WriteU32(&w, RSOffsetVector_Len(&offsets->offsets));
 
   uint32_t offsets_len;
   const char *offsets_data = RSOffsetVector_GetData(&offsets->offsets, &offsets_len);
