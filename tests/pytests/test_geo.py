@@ -155,7 +155,7 @@ def testGeoOnReopen(env:Env):
 
   res, cursor = conn.execute_command('FT.AGGREGATE', 'idx', '@location:[-0.15036 51.50566 10000 km]',
                                      'LOAD', 3, '@__key', 'AS', 'id',
-                                     'WITHCURSOR', 'COUNT', 100)
+                                     'WITHCURSOR', 'COUNT', 1000)
   checkResults(res)
 
   forceInvokeGC(env) # trigger the GC to clean all the overwritten docs

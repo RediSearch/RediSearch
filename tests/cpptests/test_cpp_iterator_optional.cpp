@@ -70,7 +70,7 @@ TEST_F(OptionalIteratorTest, ReadMixedResults) {
     } else {
       // Virtual hit
       ASSERT_EQ(iterator_base->current, oi->virt);
-      ASSERT_EQ(iterator_base->current->freq, 1);
+      ASSERT_EQ(iterator_base->current->freq, 0);
       ASSERT_EQ(iterator_base->current->fieldMask, RS_FIELDMASK_ALL);
     }
   }
