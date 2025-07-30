@@ -48,9 +48,10 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
   unsigned long ret = sizeof_InvertedIndex(InvertedIndex_Flags(idx))
-                      + sizeof(IndexBlock) * idx->size;
-  for (size_t i = 0; i < idx->size; i++) {
+                      + sizeof(IndexBlock) * numBlocks;
+  for (size_t i = 0; i < numBlocks; i++) {
     ret += IndexBlock_Cap(&idx->blocks[i]);
   }
   return ret;

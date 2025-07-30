@@ -106,6 +106,8 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 
+size_t InvertedIndex_NumBlocks(const InvertedIndex *idx);
+void InvertedIndex_SetNumBlocks(InvertedIndex *idx, size_t numBlocks);
 IndexFlags InvertedIndex_Flags(const InvertedIndex *idx);
 t_docId InvertedIndex_LastId(const InvertedIndex *idx);
 void InvertedIndex_SetLastId(InvertedIndex *idx, t_docId lastId);

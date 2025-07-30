@@ -131,7 +131,7 @@ DEBUG_COMMAND(DumpTerms) {
 }
 
 static double InvertedIndexGetEfficiency(InvertedIndex *invidx) {
-  return ((double)InvertedIndex_NumEntries(invidx))/(invidx->size);
+  return ((double)InvertedIndex_NumEntries(invidx))/(InvertedIndex_NumBlocks(invidx));
 }
 
 static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *invidx) {
@@ -140,7 +140,7 @@ static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *inv
   REPLY_WITH_LONG_LONG("numEntries", InvertedIndex_NumEntries(invidx), invIdxBulkLen);
   REPLY_WITH_LONG_LONG("lastId", InvertedIndex_LastId(invidx), invIdxBulkLen);
   REPLY_WITH_LONG_LONG("flags", InvertedIndex_Flags(invidx), invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numberOfBlocks", invidx->size, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numberOfBlocks", InvertedIndex_NumBlocks(invidx), invIdxBulkLen);
   if (InvertedIndex_Flags(invidx) & Index_StoreNumeric) {
     REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/numberOfBlocks)", InvertedIndexGetEfficiency(invidx), invIdxBulkLen);
   }
@@ -168,7 +168,8 @@ DEBUG_COMMAND(InvertedIndexSummary) {
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
-  for (uint32_t i = 0; i < invidx->size; ++i) {
+  size_t numBlocks = InvertedIndex_NumBlocks(invidx);
+  for (uint32_t i = 0; i < numBlocks; ++i) {
     size_t blockBulkLen = 0;
     IndexBlock *block = invidx->blocks + i;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
@@ -360,7 +361,7 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
   REPLY_WITH_LONG_LONG("numDocs", InvertedIndex_NumDocs(idx), ARRAY_LEN_VAR(invertedIndexDump));
   REPLY_WITH_LONG_LONG("numEntries", InvertedIndex_NumEntries(idx), ARRAY_LEN_VAR(invertedIndexDump));
   REPLY_WITH_LONG_LONG("lastId", InvertedIndex_LastId(idx), ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("size", idx->size, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("size", InvertedIndex_NumBlocks(idx), ARRAY_LEN_VAR(invertedIndexDump));
   REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", indexStats.blocks_efficiency, ARRAY_LEN_VAR(invertedIndexDump));
 
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
@@ -1117,7 +1118,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumDocs(iv));
 
     RedisModule_ReplyWithLiteral(ctx, "num_blocks");
-    RedisModule_ReplyWithLongLong(ctx, iv->size);
+    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumBlocks(iv));
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");

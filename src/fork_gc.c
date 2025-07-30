@@ -190,17 +190,18 @@ typedef struct {
 static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
                                   void (*headerCallback)(ForkGC *, void *), void *hdrarg,
                                   IndexRepairParams *params) {
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
   MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);
   MSG_DeletedBlock *deleted = array_new(MSG_DeletedBlock, 10);
-  IndexBlock *blocklist = array_new(IndexBlock, idx->size);
-  MSG_IndexInfo ixmsg = {.nblocksOrig = idx->size};
+  IndexBlock *blocklist = array_new(IndexBlock, numBlocks);
+  MSG_IndexInfo ixmsg = {.nblocksOrig = numBlocks};
   bool rv = false;
   IndexRepairParams params_s = {0};
   if (!params) {
     params = &params_s;
   }
 
-  for (size_t i = 0; i < idx->size; ++i) {
+  for (size_t i = 0; i < numBlocks; ++i) {
     params->bytesCollected = 0;
     params->bytesBeforFix = 0;
     params->bytesAfterFix = 0;
@@ -250,7 +251,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     ixmsg.nentriesCollected += params->entriesCollected;
     // Save last block statistics because the main process might want to ignore the changes if
     // the block was modified while the fork was running.
-    if (i == idx->size - 1) {
+    if (i == numBlocks - 1) {
       ixmsg.lastblkBytesCollected = curr_bytesCollected;
       ixmsg.lastblkDocsRemoved = nrepaired;
       ixmsg.lastblkEntriesRemoved = params->entriesCollected;
@@ -270,7 +271,7 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
 
   headerCallback(gc, hdrarg);
   FGC_sendFixed(gc, &ixmsg, sizeof ixmsg);
-  if (array_len(blocklist) == idx->size) {
+  if (array_len(blocklist) == numBlocks) {
     // no empty block, there is no need to send the blocks array. Don't send
     // any new blocks.
     size_t len = 0;
@@ -712,7 +713,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     }
 
     // Number of blocks added in the parent process since the last scan
-    size_t newAddedLen = idx->size - info->nblocksOrig; // TODO: can we just decrease by number of deleted.
+    size_t newAddedLen = InvertedIndex_NumBlocks(idx) - info->nblocksOrig; // TODO: can we just decrease by number of deleted.
 
     // The final size is the reordered block size, plus the number of blocks
     // which we haven't scanned yet, because they were added in the parent
@@ -727,22 +728,23 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     idx->blocks = idxData->newBlocklist; // Consume new blocks array
     idxData->newBlocklist = NULL;
     idxData->newBlocklistSize += newAddedLen;
-    idx->size = idxData->newBlocklistSize;
+    InvertedIndex_SetNumBlocks(idx, idxData->newBlocklistSize);
   } else if (idxData->numDelBlocks) {
     // if idxData->newBlocklist == NULL it's either because all the blocks the child has seen are gone or we didn't change the
     // size of the index (idxData->numDelBlocks == 0).
     // So if we enter here (idxData->numDelBlocks != 0) it's the first case, all blocks the child has seen need to be deleted.
     // Note that we might want to keep the last block, although deleted by the child. In this case numDelBlocks will *not include*
     // the last block.
-    idx->size -= idxData->numDelBlocks;
+    InvertedIndex_SetNumBlocks(idx, InvertedIndex_NumBlocks(idx) - idxData->numDelBlocks);
 
     // There were new blocks added to the index in the main process while the child was running,
     // and/or we decided to ignore changes made to the last block, we copy the blocks data starting from
     // the first valid block we want to keep.
 
-    memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * idx->size);
+    size_t numBlocks = InvertedIndex_NumBlocks(idx);
+    memmove(idx->blocks, idx->blocks + idxData->numDelBlocks, sizeof(*idx->blocks) * numBlocks);
 
-    if (idx->size == 0) {
+    if (numBlocks == 0) {
       InvertedIndex_AddBlock(idx, 0, (size_t*)(&info->nbytesAdded));
     }
   }
@@ -759,7 +761,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
   InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - info->ndocsCollected);
   InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
   RS_LOG_ASSERT(idx->size, "Index should have at least one block");
-  InvertedIndex_SetLastId(idx, IndexBlock_LastId(&idx->blocks[idx->size - 1])); // Update lastId
+  InvertedIndex_SetLastId(idx, IndexBlock_LastId(&idx->blocks[InvertedIndex_NumBlocks(idx) - 1])); // Update lastId
 }
 
 typedef struct {
@@ -811,7 +813,7 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
     blocksSinceFork++; // Count the ignored block as well
   }
   // Add the entries that were added since the fork to the HLL
-  size_t startIdx = range->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
+  size_t startIdx = InvertedIndex_NumBlocks(range->entries) - blocksSinceFork; // Here `blocksSinceFork` > 0
   t_docId startId = IndexBlock_FirstId(&range->entries->blocks[startIdx]);
   QueryIterator *iter = NewInvIndIterator_NumericFull(range->entries);
   // Skip to the starting ID
@@ -829,7 +831,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
   InvIdxBuffers *idxbufs = &ninfo->idxbufs;
   MSG_IndexInfo *info = &ninfo->info;
-  size_t blocksSinceFork = currNode->range->entries->size - info->nblocksOrig; // record before applying changes
+  size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - info->nblocksOrig; // record before applying changes
   FGC_applyInvertedIndex(gc, idxbufs, info, currNode->range->entries);
   InvertedIndex_SetNumEntries(currNode->range->entries, InvertedIndex_NumEntries(currNode->range->entries) - info->nentriesCollected);
   currNode->range->invertedIndexSize += info->nbytesAdded;

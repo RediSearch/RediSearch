@@ -227,9 +227,9 @@ TEST_P(IndexFlagsTest, testRWFlags) {
 
   ASSERT_EQ(200, InvertedIndex_NumDocs(idx));
   if (enc != docIdEnc) {
-    ASSERT_EQ(2, idx->size);
+    ASSERT_EQ(2, InvertedIndex_NumBlocks(idx));
   } else {
-    ASSERT_EQ(1, idx->size);
+    ASSERT_EQ(1, InvertedIndex_NumBlocks(idx));
   }
   ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
@@ -556,8 +556,8 @@ TEST_F(IndexTest, testNumericVaried) {
 
   for (size_t i = 0; i < numCount; i++) {
     size_t min_data_len;
-    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
-    size_t offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
+    size_t cap = IndexBlock_Cap(&idx->blocks[InvertedIndex_NumBlocks(idx)-1]);
+    size_t offset = IndexBlock_Len(&idx->blocks[InvertedIndex_NumBlocks(idx)-1]);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
 
     if(i == 0 || i == 4 || i == 5) {
@@ -633,8 +633,8 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
-    size_t offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
+    size_t cap = IndexBlock_Cap(&idx->blocks[InvertedIndex_NumBlocks(idx)-1]);
+    size_t offset = IndexBlock_Len(&idx->blocks[InvertedIndex_NumBlocks(idx)-1]);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
     // if there was not enough space to store the entry, sz will be greater than zero
@@ -645,8 +645,8 @@ void testNumericEncodingHelper(bool isMulti) {
     }
 
     if (isMulti) {
-      cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
-      offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
+      cap = IndexBlock_Cap(&idx->blocks[InvertedIndex_NumBlocks(idx)-1]);
+      offset = IndexBlock_Len(&idx->blocks[InvertedIndex_NumBlocks(idx)-1]);
 
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
@@ -1479,18 +1479,18 @@ TEST_F(IndexTest, testDeltaSplits) {
 
   IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQ(idx->size, 1);
+  ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 200;
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQ(idx->size, 1);
+  ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 1LLU << 48;
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQ(idx->size, 2);
+  ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
   ent.docId++;
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQ(idx->size, 2);
+  ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
   QueryIterator *ir = NewInvIndIterator_TermFull(idx);
   ASSERT_EQ(ITERATOR_OK, ir->Read(ir));

@@ -37,7 +37,7 @@ static __attribute__((always_inline)) inline bool NotAtEnd(InvIndIterator *it) {
   if (!CURRENT_BLOCK_READER_AT_END(it)) {
     return true; // still have entries in the current block
   }
-  if (it->currentBlock + 1 < it->idx->size) {
+  if (it->currentBlock + 1 < InvertedIndex_NumBlocks(it->idx)) {
     // we have more blocks to read, so we can advance to the next block
     AdvanceBlock(it);
     return true;
@@ -191,7 +191,7 @@ static inline bool VerifyFieldMaskExpirationForCurrent(InvIndIterator *it) {
 // Assumes there is a valid block to skip to (matching or past the requested docId)
 static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
   const InvertedIndex *idx = it->idx;
-  uint32_t top = idx->size - 1;
+  uint32_t top = InvertedIndex_NumBlocks(idx) - 1;
   uint32_t bottom = it->currentBlock + 1;
 
   if (docId <= IndexBlock_LastId(&idx->blocks[bottom])) {

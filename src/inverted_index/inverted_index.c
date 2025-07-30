@@ -23,7 +23,7 @@
 uint64_t TotalIIBlocks = 0;
 
 // The last block of the index
-#define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
+#define INDEX_LAST_BLOCK(idx) (idx->blocks[InvertedIndex_NumBlocks(idx) - 1])
 
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
@@ -60,6 +60,14 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
     InvertedIndex_AddBlock(idx, 0, memsize);
   }
   return idx;
+}
+
+size_t InvertedIndex_NumBlocks(const InvertedIndex *idx) {
+  return idx->size;
+}
+
+void InvertedIndex_SetNumBlocks(InvertedIndex *idx, size_t numBlocks) {
+  idx->size = numBlocks;
 }
 
 IndexFlags InvertedIndex_Flags(const InvertedIndex *idx) {
@@ -167,8 +175,9 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
 
 void InvertedIndex_Free(void *ctx) {
   InvertedIndex *idx = ctx;
-  TotalIIBlocks -= idx->size;
-  for (uint32_t i = 0; i < idx->size; i++) {
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  TotalIIBlocks -= numBlocks;
+  for (uint32_t i = 0; i < numBlocks; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
   rm_free(idx->blocks);
