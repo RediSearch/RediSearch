@@ -42,6 +42,8 @@ typedef enum {
   QAST_HYBRID_VSIM_FILTER_CLAUSE = 0x01,
   // weight attribute is not allowed
   QAST_HYBRID_SEARCH_CLAUSE = 0x02,
+  // skip validation of the root node, validate only children
+  QAST_SKIP_ROOT_VALIDATION = 0x04,
 } QAST_ValidationFlags;
 
 /**

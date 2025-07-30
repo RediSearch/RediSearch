@@ -187,6 +187,16 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   return 1;
 }
 
+void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen) {
+  // Free existing scoreField if any
+  if (vq->scoreField) {
+    rm_free(vq->scoreField);
+  }
+  // Set default scoreField using vector field name
+  int n_written = rm_asprintf(&vq->scoreField, "__%.*s_score", (int)fieldNameLen, fieldName);
+  RS_ASSERT(n_written != -1);
+}
+
 void VectorQuery_Free(VectorQuery *vq) {
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
@@ -194,12 +204,16 @@ void VectorQuery_Free(VectorQuery *vq) {
     case VECSIM_QT_RANGE:
       break;
   }
-  for (int i = 0; i < array_len(vq->params.params); i++) {
-    rm_free((char *)vq->params.params[i].name);
-    rm_free((char *)vq->params.params[i].value);
+  if (vq->params.params) {
+    for (int i = 0; i < array_len(vq->params.params); i++) {
+      rm_free((char *)vq->params.params[i].name);
+      rm_free((char *)vq->params.params[i].value);
+    }
+    array_free(vq->params.params);
   }
-  array_free(vq->params.params);
-  array_free(vq->params.needResolve);
+  if (vq->params.needResolve) {
+    array_free(vq->params.needResolve);
+  }
   rm_free(vq);
 }
 

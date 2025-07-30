@@ -18,6 +18,7 @@
 #include "src/search_ctx.h"
 #include "src/query_error.h"
 #include "src/rmalloc.h"
+#include "src/index.h"
 #include "src/aggregate/aggregate.h"
 #include "src/vector_index.h"
 #include "VecSim/query_results.h"
@@ -69,6 +70,9 @@ class ParseHybridTest : public ::testing::Test {
     }
   }
 
+  // Helper function to test error cases with less boilerplate
+  void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail);
+
 };
 
 
@@ -91,7 +95,7 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   QueryError status = {QueryErrorCode(0)};
 
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridCommand takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -131,7 +135,7 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
 
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "@title:($param1)", "VSIM", "vector", TEST_BLOB_DATA,
+                      "SEARCH", "@title:($param1)", "VSIM", "@vector", TEST_BLOB_DATA,
                       "PARAMS", "2", "param1", "hello", "DIALECT", "2");
 
   // Create a fresh sctx for this test since parseHybridCommand takes ownership
@@ -177,7 +181,7 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   QueryError status = {QueryErrorCode(0)};
 
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", TEST_BLOB_DATA, "TIMEOUT", "240", "DIALECT", "2");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "TIMEOUT", "240", "DIALECT", "2");
 
   // Create a fresh sctx for this test since parseHybridCommand takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -212,74 +216,13 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   HybridRequest_Free(result);
 }
 
-TEST_F(ParseHybridTest, testMissingSearchParameter) {
-  QueryError status = {QueryErrorCode(0)};
 
-  // Missing SEARCH parameter: FT.HYBRID <index> VSIM @vector_field
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "VSIM", "vector_field");
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  // Verify parsing failed with appropriate error
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_ESYNTAX);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testMissingQueryStringAfterSearch) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Missing query string after SEARCH: FT.HYBRID <index> SEARCH
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH");
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  // Verify parsing failed with appropriate error
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-  ASSERT_STREQ(status.detail, "No query string provided for SEARCH");
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testMissingSecondSearchParameter) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Missing second search parameter: FT.HYBRID <index> SEARCH hello
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello");
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  // Verify parsing failed with appropriate error
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_ESYNTAX);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   QueryError status = {QueryErrorCode(0)};
 
   // Test with LINEAR combine method
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "COMBINE", "LINEAR", "0.7", "0.3", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "LINEAR", "0.7", "0.3", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -311,7 +254,7 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   QueryError status = {QueryErrorCode(0)};
 
   // Test with RRF combine method
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "COMBINE", "RRF", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -343,33 +286,14 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   HybridRequest_Free(result);
 }
 
-TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
-  QueryError status = {QueryErrorCode(0)};
 
-  // Test invalid syntax: FT.HYBRID <index> SEARCH hello SEARCH world (should fail)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SEARCH", "world");
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  // Verify parsing failed with appropriate error
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
 
 
 TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   QueryError status = {QueryErrorCode(0)};
 
   // Example of a complex command in a single line
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "10",
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
                             "COMBINE", "LINEAR", "0.65", "0.35", "SORTBY", "1", "@score", "LIMIT", "0", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test
@@ -397,6 +321,124 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   HybridRequest_Free(result);
 }
 
+TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test SORTBY 0 to disable implicit sorting
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify that an arrange step was created with noSort flag set
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_TRUE(arrangeStep != NULL);
+  const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
+  ASSERT_TRUE(arng->noSort);
+  ASSERT_TRUE(arng->sortKeys == NULL);
+
+  // Verify default RRF scoring type was set
+  assertRRFScoringCtx(1, 20);
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test SORTBY with actual field (not 0) - should not disable implicit sorting
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "1", "@score");
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify that an arrange step was created with normal sorting (not noSort)
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_TRUE(arrangeStep != NULL);
+  const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
+  ASSERT_FALSE(arng->noSort);
+  ASSERT_TRUE(arng->sortKeys != NULL);
+
+  // Verify default RRF scoring type was set
+  assertRRFScoringCtx(1, 20);
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test without SORTBY - should not disable implicit sorting (default behavior)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify that no arrange step exists (so implicit sorting will be applied)
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_TRUE(arrangeStep == NULL);
+
+  // Verify default RRF scoring type was set
+  assertRRFScoringCtx(1, 20);
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+// Test that SORTBY 0 correctly sets noSort flag and clears sortKeys
+TEST_F(ParseHybridTest, ParseSortby0_SetsNoSortFlagAndClearsSortKeys) {
+  QueryError qerr = {QueryErrorCode(0)};
+  RMCK::ArgvList args(ctx, "hello", "SORTBY", "0");
+
+  AREQ *req = AREQ_New();
+  req->reqflags = QEXEC_F_IS_HYBRID;
+
+  int rc = AREQ_Compile(req, args, args.size(), &qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&qerr);
+
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(sctx);
+
+  rc = AREQ_ApplyContext(req, sctx, &qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&qerr);
+
+  // Verify SORTBY 0 sets the correct flags
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
+  ASSERT_TRUE(arrangeStep);
+  EXPECT_TRUE(arrangeStep->noSort) << "SORTBY 0 should set noSort=true";
+  EXPECT_EQ(nullptr, arrangeStep->sortKeys) << "SORTBY 0 should set sortKeys=NULL";
+
+  AREQ_Free(req);
+}
 
 // Tests for parseVectorSubquery functionality (VSIM tests)
 
@@ -407,7 +449,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "6", "K", "10", "YIELD_DISTANCE_AS", "testdist","EF_RUNTIME", "4", "FILTER", "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "YIELD_DISTANCE_AS", "testdist","EF_RUNTIME", "4", "FILTER", "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -433,8 +475,8 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   ASSERT_STREQ(vn->params[0].name, "BLOB");
   ASSERT_EQ(vn->params[0].len, 4);
   ASSERT_EQ(vn->params[0].type, PARAM_VEC);
-  ASSERT_TRUE(vn->params[0].target != NULL);
-  ASSERT_TRUE(vn->params[0].target_len != NULL);
+  ASSERT_STREQ(*(char**)vn->params[0].target, TEST_BLOB_DATA);
+  ASSERT_EQ(*vn->params[0].target_len, strlen(TEST_BLOB_DATA));
   ASSERT_EQ(vn->params[0].sign, 0);
 
   // Verify VectorQuery structure
@@ -459,7 +501,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "6", "K", "10", "EF_RUNTIME", "80", "YIELD_DISTANCE_AS", "testdist", "FILTER", "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "EF_RUNTIME", "80", "YIELD_DISTANCE_AS", "testdist", "FILTER", "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -514,7 +556,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -563,7 +605,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "8", "YIELD_DISTANCE_AS", "distance_score", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "8", "YIELD_DISTANCE_AS", "distance_score", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -606,7 +648,7 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "0.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -655,7 +697,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   QueryError status = {QueryErrorCode(0)};
 
   // Parse hybrid request
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "6", "RADIUS", "0.8", "EPSILON", "0.01", "YIELD_DISTANCE_AS", "dist", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "6", "RADIUS", "0.8", "EPSILON", "0.01", "YIELD_DISTANCE_AS", "dist", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -703,214 +745,11 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   HybridRequest_Free(result);
 }
 
-// Error handling tests for parseVectorSubquery
-
-TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test with wrong parameter count
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "\"hello\"", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "FILTER", "@text:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  // Verify the request was parsed unsuccessfully
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimKNNOddParamCount) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test KNN with count=1 (odd count, missing K value)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "1", "K", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimRangeOddParamCount) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test RANGE with count=3 (odd count, missing EPSILON value)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "3", "RADIUS", "0.5", "EPSILON", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimSubqueryMissingK) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test KNN without K parameter
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test KNN with duplicate K parameters
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "K", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EDUPPARAM);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test RANGE with duplicate RADIUS parameters
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "RADIUS", "0.8", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EDUPPARAM);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test KNN with EPSILON (should be RANGE-only)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test RANGE with EF_RUNTIME (should be KNN-only)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EPARSEARGS);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test KNN with duplicate EF_RUNTIME parameters
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "6", "K", "10", "EF_RUNTIME", "100", "EF_RUNTIME", "200", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EDUPPARAM);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test RANGE with duplicate EPSILON parameters
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "EPSILON", "0.01", "EPSILON", "0.02", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EDUPPARAM);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
 TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   QueryError status = {QueryErrorCode(0)};
 
   // Test with direct vector data (not parameter)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", TEST_BLOB_DATA, "KNN", "2", "K", "5");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "2", "K", "5");
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -922,25 +761,14 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
 
   AREQ* vecReq = result->requests[1];
 
-  // Verify ParsedVectorQuery structure
-  ASSERT_TRUE(vecReq->parsedVectorQuery != NULL);
-  ParsedVectorQuery *pvq = vecReq->parsedVectorQuery;
-  ASSERT_STREQ(pvq->fieldName, "vector");
-  ASSERT_STREQ((const char*)pvq->vector, TEST_BLOB_DATA);
-  ASSERT_EQ(pvq->vectorLen, strlen(TEST_BLOB_DATA));
-  ASSERT_FALSE(pvq->isParameter);  // Should be false for direct vector data
-  ASSERT_EQ(pvq->type, VECSIM_QT_KNN);
-  ASSERT_EQ(pvq->k, 5);
-
-  // Verify AST structure for KNN query
+  // Test the AST root
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  // Verify QueryNode structure - should have no parameters for direct vector
   QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(QueryNode_NumParams(vn), 0);  // No parameters for direct vector data
 
-  // Verify VectorQuery structure
+  // Verify VectorQuery structure in the AST
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_TRUE(vq->field != NULL);
@@ -960,31 +788,10 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   HybridRequest_Free(result);
 }
 
-TEST_F(ParseHybridTest, testBlobWithoutParams) {
-  QueryError status = {QueryErrorCode(0)};
-
-  // Test using $BLOB without PARAMS section - should fail
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "10");
-
-  // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  // Verify parsing failed - $BLOB parameter requires PARAMS section
-  ASSERT_TRUE(result == NULL);
-  ASSERT_NE(status.code, QUERY_OK);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
-}
-
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
   QueryError status = {QueryErrorCode(0)};
 
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", TEST_BLOB_DATA, "FILTER","@title:(foo bar)=> {$weight: 2.0}" );
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER","@title:(foo bar)=> {$weight: 2.0}" );
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -993,6 +800,26 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
   HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT);
+  ASSERT_STREQ(status.detail, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
+
+  // Clean up
+  SearchCtx_Free(test_sctx);
+  QueryError_ClearError(&status);
+}
+
+// Helper function to test error cases with less boilerplate
+void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  ASSERT_TRUE(result == NULL);
+  ASSERT_EQ(status.code, expected_code);
+  ASSERT_STREQ(status.detail, expected_detail);
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -1006,7 +833,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   unsigned int previousDialectVersion = RSGlobalConfig.requestConfigParams.dialectVersion;
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, 2);
 
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", TEST_BLOB_DATA, "FILTER", "@vector:[VECTOR_RANGE 0.01 $BLOB]", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER", "@vector:[VECTOR_RANGE 0.01 $BLOB]", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test since parseHybridRequest takes ownership
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -1015,6 +842,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY);
+  ASSERT_STREQ(status.detail, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
 
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, previousDialectVersion);
 
@@ -1022,3 +850,185 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   SearchCtx_Free(test_sctx);
   QueryError_ClearError(&status);
 }
+
+// ============================================================================
+// ERROR HANDLING TESTS - All tests using the testErrorCode helper function
+// ============================================================================
+
+// Basic parsing error tests
+TEST_F(ParseHybridTest, testMissingSearchParameter) {
+  // Missing SEARCH parameter: FT.HYBRID <index> VSIM @vector_field
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "VSIM", "vector_field");
+  testErrorCode(args, QUERY_ESYNTAX, "SEARCH parameter is required");
+}
+
+TEST_F(ParseHybridTest, testMissingQueryStringAfterSearch) {
+  // Missing query string after SEARCH: FT.HYBRID <index> SEARCH
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH");
+  testErrorCode(args, QUERY_EPARSEARGS, "No query string provided for SEARCH");
+}
+
+TEST_F(ParseHybridTest, testMissingSecondSearchParameter) {
+  // Missing second search parameter: FT.HYBRID <index> SEARCH hello
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello");
+  testErrorCode(args, QUERY_ESYNTAX, "VSIM parameter is required");
+}
+
+TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
+  // Test invalid syntax: FT.HYBRID <index> SEARCH hello SEARCH world (should fail)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SEARCH", "world");
+  testErrorCode(args, QUERY_EPARSEARGS, "Unknown parameter `SEARCH` in SEARCH");
+}
+
+// VSIM parsing error tests
+TEST_F(ParseHybridTest, testVsimMissingVectorField) {
+  // Test missing vector field name after VSIM
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM");
+  testErrorCode(args, QUERY_ESYNTAX, "Missing vector field name");
+}
+
+TEST_F(ParseHybridTest, testVsimMissingVectorParameter) {
+  // Test missing vector parameter after field name
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector");
+  testErrorCode(args, QUERY_ESYNTAX, "Missing vector parameter");
+}
+
+TEST_F(ParseHybridTest, testVsimVectorFieldMissingAtPrefix) {
+  // Test vector field name without @ prefix - should fail with specific error
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "10", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Missing @ prefix for vector field name");
+}
+
+// Parameter parsing error tests
+TEST_F(ParseHybridTest, testBlobWithoutParams) {
+  // Test using $BLOB without PARAMS section - should fail
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10");
+  testErrorCode(args, QUERY_ENOPARAM, "No such parameter `BLOB`");
+}
+
+// KNN parsing error tests
+TEST_F(ParseHybridTest, testKNNMissingParameterCount) {
+  // Test KNN without parameter count
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN");
+  testErrorCode(args, QUERY_ESYNTAX, "Missing parameter count");
+}
+
+TEST_F(ParseHybridTest, testVsimKNNOddParamCount) {
+  // Test KNN with count=1 (odd count, missing K value)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "1", "K", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "Invalid parameter count");
+}
+
+TEST_F(ParseHybridTest, testKNNZeroParameterCount) {
+  // Test KNN with zero parameter count
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "Invalid parameter count");
+}
+
+TEST_F(ParseHybridTest, testVsimSubqueryMissingK) {
+  // Test KNN without K parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "Missing K parameter");
+}
+
+TEST_F(ParseHybridTest, testKNNInvalidKValue) {
+  // Test KNN with invalid K value (non-numeric)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
+}
+
+TEST_F(ParseHybridTest, testKNNNegativeKValue) {
+  // Test KNN with negative K value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "-1", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
+}
+
+TEST_F(ParseHybridTest, testKNNZeroKValue) {
+  // Test KNN with zero K value
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "0", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
+}
+
+TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
+  // Test KNN with duplicate K parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "K", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate K parameter");
+}
+
+TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
+  // Test KNN with duplicate EF_RUNTIME parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "EF_RUNTIME", "100", "EF_RUNTIME", "200", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate EF_RUNTIME parameter");
+}
+
+TEST_F(ParseHybridTest, testKNNDuplicateYieldDistanceAs) {
+  // Test KNN with duplicate YIELD_DISTANCE_AS parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "YIELD_DISTANCE_AS", "dist1", "YIELD_DISTANCE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
+}
+
+TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
+  // Test KNN with EPSILON (should be RANGE-only)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "EPSILON", "0.01", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "Unknown parameter `EPSILON` in KNN");
+}
+
+TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
+  // Test with wrong parameter count
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "\"hello\"", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "10", "FILTER", "@text:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "Unknown parameter `FILTER` in KNN");
+}
+
+// RANGE parsing error tests
+TEST_F(ParseHybridTest, testRangeMissingParameterCount) {
+  // Test RANGE without parameter count
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE");
+  testErrorCode(args, QUERY_ESYNTAX, "Missing parameter count");
+}
+
+TEST_F(ParseHybridTest, testVsimRangeOddParamCount) {
+  // Test RANGE with count=3 (odd count, missing EPSILON value)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "3", "RADIUS", "0.5", "EPSILON", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "Invalid parameter count");
+}
+
+TEST_F(ParseHybridTest, testRangeZeroParameterCount) {
+  // Test RANGE with zero parameter count
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "Invalid parameter count");
+}
+
+TEST_F(ParseHybridTest, testRangeInvalidRadiusValue) {
+  // Test RANGE with invalid RADIUS value (non-numeric)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "2", "RADIUS", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid RADIUS value");
+}
+
+TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
+  // Test RANGE with duplicate RADIUS parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "RADIUS", "0.8", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate RADIUS parameter");
+}
+
+TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
+  // Test RANGE with duplicate EPSILON parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "EPSILON", "0.01", "EPSILON", "0.02", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate EPSILON parameter");
+}
+
+TEST_F(ParseHybridTest, testRangeDuplicateYieldDistanceAs) {
+  // Test RANGE with duplicate YIELD_DISTANCE_AS parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "YIELD_DISTANCE_AS", "dist1", "YIELD_DISTANCE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
+}
+
+TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
+  // Test RANGE with EF_RUNTIME (should be KNN-only)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "Unknown parameter `EF_RUNTIME` in RANGE");
+}
+
+// NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
+// The validation happens during query execution in the flow:
+// QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
+// These validation tests should be in execution tests, not parsing tests.

@@ -157,7 +157,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  if (params->common.optimizer->type != Q_OPT_NO_SORTER) {
+  if (params->common.optimizer->type != Q_OPT_NO_SORTER && !astp->noSort) {
     if (astp->sortKeys) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
@@ -191,7 +191,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsSearch(&params->common) && (!IsOptimized(&params->common) || HasScorer(params->common.optimizer))) {
+    } else if (IsHybrid(&params->common) ||
+               IsSearch(&params->common) && !IsOptimized(&params->common) ||
+               HasScorer(params->common.optimizer)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
       rp = RPSorter_NewByScore(maxResults);
