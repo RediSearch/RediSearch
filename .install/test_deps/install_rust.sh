@@ -2,7 +2,7 @@
 processor=$(uname -m)
 OS_TYPE=$(uname -s)
 
-
+apt install sudo -y
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sudo sh -s -- -y
 source /root/.cargo/env
 
