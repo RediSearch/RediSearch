@@ -148,7 +148,7 @@ pub struct RSTermRecord<'a> {
 }
 
 impl RSTermRecord<'_> {
-    /// Create a new term record with the given term pointer
+    /// Create a new term record without term pointer and offsets.
     pub fn new() -> Self {
         Self {
             term: ptr::null_mut(),
@@ -515,7 +515,7 @@ impl RSIndexResult<'_> {
         }
     }
 
-    /// Create a new term index result with the given term pointer
+    /// Create a new term index result.
     pub fn term() -> Self {
         Self {
             data: RSIndexResultData {
