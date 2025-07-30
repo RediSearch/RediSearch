@@ -17,7 +17,7 @@ use std::{
     ffi::{CStr, c_char},
     mem,
     ops::DerefMut,
-    pin::Pin,
+    pin::{Pin, pin},
     ptr::{self, NonNull},
     slice,
 };
@@ -1058,7 +1058,14 @@ impl<'a> RLookup<'a> {
         };
 
         if let Some(fs) = self.index_spec_cache.as_ref()?.find_field(name) {
-            key.update_from_field_spec(fs);
+            let key = {
+                // Safety: We are unpinning the key here, so we can move the update from the field spec into it.
+                // this is safe because `RLookupKey::update_from_field_spec` ensures that the self referential
+                // path pointers are updated correctly.
+                let unpinned_key = unsafe { key.as_mut().get_unchecked_mut() };
+                unpinned_key.update_from_field_spec(fs);
+                pin!(unpinned_key)
+            };
 
             if key.flags.contains(RLookupKeyFlag::ValAvailable)
                 && !flags.contains(RLookupKeyFlag::ForceLoad)
