@@ -11,7 +11,7 @@ export PATH=$PATH:/usr/local/rust/bin
 # Verify Cargo is in path
 echo $PATH
 
-rustup update
-rustup update nightly
+sudo rustup update
+sudo rustup update nightly
 # for RedisJSON build with address sanitizer
-rustup component add rust-src --toolchain nightly
+sudo rustup component add rust-src --toolchain nightly
