@@ -131,15 +131,27 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         continue;
     }
 
-    DocTable* docs = &RP_SPEC(base)->docs;
-    if (r->dmd) {
-      dmd = r->dmd;
+    IndexSpec* spec = RP_SPEC(base);
+    if (spec->diskSpec) {
+      RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+      diskDmd->ref_count = 1;
+      const bool foundDocument = SearchDisk_GetDocumentMetadata(spec->diskSpec, r->docId, diskDmd);
+      if (!foundDocument) {
+        DMD_Return(diskDmd);
+        continue;
+      }
+      dmd = diskDmd;
     } else {
-      dmd = DocTable_Borrow(docs, r->docId);
-    }
-    if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd, &sctx->time.current)) {
-      DMD_Return(dmd);
-      continue;
+      DocTable* docs = &spec->docs;
+      if (r->dmd) {
+        dmd = r->dmd;
+      } else {
+        dmd = DocTable_Borrow(docs, r->docId);
+      }
+      if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd, &sctx->time.current)) {
+        DMD_Return(dmd);
+        continue;
+      }
     }
 
     if (isTrimming && RedisModule_ShardingGetKeySlot) {
@@ -634,9 +646,17 @@ typedef struct {
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it, and we need to mark
   // the result as expired.
-  if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
-    r->flags |= Result_ExpiredDoc;
-    return;
+  if (self->base.parent->sctx->spec->diskSpec) {
+    // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
+    if (!SearchDisk_DocIdDeleted(self->base.parent->sctx->spec->diskSpec, r->dmd->id)) {
+      r->flags |= Result_ExpiredDoc;
+      return;
+    }
+  } else {
+    if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
+      r->flags |= Result_ExpiredDoc;
+      return;
+    }
   }
 
   self->loadopts.dmd = r->dmd;

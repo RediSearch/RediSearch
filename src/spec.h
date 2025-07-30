@@ -284,6 +284,7 @@ typedef struct {
 
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
+typedef const void* RedisSearchDiskIndexSpec;
 
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
@@ -354,6 +355,8 @@ typedef struct IndexSpec {
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
+  // Disk index handle
+  RedisSearchDiskIndexSpec *diskSpec;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

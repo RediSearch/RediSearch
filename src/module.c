@@ -67,6 +67,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
+#include "search_disk.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1237,6 +1238,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
+
+  SearchDisk_Initialize(ctx);
 
   // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
@@ -3842,6 +3845,8 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     rm_free((void *)RSGlobalConfig.frisoIni);
     RSGlobalConfig.frisoIni = NULL;
   }
+
+  SearchDisk_Close();
 
   return REDISMODULE_OK;
 }

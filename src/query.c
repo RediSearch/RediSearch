@@ -512,14 +512,18 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-  IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable,
-                                     EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
-  if (ir == NULL) {
-    Term_Free(term);
-    return NULL;
-  }
+  if (q->sctx->spec->diskSpec) {
+    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, EFFECTIVE_FIELDMASK(q, qn));
+  } else {
+    IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable,
+                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
+    if (ir == NULL) {
+      Term_Free(term);
+      return NULL;
+    }
 
-  return NewReadIterator(ir);
+    return NewReadIterator(ir);
+  }
 }
 
 static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,

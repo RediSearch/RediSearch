@@ -1724,7 +1724,9 @@ IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs) {
 // Returns a new wildcard iterator.
 IndexIterator *NewWildcardIterator(QueryEvalCtx *q) {
   IndexIterator *ret;
-  if (q->sctx->spec->rule->index_all == true) {
+  if (q->sctx->spec->diskSpec) {
+    return SearchDisk_NewWildcardIterator(q->sctx->spec->diskSpec);
+  } else if (q->sctx->spec->rule->index_all == true) {
     if (q->sctx->spec->existingDocs) {
       IndexReader *ir = NewGenericIndexReader(q->sctx->spec->existingDocs,
         q->sctx, 1, 1, RS_INVALID_FIELD_INDEX, FIELD_EXPIRATION_DEFAULT);

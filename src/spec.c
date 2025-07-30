@@ -42,6 +42,7 @@
 #include "util/hash/hash.h"
 #include "reply_macros.h"
 #include "notifications.h"
+#include "search_disk.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1614,6 +1615,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     SchemaRule_FilterFields(spec);
   }
 
+  spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
+
   return spec_ref;
 
 failure:  // on failure free the spec fields array and return an error
@@ -1854,6 +1857,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   } else {
     redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
   }
+  SearchDisk_CloseIndex(spec->diskSpec);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2966,6 +2970,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   }
 
 
+  sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   /* For version 3 or up - load the generic trie */
   //  if (encver >= 3) {
@@ -3120,6 +3125,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
+  sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
 
   dictDelete(legacySpecRules, sp->specName);
   SchemaRuleArgs_Free(rule_args);
