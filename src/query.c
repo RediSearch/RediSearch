@@ -1031,13 +1031,16 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If iterator was created successfully, and we have a metric to yield, update the
   // relevant position in the metricRequests ptr array to the iterator's RLookup key ptr.
   if (it && qn->vn.vq->scoreField) {
-    RS_ASSERT(it->type == HYBRID_ITERATOR || it->type == METRIC_ITERATOR);
     if (it->type == HYBRID_ITERATOR) {
       HybridIterator *hybridIt = (HybridIterator *)it;
       array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &hybridIt->ownKey;
-    } else {
+    } else if (it->type == METRIC_ITERATOR) {
       MetricIterator *metricIt = (MetricIterator *)it;
       array_ensure_at(q->metricRequestsP, idx, MetricRequest)->key_ptr = &metricIt->ownKey;
+    } else {
+      // Only reason to get an iterator of type different than HYBRID or METRIC
+      // is if the entire iterator was optimized away
+      RS_ASSERT(it->type == EMPTY_ITERATOR);
     }
   }
   if (it == NULL && child_it != NULL) {
