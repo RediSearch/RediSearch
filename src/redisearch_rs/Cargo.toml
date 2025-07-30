@@ -23,6 +23,7 @@ members = [
 default-members = [
     "buffer",
     "c_entrypoint/*",
+    "inverted_index",
     "low_memory_thin_vec",
     "qint",
     "result_processor",
