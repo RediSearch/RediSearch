@@ -262,13 +262,14 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
   QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
     // If the child is NULL, we return a wildcard iterator. All will be virtual hits
-    ret = NewWildcardIterator(q, weight);
+    ret = NewWildcardIterator(q, 0);
     if (it) {
       it->Free(it);
     }
   } else if (IsWildcardIterator(it)) {
     // All will be real hits
     ret = it;
+    ret->current->weight = weight;
   }
   return ret;
 }
@@ -283,10 +284,11 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   if (optimized) {
-    oi->wcii = NewWildcardIterator_Optimized(q->sctx, weight);
+    oi->wcii = NewWildcardIterator_Optimized(q->sctx, 0);
   }
   oi->child = it;
-  oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+  oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
+  oi->virt->freq = 1;
   oi->maxDocId = q->docTable->maxDocId;
   oi->weight = weight;
 
