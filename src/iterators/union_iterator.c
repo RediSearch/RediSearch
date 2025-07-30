@@ -471,7 +471,7 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
   // Update current result - reset and rebuild if we have active children
   IndexResult_ResetAggregate(ui->base.current);
   // Find the minimum docId among active children to update current result
-  t_docId minId = UINT64_MAX;
+  t_docId minId = DOCID_MAX;
   for (int i = 0; i < ui->num; i++) {
     if (ui->its[i]->lastDocId < minId) {
       minId = ui->its[i]->lastDocId;

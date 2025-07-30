@@ -288,7 +288,6 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   oi->child = it;
   oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   oi->maxDocId = q->docTable->maxDocId;
-  oi->virt->freq = 1;
   oi->weight = weight;
 
   ret = &oi->base;
