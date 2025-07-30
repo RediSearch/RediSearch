@@ -70,7 +70,9 @@ RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t)
     pthread_setspecific(__offsetIters, pool);
   }
   _RSOffsetVectorIterator *it = mempool_get(pool);
-  it->buf = (Buffer){.data = v->data, .offset = v->len, .cap = v->len};
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(v, &offsets_len);
+  it->buf = (Buffer){.data = (char *) offsets_data, .offset = offsets_len, .cap = offsets_len};
   it->br = NewBufferReader(&it->buf);
   it->lastValue = 0;
   it->term = t;

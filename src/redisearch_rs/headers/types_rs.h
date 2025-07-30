@@ -423,6 +423,72 @@ bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndex
  */
 void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
 
+/**
+ * Retrieve the offsets array from [`RSOffsetVector`].
+ *
+ * Set the array length into the `len` pointer.
+ * The returned array is borrowed from the [`RSOffsetVector`] and should not be modified.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
+ */
+const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_t *len);
+
+/**
+ * Set the offsets array on a [`RSOffsetVector`].
+ *
+ * The [`RSOffsetVector`] will borrow the passed array so it's up to the caller to
+ * ensure it stays alive during the [`RSOffsetVector`] lifetime.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `data` must point to an array of `len` offsets.
+ * - if `data` is NULL then `len` should be 0.
+ */
+void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, uint32_t len);
+
+/**
+ * Free the data inside an [`RSOffsetVector`]'s offset
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - The data pointer of `offsets` had been allocated via the global allocator
+ *   and points to an array matching the length of `offsets`.
+ */
+void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
+
+/**
+ * Copy the data from one offset vector to another.
+ *
+ * Deep copies the data array from `src` to `dest`.
+ * It's up to the caller to free the copied array using [`RSOffsetVector_FreeData`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `src` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `src` data should point to a valid array of `src.len` offsets.
+ */
+void RSOffsetVector_CopyData(struct RSOffsetVector *dest, const struct RSOffsetVector *src);
+
+/**
+ * Retrieve the number of offsets in [`RSOffsetVector`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ */
+uint32_t RSOffsetVector_Len(const struct RSOffsetVector *offsets);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
