@@ -891,8 +891,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx_UnlockSpec(sctx);
 
   bool isQueryProfile = rp->parent->isProfile;
-  struct timespec rpStartTime;
-  if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpStartTime);
+  rs_wall_clock rpStartTime;
+  if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
