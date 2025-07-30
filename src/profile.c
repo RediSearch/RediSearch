@@ -138,7 +138,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         if (profile_verbose){
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_timer_ms(&req->qiter.GILTime));
+            rs_wall_clock_convert_to_ms(req->qiter.GILTime));
           } else {
             struct timespec rpEndTime;
             clock_gettime(CLOCK_MONOTONIC, &rpEndTime);

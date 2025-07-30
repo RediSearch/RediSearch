@@ -55,3 +55,7 @@ static inline clock_t rs_wall_clock_to_clock_t(rs_wall_clock *clk) {
     // CLOCKS_PER_SEC is usually 1,000,000 (µs)
     return (clock_t)(ns_total * CLOCKS_PER_SEC / 1000000000ULL);
 }
+
+static inline double rs_wall_clock_convert_to_ms(rs_wall_clock_ns_t ns) {
+    return (double)ns / RS_WALL_CLOCK_PER_MILLISEC;
+}

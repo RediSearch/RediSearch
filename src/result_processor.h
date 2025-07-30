@@ -83,7 +83,7 @@ typedef struct {
   RedisSearchCtx *sctx;
 
   rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  struct timespec GILTime;  //milliseconds
+  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers

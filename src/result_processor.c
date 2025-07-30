@@ -891,7 +891,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx_UnlockSpec(sctx);
 
   bool isQueryProfile = rp->parent->isProfile;
-  struct timespec rpStartTime, rpEndTime;
+  struct timespec rpStartTime;
   if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
@@ -902,10 +902,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
   if (isQueryProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-    rs_timersub(&rpEndTime, &rpStartTime, &rpEndTime);
-    rs_timeradd(&rpEndTime, &rp->GILTime, &rp->GILTime);
-    rs_timeradd(&rpEndTime, &rp->parent->GILTime, &rp->parent->GILTime);
+    // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->GILTime
+    rp->parent->GILTime += rs_wall_clock_elapsed_ns(&rpStartTime) + (rs_timer_ms(&rp->GILTime) * RS_WALL_CLOCK_PER_MILLISEC);
   }
 
   // Move to the yielding phase
