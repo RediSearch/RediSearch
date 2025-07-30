@@ -19,9 +19,10 @@
 static inline IteratorStatus UI_ReadUnsorted(QueryIterator *ctx) {
   UnionIterator *ui = (UnionIterator*)ctx;
 
+  IndexResult_ResetAggregate(ui->base.current);
   while (ui->num > 0) {
     if (ui->its[ui->num - 1]->Read(ui->its[ui->num - 1]) == ITERATOR_OK) {
-      ui->base.current = ui->its[ui->num - 1]->current;
+      AggregateResult_AddChild(ui->base.current, ui->its[ui->num - 1]->current);
       ui->base.lastDocId = ui->base.current->docId;
       return ITERATOR_OK;
     }
