@@ -6,84 +6,91 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-/**
- * Flag definitions
- */
 
-// If the key cannot be found, do not mark it as an error, but create it and
-// mark it as F_UNRESOLVED
-#define RLOOKUP_OPT_UNRESOLVED_OK 0x01
+enum RLookupKeyFlag
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  /**
+   * This field is (or assumed to be) part of the document itself.
+   * This is a basic flag for a loaded key.
+   */
+  DocSrc = 1,
+  /**
+   * This field is part of the index schema.
+   */
+  SchemaSrc = 2,
+  /**
+   * Check the sorting table, if necessary, for the index of the key.
+   */
+  SvSrc = 4,
+  /**
+   * This key was created by the query itself (not in the document)
+   */
+  QuerySrc = 8,
+  /**
+   * Copy the key string via strdup. `name` may be freed
+   */
+  NameAlloc = 16,
+  /**
+   * If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
+   */
+  Override = 32,
+  /**
+   * Request that the key is returned for loading even if it is already loaded.
+   */
+  ForceLoad = 64,
+  /**
+   * This key is unresolved. Its source needs to be derived from elsewhere
+   */
+  Unresolved = 128,
+  /**
+   * This field is hidden within the document and is only used as a transient
+   * field for another consumer. Don't output this field.
+   */
+  Hidden = 256,
+  /**
+   * The opposite of [`RLookupKeyFlag::Hidden`]. This field is specified as an explicit return in
+   * the RETURN list, so ensure that this gets emitted. Only set if
+   * explicitReturn is true in the aggregation request.
+   */
+  ExplicitReturn = 512,
+  /**
+   * This key's value is already available in the RLookup table,
+   * if it was opened for read but the field is sortable and not normalized,
+   * so the data should be exactly the same as in the doc.
+   */
+  ValAvailable = 1024,
+  /**
+   * This key's value was loaded (by a loader) from the document itself.
+   */
+  IsLoaded = 2048,
+  /**
+   * This key type is numeric
+   */
+  Numeric = 4096,
+};
+#ifndef __cplusplus
+typedef uint32_t RLookupKeyFlag;
+#endif // __cplusplus
 
-// If a loader was added to load the entire document, this flag will allow
-// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
-#define RLOOKUP_OPT_ALL_LOADED 0x02
-
-#define RLOOKUP_F_NOFLAGS 0x0 // No special flags to pass.
-
-/**
- * This field is (or assumed to be) part of the document itself.
- * This is a basic flag for a loaded key.
- */
-#define RLOOKUP_F_DOCSRC 0x01
-
-/**
- * This field is part of the index schema.
- */
-#define RLOOKUP_F_SCHEMASRC 0x02
-
-/** Check the sorting table, if necessary, for the index of the key. */
-#define RLOOKUP_F_SVSRC 0x04
-
-/**
- * This key was created by the query itself (not in the document)
- */
-#define RLOOKUP_F_QUERYSRC 0x08
-
-/** Copy the key string via strdup. `name` may be freed */
-#define RLOOKUP_F_NAMEALLOC 0x10
-
-/**
- * If the key is already present, then overwrite it (relevant only for LOAD or WRITE modes)
- */
-#define RLOOKUP_F_OVERRIDE 0x20
-
-/**
- * Request that the key is returned for loading even if it is already loaded.
- */
-#define RLOOKUP_F_FORCE_LOAD 0x40
-
-/**
- * This key is unresolved. Its source needs to be derived from elsewhere
- */
-#define RLOOKUP_F_UNRESOLVED 0x80
-
-/**
- * This field is hidden within the document and is only used as a transient
- * field for another consumer. Don't output this field.
- */
-#define RLOOKUP_F_HIDDEN 0x100
-
-/**
- * The opposite of F_HIDDEN. This field is specified as an explicit return in
- * the RETURN list, so ensure that this gets emitted. Only set if
- * explicitReturn is true in the aggregation request.
- */
-#define RLOOKUP_F_EXPLICITRETURN 0x200
-
-/**
- * This key's value is already available in the RLookup table,
- * if it was opened for read but the field is sortable and not normalized,
- * so the data should be exactly the same as in the doc.
- */
-#define RLOOKUP_F_VAL_AVAILABLE 0x400
-
-/**
- * This key's value was loaded (by a loader) from the document itself.
- */
-#define RLOOKUP_F_ISLOADED 0x800
-
-/**
- * This key type is numeric
- */
-#define RLOOKUP_T_NUMERIC 0x1000
-
+enum RLookupOption
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  /**
+   * If the key cannot be found, do not mark it as an error, but create it and
+   * mark it as F_UNRESOLVED
+   */
+  AllowUnresolved = 1,
+  /**
+   * If a loader was added to load the entire document, this flag will allow
+   * later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
+   */
+  AllLoaded = 2,
+};
+#ifndef __cplusplus
+typedef uint32_t RLookupOption;
+#endif // __cplusplus
