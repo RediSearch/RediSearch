@@ -19,7 +19,6 @@
 #include "disk/database.h"
 #include "disk/document_metadata/document_metadata.hpp"
 #include "disk/database_api.h"
-#include "redismodule.h"
 #include <boost/endian/conversion.hpp>
 #include <cstring>
 #include <string>

@@ -5,50 +5,65 @@
 
 set -e  # Exit on any error
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-echo -e "${GREEN}=== RediSearch Disk Build Script ===${NC}"
+echo "=== RediSearch Disk Build Script ==="
 
 # Check if clean is requested
 if [ "$1" = "clean" ]; then
-    echo -e "${YELLOW}Cleaning build directory...${NC}"
+    echo "Cleaning build directory..."
     rm -rf build
-    echo -e "${GREEN}Build directory cleaned.${NC}"
+    echo "Build directory cleaned."
     exit 0
 fi
 
+# Build Rust components first
+echo "Building Rust components..."
+if [ ! -f "deps/RediSearch/bin/linux-x64-release/search-community/redisearch_rs/libredisearch_rs.a" ]; then
+    echo "Building RediSearch Rust library..."
+    cd deps/RediSearch/src/redisearch_rs
+    cargo build --release
+    cd ../../../..
+    echo "Rust components built successfully."
+else
+    echo "Rust components already built."
+fi
+
 # Create build directory
-echo -e "${YELLOW}Creating build directory...${NC}"
+echo "Creating build directory..."
 mkdir -p build
 cd build
 
+# Set up library path for Rust components
+echo "Setting up library paths..."
+mkdir -p deps/search-community/linux-x64-release/search-community/redisearch_rs
+if [ ! -f "deps/search-community/linux-x64-release/search-community/redisearch_rs/libredisearch_rs.a" ]; then
+    cp ../deps/RediSearch/bin/linux-x64-release/search-community/redisearch_rs/libredisearch_rs.a \
+       deps/search-community/linux-x64-release/search-community/redisearch_rs/
+    echo "Rust library copied to expected location."
+fi
+
 # Run CMake configuration
-echo -e "${YELLOW}Configuring with CMake...${NC}"
-cmake .. -DUSE_DISK_STORAGE=ON -DCMAKE_BUILD_TYPE=Release
+echo "Configuring with CMake..."
+cmake .. -DCMAKE_BUILD_TYPE=Release
 
 # Build the project
-echo -e "${YELLOW}Building project...${NC}"
+echo "Building project..."
 make -j$(nproc)
 
 # Check if build was successful
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}=== Build completed successfully! ===${NC}"
-    echo -e "${GREEN}Output: $(pwd)/redisearch.so${NC}"
-    
+    echo "=== Build completed successfully! ==="
+    echo "Output: $(pwd)/redisearch.so"
+
     # Show file info
     if [ -f "redisearch.so" ]; then
-        echo -e "${YELLOW}File size: $(du -h redisearch.so | cut -f1)${NC}"
-        echo -e "${YELLOW}File type: $(file redisearch.so)${NC}"
+        echo "File size: $(du -h redisearch.so | cut -f1)"
+        echo "File type: $(file redisearch.so)"
     else
-        echo -e "${RED}Warning: redisearch.so not found in expected location${NC}"
-        echo -e "${YELLOW}Looking for .so files:${NC}"
+        echo "Warning: redisearch.so not found in expected location"
+        echo "Looking for .so files:"
         find . -name "*.so" -type f
     fi
 else
-    echo -e "${RED}=== Build failed! ===${NC}"
+    echo "=== Build failed! ==="
     exit 1
 fi

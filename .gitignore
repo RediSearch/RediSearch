@@ -11,6 +11,7 @@
 *.DS_Store
 *.dSYM
 /bin/
+/build/
 /site/
 /venv*/
 /srcutil/lemon

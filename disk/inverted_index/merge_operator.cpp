@@ -4,8 +4,8 @@
 #include "rmutil/rm_assert.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/merge_operator.h"
-#include "src/disk/inverted_index/merge_operator.h"
-#include "src/disk/inverted_index/inverted_index.h"
+#include "disk/inverted_index/merge_operator.h"
+#include "disk/inverted_index/inverted_index.h"
 
 namespace search::disk {
 

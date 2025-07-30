@@ -21,7 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <shared_mutex>  // For thread-safe read-write lock
-#include "cpp/roaring64map.hh"  // From CRoaring library
+#include "cpp/roaring/roaring64map.hh"  // From CRoaring library
 #include "roaring/memory.h"     // For custom allocators
 #include "rmalloc.h"            // For Redis allocators
 #include "redisearch.h"

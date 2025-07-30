@@ -4,7 +4,7 @@
 #include <string>
 #include "rocksdb/slice.h"
 #include "rocksdb/merge_operator.h"
-#include "src/disk/doc_table/deleted_ids/deleted_ids.hpp"
+#include "disk/doc_table/deleted_ids/deleted_ids.hpp"
 
 
 namespace search::disk {
