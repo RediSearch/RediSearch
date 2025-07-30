@@ -1069,10 +1069,11 @@ impl<'a> RLookup<'a> {
             }
         } else {
             // Field not found in the schema.
+            let is_borrowed = matches!(key._name, Cow::Borrowed(_));
             let mut key = key.as_mut().project();
 
             // We assume `field_name` is the path to load from in the document.
-            if !key.flags.contains(RLookupKeyFlag::NameAlloc) {
+            if is_borrowed {
                 *key.path = field_name.as_ptr();
                 *key._path = Some(Cow::Borrowed(field_name));
             } else if name != field_name {
