@@ -308,8 +308,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     pvd->isParameter = true;
   }
 
-
-
   // Set default KNN values before checking for more parameters
   vq->type = VECSIM_QT_KNN;
   vq->knn.k = 10;  // Default k value
