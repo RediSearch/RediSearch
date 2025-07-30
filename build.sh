@@ -1,19 +1,31 @@
 #!/bin/bash
 
 # Simple build script for RediSearch with disk storage
-# Usage: ./build.sh [clean]
+# Usage: ./build.sh [clean] [-d|--debug]
 
 set -e  # Exit on any error
 
 echo "=== RediSearch Disk Build Script ==="
 
-# Check if clean is requested
-if [ "$1" = "clean" ]; then
-    echo "Cleaning build directory..."
-    rm -rf build
-    echo "Build directory cleaned."
-    exit 0
-fi
+# Parse arguments
+BUILD_TYPE="Release"
+for arg in "$@"; do
+    case $arg in
+        clean)
+            echo "Cleaning build directory..."
+            rm -rf build
+            echo "Build directory cleaned."
+            exit 0
+            ;;
+        -d|--debug)
+            BUILD_TYPE="Debug"
+            echo "Debug mode enabled - using -O0 optimization"
+            ;;
+        *)
+            # Unknown argument
+            ;;
+    esac
+done
 
 # Build Rust components first
 echo "Building Rust components..."
@@ -42,8 +54,8 @@ if [ ! -f "deps/search-community/linux-x64-release/search-community/redisearch_r
 fi
 
 # Run CMake configuration
-echo "Configuring with CMake..."
-cmake .. -DCMAKE_BUILD_TYPE=Release
+echo "Configuring with CMake (BUILD_TYPE=$BUILD_TYPE)..."
+cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 
 # Build the project
 echo "Building project..."

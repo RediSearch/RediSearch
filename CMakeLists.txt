@@ -9,9 +9,16 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Basic compiler flags
-set(CMAKE_C_FLAGS "-fPIC -g -pthread -O3")
-set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -O3")
+# Basic compiler flags - conditional optimization based on debug mode
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -O0")
+    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -O0")
+    message(STATUS "Debug build: Using -O0 optimization")
+else()
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -O3")
+    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -O3")
+    message(STATUS "Release build: Using -O3 optimization")
+endif()
 
 # Platform-specific linker flags for shared library
 if(APPLE)
@@ -26,7 +33,7 @@ endif()
 
 # Set variables needed by RediSearch
 set(MODULE_NAME "search")
-set(COORD_TYPE "oss")  # Use OSS coordinator to avoid cluster/coordinator memory allocation issues
+set(COORD_TYPE "rlec")  # Use OSS coordinator to avoid cluster/coordinator memory allocation issues
 
 # Disable tests and benchmarks for dependencies
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
@@ -34,13 +41,13 @@ set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
 set(VECSIM_BUILD_TESTS OFF CACHE BOOL "Build vecsim tests" FORCE)
 
-# Add compile definitions needed by RediSearch
-add_compile_definitions(
-    "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
-    REDISMODULE_SDK_RLEC
-    _GNU_SOURCE
-    REDIS_MODULE_TARGET
-)
+# # Add compile definitions needed by RediSearch
+# add_compile_definitions(
+#     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
+#     REDISMODULE_SDK_RLEC
+#     _GNU_SOURCE
+#     REDIS_MODULE_TARGET
+# )
 
 # Include RediSearch - this creates a static library named 'redisearch'
 add_subdirectory(deps/RediSearch)
