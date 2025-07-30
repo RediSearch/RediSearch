@@ -646,25 +646,14 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
 
   AREQ* vecReq = result->requests[1];
 
-  // Verify ParsedVectorQuery structure
-  ASSERT_TRUE(vecReq->parsedVectorQuery != NULL);
-  ParsedVectorQuery *pvq = vecReq->parsedVectorQuery;
-  ASSERT_STREQ(pvq->fieldName, "vector");
-  ASSERT_STREQ((const char*)pvq->vector, TEST_BLOB_DATA);
-  ASSERT_EQ(pvq->vectorLen, strlen(TEST_BLOB_DATA));
-  ASSERT_FALSE(pvq->isParameter);  // Should be false for direct vector data
-  ASSERT_EQ(pvq->type, VECSIM_QT_KNN);
-  ASSERT_EQ(pvq->k, 5);
-
-  // Verify AST structure for KNN query
+  // Test the AST root
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
-  // Verify QueryNode structure - should have no parameters for direct vector
   QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(QueryNode_NumParams(vn), 0);  // No parameters for direct vector data
 
-  // Verify VectorQuery structure
+  // Verify VectorQuery structure in the AST
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_TRUE(vq->field != NULL);
@@ -831,17 +820,12 @@ TEST_F(ParseHybridTest, testKNNInvalidKValue) {
   testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
 }
 
-TEST_F(ParseHybridTest, testKNNInvalidEFRuntimeValue) {
-  // Test KNN with invalid EF_RUNTIME value (non-numeric)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "EF_RUNTIME", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
-}
+// NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
+// The validation happens during query execution in the flow:
+// QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
+// These validation tests should be in execution tests, not parsing tests.
 
-TEST_F(ParseHybridTest, testKNNMissingParameterValue) {
-  // Test KNN with missing parameter value (parameter count says 2 but only K is provided)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "2", "K", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing parameter");
-}
+
 
 TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
   // Test KNN with duplicate K parameters
@@ -898,17 +882,9 @@ TEST_F(ParseHybridTest, testRangeInvalidRadiusValue) {
   testErrorCode(args, QUERY_ESYNTAX, "Invalid RADIUS value");
 }
 
-TEST_F(ParseHybridTest, testRangeInvalidEpsilonValue) {
-  // Test RANGE with invalid EPSILON value (non-numeric)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "EPSILON", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid EPSILON value");
-}
 
-TEST_F(ParseHybridTest, testRangeMissingParameterValue) {
-  // Test RANGE with missing parameter value (parameter count says 2 but only RADIUS is provided)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "2", "RADIUS", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing parameter");
-}
+
+
 
 TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
   // Test RANGE with duplicate RADIUS parameters

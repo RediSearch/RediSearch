@@ -23,6 +23,7 @@
 #include "resp3.h"
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
+#include "vector_index.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -1121,49 +1122,34 @@ static bool IsIndexCoherent(AREQ *req) {
 }
 
 
-static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
+static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
+  ParsedVectorData *pvd = req->parsedVectorData;
+  VectorQuery *vq = pvd->query;
+  const char *fieldName = pvd->fieldName;
 
   // Resolve field spec
-  const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(sctx->spec, pvq->fieldName, strlen(pvq->fieldName));
+  const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, strlen(fieldName));
   if (!vectorField) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown field", " `%s`", pvq->fieldName);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", pvq->fieldName);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   }
-
-  // Create VectorQuery from ParsedVectorQuery data
-  VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
   vq->field = vectorField;
-  vq->type = pvq->type;
 
-  // Set default scoreField using vector field name
-  VectorQuery_SetDefaultScoreField(vq, pvq->fieldName, strlen(pvq->fieldName));
-
-  // Set non-vector parameters based on type
-  switch (pvq->type) {
-    case VECSIM_QT_KNN:
-      vq->knn.k = pvq->k;
-      vq->knn.order = BY_SCORE;
-      break;
-    case VECSIM_QT_RANGE:
-      vq->range.radius = pvq->radius;
-      vq->range.order = BY_SCORE;
-      break;
-  }
-
-  // Create the vector node
   QueryNode *vecNode = NewQueryNode(QN_VECTOR);
   vecNode->vn.vq = vq;
+  pvd->query = NULL;
+  //QueryNode now owns the VectorQuery
   vecNode->opts.flags |= QueryNode_YieldsDistance;
 
-  if (pvq->isParameter) {
+  if (pvd->isParameter) {
     // PARAMETER CASE: Set up parameter for evalnode to resolve later
     QueryToken vecToken = {
       .type = QT_PARAM_VEC,
-      .s = pvq->vector,  // Parameter name
-      .len = strlen(pvq->vector),
+      .s = vq->knn.vector,  // Parameter name (stored in vector field)
+      .len = vq->knn.vecLen,
       .pos = 0,
       .numval = 0,
       .sign = 0
@@ -1181,24 +1167,10 @@ static int ApplyParsedVectorQuery(ParsedVectorQuery *pvq, RedisSearchCtx *sctx, 
     }
     // Update AST's numParams since we used a local QueryParseCtx
     ast->numParams += q.numParams;
-  } else {
-    // DIRECT VECTOR CASE: Set vector data directly, no parameters needed
-    switch (vq->type) {
-      case VECSIM_QT_KNN:
-        vq->knn.vector = (void*)pvq->vector;
-        vq->knn.vecLen = pvq->vectorLen;
-        break;
-      case VECSIM_QT_RANGE:
-        vq->range.vector = (void*)pvq->vector;
-        vq->range.vecLen = pvq->vectorLen;
-        break;
-    }
-    // No QueryNode_InitParams needed - no parameters to resolve
   }
-
-  // Apply attributes if any (this will transfer ownership of attribute values)
-  if (pvq->attributes && array_len(pvq->attributes) > 0) {
-    QueryNode_ApplyAttributes(vecNode, pvq->attributes, array_len(pvq->attributes), status);
+  // Handle non-vector-specific attributes (like YIELD_DISTANCE_AS)
+  if (pvd->attributes) {
+    QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
 
   QueryNode_AddChild(vecNode, ast->root);
@@ -1278,9 +1250,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (req->parsedVectorQuery) {
+  if (req->parsedVectorData) {
     ast->validationFlags |= QAST_HYBRID_VSIM_FILTER_CLAUSE;
-    int rv = ApplyParsedVectorQuery(req->parsedVectorQuery, sctx, ast, status);
+    int rv = ApplyVectorQuery(req, sctx, ast, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -1381,9 +1353,10 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
-  if (req->parsedVectorQuery) {
-    ParsedVectorQuery_Free(req->parsedVectorQuery);
-    req->parsedVectorQuery = NULL;
+  // Free parsed vector data
+  if (req->parsedVectorData) {
+    ParsedVectorData_Free(req->parsedVectorData);
+    req->parsedVectorData = NULL;
   }
 
   rm_free(req->args);

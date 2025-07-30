@@ -20,23 +20,17 @@ extern "C" {
 #endif
 
 /**
- * OWNERSHIP: fieldName/vector NOT owned (point to args), attributes OWNED.
- * VectorQuery only references this data, doesn't free it.
+ * Simplified vector data structure for hybrid queries.
+ * OWNERSHIP: fieldName NOT owned (points to args), query and attributes OWNED.
  */
-typedef struct ParsedVectorQuery {
-  const char *fieldName;      // Field name string (NOT owned - points to args)
-  const void *vector;         // Vector data OR parameter name (NOT owned - points to args)
-  size_t vectorLen;           // Vector length
-  bool isParameter;           // true if vector is a parameter name, false if direct data
-  VectorQueryType type;       // KNN or RANGE
-  union {
-    size_t k;                 // For KNN
-    double radius;            // For RANGE
-  };
-  QueryAttribute *attributes; // Self-describing array (OWNED)
-} ParsedVectorQuery;
+typedef struct {
+  VectorQuery *query;             // VectorQuery (OWNED - transferred to QueryNode)
+  const char *fieldName;          // Field name for later resolution (NOT owned - points to args)
+  QueryAttribute *attributes;     // Non-vector-specific attributes like YIELD_DISTANCE_AS (OWNED)
+  bool isParameter;               // true if vector data is a parameter
+} ParsedVectorData;
 
-void ParsedVectorQuery_Free(ParsedVectorQuery *pvq);
+void ParsedVectorData_Free(ParsedVectorData *pvd);
 
 #ifdef __cplusplus
 }

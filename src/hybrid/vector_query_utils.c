@@ -10,16 +10,19 @@
 #include "vector_query_utils.h"
 #include "../rmalloc.h"
 #include "../util/arr.h"
+#include "../vector_index.h"
 
-void ParsedVectorQuery_Free(ParsedVectorQuery *pvq) {
-  RS_ASSERT(pvq);
+void ParsedVectorData_Free(ParsedVectorData *pvd) {
+  if (!pvd) return;
 
-  // pvq.fieldName and pvq.vector are NOT owned (just a reference to args) - don't free it
-
-  // Free QueryAttribute array, attribute names are NOT owned (point to parser tokens), only values are freed.
-  if (pvq->attributes) {
-    array_free_ex(pvq->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
+  if (pvd->query) {
+    VectorQuery_Free(pvd->query);
   }
 
-  rm_free(pvq);
+  // Free attributes array, attribute names are NOT owned (point to parser tokens), only values are freed.
+  if (pvd->attributes) {
+    array_free_ex(pvd->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
+  }
+
+  rm_free(pvd);
 }

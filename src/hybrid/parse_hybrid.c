@@ -15,6 +15,7 @@
 
 #include "aggregate/aggregate.h"
 #include "vector_query_utils.h"
+#include "vector_index.h"
 #include "query_error.h"
 #include "spec.h"
 #include "param.h"
@@ -25,6 +26,23 @@
 #include "rmutil/rm_assert.h"
 #include "util/references.h"
 #include "info/info_redis/threads/current_thread.h"
+
+
+static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
+  return (VecSimRawParam){
+    .name = rm_strndup(name, nameLen),
+    .nameLen = nameLen,
+    .value = rm_strndup(value, valueLen),
+    .valLen = valueLen
+  };
+}
+
+static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLen, const char *value, size_t valueLen) {
+  VecSimRawParam rawParam = createVecSimRawParam(name, nameLen, value, valueLen);
+  vq->params.params = array_ensure_append_1(vq->params.params, rawParam);
+  bool needResolve = false;
+  vq->params.needResolve = array_ensure_append_1(vq->params.needResolve, needResolve);
+}
 
 static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
@@ -72,7 +90,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *status) {
+static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
   // Try to get number of parameters
@@ -105,7 +123,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
         return REDISMODULE_ERR;
       }
-      pvq->k = (size_t)kValue;
+      vq->knn.k = (size_t)kValue;
       hasK = true;  // codespell:ignore
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
@@ -118,14 +136,8 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
         return REDISMODULE_ERR;
       }
-      // Add as QueryAttribute (for query node processing)
-      QueryAttribute attr = {
-        .name = VECSIM_EFRUNTIME,
-        .namelen = strlen(VECSIM_EFRUNTIME),
-        .value = rm_strdup(value),
-        .vallen = strlen(value)
-      };
-      pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
+      // Add directly to VectorQuery params
+      addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, strlen(value));
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
@@ -138,14 +150,14 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
         return REDISMODULE_ERR;
       }
-      // As QueryAttribute (for query node processing)
+      // Add as QueryAttribute (for query node processing, not vector-specific)
       QueryAttribute attr = {
         .name = YIELD_DISTANCE_ATTR,
         .namelen = strlen(YIELD_DISTANCE_ATTR),
         .value = rm_strdup(value),
         .vallen = strlen(value)
       };
-      pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
+      *attributes = array_ensure_append_1(*attributes, attr);
       hasYieldDistanceAs = true;
 
     } else {
@@ -163,7 +175,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
 }
 
 
-static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *status) {
+static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
   // VSIM @vectorfield vector RANGE ...
   //                                ^
   long long params;
@@ -194,7 +206,7 @@ static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid RADIUS value");
         return REDISMODULE_ERR;
       }
-      pvq->radius = radiusValue;
+      vq->range.radius = radiusValue;
       hasRadius = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EPSILON")) {
@@ -207,14 +219,8 @@ static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
         return REDISMODULE_ERR;
       }
-      // Add as QueryAttribute (for query node processing)
-      QueryAttribute attr = {
-        .name = VECSIM_EPSILON,
-        .namelen = strlen(VECSIM_EPSILON),
-        .value = rm_strdup(value),
-        .vallen = strlen(value)
-      };
-      pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
+      // Add directly to VectorQuery params
+      addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, strlen(value));
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
@@ -227,14 +233,14 @@ static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
         return REDISMODULE_ERR;
       }
-      // As QueryAttribute (for query node processing)
+      // Add as QueryAttribute (for query node processing, not vector-specific)
       QueryAttribute attr = {
         .name = YIELD_DISTANCE_ATTR,
         .namelen = strlen(YIELD_DISTANCE_ATTR),
         .value = rm_strdup(value),
         .vallen = strlen(value)
       };
-      pvq->attributes = array_ensure_append_1(pvq->attributes, attr);
+      *attributes = array_ensure_append_1(*attributes, attr);
       hasYieldDistanceAs = true;
 
     } else {
@@ -266,14 +272,22 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // Initialize aggregation plan for vector request
   AGPLN_Init(AREQ_AGGPlan(vreq));
 
-  // Allocate ParsedVectorQuery
-  ParsedVectorQuery *pvq = rm_calloc(1, sizeof(ParsedVectorQuery));
+  // Create ParsedVectorData struct at the beginning for cleaner error handling
+  ParsedVectorData *pvd = rm_calloc(1, sizeof(ParsedVectorData));
 
-  // Parse vector field and blob
-  if (AC_GetString(ac, &pvq->fieldName, NULL, 0) != AC_OK) {
+  // Allocate VectorQuery directly (params arrays will be created lazily by array_ensure_append_1)
+  VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
+  pvd->query = vq;
+
+
+
+  // Parse vector field name and store it for later resolution
+  const char *fieldName;
+  if (AC_GetString(ac, &fieldName, NULL, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector field name");
     goto error;
   }
+  pvd->fieldName = fieldName;
 
   const char *vectorParam;
   if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK) {
@@ -284,27 +298,35 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   if (vectorParam[0] == '$') {
     // PARAMETER CASE: store parameter name for later resolution
     vectorParam++;  // Skip '$'
-    pvq->isParameter = true;
+    pvd->isParameter = true;
   }
-  pvq->vector = vectorParam;
-  pvq->vectorLen = strlen(vectorParam);
+
+  // Store vector data/parameter info for later use
+  const char *vectorData = vectorParam;
+  size_t vectorLen = strlen(vectorParam);
 
   if (AC_IsAtEnd(ac)) goto final;
 
-  // Initialize QueryAttribute array for attributes like YIELD_DISTANCE_AS
-  pvq->attributes = array_new(QueryAttribute, 0);
+  // pvd->attributes = array_new(QueryAttribute, 0);
 
   // Parse optional KNN or RANGE clause
   if (AC_AdvanceIfMatch(ac, "KNN")) {
-    if (parseKNNClause(ac, pvq, status) != REDISMODULE_OK) {
+    if (parseKNNClause(ac, vq, &pvd->attributes, status) != REDISMODULE_OK) {
       goto error;
     }
-    pvq->type = VECSIM_QT_KNN;
+    vq->type = VECSIM_QT_KNN;
+    vq->knn.order = BY_SCORE;
   } else if (AC_AdvanceIfMatch(ac, "RANGE")) {
-    if (parseRangeClause(ac, pvq, status) != REDISMODULE_OK) {
+    if (parseRangeClause(ac, vq, &pvd->attributes, status) != REDISMODULE_OK) {
       goto error;
     }
-    pvq->type = VECSIM_QT_RANGE;
+    vq->type = VECSIM_QT_RANGE;
+    vq->range.order = BY_SCORE;
+  } else {
+    // Default to KNN with k=10 when no explicit KNN or RANGE clause is provided
+    vq->type = VECSIM_QT_KNN;
+    vq->knn.k = 10;  // Default k value
+    vq->knn.order = BY_SCORE;
   }
 
   // Check for optional FILTER clause - parameter may not be in our scope
@@ -321,11 +343,30 @@ final:
   if (!vreq->query) {  // meaning there is no filter clause
     vreq->query = "*";
   }
-  vreq->parsedVectorQuery = pvq;
+
+  // Set vector data in VectorQuery based on type (KNN vs RANGE)
+  // The type should be set by now from parseKNNClause or parseRangeClause
+  switch (vq->type) {
+    case VECSIM_QT_KNN:
+      vq->knn.vector = (void*)vectorData;
+      vq->knn.vecLen = vectorLen;
+      break;
+    case VECSIM_QT_RANGE:
+      vq->range.vector = (void*)vectorData;
+      vq->range.vecLen = vectorLen;
+      break;
+  }
+
+  // Set default scoreField using vector field name (can be done during parsing)
+  VectorQuery_SetDefaultScoreField(vq, fieldName, strlen(fieldName));
+
+  // Store the completed ParsedVectorData in AREQ
+  vreq->parsedVectorData = pvd;
+
   return REDISMODULE_OK;
 
 error:
-  ParsedVectorQuery_Free(pvq);
+  ParsedVectorData_Free(pvd);
   return REDISMODULE_ERR;
 }
 

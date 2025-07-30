@@ -145,7 +145,6 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-void ParsedVectorQuery_Free(ParsedVectorQuery *pvq);
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct AREQ {
@@ -156,7 +155,7 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
-  ParsedVectorQuery *parsedVectorQuery;
+  ParsedVectorData *parsedVectorData;
 
   /** Fields to be output and otherwise processed */
   FieldList outFields;
