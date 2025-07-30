@@ -62,7 +62,7 @@ jobs:
         run: |
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
           .install/test_deps/install_rust.sh
-           echo "PATH=$PATH:/usr/local/rust/bin" >> $GITHUB_ENV
+           echo "PATH=$PATH:$HOME/.cargo/bin" >> $GITHUB_ENV
 
       - name: Get Redis
         uses: actions/checkout@v4
