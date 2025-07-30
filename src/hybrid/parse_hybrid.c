@@ -299,9 +299,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     pvd->isParameter = true;
   }
 
-  // Store vector data/parameter info for later use
-  const char *vectorData = vectorParam;
-  size_t vectorLen = strlen(vectorParam);
+
 
   // Set default KNN values before checking for more parameters
   vq->type = VECSIM_QT_KNN;
@@ -344,12 +342,12 @@ final:
   // The type should be set by now from parseKNNClause or parseRangeClause
   switch (vq->type) {
     case VECSIM_QT_KNN:
-      vq->knn.vector = (void*)vectorData;
-      vq->knn.vecLen = vectorLen;
+      vq->knn.vector = (void*)vectorParam;
+      vq->knn.vecLen = strlen(vectorParam);
       break;
     case VECSIM_QT_RANGE:
-      vq->range.vector = (void*)vectorData;
-      vq->range.vecLen = vectorLen;
+      vq->range.vector = (void*)vectorParam;
+      vq->range.vecLen = strlen(vectorParam);
       break;
   }
 

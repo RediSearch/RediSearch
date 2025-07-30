@@ -440,8 +440,6 @@ TEST_F(ParseHybridTest, ParseSortby0_SetsNoSortFlagAndClearsSortKeys) {
   AREQ_Free(req);
 }
 
-
-
 // Tests for parseVectorSubquery functionality (VSIM tests)
 
 TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
