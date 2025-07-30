@@ -947,7 +947,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   }
 
   if (r->qiter.isProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &r->qiter.initTime);
+    rs_wall_clock_init(&r->qiter.initTime);
   }
 
   // This function also builds the RedisSearchCtx
@@ -973,7 +973,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     if (r->qiter.isProfile){
       struct timespec time;
       clock_gettime(CLOCK_MONOTONIC, &time);
-      rs_timersub(&time, &r->qiter.initTime, &time);
+      rs_timersub(&time, &r->qiter.initTime.start, &time);
       rs_timeradd(&time, &r->qiter.GILTime, &r->qiter.GILTime);
     }
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
