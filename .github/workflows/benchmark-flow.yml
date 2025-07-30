@@ -58,6 +58,7 @@ jobs:
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
           .install/test_deps/install_rust.sh
            echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+
       - name: Get Redis
         uses: actions/checkout@v4
         with:
@@ -82,9 +83,7 @@ jobs:
           terraform_version: 1.11.1
           terraform_wrapper: false
       - name: Prepare ReJSON Module
-        run: |
-          source $HOME/.cargo/env
-          REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
+        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240 # timeout for the step
