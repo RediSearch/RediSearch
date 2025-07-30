@@ -81,7 +81,7 @@ static int parseKNNClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *st
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
     return REDISMODULE_ERR;
   } else if (params == 0 || params % 2 != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter coun");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter count");
     return REDISMODULE_ERR;
   }
 
@@ -171,7 +171,7 @@ static int parseRangeClause(ArgsCursor *ac, ParsedVectorQuery *pvq, QueryError *
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
     return REDISMODULE_ERR;
   } else if (params == 0 || params % 2 != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter coun");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter count");
     return REDISMODULE_ERR;
   }
   bool hasRadius = false;
@@ -276,7 +276,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
   const char *vectorParam;
-  if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK ) {
+  if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector parameter");
     goto error;
   }

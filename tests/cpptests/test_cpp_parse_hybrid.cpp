@@ -226,6 +226,7 @@ TEST_F(ParseHybridTest, testMissingSearchParameter) {
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_ESYNTAX);
+  ASSERT_STREQ(status.detail, "SEARCH parameter is required");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -269,6 +270,7 @@ TEST_F(ParseHybridTest, testMissingSecondSearchParameter) {
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_ESYNTAX);
+  ASSERT_STREQ(status.detail, "VSIM parameter is required");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -358,6 +360,7 @@ TEST_F(ParseHybridTest, testInvalidSearchAfterSearch) {
   // Verify parsing failed with appropriate error
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_STREQ(status.detail, "Unknown parameter `SEARCH` in SEARCH");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -720,6 +723,7 @@ TEST_F(ParseHybridTest, testVsimSubqueryWrongParamCount) {
   // Verify the request was parsed unsuccessfully
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_STREQ(status.detail,"Unknown parameter `FILTER` in KNN");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -740,6 +744,7 @@ TEST_F(ParseHybridTest, testVsimKNNOddParamCount) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_STREQ(status.detail, "Invalid parameter count");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -760,6 +765,7 @@ TEST_F(ParseHybridTest, testVsimRangeOddParamCount) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_STREQ(status.detail, "Invalid parameter count");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -780,6 +786,7 @@ TEST_F(ParseHybridTest, testVsimSubqueryMissingK) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_STREQ(status.detail, "Missing K parameter");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -800,6 +807,7 @@ TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EDUPPARAM);
+  ASSERT_STREQ(status.detail, "Duplicate K parameter");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -820,6 +828,7 @@ TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EDUPPARAM);
+  ASSERT_STREQ(status.detail, "Duplicate RADIUS parameter");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -840,6 +849,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_STREQ(status.detail, "Unknown parameter `EPSILON` in KNN");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -860,6 +870,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EPARSEARGS);
+  ASSERT_STREQ(status.detail, "Unknown parameter `EF_RUNTIME` in RANGE");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -880,6 +891,7 @@ TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EDUPPARAM);
+  ASSERT_STREQ(status.detail, "Duplicate EF_RUNTIME parameter");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -900,6 +912,7 @@ TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
 
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EDUPPARAM);
+  ASSERT_STREQ(status.detail, "Duplicate EPSILON parameter");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -974,7 +987,8 @@ TEST_F(ParseHybridTest, testBlobWithoutParams) {
 
   // Verify parsing failed - $BLOB parameter requires PARAMS section
   ASSERT_TRUE(result == NULL);
-  ASSERT_NE(status.code, QUERY_OK);
+  ASSERT_EQ(status.code, QUERY_ENOPARAM);
+  ASSERT_STREQ(status.detail, "No such parameter `BLOB`");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -993,6 +1007,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
   HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT);
+  ASSERT_STREQ(status.detail, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
 
   // Clean up
   SearchCtx_Free(test_sctx);
@@ -1015,6 +1030,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
   ASSERT_TRUE(result == NULL);
   ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY);
+  ASSERT_STREQ(status.detail, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
 
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, previousDialectVersion);
 
