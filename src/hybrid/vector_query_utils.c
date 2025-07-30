@@ -16,7 +16,7 @@ void ParsedVectorQuery_Free(ParsedVectorQuery *pvq) {
 
   // pvq.fieldName and pvq.vector are NOT owned (just a reference to args) - don't free it
 
-  // Free QueryAttribute arrays with callback
+  // Free QueryAttribute array, attribute names are NOT owned (point to parser tokens), only values are freed.
   if (pvq->attributes) {
     array_free_ex(pvq->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
   }
