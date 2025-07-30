@@ -26,16 +26,16 @@
 #include "util/references.h"
 #include "info/info_redis/threads/current_thread.h"
 
-static int parseSearchSubquery(ArgsCursor *ac, AREQ *searchRequest, QueryError *status) {
+static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "No query string provided for SEARCH");
     return REDISMODULE_ERR;
   }
 
-  searchRequest->query = AC_GetStringNC(ac, NULL);
-  AGPLN_Init(AREQ_AGGPlan(searchRequest));
+  sreq->query = AC_GetStringNC(ac, NULL);
+  AGPLN_Init(AREQ_AGGPlan(sreq));
 
-  RSSearchOptions *searchOpts = &searchRequest->searchopts;
+  RSSearchOptions *searchOpts = &sreq->searchopts;
   RSSearchOptions_Init(searchOpts);
 
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
