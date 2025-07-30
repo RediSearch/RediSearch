@@ -68,7 +68,7 @@ jobs:
         run: make install
       - name: Build RediSearch
         env:
-          PATH: ${{ env.PATH }}:$HOME/.cargo/bin
+          PATH: '${{ env.PATH }}:${{ env.HOME }}/.cargo/bin'
         run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
           COORD=${{ inputs.cluster_env }}
           PROFILE=${{ inputs.profile_env }}
@@ -84,7 +84,7 @@ jobs:
           terraform_wrapper: false
       - name: Prepare ReJSON Module
         env:
-          PATH: ${{ env.PATH }}:$HOME/.cargo/bin
+          PATH: '${{ env.PATH }}:${{ env.HOME }}/.cargo/bin'
         run: |
           REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
