@@ -2,10 +2,9 @@
 processor=$(uname -m)
 OS_TYPE=$(uname -s)
 
-export RUSTUP_HOME=/usr/
-export CARGO_HOME=/usr/
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-# export PATH=$PATH:/usr/local/rust/bin
+
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
 
 # Verify Cargo is in path
 echo $PATH

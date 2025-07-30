@@ -44,6 +44,11 @@ jobs:
     runs-on: ubuntu-latest
     container: ${{ inputs.container }}
     steps:
+      - name: install terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.11.1
+          terraform_wrapper: false
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -75,13 +80,7 @@ jobs:
           REDISEARCH_MT_BUILD=0
       - name: Install Python dependencies
         run: |
-          pip3 install --upgrade pip  
           python3 -m pip install -r tests/benchmarks/requirements.txt
-      - name: install terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.11.1
-          terraform_wrapper: false
       - name: Prepare ReJSON Module
         run: |
           echo $PATH
