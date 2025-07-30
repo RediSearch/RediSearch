@@ -1379,6 +1379,30 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       goto reset;
     }
 
+    if (sp->diskSpec)
+    {
+      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support non-TEXT fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_NotIndexable) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support NOINDEX fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_Sortable) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support SORTABLE fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_IndexMissing) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support INDEXMISSING fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_IndexEmpty) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support INDEXEMPTY fields");
+        goto reset;
+      }
+    }
+
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
       int textId = IndexSpec_CreateTextId(sp, fs->index);
       if (textId < 0) {
