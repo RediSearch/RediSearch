@@ -320,7 +320,6 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   HybridRequest_Free(result);
 }
 
-
 // Tests for parseVectorSubquery functionality (VSIM tests)
 
 TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
@@ -356,8 +355,8 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   ASSERT_STREQ(vn->params[0].name, "BLOB");
   ASSERT_EQ(vn->params[0].len, 4);
   ASSERT_EQ(vn->params[0].type, PARAM_VEC);
-  ASSERT_TRUE(vn->params[0].target != NULL);
-  ASSERT_TRUE(vn->params[0].target_len != NULL);
+  ASSERT_STREQ(*(char**)vn->params[0].target, TEST_BLOB_DATA);
+  ASSERT_EQ(*vn->params[0].target_len, strlen(TEST_BLOB_DATA));
   ASSERT_EQ(vn->params[0].sign, 0);
 
   // Verify VectorQuery structure
@@ -626,10 +625,6 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   HybridRequest_Free(result);
 }
 
-// Error handling tests for parseVectorSubquery
-
-
-
 TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -673,8 +668,6 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   HybridRequest_Free(result);
 }
 
-
-
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -712,8 +705,6 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   SearchCtx_Free(test_sctx);
   QueryError_ClearError(&status);
 }
-
-
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   QueryError status = {QueryErrorCode(0)};
@@ -874,10 +865,6 @@ TEST_F(ParseHybridTest, testRangeInvalidRadiusValue) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "2", "RADIUS", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ESYNTAX, "Invalid RADIUS value");
 }
-
-
-
-
 
 TEST_F(ParseHybridTest, testVsimRangeDuplicateRadius) {
   // Test RANGE with duplicate RADIUS parameters
