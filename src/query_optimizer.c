@@ -64,12 +64,9 @@ void trimUnionIterator(QueryIterator *iter, size_t offset, size_t limit, bool as
       }
     }
   } else {
-    RS_ABORT("Currently cannot reach here");
-    // UI_SyncIterList(ui);
+    UI_SyncIterList(ui);
   }
   iter->Read = UI_ReadUnsorted;
-  IndexResult_Free(ui->base.current);
-  ui->base.current = NULL;
 }
 
 void AddIntersectIterator(QueryIterator *parentIter, QueryIterator *childIter) {
