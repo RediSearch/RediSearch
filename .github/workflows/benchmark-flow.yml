@@ -68,11 +68,13 @@ jobs:
         run: make install
       - name: Build RediSearch
         env:
-          PATH: '${{ env.PATH }}:${{ env.HOME }}/.cargo/bin'
-        run: make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
-          COORD=${{ inputs.cluster_env }}
-          PROFILE=${{ inputs.profile_env }}
-          REDISEARCH_MT_BUILD=0
+          PATH: "${{ env.HOME }}/.cargo/bin:${{ env.PATH }}"
+        run: |
+          echo "PATH=$PATH"
+          make build ${{ inputs.profile_env == 1 && 'PROFILE' || ''}} \
+            COORD=${{ inputs.cluster_env }} \
+            PROFILE=${{ inputs.profile_env }} \
+            REDISEARCH_MT_BUILD=0
       - name: Install Python dependencies
         run: |
           pip3 install --upgrade pip  
@@ -84,8 +86,9 @@ jobs:
           terraform_wrapper: false
       - name: Prepare ReJSON Module
         env:
-          PATH: '${{ env.PATH }}:${{ env.HOME }}/.cargo/bin'
+          PATH: "${{ env.HOME }}/.cargo/bin:${{ env.PATH }}"
         run: |
+          echo "PATH=$PATH"
           REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
