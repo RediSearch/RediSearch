@@ -147,13 +147,18 @@ pub struct RSTermRecord<'a> {
     pub offsets: RSOffsetVector<'a>,
 }
 
-impl RSTermRecord<'_> {
+impl<'a> RSTermRecord<'a> {
     /// Create a new term record without term pointer and offsets.
     pub fn new() -> Self {
         Self {
             term: ptr::null_mut(),
             offsets: RSOffsetVector::empty(),
         }
+    }
+
+    /// Create a new term with the given term pointer and offsets.
+    pub fn with_term(term: *mut RSQueryTerm, offsets: RSOffsetVector<'a>) -> RSTermRecord<'a> {
+        Self { term, offsets }
     }
 }
 
@@ -435,7 +440,7 @@ impl Default for RSIndexResult<'_> {
     }
 }
 
-impl RSIndexResult<'_> {
+impl<'a> RSIndexResult<'a> {
     /// Create a new virtual index result
     pub fn virt() -> Self {
         Self {
@@ -522,6 +527,21 @@ impl RSIndexResult<'_> {
                 term: ManuallyDrop::new(RSTermRecord::new()),
             },
             result_type: RSResultType::Term,
+            ..Default::default()
+        }
+    }
+
+    pub fn term_with_term_ptr(
+        term: *mut RSQueryTerm,
+        offsets: RSOffsetVector<'a>,
+    ) -> RSIndexResult<'a> {
+        let offsets_sz = offsets.len;
+        Self {
+            data: RSIndexResultData {
+                term: ManuallyDrop::new(RSTermRecord::with_term(term, offsets)),
+            },
+            result_type: RSResultType::Term,
+            offsets_sz,
             ..Default::default()
         }
     }
