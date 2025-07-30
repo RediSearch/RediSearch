@@ -697,6 +697,7 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     int result = REDISMODULE_OK;
     // Build the pipeline and execute
     if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Error building hybrid pipeline");
       result = REDISMODULE_ERR;
     } else {
       HybridRequest_Execute(hreq, ctx);

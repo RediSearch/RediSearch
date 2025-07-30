@@ -112,7 +112,10 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    if (rc != REDISMODULE_OK) {
+        return rc;
+    };
 
     // Restore the LOAD step to the tail pipeline for proper cleanup
     if (loadStep) {
@@ -129,22 +132,25 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
  * @param req The HybridRequest with built pipeline
  * @param ctx Redis module context for sending the reply
  */
-void HybridRequest_Execute(HybridRequest *req, RedisModuleCtx *ctx) {
+void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx) {
     // Create temporary AREQ wrapper around tail pipeline
     AREQ *tailAREQ = AREQ_New();
 
+    // Store the original empty pipeline
+    Pipeline originalPipelineContent = tailAREQ->pipeline;
+
     // Transfer the tail pipeline to the AREQ (without copying)
-    tailAREQ->pipeline = *req->tailPipeline;
+    tailAREQ->pipeline = *hreq->tailPipeline;
 
     // Set up the search context from the hybrid parameters
-    tailAREQ->sctx = req->hybridParams->aggregationParams.common.sctx;
+    tailAREQ->sctx = hreq->hybridParams->aggregationParams.common.sctx;
 
     // Copy request configuration from the first individual request
-    if (req->nrequests > 0) {
-        tailAREQ->reqflags = req->requests[0]->reqflags;
-        tailAREQ->reqConfig = req->requests[0]->reqConfig;
-        tailAREQ->maxAggregateResults = req->requests[0]->maxAggregateResults;
-        tailAREQ->maxSearchResults = req->requests[0]->maxSearchResults;
+    if (hreq->nrequests > 0) {
+        tailAREQ->reqConfig = hreq->reqConfig;
+        tailAREQ->reqflags = hreq->requests[0]->reqflags;
+        tailAREQ->maxAggregateResults = hreq->requests[0]->maxAggregateResults;
+        tailAREQ->maxSearchResults = hreq->requests[0]->maxSearchResults;
     }
 
     // Set up the reply
@@ -162,9 +168,9 @@ void HybridRequest_Execute(HybridRequest *req, RedisModuleCtx *ctx) {
 
     RedisModule_EndReply(reply);
 
-    // Clean up the temporary AREQ without freeing the pipeline
-    // (the pipeline belongs to the HybridRequest)
-    tailAREQ->pipeline = (Pipeline){0}; // Clear pipeline reference
+    // Restore the original empty pipeline to prevent AREQ_Free from freeing hreq's pipeline
+    tailAREQ->pipeline = originalPipelineContent;
+    tailAREQ->sctx = NULL;  // Clear to prevent AREQ_Free from freeing it
     AREQ_Free(tailAREQ);
 }
 
@@ -211,6 +217,12 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
+      // Clear the pipeline's result processor chain to prevent double-free
+      // The processors (including depleters) will be freed by the tail pipeline
+      QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req->requests[i]);
+      qctx->rootProc = NULL;
+      qctx->endProc = NULL;
+
       // Check if we need to manually free the thread-safe context
       if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
         RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
@@ -245,6 +257,7 @@ void HybridRequest_Free(HybridRequest *req) {
       // Free the aggregationParams search context
       if(req->hybridParams->aggregationParams.common.sctx) {
         SearchCtx_Free(req->hybridParams->aggregationParams.common.sctx);
+        req->hybridParams->aggregationParams.common.sctx = NULL;
       }
       // Free the hybrid parameters
       rm_free(req->hybridParams);
