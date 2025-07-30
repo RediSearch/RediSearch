@@ -280,12 +280,21 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   pvd->query = vq;
 
   // Parse vector field name and store it for later resolution
-  const char *fieldName;
-  if (AC_GetString(ac, &fieldName, NULL, 0) != AC_OK) {
+  const char *fieldNameWithPrefix;
+  size_t fieldNameLen;
+  if (AC_GetString(ac, &fieldNameWithPrefix, &fieldNameLen, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector field name");
     goto error;
   }
-  pvd->fieldName = fieldName;
+
+  // Check if field name starts with @ prefix
+  if (fieldNameLen == 0 || fieldNameWithPrefix[0] != '@') {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing @ prefix for vector field name");
+    goto error;
+  }
+
+  // Skip the @ prefix and store the field name
+  pvd->fieldName = fieldNameWithPrefix + 1;
 
   const char *vectorParam;
   if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK) {
@@ -352,7 +361,7 @@ final:
   }
 
   // Set default scoreField using vector field name (can be done during parsing)
-  VectorQuery_SetDefaultScoreField(vq, fieldName, strlen(fieldName));
+  VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
 
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
