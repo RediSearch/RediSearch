@@ -98,7 +98,7 @@ size_t NumericRangeGetMemory(const NumericRangeNode *Node) {
     size_t num_blocks = InvertedIndex_NumBlocks(idx);
     for (size_t i = 0; i < num_blocks; ++i) {
         curr_node_memory += sizeof(IndexBlock);
-        IndexBlock *blk = idx->blocks + i;
+        IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
         curr_node_memory += IndexBlock_Cap(blk);
     }
 

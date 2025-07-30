@@ -11,7 +11,7 @@
 #include "redis_index.h"
 
 // pointer to the current block while reading the index
-#define CURRENT_BLOCK(it) ((it)->idx->blocks[(it)->currentBlock])
+#define CURRENT_BLOCK(it) (InvertedIndex_BlockRef((it)->idx, (it)->currentBlock))
 #define CURRENT_BLOCK_READER_AT_END(it) BufferReader_AtEnd(&(it)->blockReader.buffReader)
 
 void InvIndIterator_Free(QueryIterator *it) {
@@ -22,8 +22,8 @@ void InvIndIterator_Free(QueryIterator *it) {
 
 static inline void SetCurrentBlockReader(InvIndIterator *it) {
   it->blockReader = (IndexBlockReader) {
-    NewBufferReader(IndexBlock_Buffer(&CURRENT_BLOCK(it))),
-    IndexBlock_FirstId(&CURRENT_BLOCK(it)),
+    NewBufferReader(IndexBlock_Buffer(CURRENT_BLOCK(it))),
+    IndexBlock_FirstId(CURRENT_BLOCK(it)),
   };
 }
 
@@ -187,15 +187,16 @@ static inline bool VerifyFieldMaskExpirationForCurrent(InvIndIterator *it) {
   }
 }
 
-#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(&blk) <= docId && docId <= IndexBlock_LastId(&blk))
+#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(blk) <= docId && docId <= IndexBlock_LastId(blk))
 
 // Assumes there is a valid block to skip to (matching or past the requested docId)
 static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
   const InvertedIndex *idx = it->idx;
   uint32_t top = InvertedIndex_NumBlocks(idx) - 1;
   uint32_t bottom = it->currentBlock + 1;
+  IndexBlock *bottomBlock = InvertedIndex_BlockRef(idx, bottom);
 
-  if (docId <= IndexBlock_LastId(&idx->blocks[bottom])) {
+  if (docId <= IndexBlock_LastId(bottomBlock)) {
     // the next block is the one we're looking for, although it might not contain the docId
     it->currentBlock = bottom;
     goto new_block;
@@ -204,12 +205,13 @@ static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
   uint32_t i;
   while (bottom <= top) {
     i = (bottom + top) / 2;
-    if (BLOCK_MATCHES(idx->blocks[i], docId)) {
+    IndexBlock *block = InvertedIndex_BlockRef(idx, i);
+    if (BLOCK_MATCHES(block, docId)) {
       it->currentBlock = i;
       goto new_block;
     }
 
-    t_docId firstId = IndexBlock_FirstId(&idx->blocks[i]);
+    t_docId firstId = IndexBlock_FirstId(block);
     if (docId < firstId) {
       top = i - 1;
     } else {
@@ -220,10 +222,10 @@ static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
   // We didn't find a matching block. According to the assumptions, there must be a block past the
   // requested docId, and the binary search brought us to it or the one before it.
   it->currentBlock = i;
-  t_docId lastId = IndexBlock_LastId(&CURRENT_BLOCK(it));
+  t_docId lastId = IndexBlock_LastId(CURRENT_BLOCK(it));
   if (lastId < docId) {
     it->currentBlock++; // It's not the current block. Advance
-    RS_ASSERT(IndexBlock_FirstId(&CURRENT_BLOCK(it)) > docId); // Not a match but has to be past it
+    RS_ASSERT(IndexBlock_FirstId(CURRENT_BLOCK(it)) > docId); // Not a match but has to be past it
   }
 
 new_block:
@@ -364,7 +366,7 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
     return ITERATOR_EOF;
   }
 
-  t_docId lastId = IndexBlock_LastId(&CURRENT_BLOCK(it));
+  t_docId lastId = IndexBlock_LastId(CURRENT_BLOCK(it));
   if (lastId < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
@@ -394,7 +396,7 @@ IteratorStatus InvIndIterator_SkipTo_CheckExpiration(QueryIterator *base, t_docI
     return ITERATOR_EOF;
   }
 
-  t_docId lastId = IndexBlock_LastId(&CURRENT_BLOCK(it));
+  t_docId lastId = IndexBlock_LastId(CURRENT_BLOCK(it));
   if (lastId < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
@@ -424,7 +426,7 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
     return ITERATOR_EOF;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId) {
+  if (IndexBlock_LastId(CURRENT_BLOCK(it)) < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     SkipToBlock(it, docId);
@@ -462,7 +464,7 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker_CheckExpiration(QueryIterator *b
     return ITERATOR_EOF;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId) {
+  if (IndexBlock_LastId(CURRENT_BLOCK(it)) < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     SkipToBlock(it, docId);

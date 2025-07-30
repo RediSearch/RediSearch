@@ -986,7 +986,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     repairParams.limit = SIZE_MAX; // Process all blocks
 
     for (uint32_t blockIdx = 0; blockIdx < InvertedIndex_NumBlocks(idx); ++blockIdx) {
-        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, InvertedIndex_Flags(idx), &repairParams);
+        IndexBlock *block = InvertedIndex_BlockRef(idx, blockIdx);
+        IndexBlock_Repair(block, &tempDocTable, InvertedIndex_Flags(idx), &repairParams);
     }
 
     // Update index metadata after repair
@@ -994,7 +995,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
     InvertedIndex_SetGcMarker(idx, originalGcMarker + 1);
-    InvertedIndex_SetLastId(idx, IndexBlock_LastId(&idx->blocks[InvertedIndex_NumBlocks(idx) - 1]));
+    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+    InvertedIndex_SetLastId(idx, IndexBlock_LastId(lastBlock));
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
     // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
@@ -1032,7 +1034,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     deletedDoc = DocTable_Pop(&tempDocTable, thirdDocKey, len);
 
     for (uint32_t blockIdx = 0; blockIdx < InvertedIndex_NumBlocks(idx); ++blockIdx) {
-        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, InvertedIndex_Flags(idx), &repairParams);
+        IndexBlock *block = InvertedIndex_BlockRef(idx, blockIdx);
+        IndexBlock_Repair(block, &tempDocTable, InvertedIndex_Flags(idx), &repairParams);
     }
 
     // Update index metadata after repair
@@ -1040,7 +1043,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
     InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
-    InvertedIndex_SetLastId(idx, IndexBlock_LastId(&idx->blocks[InvertedIndex_NumBlocks(idx) - 1]));
+    lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+    InvertedIndex_SetLastId(idx, IndexBlock_LastId(lastBlock));
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
     // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
