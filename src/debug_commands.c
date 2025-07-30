@@ -171,7 +171,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   size_t numBlocks = InvertedIndex_NumBlocks(invidx);
   for (uint32_t i = 0; i < numBlocks; ++i) {
     size_t blockBulkLen = 0;
-    IndexBlock *block = invidx->blocks + i;
+    IndexBlock *block = InvertedIndex_BlockRef(invidx, i);
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     REPLY_WITH_LONG_LONG("firstId", IndexBlock_FirstId(block), blockBulkLen);
