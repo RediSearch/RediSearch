@@ -252,6 +252,9 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
+#define DEFAULT_SHARD_WINDOW_RATIO 1.0
+#define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
+#define MAX_SHARD_WINDOW_RATIO 1.0
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \

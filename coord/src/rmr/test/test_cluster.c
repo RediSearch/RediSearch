@@ -4,7 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "minunit.h"
+#include "coord/tests/utils/minunit.h"
 #include "endpoint.h"
 #include "command.h"
 #include "cluster.h"
