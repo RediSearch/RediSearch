@@ -23,7 +23,7 @@
 uint64_t TotalIIBlocks = 0;
 
 // The last block of the index
-#define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
+#define INDEX_LAST_BLOCK(idx) (idx->blocks[InvertedIndex_NumBlocks(idx) - 1])
 
 // pointer to the current block while reading the index
 #define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
@@ -67,6 +67,14 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
     InvertedIndex_AddBlock(idx, 0, memsize);
   }
   return idx;
+}
+
+size_t InvertedIndex_NumBlocks(const InvertedIndex *idx) {
+  return idx->size;
+}
+
+void InvertedIndex_SetNumBlocks(InvertedIndex *idx, size_t numBlocks) {
+  idx->size = numBlocks;
 }
 
 IndexFlags InvertedIndex_Flags(const InvertedIndex *idx) {
@@ -174,8 +182,9 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
 
 void InvertedIndex_Free(void *ctx) {
   InvertedIndex *idx = ctx;
-  TotalIIBlocks -= idx->size;
-  for (uint32_t i = 0; i < idx->size; i++) {
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  TotalIIBlocks -= numBlocks;
+  for (uint32_t i = 0; i < numBlocks; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
   rm_free(idx->blocks);
@@ -1182,7 +1191,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
     // if found is true we found a doc id that is greater or equal to the searched doc id
     // if found is false we need to continue scanning the inverted index, possibly advancing to the next block
     if (!found && BufferReader_AtEnd(&ir->br)) {
-      if (ir->currentBlock < ir->idx->size - 1) {
+      if (ir->currentBlock < InvertedIndex_NumBlocks(ir->idx) - 1) {
         // We reached the end of the current block but we have more blocks to advance to
         // advance to the next block and continue the search using the seeker from there
       	IndexReader_AdvanceBlock(ir);
@@ -1203,7 +1212,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
 // Assumes there is a valid block to skip to (matching or past the requested docId)
 static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   InvertedIndex *idx = ir->idx;
-  uint32_t top = idx->size - 1;
+  uint32_t top = InvertedIndex_NumBlocks(idx) - 1;
   uint32_t bottom = ir->currentBlock + 1;
 
   t_docId lastId = IndexBlock_LastId(&idx->blocks[bottom]);
@@ -1239,7 +1248,7 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   }
 
 new_block:
-  RS_LOG_ASSERT(ir->currentBlock < idx->size, "Invalid block index");
+  RS_LOG_ASSERT(ir->currentBlock < InvertedIndex_NumBlocks(idx), "Invalid block index");
   ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
   ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
 }
@@ -1254,7 +1263,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     goto eof;
   }
 
-  if (docId > InvertedIndex_LastId(ir->idx) || ir->idx->size == 0) {
+  if (docId > InvertedIndex_LastId(ir->idx) || InvertedIndex_NumBlocks(ir->idx) == 0) {
     goto eof;
   }
 
