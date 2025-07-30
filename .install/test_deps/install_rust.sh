@@ -3,8 +3,8 @@ processor=$(uname -m)
 OS_TYPE=$(uname -s)
 
 
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source $HOME/.cargo/env
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sudo sh -s -- -y
+source /root/.cargo/env
 
 # Verify Cargo is in path
 echo $PATH
