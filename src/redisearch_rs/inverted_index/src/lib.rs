@@ -800,11 +800,7 @@ pub trait Encoder {
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
-    fn decode(
-        &self,
-        cursor: &mut Cursor<&[u8]>,
-        base: t_docId,
-    ) -> std::io::Result<RSIndexResult>;
+    fn decode(&self, cursor: &mut Cursor<&[u8]>, base: t_docId) -> std::io::Result<RSIndexResult>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
