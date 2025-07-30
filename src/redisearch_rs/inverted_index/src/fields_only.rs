@@ -45,9 +45,9 @@ impl Encoder for FieldsOnly {
 }
 
 impl Decoder for FieldsOnly {
-    fn decode<'a, 'b>(
+    fn decode(
         &self,
-        cursor: &'b mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&[u8]>,
         base: t_docId,
     ) -> std::io::Result<RSIndexResult> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
@@ -88,9 +88,9 @@ impl Encoder for FieldsOnlyWide {
 }
 
 impl Decoder for FieldsOnlyWide {
-    fn decode<'a, 'b>(
+    fn decode(
         &self,
-        cursor: &'b mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&[u8]>,
         base: t_docId,
     ) -> std::io::Result<RSIndexResult> {
         let delta = u32::read_as_varint(cursor)?;

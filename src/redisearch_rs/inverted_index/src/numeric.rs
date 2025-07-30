@@ -401,9 +401,9 @@ impl Encoder for Numeric {
 }
 
 impl Decoder for Numeric {
-    fn decode<'a, 'b>(
+    fn decode(
         &self,
-        cursor: &'b mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&[u8]>,
         base: t_docId,
     ) -> std::io::Result<RSIndexResult> {
         let mut header = [0; 1];

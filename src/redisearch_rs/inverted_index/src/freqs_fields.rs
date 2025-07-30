@@ -46,9 +46,9 @@ impl Encoder for FreqsFields {
 }
 
 impl Decoder for FreqsFields {
-    fn decode<'a, 'b>(
+    fn decode(
         &self,
-        cursor: &'b mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&[u8]>,
         base: t_docId,
     ) -> std::io::Result<RSIndexResult> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
@@ -90,9 +90,9 @@ impl Encoder for FreqsFieldsWide {
 }
 
 impl Decoder for FreqsFieldsWide {
-    fn decode<'a, 'b>(
+    fn decode(
         &self,
-        cursor: &'b mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&[u8]>,
         base: t_docId,
     ) -> std::io::Result<RSIndexResult> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
