@@ -820,13 +820,6 @@ TEST_F(ParseHybridTest, testKNNInvalidKValue) {
   testErrorCode(args, QUERY_ESYNTAX, "Invalid K value");
 }
 
-// NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
-// The validation happens during query execution in the flow:
-// QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
-// These validation tests should be in execution tests, not parsing tests.
-
-
-
 TEST_F(ParseHybridTest, testVsimKNNDuplicateK) {
   // Test KNN with duplicate K parameters
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "KNN", "4", "K", "10", "K", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
@@ -909,3 +902,8 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "vector", "$BLOB", "RANGE", "4", "RADIUS", "0.5", "EF_RUNTIME", "100", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_EPARSEARGS, "Unknown parameter `EF_RUNTIME` in RANGE");
 }
+
+// NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
+// The validation happens during query execution in the flow:
+// QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
+// These validation tests should be in execution tests, not parsing tests.
