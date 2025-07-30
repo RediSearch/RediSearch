@@ -468,7 +468,6 @@ impl<'a> RLookupKey<'a> {
 
 // ===== impl KeyList =====
 
-#[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
 impl<'a> KeyList<'a> {
     /// Construct a new, empty `KeyList`.
     pub const fn new() -> Self {
@@ -772,7 +771,6 @@ impl<'list, 'a> CursorMut<'list, 'a> {
     /// receive a **new pointer identity**. The *new key* is returned.
     ///
     /// The old key remains as a hidden tombstone in the linked list.
-    #[cfg_attr(not(test), expect(unused, reason = "used by later stacked PRs"))]
     pub fn override_current(
         mut self,
         flags: RLookupKeyFlags,
@@ -955,16 +953,61 @@ impl<'a> RLookup<'a> {
         key.update_from_field_spec(fs);
         Some(key)
     }
+
+    /// Writes a key to the lookup table, if the key already exists, it is either overwritten if flags is set to `RLookupKeyFlag::Override`
+    /// or returns `None` if the key is in exclusive mode.
+    ///
+    /// This will never get a key from the cache, it will either create a new key, override an existing key or return `None` if the key
+    /// is in exclusive mode.
+    pub fn get_key_write(
+        &mut self,
+        name: &'a CStr,
+        mut flags: RLookupKeyFlags,
+    ) -> Option<&RLookupKey<'a>> {
+        // remove all flags that are not relevant to getting a key
+        flags &= GET_KEY_FLAGS;
+
+        // Safety: The non-lexical lifetime analysis of Rust, incorrectly handles borrows in early
+        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
+        // not correct here as `key` is either found and borrowed in which case we never reach the code in
+        // the outer else branch. If we reach the outer else branch then `self` is *not* found and *not*
+        // borrowed which means the last line of code is fine to borrow self again.
+        //
+        // The current compiler is not smart enough to get this though, so we create a disjoint borrow below.
+        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
+        let me = unsafe { &mut *(self as *mut Self) };
+
+        let key = if let Some(c) = me.keys.find_by_name_mut(name) {
+            // A. we found the key at the lookup table:
+            if flags.contains(RLookupKeyFlag::Override) {
+                // We are in create mode, overwrite the key (remove schema related data, mark with new flags)
+                c.override_current(flags | RLookupKeyFlag::QuerySrc)
+                    .unwrap()
+            } else {
+                // 1. if we are in exclusive mode, return None
+                return None;
+            }
+        } else {
+            // B. we didn't find the key at the lookup table:
+            // create a new key with the name and flags
+            self.keys
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
+        };
+
+        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
+        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use std::ffi::CString;
     use std::mem::MaybeUninit;
 
     #[cfg(not(miri))]
-    use {proptest::prelude::*, std::ffi::CString};
+    use proptest::prelude::*;
 
     // Make sure that the `into_ptr` and `from_ptr` functions are inverses of each other.
     #[test]
@@ -1626,6 +1669,59 @@ mod tests {
 
         // this should panic
         rlookup.init(spcache);
+    }
+
+    // Assert that we can successfully write keys to the rlookup
+    #[test]
+    fn rlookup_write_new_key() {
+        let name = CString::new("new_key").unwrap();
+        let flags = RLookupKeyFlags::empty();
+        let mut rlookup = RLookup::new();
+
+        // Assert that we can write a new key
+        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name, name.as_ptr());
+        assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
+    }
+
+    // Assert that we fail to write a key if the key already exists and no overwrite is allowed
+    #[test]
+    fn rlookup_write_key_multiple_times_fails() {
+        let name = CString::new("new_key").unwrap();
+        let flags = RLookupKeyFlags::empty();
+        let mut rlookup = RLookup::new();
+
+        // Assert that we can write a new key
+        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name, name.as_ptr());
+        assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
+
+        // Assert that we cannot write the same key again without allowing overwrites
+        let not_key = rlookup.get_key_write(name.as_c_str(), flags);
+        assert!(not_key.is_none());
+    }
+
+    // Assert that we can override an existing key
+    #[test]
+    fn rlookup_write_key_override() {
+        let name = CString::new("new_key").unwrap();
+        let flags = RLookupKeyFlags::empty();
+        let mut rlookup = RLookup::new();
+
+        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        assert_eq!(key._name.as_ref(), name.as_c_str());
+        assert_eq!(key.name, name.as_ptr());
+        assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
+
+        let new_flags = make_bitflags!(RLookupKeyFlag::{ExplicitReturn | Override});
+
+        let new_key = rlookup.get_key_write(name.as_c_str(), new_flags).unwrap();
+        assert_eq!(new_key._name.as_ref(), name.as_c_str());
+        assert_eq!(new_key.name, name.as_ptr());
+        assert!(new_key.flags.contains(RLookupKeyFlag::QuerySrc));
+        assert!(new_key.flags.contains(RLookupKeyFlag::ExplicitReturn));
     }
 
     #[cfg(not(miri))]
