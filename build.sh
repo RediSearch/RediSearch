@@ -39,7 +39,6 @@ RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 
 # Rust code is built first, so exclude crates that link C code, since the static libraries they depend on haven't been built yet.
-# Keep the exclude list synced with the clippy and rustdoc exclude lists in Makefile.
 RUST_EXCLUDE_CRATES="--exclude inverted_index_bencher --exclude trie_bencher --exclude varint_bencher"
 
 #-----------------------------------------------------------------------------
