@@ -390,7 +390,7 @@ fn test_numeric_encode_decode(
 
     buf.set_position(0);
 
-    let prev_doc_id = u64::MAX - (delta as u64);
+    let prev_doc_id = u64::MAX - delta;
     let buf = buf.into_inner();
     let mut buf = Cursor::new(buf.as_ref());
     let record_decoded = numeric

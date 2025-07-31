@@ -23,20 +23,7 @@ members = [
     "varint_bencher",
     "wildcard",
 ]
-default-members = [
-    "buffer",
-    "c_entrypoint/*",
-    "inverted_index",
-    "low_memory_thin_vec",
-    "qint",
-    "result_processor",
-    "rlookup",
-    "sorting_vector",
-    "trie_rs",
-    "value",
-    "varint",
-    "wildcard",
-]
+
 resolver = "3"
 
 [workspace.lints.clippy]
