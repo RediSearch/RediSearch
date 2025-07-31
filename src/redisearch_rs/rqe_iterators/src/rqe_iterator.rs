@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::RSIndexResult
+use inverted_index::RSIndexResult;
 
 /**
  * An iterator has two successful states: `OK` and `NotFound`.
@@ -25,12 +25,11 @@ pub enum RQEIteratorError {
 }
 
 pub enum RQEValidateStatus {
-    Moved,  // The iterator is still valid but lastDocID changed, and `current` is a new valid result or at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
-    Aborted,    // The iterator is no longer valid, and should not be used or rewound. Should be freed.
+    Moved, // The iterator is still valid but lastDocID changed, and `current` is a new valid result or at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
+    Aborted, // The iterator is no longer valid, and should not be used or rewound. Should be freed.
 }
 
 pub trait RQEIterator {
-
     /**
      * Read the next entry from the iterator.
      *  On a successful read, the iterator must:
@@ -60,7 +59,7 @@ pub trait RQEIterator {
      * @return Ok(()) if the iterator is still valid
      * @return Err(RQEValidateStatus::Moved) if the iterator is still valid, but the lastDocId has changed (moved forward)
      * @return Err(RQEValidateStatus::Aborted) if the iterator is no longer valid
-     */ 
+     */
 
     fn revalidate(&mut self) -> Result<(), RQEValidateStatus>;
 
@@ -68,7 +67,6 @@ pub trait RQEIterator {
      * Rewind the iterator to the beginning and reset its properties.
      */
     fn rewind(&mut self);
-
 
     /**************** properties ****************/
 
@@ -86,5 +84,4 @@ pub trait RQEIterator {
      * Returns true if the iterator has more results to read, meaning, not at EOF.
      */
     fn has_next(&self) -> bool;
-   
 }
