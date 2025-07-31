@@ -531,6 +531,7 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
+    /// Create a new `RSIndexResult` with a given `term` and `offsets`.
     pub fn term_with_term_ptr(
         term: *mut RSQueryTerm,
         offsets: RSOffsetVector<'a>,
