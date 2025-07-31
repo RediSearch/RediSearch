@@ -19,30 +19,31 @@ pub enum RQEIteratorStatus {
     NotFound(RSIndexResult),
 }
 
-/// An iterator can fail with one of the following errors:
-/// `EOF` indicates that the iterator has reached the end of the index.
-/// `TimedOut` indicates that the iterator has reached the time limit for execution.
+/// An iterator failure indications
 pub enum RQEIteratorError {
+    /// The iterator has reached the end of the index.
     EOF,
+    /// The iterator has reached the time limit for execution.
     TimedOut,
 }
 
-/// An iterator can be in one of the following states after a call to `revalidate`:
-/// `OK` indicates that the iterator is still valid and at the same position.
-/// `Moved` indicates that the iterator is still valid but lastDocID changed, and `current` is a new valid result or at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
-/// `Aborted` indicates that the iterator is no longer valid, and should not be used or rewound. Should be freed.
+/// The status of the iterator after a call to `revalidate`
 pub enum RQEValidateStatus {
+    /// The iterator is still valid and at the same position.
     OK,
+    /// The iterator is still valid but lastDocID changed, and `current` is a new valid result or at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
     Moved,
+    /// The iterator is no longer valid, and should not be used or rewound. Should be freed.
     Aborted,
 }
 
 pub trait RQEIterator {
     /// Read the next entry from the iterator.
+    /// 
     /// On a successful read, the iterator must:
     /// 1. Set its `lastDocId` member to the new current result id
     /// 2. Set its `current` index result property to its current result, for the caller to access if desired
-    /// returns Ok(RQEIteratorStatus::OK) with a reference to the current result or Err(RQEIteratorError) for any error.
+    /// This function returns Ok(RQEIteratorStatus::OK) with a reference to the current result or Err(RQEIteratorError) for any error.
     fn read(&mut self) -> Result<RQEIteratorStatus, RQEIteratorError>;
 
     /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
@@ -58,6 +59,7 @@ pub trait RQEIterator {
     fn skip_to(&mut self, doc_id: t_docId) -> Result<RQEIteratorStatus, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
+    /// 
     /// The iterator should check if it is still valid.
     /// Return Ok if the iterator is still valid, Moved if the iterator is still valid, but the lastDocId has changed (moved forward) or Aborted if the iterator is no longer valid
 
