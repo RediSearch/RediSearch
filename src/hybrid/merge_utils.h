@@ -42,6 +42,12 @@ void HybridSearchResult_Free(HybridSearchResult* result);
  */
 uint8_t MergeFlags(HybridSearchResult *hybridResult);
 
+/**
+ * Simple RLookup union - copy fields from all upstreams to merged row.
+ * No conflict resolution is performed, assuming no conflicts (all keys have same values)
+ */
+void UnionRLookupRows(HybridSearchResult *hybridResult, RLookupRow *mergedRow, RLookup *lookup);
+
 #ifdef __cplusplus
 }
 #endif

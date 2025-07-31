@@ -9,7 +9,9 @@
 
 #include "merge_utils.h"
 #include "rmutil/alloc.h"
+#include "query_error.h"
 #include <string.h>
+#include <assert.h>
 
 /**
  * Constructor for HybridSearchResult.
@@ -72,4 +74,43 @@ uint8_t MergeFlags(HybridSearchResult *hybridResult) {
   }
 
   return mergedFlags;
+}
+
+/**
+ * Simple RLookup union - merge fields from other upstreams into the first upstream's row (in-place).
+ */
+void UnionRLookupRows(HybridSearchResult *hybridResult, RLookupRow *targetRow, RLookup *lookup) {
+  if (!hybridResult || !targetRow || !lookup) {
+    return;
+  }
+
+  // In-place union: merge fields from upstreams 1,2,3... into upstream 0's row
+  // Skip upstream 0 since targetRow is typically upstream 0's row
+  for (size_t i = 1; i < hybridResult->numSources; i++) {
+    if (!hybridResult->hasResults[i] || !hybridResult->searchResults[i]) continue;
+
+    RLookupRow *upstreamRow = &hybridResult->searchResults[i]->rowdata;
+
+    // Union all fields from this upstream into target row
+    for (const RLookupKey *key = lookup->head; key; key = key->next) {
+      if (!key->name) continue;  // Skip overridden keys
+
+      RSValue *upstreamValue = RLookup_GetItem(key, upstreamRow);
+      if (!upstreamValue) continue;  // Skip if upstream doesn't have this field
+
+      RSValue *existingValue = RLookup_GetItem(key, targetRow);
+      if (!existingValue) {
+        // Field doesn't exist in target - add it
+        RLookup_WriteKey(key, targetRow, upstreamValue);
+      } else {
+        // Field exists - assert that values are the same (our assumption)
+        // This validates that "first upstream wins" == "no conflict resolution needed"
+        QueryError err;
+        QueryError_Init(&err);
+        int equal = RSValue_Equal(existingValue, upstreamValue, &err);
+        QueryError_ClearError(&err);  // Clean up any error details
+        RS_ASSERT(equal == 0);
+      }
+    }
+  }
 }
