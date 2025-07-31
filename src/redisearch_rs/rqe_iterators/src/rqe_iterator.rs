@@ -28,7 +28,7 @@ pub enum RQEIteratorError {
 /// The status of the iterator after a call to `revalidate`
 pub enum RQEValidateStatus {
     /// The iterator is still valid and at the same position.
-    OK,
+    Ok,
     /// The iterator is still valid but lastDocID changed, and `current` is a new valid result or at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
     Moved,
     /// The iterator is no longer valid, and should not be used or rewound. Should be freed.
