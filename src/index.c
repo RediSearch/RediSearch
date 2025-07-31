@@ -2019,7 +2019,7 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
   printIteratorProfile(reply, pi->child, &pi->counters,
-    (double)(pi->wallTime / RS_WALL_CLOCK_PER_MILLISEC), depth, limited, config);
+    rs_wall_clock_convert_ns_to_ms(pi->wallTime), depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters,

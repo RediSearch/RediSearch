@@ -95,7 +95,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
 
-  double totalRPTime = (double)(RPProfile_GetClock(rp) / RS_WALL_CLOCK_PER_MILLISEC);
+  double totalRPTime = rs_wall_clock_convert_ns_to_ms(RPProfile_GetClock(rp));
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
@@ -122,26 +122,26 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          (double)(req->profileTotalTime / RS_WALL_CLOCK_PER_MILLISEC));
+          rs_wall_clock_convert_ns_to_ms(req->profileTotalTime));
 
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          (double)(req->profileParseTime / RS_WALL_CLOCK_PER_MILLISEC));
+          rs_wall_clock_convert_ns_to_ms(req->profileParseTime));
 
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            (double)(req->profilePipelineBuildTime / RS_WALL_CLOCK_PER_MILLISEC));
+            rs_wall_clock_convert_ns_to_ms(req->profilePipelineBuildTime));
 
       //Print total GIL time
         if (profile_verbose){
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_wall_clock_convert_to_ms(req->qiter.GILTime));
+            rs_wall_clock_convert_ns_to_ms(req->qiter.GILTime));
           } else {
             rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_to_ms(rpEndTime));
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms(rpEndTime));
           }
         }
 
