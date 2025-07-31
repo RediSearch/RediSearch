@@ -143,10 +143,6 @@ void QueryNode_Free(QueryNode *n) {
   rm_free(n);
 }
 
-void RangeNumber_Free(RangeNumber *r) {
-  rm_free(r);
-}
-
 // Add a new metric request to the metricRequests array. Returns the index of the request
 static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr) {
   MetricRequest mr = {metric_name, key_addr};
@@ -1099,29 +1095,16 @@ static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // recursively eval the children
-  QueryIterator **iters = rm_calloc(QueryNode_NumChildren(qn), sizeof(QueryIterator *));
-  int n = 0;
+  QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
   for (size_t i = 0; i < QueryNode_NumChildren(qn); ++i) {
     qn->children[i]->opts.fieldMask &= qn->opts.fieldMask;
-    QueryIterator *it = Query_EvalNode(q, qn->children[i]);
-    if (it) {
-      iters[n++] = it;
-    }
-  }
-  if (n == 0) {
-    rm_free(iters);
-    return NULL;
+    iters[i] = Query_EvalNode(q, qn->children[i]);
   }
 
-  if (n == 1) {
-    QueryIterator *ret = iters[0];
-    rm_free(iters);
-    return ret;
-  }
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs
   bool quickExit = q->notSubtree;
-  QueryIterator *ret = NewUnionIterator(iters, n, quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
+  QueryIterator *ret = NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
   return ret;
 }
 
@@ -1297,12 +1280,6 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     array_free(arr);
   }
 
-  if (itsSz < 2) {
-    QueryIterator *iter = itsSz ? its[0] : NULL;
-    rm_free(its);
-    return iter;
-  }
-
   return NewUnionIterator(its, itsSz, 1, weight, QN_PREFIX, qn->pfx.tok.str, q->config);
 }
 
@@ -1310,9 +1287,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
                      QueryNode *qn, double weight,
                      t_fieldIndex fieldIndex, bool caseSensitive) {
-  if (qn->type != QN_WILDCARD_QUERY) {
-    return NULL;
-  }
+  RS_ASSERT(qn->type == QN_WILDCARD_QUERY);
   if (!idx || !idx->values) return NULL;
 
   RSToken *tok = &qn->verb.tok;
@@ -1322,7 +1297,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   tok->len = Wildcard_RemoveEscape(tok->str, tok->len);
 
   size_t itsSz = 0, itsCap = 8;
-  QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
+  QueryIterator **its = rm_malloc(itsCap * sizeof(*its));
 
   bool fallbackBruteForce = false;
   if (idx->suffix) {
@@ -1385,16 +1360,6 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     }
 
     TrieMapIterator_Free(it);
-  } else
-
-  if (itsSz == 0) {
-    rm_free(its);
-    return NULL;
-  }
-  if (itsSz == 1) {
-    QueryIterator *iter = its[0];
-    rm_free(its);
-    return iter;
   }
 
   return NewUnionIterator(its, itsSz, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
@@ -1446,46 +1411,29 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 }
 
 static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
-  if (qn->type != QN_TAG) {
-    return NULL;
-  }
+  RS_ASSERT(qn->type == QN_TAG);
   QueryTagNode *node = &qn->tag;
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, node->fs, INDEXFLD_T_TAG);
   TagIndex *idx = TagIndex_Open(q->sctx->spec, kstr, DONT_CREATE_INDEX);
 
-  QueryIterator *ret = NULL;
-
   if (!idx) {
     // There are no documents to traverse.
-    goto done;
+    return NULL;
   }
   if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
-    ret = query_EvalSingleTagNode(q, idx, qn->children[0], qn->opts.weight, node->fs);
-    goto done;
+    return query_EvalSingleTagNode(q, idx, qn->children[0], qn->opts.weight, node->fs);
   }
 
   // recursively eval the children
-  QueryIterator **iters = rm_calloc(QueryNode_NumChildren(qn), sizeof(QueryIterator *));
-  size_t n = 0;
+  QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
-    QueryIterator *it = query_EvalSingleTagNode(q, idx, qn->children[i], qn->opts.weight, node->fs);
-    if (it) {
-      iters[n++] = it;
-    }
+    iters[i] = query_EvalSingleTagNode(q, idx, qn->children[i], qn->opts.weight, node->fs);
   }
-  if (n == 0) {
-    rm_free(iters);
-    goto done;
-  }
-
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs
   bool quickExit = q->notSubtree;
-  ret = NewUnionIterator(iters, n, quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
-
-done:
-  return ret;
+  return NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
 }
 
 static QueryIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
