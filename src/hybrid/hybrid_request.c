@@ -132,7 +132,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
  * @param req The HybridRequest with built pipeline
  * @param ctx Redis module context for sending the reply
  */
-void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx) {
+void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
+                            RedisSearchCtx *sctx, const char *indexname) {
     // Create temporary AREQ wrapper around tail pipeline
     AREQ *tailAREQ = AREQ_New();
 
@@ -142,8 +143,8 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx) {
     // Transfer the tail pipeline to the AREQ (without copying)
     tailAREQ->pipeline = *hreq->tailPipeline;
 
-    // Set up the search context from the hybrid parameters
-    tailAREQ->sctx = hreq->hybridParams->aggregationParams.common.sctx;
+    // Create a RedisSearchCtx using the provided context
+    tailAREQ->sctx = NewSearchCtxC(ctx, indexname, true);
 
     // Copy request configuration from the first individual request
     if (hreq->nrequests > 0) {
@@ -170,7 +171,6 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx) {
 
     // Restore the original empty pipeline to prevent AREQ_Free from freeing hreq's pipeline
     tailAREQ->pipeline = originalPipelineContent;
-    tailAREQ->sctx = NULL;  // Clear to prevent AREQ_Free from freeing it
     AREQ_Free(tailAREQ);
 }
 
@@ -263,12 +263,13 @@ void HybridRequest_Free(HybridRequest *req) {
       rm_free(req->hybridParams);
     }
 
-    // Free the tail pipeline
-    if (req->tailPipeline) {
-      Pipeline_Clean(req->tailPipeline);
-      rm_free(req->tailPipeline);
-      req->tailPipeline = NULL;
-    }
+    // TODO: This generates a double free when the hybrid request return results
+    // // Free the tail pipeline
+    // if (req->tailPipeline) {
+    //   Pipeline_Clean(req->tailPipeline);
+    //   rm_free(req->tailPipeline);
+    //   req->tailPipeline = NULL;
+    // }
 
     rm_free(req);
 }

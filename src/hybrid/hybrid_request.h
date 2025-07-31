@@ -22,7 +22,7 @@ typedef struct {
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
 int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params);
-void HybridRequest_Execute(HybridRequest *req, RedisModuleCtx *ctx);
+void HybridRequest_Execute(HybridRequest *req, RedisModuleCtx *ctx, RedisSearchCtx *sctx, const char *indexname);
 void HybridRequest_Free(HybridRequest *req);
 
 #ifdef __cplusplus

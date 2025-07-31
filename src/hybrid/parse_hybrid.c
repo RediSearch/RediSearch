@@ -682,7 +682,9 @@ error:
 }
 
 
-static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
+static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
+                    RedisSearchCtx *sctx, const char *indexname,
+                    QueryError *status) {
   RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
   RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
 
@@ -690,6 +692,12 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     // TODO: Implement multi-threaded execution
     return REDISMODULE_ERR;
   } else {
+    // Single-threaded execution
+
+    // Take a read lock on the spec (to avoid conflicts with the GC).
+    // This is released in HybridRequest_Free or while executing the query.
+    // RedisSearchCtx_LockSpecRead(sctx);
+
     // Lock both specs for read
     // RedisSearchCtx_LockSpecRead(sctx1);
     // RedisSearchCtx_LockSpecRead(sctx2);
@@ -700,13 +708,12 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
       QueryError_SetError(status, QUERY_EGENERIC, "Error building hybrid pipeline");
       result = REDISMODULE_ERR;
     } else {
-      HybridRequest_Execute(hreq, ctx);
+      HybridRequest_Execute(hreq, ctx, sctx, indexname);
     }
 
     // Always unlock both specs
     // RedisSearchCtx_UnlockSpec(sctx1);
     // RedisSearchCtx_UnlockSpec(sctx2);
-    CurrentThread_ClearIndexSpec();
 
     return result;
   }
@@ -732,8 +739,8 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-  CurrentThread_SetIndexSpec(spec_ref);
+  // StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
+  // CurrentThread_SetIndexSpec(spec_ref);
 
   QueryError status = {0};
 
@@ -742,24 +749,24 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, &status) != REDISMODULE_OK) {
+  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx, indexname, &status) != REDISMODULE_OK) {
     goto error;
   }
 
-  StrongRef_Release(spec_ref);
+  // StrongRef_Release(spec_ref);
   HybridRequest_Free(hybridRequest);
   return REDISMODULE_OK;
 
 error:
   RS_LOG_ASSERT(QueryError_HasError(&status), "Hybrid query parsing error");
 
-  // Clear the current thread's index spec if it was set
-  CurrentThread_ClearIndexSpec();
+  // // Clear the current thread's index spec if it was set
+  // CurrentThread_ClearIndexSpec();
 
-  // Release our strong reference to the spec if it was acquired
-  if (spec_ref.rm) {
-    StrongRef_Release(spec_ref);
-  }
+  // // Release our strong reference to the spec if it was acquired
+  // if (spec_ref.rm) {
+  //   StrongRef_Release(spec_ref);
+  // }
 
   // Free the search context
   SearchCtx_Free(sctx);
