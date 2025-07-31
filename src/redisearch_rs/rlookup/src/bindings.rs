@@ -34,6 +34,47 @@ use ffi::{
     RedisModuleKey, RedisModuleString,
 };
 
+/// Three Loading modes for RLookup
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+pub enum RLookupLoadMode {
+    /// Use keylist to load a number of [RLookupLoadOptions::n_keys] from [RLookupLoadOptions::keys]
+    #[allow(dead_code, reason = "Used by followup PRs")]
+    KeyList = 0,
+
+    /// Load only cached keys from the [sorting_vector::RSSortingVector] and do not load from [crate::row::RLookupRow]
+    #[allow(dead_code, reason = "Used by followup PRs")]
+    SortingVectorKeys = 1,
+
+    /// Load all keys from both the [sorting_vector::RSSortingVector] and from the [crate::row::RLookupRow]
+    AllKeys = 2,
+
+    /// Load all the keys in the RLookup object
+    // TODO: possible unused, Not used in RLookup but listed for completeness with C-side, candidate for removal
+    #[allow(dead_code, reason = "Used by followup PRs")]
+    LkKeys = 3,
+}
+
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+pub enum DocumentType {
+    Hash = 0,
+    #[allow(dead_code)]
+    Json = 1,
+    #[expect(unused, reason = "Used by followup PRs")]
+    Unsupported = 2,
+}
+
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
+#[expect(unused, reason = "Used by followup PRs")]
+pub enum RLookupCoerceType {
+    Str = 0,
+    Int = 1,
+    Dbl = 2,
+    Bool = 3,
+}
+
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
 #[bitflags]
 #[repr(u32)] // should be c_unit
