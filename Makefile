@@ -73,22 +73,6 @@ ifeq ($(QUICK),1)
 	BUILD_ARGS += QUICK=1
 endif
 
-ifeq ($(REDISEARCH_MT_BUILD),1)
-	MT ?= 1
-endif
-
-ifeq ($(MT),1)
-$(info ### Multithreading enabled)
-	override REDISEARCH_MT_BUILD=1
-	export REDISEARCH_MT_BUILD
-endif
-
-ifeq ($(MT),0)
-$(info ### Multithreading disabled)
-	override REDISEARCH_MT_BUILD=0
-	export REDISEARCH_MT_BUILD
-endif
-
 # If SA is set but REDIS_STANDALONE is not, use SA as REDIS_STANDALONE
 ifneq ($(SA),)
 ifeq ($(REDIS_STANDALONE),)
@@ -131,7 +115,6 @@ Setup:
 Build:
   make build         Compile and link
     COORD=oss|rlec     Build coordinator (default: oss)
-    MT=0|1             Control multithreaded mode (like REDISEARCH_MT_BUILD)
     DEBUG=1            Build for debugging
     PROFILE=1          Build with profiling support
     TESTS=1            Build unit tests
