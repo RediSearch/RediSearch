@@ -622,9 +622,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, 0, &status);
-  if (!it->internal) {
-    goto end;
-  }
+  RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
   ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
@@ -634,8 +632,6 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   it->minscore = DBL_MAX;
   it->sp = sp;
 
-  // dummy statement for goto
-  ;
 end:
 
   if (QueryError_HasError(&status) || it->internal == NULL) {
