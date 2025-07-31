@@ -359,15 +359,13 @@ run_cmake() {
 build_redisearch_rs() {
   echo "Building redisearch_rs..."
   REDISEARCH_RS_DIR="$ROOT/src/redisearch_rs"
-  REDISEARCH_RS_TARGET_DIR="$ROOT/bin/redisearch_rs"
   REDISEARCH_RS_BINDIR="$BINDIR/redisearch_rs"
 
-  # Determine Rust artifact directory based on the chosen profile
-  if [[ "$RUST_PROFILE" == "dev" ]]; then
-    RUST_ARTIFACT_SUBDIR="debug"
-  else
-    RUST_ARTIFACT_SUBDIR="$RUST_PROFILE"
-  fi
+  # Export environment variables for CMake to use
+  export RUST_PROFILE="$RUST_PROFILE"
+  export RUST_DYN_CRT="$RUST_DYN_CRT"
+  export RUSTFLAGS="${RUSTFLAGS:--D warnings}"
+
   # Set up RUSTFLAGS for dynamic C runtime if needed
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     # Disable statically linking the C runtime.
@@ -376,15 +374,28 @@ build_redisearch_rs() {
     # See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
   fi
-  # Build using cargo
-  mkdir -p "$REDISEARCH_RS_TARGET_DIR"
-  pushd .
-  cd "$REDISEARCH_RS_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --profile="$RUST_PROFILE"
 
-  # Copy artifacts to the target directory
-  mkdir -p "$REDISEARCH_RS_BINDIR"
-  cp "$REDISEARCH_RS_TARGET_DIR/$RUST_ARTIFACT_SUBDIR"/*.a "$REDISEARCH_RS_BINDIR"
+  # Use CMake to build the Rust components
+  # Create a temporary build directory for just the Rust components
+  RUST_BUILD_DIR="$BINDIR/redisearch_rs_build"
+  mkdir -p "$RUST_BUILD_DIR"
+
+  pushd "$RUST_BUILD_DIR"
+  # Configure and build using CMake
+  # Map FLAVOR to CMAKE_BUILD_TYPE
+  if [[ "$FLAVOR" == "debug" ]]; then
+    CMAKE_BUILD_TYPE="Debug"
+  else
+    CMAKE_BUILD_TYPE="RelWithDebInfo"
+  fi
+
+  # Determine COORD_TYPE if not set
+  if [[ -z "$COORD_TYPE" ]]; then
+    COORD_TYPE="oss"
+  fi
+
+  cmake "$REDISEARCH_RS_DIR" -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" -DCOORD_TYPE="$COORD_TYPE"
+  make redisearch_rs
   popd
 }
 
