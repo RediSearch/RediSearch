@@ -299,6 +299,7 @@ static QueryIterator* NotIteratorReducer(QueryIterator *it, t_docId maxDocId, do
   QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
     ret = NewWildcardIterator(q, weight);
+    if (ret->current) ret->current->freq = 0;
   } else if (IsWildcardIterator(it)) {
     ret = NewEmptyIterator();
   }

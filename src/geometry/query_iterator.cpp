@@ -60,7 +60,7 @@ IteratorStatus CPPQueryIterator::skip_to(t_docId docId) {
                                            std::ranges::end(iter_), docId);
   index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
   if (!has_next()) {
-    return ITERATOR_EOF;
+    base_.atEOF = true;
   }
 
   base_.current->docId = *it;
