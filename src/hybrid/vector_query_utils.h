@@ -24,7 +24,7 @@ extern "C" {
  * OWNERSHIP: fieldName NOT owned (points to args), query and attributes OWNED.
  */
 typedef struct {
-  VectorQuery *query;             // VectorQuery (OWNED - transferred to QueryNode)
+  VectorQuery *query;
   const char *fieldName;          // Field name for later resolution (NOT owned - points to args)
   QueryAttribute *attributes;     // Non-vector-specific attributes like YIELD_DISTANCE_AS (OWNED)
   bool isParameter;               // true if vector data is a parameter

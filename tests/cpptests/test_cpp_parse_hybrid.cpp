@@ -488,6 +488,14 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   ASSERT_EQ(vq->knn.k, 10);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
+  // verify the filter child
+  ASSERT_TRUE(vn->children != NULL);
+  ASSERT_EQ(vn->children[0]->type, QN_UNION);
+  ASSERT_EQ(vn->children[0]->children[0]->type, QN_TOKEN); //hello
+  ASSERT_STREQ(vn->children[0]->children[0]->tn.str, "hello");
+  ASSERT_EQ(vn->children[0]->children[1]->type, QN_TOKEN); //+hello
+  ASSERT_STREQ(vn->children[0]->children[1]->tn.str, "+hello");
+
   // Clean up
   // The scoring context is freed by the hybrid merger
   HybridScoringContext_Free(result->hybridParams->scoringCtx);
@@ -592,6 +600,10 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vq->knn.k, 5);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
+  // Verify wildcard query is the child of the vector querynode
+  ASSERT_TRUE(vn->children != NULL);
+  ASSERT_EQ(vn->children[0]->type, QN_WILDCARD);
+
   // Clean up
   // The scoring context is freed by the hybrid merger
   HybridScoringContext_Free(result->hybridParams->scoringCtx);
@@ -684,6 +696,13 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_EQ(vq->range.radius, 0.5);
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
+  // Verify BLOB parameter was correctly resolved (parameter resolution test)
+  const char* expectedBlob = TEST_BLOB_DATA;
+  size_t expectedBlobLen = strlen(expectedBlob);
+  ASSERT_TRUE(vq->range.vector != NULL);
+  ASSERT_EQ(vq->range.vecLen, expectedBlobLen);
+  ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
+
   // Clean up
   // The scoring context is freed by the hybrid merger
   HybridScoringContext_Free(result->hybridParams->scoringCtx);
@@ -726,6 +745,13 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.8);
   ASSERT_EQ(vq->range.order, BY_SCORE);
+
+  // Verify BLOB parameter was correctly resolved (parameter resolution test)
+  const char* expectedBlob = TEST_BLOB_DATA;
+  size_t expectedBlobLen = strlen(expectedBlob);
+  ASSERT_TRUE(vq->range.vector != NULL);
+  ASSERT_EQ(vq->range.vecLen, expectedBlobLen);
+  ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
 
   // Verify EPSILON parameter is stored in VectorQuery params
   ASSERT_TRUE(vq->params.params != NULL);
@@ -789,22 +815,8 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER","@title:(foo bar)=> {$weight: 2.0}" );
-
-  // Create a fresh sctx for this test since parseHybridRequest takes ownership
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT);
-  ASSERT_STREQ(status.detail, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
+  testErrorCode(args, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
 }
 
 // Helper function to test error cases with less boilerplate
@@ -827,28 +839,15 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
-  QueryError status = {QueryErrorCode(0)};
-
-  //Dialect 2 is required for vector queries
+  // Setup: Dialect 2 is required for vector queries
   unsigned int previousDialectVersion = RSGlobalConfig.requestConfigParams.dialectVersion;
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, 2);
 
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER", "@vector:[VECTOR_RANGE 0.01 $BLOB]", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
 
-  // Create a fresh sctx for this test since parseHybridRequest takes ownership
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY);
-  ASSERT_STREQ(status.detail, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
-
+  // Teardown: Restore previous dialect version
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, previousDialectVersion);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
 }
 
 // ============================================================================

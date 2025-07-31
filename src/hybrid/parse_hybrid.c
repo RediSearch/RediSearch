@@ -308,8 +308,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     pvd->isParameter = true;
   }
 
-
-
   // Set default KNN values before checking for more parameters
   vq->type = VECSIM_QT_KNN;
   vq->knn.k = 10;  // Default k value
@@ -338,9 +336,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
       goto error;
     }
   }
-  // If not FILTER, the parameter may be for the next parsing function (COMBINE, etc.)
-
-  goto final;
 
 final:
   if (!vreq->query) {  // meaning there is no filter clause
