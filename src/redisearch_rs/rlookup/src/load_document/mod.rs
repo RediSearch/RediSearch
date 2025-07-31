@@ -18,6 +18,7 @@ use crate::{
     bindings::{DocumentType, RLookupLoadMode},
 };
 
+mod ccalls;
 mod hash;
 
 /// Populate the provided `dst_row` by loading a document (either a [Redis hash] or JSON object).
@@ -132,7 +133,6 @@ pub struct LoadDocumentOptions<'a, T: RSValueTrait = RSValueFFI> {
     force_load: bool,
     force_string: bool,
 
-    #[expect(unused, reason = "Used in follow-up PRs")]
     tmp_cstruct: Option<NonNull<ffi::RLookupLoadOptions>>,
 }
 
@@ -411,20 +411,20 @@ impl LoadDocumentContext<RSValueFFI> for LoadDocumentContextImpl {
 
     fn json_get_all(
         &self,
-        _lookup: &mut RLookup,
-        _dst_row: &mut RLookupRow<'_, RSValueFFI>,
-        _options: &LoadDocumentOptions,
+        lookup: &mut RLookup,
+        dst_row: &mut RLookupRow<'_, RSValueFFI>,
+        options: &LoadDocumentOptions,
     ) -> Result<(), LoadDocumentError> {
-        unimplemented!("in followup PR")
+        ccalls::json_get_all(lookup, dst_row, options)
     }
 
     fn load_individual_keys(
         &self,
-        _lookup: &mut RLookup,
-        _dst_row: &mut RLookupRow<'_, RSValueFFI>,
-        _options: &LoadDocumentOptions,
+        lookup: &mut RLookup,
+        dst_row: &mut RLookupRow<'_, RSValueFFI>,
+        options: &LoadDocumentOptions,
     ) -> Result<(), LoadDocumentError> {
-        unimplemented!("in followup PR")
+        ccalls::load_individual_keys(lookup, dst_row, options)
     }
 
     fn is_crdt(&self) -> bool {
