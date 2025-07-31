@@ -10,7 +10,7 @@
 #pragma once
 
 #include "query_optimizer.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 #include "redisearch.h"
 #include "spec.h"
 #include "util/heap.h"
@@ -22,24 +22,23 @@ typedef int (*OptimizerCompareFunc)(const void *e1, const void *e2, const void *
 #define OPTIM_OWN_NF 0x01
 
 typedef struct {
-  IndexIterator base;
+  QueryIterator base;
   QOptimizer *optim;
-  t_docId lastDocId;
   int flags;
-  
+
   size_t numDocs;               // total number of documents in index
   int heapOldSize;              // size of heap before last rewind
   size_t hitCounter;            // number of Read/SkipTo calls during latest iteration
   size_t numIterations;         // number iterations
-  size_t childEstimate;         // results estimate on child 
-  int lastLimitEstimate;        // last estimation for filter        
+  size_t childEstimate;         // results estimate on child
+  int lastLimitEstimate;        // last estimation for filter
 
   size_t offset;
 
   // child iterator with old root and numeric iterator for sortby field
-  IndexIterator *child;
+  QueryIterator *child;
   t_docId childLastId;
-  IndexIterator *numericIter;
+  QueryIterator *numericIter;
   t_docId numericLastId;
 
 
@@ -47,7 +46,7 @@ typedef struct {
   RSIndexResult *resArr;        // keeps RSIndexResult
   OptimizerCompareFunc cmp;     // compare function
   RSIndexResult *pooledResult;  // memory pool
-  
+
   TimeoutCtx timeoutCtx;        // Timeout parameters
 
   IteratorsConfig *config;       // Copy of current RSglobalconfig.IteratorsConfig
@@ -58,7 +57,7 @@ typedef struct {
 extern "C" {
 #endif
 
-IndexIterator *NewOptimizerIterator(QOptimizer *q_opt, IndexIterator *root, IteratorsConfig *config);
+QueryIterator *NewOptimizerIterator(QOptimizer *q_opt, QueryIterator *root, IteratorsConfig *config);
 
 #ifdef __cplusplus
 }

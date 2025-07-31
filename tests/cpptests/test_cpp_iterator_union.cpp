@@ -45,7 +45,7 @@ protected:
       children[i] = (QueryIterator *) new MockIterator(docIds[i]);
     }
     // Create a union iterator
-    ui_base = IT_V2(NewUnionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+    ui_base = NewUnionIterator(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   }
   void TearDown() override {
     ui_base->Free(ui_base);
@@ -169,7 +169,7 @@ protected:
       children[i] = (QueryIterator *) it;
     }
     // Create a union iterator
-    ui_base = IT_V2(NewUnionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+    ui_base = NewUnionIterator(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   }
   void TearDown() override {
     ui_base->Free(ui_base);
@@ -253,7 +253,7 @@ TEST_F(UnionIteratorSingleTest, ReuseResults) {
   // Create a union iterator
   IteratorsConfig config = RSGlobalConfig.iteratorsConfigParams;
   config.minUnionIterHeap = INT64_MAX; // Ensure we don't use the heap
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 2, true, 1.0, QN_UNION, NULL, &config);
+  QueryIterator *ui_base = NewUnionIterator(children, 2, true, 1.0, QN_UNION, NULL, &config);
   ASSERT_EQ(ui_base->NumEstimated(ui_base), it1->docIds.size() + it2->docIds.size());
 
   ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
@@ -288,9 +288,9 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = nullptr;
   children[1] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[2] = IT_V2(NewEmptyIterator)();
+  children[2] = NewEmptyIterator();
   children[3] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  QueryIterator *ui_base = NewUnionIterator(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   ASSERT_EQ(ui_base->type, UNION_ITERATOR);
   UnionIterator *ui = (UnionIterator *)ui_base;
   ASSERT_EQ(ui->num, 2);
@@ -300,10 +300,10 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildren) {
 TEST_F(UnionIteratorReducerTest, TestUnionRemovesAllEmptyChildren) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = nullptr;
-  children[1] = IT_V2(NewEmptyIterator)();
-  children[2] = IT_V2(NewEmptyIterator)();
+  children[1] = NewEmptyIterator();
+  children[2] = NewEmptyIterator();
   children[3] = nullptr;
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  QueryIterator *ui_base = NewUnionIterator(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   ASSERT_EQ(ui_base->type, EMPTY_ITERATOR);
   ui_base->Free(ui_base);
 }
@@ -312,10 +312,10 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildrenOnlyOneLeft) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = nullptr;
   children[1] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[2] = IT_V2(NewEmptyIterator)();
+  children[2] = NewEmptyIterator();
   children[3] = nullptr;
   QueryIterator* expected_iter = children[1];
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  QueryIterator *ui_base = NewUnionIterator(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   ASSERT_EQ(ui_base, expected_iter);
   ui_base->Free(ui_base);
 }
@@ -323,10 +323,10 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildrenOnlyOneLeft) {
 TEST_F(UnionIteratorReducerTest, TestUnionQuickWithWildcard) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
-  children[1] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[1] = NewWildcardIterator_NonOptimized(30, 2, 1.0);
   children[2] = nullptr;
-  children[3] = IT_V2(NewEmptyIterator)();
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  children[3] = NewEmptyIterator();
+  QueryIterator *ui_base = NewUnionIterator(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   ASSERT_EQ(ui_base->type, WILDCARD_ITERATOR);
   ui_base->Free(ui_base);
 }
@@ -354,9 +354,9 @@ TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   children[1] = iterator;
   children[2] = nullptr;
-  children[3] = IT_V2(NewEmptyIterator)();
-  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-  ASSERT_EQ(ui_base->type, READ_ITERATOR);
+  children[3] = NewEmptyIterator();
+  QueryIterator *ui_base = NewUnionIterator(children, 4, true, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  ASSERT_EQ(ui_base->type, INV_IDX_ITERATOR);
   ui_base->Free(ui_base);
   InvertedIndex_Free(idx);
 }
@@ -385,7 +385,7 @@ protected:
     children[2] = reinterpret_cast<QueryIterator *>(mockChildren[2]);
 
     // Create union iterator (should yield: 10, 15, 20, 30, 35, 40, 50, 55, 60)
-    ui_base = IT_V2(NewUnionIterator)(children, 3, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+    ui_base = NewUnionIterator(children, 3, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
   }
 
   void TearDown() override {

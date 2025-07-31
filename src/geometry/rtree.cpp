@@ -298,9 +298,9 @@ auto RTree<cs>::query_begin(QueryType query_type, geom_type const& query_geom) c
 
 template <typename cs>
 auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
-    -> IndexIterator* {
+    -> QueryIterator* {
   try {
-    using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
+    using alloc_type = Allocator::TrackingAllocator<CPPQueryIterator>;
     auto alloc = alloc_type{allocated_};
     const auto query_geom = from_wkt<cs>(wkt);
     const auto qbegin = query_begin(query_type, query_geom);

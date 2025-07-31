@@ -13,6 +13,8 @@
 #include "common.h"
 #include "src/redis_index.h"
 #include "src/info/indexes_info.h"
+#include "src/config.h"
+#include "src/numeric_index.h"
 
 #include <set>
 #include <string>

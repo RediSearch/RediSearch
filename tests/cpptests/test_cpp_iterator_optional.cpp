@@ -38,7 +38,7 @@ protected:
 
     // Create optional iterator with child
     MockQueryEvalCtx ctx(maxDocId, numDocs);
-    iterator_base = IT_V2(NewOptionalIterator)(child, &ctx.qctx, weight);
+    iterator_base = NewOptionalIterator(child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -181,7 +181,7 @@ TEST_F(OptionalIteratorTest, VirtualResultWeight) {
   // Skip to a virtual hit (not in childDocIds)
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, 15), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current, oi->virt);
-  ASSERT_EQ(iterator_base->current->weight, weight);
+  ASSERT_EQ(iterator_base->current->weight, 0);
 }
 
 // Test timeout scenarios
@@ -198,7 +198,7 @@ protected:
 
     // Create optional iterator with timeout child
     MockQueryEvalCtx ctx(maxDocId, numDocs);
-    iterator_base = IT_V2(NewOptionalIterator)(child, &ctx.qctx, weight);
+    iterator_base = NewOptionalIterator(child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -302,9 +302,9 @@ protected:
 
   void SetUp() override {
     // Create optional iterator with empty child (no real hits, all virtual)
-    empty_child = IT_V2(NewEmptyIterator)();
+    empty_child = NewEmptyIterator();
     MockQueryEvalCtx ctx(maxDocId, numDocs);
-    iterator_base = IT_V2(NewOptionalIterator)(empty_child, &ctx.qctx, weight);
+    iterator_base = NewOptionalIterator(empty_child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -325,7 +325,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, ReadAllVirtualResults) {
 
     // All hits should be virtual
     ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
-    ASSERT_EQ(iterator_base->current->weight, weight);
+    ASSERT_EQ(iterator_base->current->weight, 0);
     ASSERT_EQ(iterator_base->current->freq, 1);
     ASSERT_EQ(iterator_base->current->fieldMask, RS_FIELDMASK_ALL);
   }
@@ -346,7 +346,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, SkipToVirtualHits) {
 
     // Should be virtual hit
     ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
-    ASSERT_EQ(iterator_base->current->weight, weight);
+    ASSERT_EQ(iterator_base->current->weight, 0);
   }
 }
 
@@ -392,7 +392,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, VirtualResultProperties) {
 
   ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
   ASSERT_EQ(iterator_base->current->docId, 1);
-  ASSERT_EQ(iterator_base->current->weight, weight);
+  ASSERT_EQ(iterator_base->current->weight, 0);
   ASSERT_EQ(iterator_base->current->freq, 1);
   ASSERT_EQ(iterator_base->current->fieldMask, RS_FIELDMASK_ALL);
 }
@@ -427,7 +427,7 @@ protected:
     if (lastFromChild) {
       q->spec.docs.maxDocId = childDocIds.back(); // Ensure maxDocId is set to include last child doc
     }
-    iterator = IT_V2(NewOptionalIterator)(child, &q->qctx, 4.6);
+    iterator = NewOptionalIterator(child, &q->qctx, 4.6);
   }
 
   void TearDown() override {
@@ -452,14 +452,15 @@ TEST_P(OptionalIteratorOptimized, Read) {
     ASSERT_EQ(status, ITERATOR_OK);
     ASSERT_EQ(iterator->lastDocId, id);
     ASSERT_EQ(iterator->current->docId, id);
-    ASSERT_EQ(iterator->current->weight, 4.6);
 
     if (std::find(childDocIds.begin(), childDocIds.end(), id) != childDocIds.end()) {
       // Should be a real hit from child
       ASSERT_EQ(iterator->current, oi->child->current);
+      ASSERT_EQ(iterator->current->weight, 4.6);
     } else {
       // Should be a virtual hit
       ASSERT_EQ(iterator->current, oi->virt);
+      ASSERT_EQ(iterator->current->weight, 0);
     }
   }
   // Read should return EOF after all wildcard docs
@@ -485,13 +486,14 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
       ASSERT_EQ(status, ITERATOR_NOTFOUND);
       ASSERT_EQ(iterator->lastDocId, nextValidId);
       ASSERT_EQ(iterator->current->docId, nextValidId);
-      ASSERT_EQ(iterator->current->weight, 4.6);
       if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
         // Should be a real hit from child
         ASSERT_EQ(iterator->current, oi->child->current);
+        ASSERT_EQ(iterator->current->weight, 4.6);
       } else {
         // Should be a virtual hit
         ASSERT_EQ(iterator->current, oi->virt);
+        ASSERT_EQ(iterator->current->weight, 0);
       }
       id++;
     }
@@ -500,13 +502,14 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
     ASSERT_EQ(status, ITERATOR_OK);
     ASSERT_EQ(iterator->lastDocId, nextValidId);
     ASSERT_EQ(iterator->current->docId, nextValidId);
-    ASSERT_EQ(iterator->current->weight, 4.6);
     if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
       // Should be a real hit from child
       ASSERT_EQ(iterator->current, oi->child->current);
+      ASSERT_EQ(iterator->current->weight, 4.6);
     } else {
       // Should be a virtual hit
       ASSERT_EQ(iterator->current, oi->virt);
+      ASSERT_EQ(iterator->current->weight, 0);
     }
     id++;
   }
@@ -529,7 +532,6 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
       ASSERT_EQ(status, ITERATOR_OK);
       ASSERT_EQ(iterator->lastDocId, id);
       ASSERT_EQ(iterator->current->docId, id);
-      ASSERT_EQ(iterator->current->weight, 4.6);
 
       auto nextValidId = *std::lower_bound(wildcardDocIds.begin(), wildcardDocIds.end(), skipToId);
       status = iterator->SkipTo(iterator, skipToId);
@@ -542,8 +544,10 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
       }
       if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
         ASSERT_EQ(iterator->current, ((OptionalIterator *)iterator)->child->current);
+        ASSERT_EQ(iterator->current->weight, 4.6);
       } else {
         ASSERT_EQ(iterator->current, ((OptionalIterator *)iterator)->virt);
+        ASSERT_EQ(iterator->current->weight, 0);
       }
     }
   }
@@ -562,7 +566,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithNullChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create optional iterator with NULL child
-  QueryIterator *it = IT_V2(NewOptionalIterator)(nullptr, &ctx.qctx, weight);
+  QueryIterator *it = NewOptionalIterator(nullptr, &ctx.qctx, weight);
 
   // Verify iterator type
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -570,7 +574,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithNullChild) {
   // Read first document and check properties
   ASSERT_EQ(it->Read(it), ITERATOR_OK);
   ASSERT_EQ(it->current->docId, 1);
-  ASSERT_EQ(it->current->weight, weight);
+  ASSERT_EQ(it->current->weight, 0);
   ASSERT_EQ(it->current->type, RSResultType_Virtual);
 
   it->Free(it);
@@ -586,10 +590,10 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithEmptyChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create empty child iterator
-  QueryIterator *emptyChild = IT_V2(NewEmptyIterator)();
+  QueryIterator *emptyChild = NewEmptyIterator();
 
   // Create optional iterator with empty child
-  QueryIterator *it = IT_V2(NewOptionalIterator)(emptyChild, &ctx.qctx, weight);
+  QueryIterator *it = NewOptionalIterator(emptyChild, &ctx.qctx, weight);
 
   // Verify iterator type
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -597,7 +601,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithEmptyChild) {
   // Read first document and check properties
   ASSERT_EQ(it->Read(it), ITERATOR_OK);
   ASSERT_EQ(it->current->docId, 1);
-  ASSERT_EQ(it->current->weight, weight);
+  ASSERT_EQ(it->current->weight, 0);
   ASSERT_EQ(it->current->type, RSResultType_Virtual);
 
   it->Free(it);
@@ -613,10 +617,10 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create wildcard child iterator
-  QueryIterator *wildcardChild = IT_V2(NewWildcardIterator_NonOptimized)(maxDocId, numDocs, childWeight);
+  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, numDocs, 2.0);
 
   // Create optional iterator with wildcard child - should return the child directly
-  QueryIterator *it = IT_V2(NewOptionalIterator)(wildcardChild, &ctx.qctx, 2.0);
+  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, childWeight);
 
   // Verify it's the same iterator (optimization returns child directly)
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -658,10 +662,10 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
   invIdxIt->isWildcard = true;
 
   // Create optional iterator with wildcard child - should return the child directly
-  QueryIterator *it = IT_V2(NewOptionalIterator)(wildcardChild, &ctx.qctx, 2.0);
+  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, 2.0);
 
   // Verify it's the same iterator (optimization returns child directly)
-  ASSERT_TRUE(it->type == READ_ITERATOR);
+  ASSERT_TRUE(it->type == INV_IDX_ITERATOR);
   ASSERT_EQ(it, wildcardChild);
   it->Free(it);
   InvertedIndex_Free(idx);
@@ -684,7 +688,7 @@ protected:
 
     // Create non-optimized optional iterator with child
     mockCtx = new MockQueryEvalCtx(maxDocId, numDocs);
-    oi_base = IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
+    oi_base = NewOptionalIterator(child, &mockCtx->qctx, weight);
   }
 
   void TearDown() override {
@@ -782,7 +786,7 @@ protected:
     // Create optimized optional iterator (will create wildcard internally)
     std::vector<t_docId> wildcard = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95};
     mockCtx = std::make_unique<MockQueryEvalCtx>(wildcard);
-    oi_base = IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
+    oi_base = NewOptionalIterator(child, &mockCtx->qctx, weight);
 
     // Replace the wildcard iterator with a mock for testing
     OptionalIterator *oi = (OptionalIterator *)oi_base;

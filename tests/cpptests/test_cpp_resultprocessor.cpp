@@ -51,7 +51,7 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
 class ResultProcessorTest : public ::testing::Test {};
 
 TEST_F(ResultProcessorTest, testProcessorChain) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
   RLookup lk = {0};
   processor1Ctx *p = new processor1Ctx();
   p->counter = 0;

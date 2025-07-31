@@ -11,6 +11,7 @@
 #include "util/arr.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
+#include "iterators/inverted_index_iterator.h"
 #include "redis_index.h"
 #include "numeric_index.h"
 #include "tag_index.h"
@@ -810,16 +811,18 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
     blocksSinceFork++; // Count the ignored block as well
   }
   // Add the entries that were added since the fork to the HLL
-  RSIndexResult *cur;
-  IndexReader *ir = NewMinimalNumericReader(range->entries, false);
   size_t startIdx = range->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
   t_docId startId = IndexBlock_FirstId(&range->entries->blocks[startIdx]);
-  int rc = IR_SkipTo(ir, startId, &cur);
-  while (INDEXREAD_OK == rc) {
-    hll_add(&range->hll, &cur->data.num.value, sizeof(cur->data.num.value));
-    rc = IR_Read(ir, &cur);
+  QueryIterator *iter = NewInvIndIterator_NumericFull(range->entries);
+  // Skip to the starting ID
+  IteratorStatus status = iter->SkipTo(iter, startId);
+
+  // Continue reading the rest
+  while (status == ITERATOR_OK) {
+    hll_add(&range->hll, &iter->current->data.num.value, sizeof(iter->current->data.num.value));
+    status = iter->Read(iter);
   }
-  IR_Free(ir);
+  iter->Free(iter);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {

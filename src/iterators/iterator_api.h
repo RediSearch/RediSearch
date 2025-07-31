@@ -11,8 +11,8 @@
 #define __ITERATOR_API_H__
 
 #include <stdint.h>
-#include "src/redisearch.h"
-#include "src/index_result.h"
+#include "redisearch.h"
+#include "index_result.h"
 
 struct RLookupKey; // Forward declaration
 
@@ -32,7 +32,7 @@ typedef enum ValidateStatus {
 } ValidateStatus;
 
 enum IteratorType {
-  READ_ITERATOR,
+  INV_IDX_ITERATOR,
   HYBRID_ITERATOR,
   UNION_ITERATOR,
   INTERSECT_ITERATOR,
@@ -107,8 +107,5 @@ static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
   // Default implementation does nothing.
   return VALIDATE_OK;
 }
-
-// Scaffold for the iterator API. TODO: Remove this when the old API is removed
-#define IT_V2(api_name) api_name##_V2
 
 #endif

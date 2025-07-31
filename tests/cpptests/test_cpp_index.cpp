@@ -12,15 +12,20 @@ extern "C" {
 }
 
 #include "src/buffer/buffer.h"
-#include "src/index.h"
 #include "src/forward_index.h"
 #include "src/index_result.h"
 #include "src/query_parser/tokenizer.h"
 #include "src/spec.h"
 #include "src/tokenize.h"
 #include "varint.h"
-#include "src/hybrid_reader.h"
-#include "src/metric_iterator.h"
+#include "src/iterators/inverted_index_iterator.h"
+#include "src/iterators/hybrid_reader.h"
+#include "src/iterators/idlist_iterator.h"
+#include "src/iterators/union_iterator.h"
+#include "src/iterators/intersection_iterator.h"
+#include "src/iterators/not_iterator.h"
+#include "src/iterators/empty_iterator.h"
+#include "src/iterators/wildcard_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
 #include "types_rs.h"
@@ -229,20 +234,16 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(200, idx->lastId);
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexReader *ir = NewTermIndexReader(idx);
-    RSIndexResult *h = NULL;
+    QueryIterator *ir = NewInvIndIterator_TermFull(idx);
 
     int n = 1;
-    int rc;
-    while (!ir->atEnd_) {
-      if ((rc = IR_Read(ir, &h)) == INDEXREAD_EOF) {
-        break;
-      }
-      ASSERT_EQ(INDEXREAD_OK, rc);
-      ASSERT_EQ(h->docId, n);
+    IteratorStatus rc;
+    while ((rc = ir->Read(ir)) != ITERATOR_EOF) {
+      ASSERT_EQ(ITERATOR_OK, rc);
+      ASSERT_EQ(ir->lastDocId, n);
       n++;
     }
-    IR_Free(ir);
+    ir->Free(ir);
   }
 
   InvertedIndex_Free(idx);
@@ -318,27 +319,16 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 
 TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
-
-  IndexReader *r1 = NewTermIndexReader(idx);
-
-  RSIndexResult *h = NULL;
-
-  IndexIterator *it = NewReadIterator(r1);
+  QueryIterator *it = NewInvIndIterator_TermFull(idx);
   int i = 1;
-  while (IITER_HAS_NEXT(it)) {
-    if (it->Read(it->ctx, &h) == INDEXREAD_EOF) {
-      break;
-    }
-
-    // printf("Iter got %d\n", h.docId);
-    ASSERT_EQ(h->docId, i);
+  while (it->Read(it) == ITERATOR_OK) {
+    ASSERT_EQ(it->lastDocId, i);
     i++;
   }
   ASSERT_EQ(11, i);
 
   it->Free(it);
 
-  // IndexResult_Free(&h);
   InvertedIndex_Free(idx);
 }
 
@@ -347,31 +337,28 @@ TEST_F(IndexTest, testUnion) {
   for (int cfg = 0; cfg < 2; ++cfg) {
     InvertedIndex *w = createPopulateTermsInvIndex(10, 2);
     InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
-    IndexReader *r1 = NewTermIndexReader(w);   //
-    IndexReader *r2 = NewTermIndexReader(w2);  //
 
     // printf("Reading!\n");
-    IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-    irs[0] = NewReadIterator(r1);
-    irs[1] = NewReadIterator(r2);
+    QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
+    irs[0] = NewInvIndIterator_TermFull(w);
+    irs[1] = NewInvIndIterator_TermFull(w2);
     IteratorsConfig config{};
     iteratorsConfig_init(&config);
-    IndexIterator *ui = NewUnionIterator(irs, 2, 0, 1, QN_UNION, NULL, &config);
-    RSIndexResult *h = NULL;
+    QueryIterator *ui = NewUnionIterator(irs, 2, 0, 1, QN_UNION, NULL, &config);
     int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
     int i = 0;
-    while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+    while (ui->Read(ui) != ITERATOR_EOF) {
       // printf("%d <=> %d\n", h.docId, expected[i]);
-      ASSERT_EQ(expected[i], h->docId);
+      ASSERT_EQ(expected[i], ui->lastDocId);
       i++;
 
-      RSIndexResult *copy = IndexResult_DeepCopy(h);
+      RSIndexResult *copy = IndexResult_DeepCopy(ui->current);
       ASSERT_TRUE(copy != NULL);
-      ASSERT_TRUE(copy != h);
+      ASSERT_TRUE(copy != ui->current);
       ASSERT_TRUE(copy->isCopy);
 
-      ASSERT_EQ(copy->docId, h->docId);
-      ASSERT_EQ(copy->type, h->type);
+      ASSERT_EQ(copy->docId, ui->current->docId);
+      ASSERT_EQ(copy->type, ui->current->type);
 
       IndexResult_Free(copy);
 
@@ -380,15 +367,15 @@ TEST_F(IndexTest, testUnion) {
 
 
     // test read after skip goes to next id
-    ui->Rewind(ui->ctx);
-    ASSERT_EQ(ui->SkipTo(ui->ctx, 6, &h), INDEXREAD_OK);
-    ASSERT_EQ(h->docId, 6);
-    ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_OK);
-    ASSERT_EQ(h->docId, 8);
+    ui->Rewind(ui);
+    ASSERT_EQ(ui->SkipTo(ui, 6), ITERATOR_OK);
+    ASSERT_EQ(ui->lastDocId, 6);
+    ASSERT_EQ(ui->Read(ui), ITERATOR_OK);
+    ASSERT_EQ(ui->lastDocId, 8);
     // test for last id
-    ASSERT_EQ(ui->SkipTo(ui->ctx, 30, &h), INDEXREAD_OK);
-    ASSERT_EQ(h->docId, 30);
-    ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_EOF);
+    ASSERT_EQ(ui->SkipTo(ui, 30), ITERATOR_OK);
+    ASSERT_EQ(ui->lastDocId, 30);
+    ASSERT_EQ(ui->Read(ui), ITERATOR_EOF);
 
     ui->Free(ui);
     // IndexResult_Free(&h);
@@ -405,20 +392,16 @@ TEST_F(IndexTest, testWeight) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 1);
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 2);
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = { .index = RS_INVALID_FIELD_INDEX }};
-  IndexReader *r1 = NewTermIndexReaderEx(w, NULL, fieldMaskOrIndex, NULL, 0.5);  //
-  IndexReader *r2 = NewTermIndexReader(w2);   //
-
-  // printf("Reading!\n");
-  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-  irs[0] = NewReadIterator(r1);
-  irs[1] = NewReadIterator(r2);
+  QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
+  irs[0] = NewInvIndIterator_TermQuery(w, NULL, fieldMaskOrIndex, NULL, 0.5);
+  irs[1] = NewInvIndIterator_TermFull(w2);
   IteratorsConfig config{};
   iteratorsConfig_init(&config);
-  IndexIterator *ui = NewUnionIterator(irs, 2, 0, 0.8, QN_UNION, NULL, &config);
-  RSIndexResult *h = NULL;
+  QueryIterator *ui = NewUnionIterator(irs, 2, 0, 0.8, QN_UNION, NULL, &config);
   int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
   int i = 0;
-  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+  while (ui->Read(ui) != ITERATOR_EOF) {
+    RSIndexResult *h = ui->current;
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
@@ -441,24 +424,20 @@ TEST_F(IndexTest, testWeight) {
 }
 
 TEST_F(IndexTest, testNot) {
+  auto ctx = std::make_unique<MockQueryEvalCtx>();
   InvertedIndex *w = createPopulateTermsInvIndex(16, 1);
   // not all numbers that divide by 3
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
-  IndexReader *r1 = NewTermIndexReader(w);   //
-  IndexReader *r2 = NewTermIndexReader(w2);  //
+  QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
+  irs[0] = NewInvIndIterator_TermFull(w);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermFull(w2), w2->lastId, 1, {0}, &ctx->qctx);
 
-  // printf("Reading!\n");
-  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-  irs[0] = NewReadIterator(r1);
-  irs[1] = NewNotIterator(NewReadIterator(r2), w2->lastId, 1, {0}, NULL);
-
-  IndexIterator *ui = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
-  RSIndexResult *h = NULL;
+  QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
   int i = 0;
-  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+  while (ui->Read(ui) != ITERATOR_EOF) {
     // printf("%d <=> %d\n", h->docId, expected[i]);
-    ASSERT_EQ(expected[i++], h->docId);
+    ASSERT_EQ(expected[i++], ui->lastDocId);
     // printf("%d, ", h.docId);
   }
 
@@ -470,20 +449,17 @@ TEST_F(IndexTest, testNot) {
 
 TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
-
-  IndexReader *r1 = NewTermIndexReader(w);  //
-  printf("last id: %llu\n", (unsigned long long)w->lastId);
-
-  IndexIterator *ir = NewNotIterator(NewReadIterator(r1), w->lastId + 5, 1, {0}, NULL);
+  auto ctx = std::make_unique<MockQueryEvalCtx>();
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermFull(w), w->lastId + 5, 1, {0}, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
                     20, 22, 23, 25, 26, 28, 29, 31, 32, 33, 34, 35};
   int i = 0;
-  while (ir->Read(ir->ctx, &h) != INDEXREAD_EOF) {
+  while (ir->Read(ir) != ITERATOR_EOF) {
 
     // printf("%d <=> %d\n", h->docId, expected[i]);
-    ASSERT_EQ(expected[i++], h->docId);
+    ASSERT_EQ(expected[i++], ir->lastDocId);
   }
   ir->Free(ir);
   InvertedIndex_Free(w);
@@ -552,11 +528,10 @@ TEST_F(IndexTest, testNumericInverted) {
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
-  IndexReader *ir = NewMinimalNumericReader(idx, false);
-  IndexIterator *it = NewReadIterator(ir);
-  RSIndexResult *res;
+  QueryIterator *it = NewInvIndIterator_NumericFull(idx);
   t_docId i = 1;
-  while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
+  while (ITERATOR_EOF != it->Read(it)) {
+    RSIndexResult *res = it->current;
     // printf("%d %f\n", res->docId, res->num.value);
 
     ASSERT_EQ(i++, res->docId);
@@ -602,18 +577,16 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
-  IndexReader *ir = NewMinimalNumericReader(idx, false);
-  IndexIterator *it = NewReadIterator(ir);
-  RSIndexResult *res;
+  QueryIterator *it = NewInvIndIterator_NumericFull(idx);
 
   for (size_t i = 0; i < numCount; i++) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
-    int rv = it->Read(it->ctx, &res);
-    ASSERT_NE(INDEXREAD_EOF, rv);
-    ASSERT_LT(fabs(nums[i] - res->data.num.value), 0.01);
+    IteratorStatus rv = it->Read(it);
+    ASSERT_NE(ITERATOR_EOF, rv);
+    ASSERT_LT(fabs(nums[i] - it->current->data.num.value), 0.01);
   }
 
-  ASSERT_EQ(INDEXREAD_EOF, it->Read(it->ctx, &res));
+  ASSERT_EQ(ITERATOR_EOF, it->Read(it));
   InvertedIndex_Free(idx);
   it->Free(it);
 }
@@ -686,20 +659,20 @@ void testNumericEncodingHelper(bool isMulti) {
     }
   }
 
-  IndexReader *ir = NewMinimalNumericReader(idx, isMulti);
-  IndexIterator *it = NewReadIterator(ir);
-  RSIndexResult *res;
+  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+  QueryIterator *it = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\nReading [%lu]\n", ii);
 
-    int rc = it->Read(it->ctx, &res);
-    ASSERT_NE(rc, INDEXREAD_EOF);
+    IteratorStatus rc = it->Read(it);
+    ASSERT_NE(rc, ITERATOR_EOF);
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
     if (fabs(infos[ii].value) == INFINITY) {
-      ASSERT_EQ(infos[ii].value, res->data.num.value);
+      ASSERT_EQ(infos[ii].value, it->current->data.num.value);
     } else {
-      ASSERT_LT(fabs(infos[ii].value - res->data.num.value), 0.01);
+      ASSERT_LT(fabs(infos[ii].value - it->current->data.num.value), 0.01);
     }
   }
 
@@ -715,47 +688,25 @@ TEST_F(IndexTest, testNumericEncodingMulti) {
   testNumericEncodingHelper(1);
 }
 
-TEST_F(IndexTest, testAbort) {
-
-  InvertedIndex *w = createPopulateTermsInvIndex(1000, 1);
-  IndexReader *r = NewTermIndexReader(w);  //
-
-  IndexIterator *it = NewReadIterator(r);
-  int n = 0;
-  RSIndexResult *res;
-  while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
-    if (n == 50) {
-      it->Abort(it->ctx);
-    }
-    n++;
-  }
-  ASSERT_EQ(51, n);
-  it->Free(it);
-  InvertedIndex_Free(w);
-}
-
 TEST_F(IndexTest, testIntersection) {
 
   InvertedIndex *w = createPopulateTermsInvIndex(100000, 4);
   InvertedIndex *w2 = createPopulateTermsInvIndex(100000, 2);
-  IndexReader *r1 = NewTermIndexReader(w);   //
-  IndexReader *r2 = NewTermIndexReader(w2);  //
 
-  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-  irs[0] = NewReadIterator(r1);
-  irs[1] = NewReadIterator(r2);
+  QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
+  irs[0] = NewInvIndIterator_TermFull(w);
+  irs[1] = NewInvIndIterator_TermFull(w2);
 
   int count = 0;
-  IndexIterator *ii = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 0, 1);
-
-  RSIndexResult *h = NULL;
+  QueryIterator *ii = NewIntersectionIterator(irs, 2, -1, 0, 1);
 
   uint32_t topFreq = 0;
-  while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
+  while (ii->Read(ii) != ITERATOR_EOF) {
+    RSIndexResult *h = ii->current;
     ASSERT_EQ(h->type, RSResultType_Intersection);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_TRUE(RSIndexResult_HasOffsets(h));
-    topFreq = topFreq > h->freq ? topFreq : h->freq;
+    topFreq = std::max(topFreq, h->freq);
 
     RSIndexResult *copy = IndexResult_DeepCopy(h);
     ASSERT_TRUE(copy != NULL);
@@ -765,7 +716,7 @@ TEST_F(IndexTest, testIntersection) {
     ASSERT_TRUE(copy->docId == h->docId);
     ASSERT_TRUE(copy->type == RSResultType_Intersection);
     ASSERT_EQ((count * 2 + 2) * 2, h->docId);
-    ASSERT_EQ(count * 2 + 2, h->freq);
+    ASSERT_EQ(2, h->freq);
     IndexResult_Free(copy);
     ++count;
   }
@@ -777,18 +728,18 @@ TEST_F(IndexTest, testIntersection) {
   // 1000000 * TimeSampler_IterationMS(&ts));
   // printf("top freq: %f\n", topFreq);
   ASSERT_EQ(count, 50000);
-  ASSERT_EQ(topFreq, 100000.0);
+  ASSERT_EQ(topFreq, 2);
 
   // test read after skip goes to next id
-  ii->Rewind(ii->ctx);
-  ASSERT_EQ(ii->SkipTo(ii->ctx, 8, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 8);
-  ASSERT_EQ(ii->Read(ii->ctx, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 12);
+  ii->Rewind(ii);
+  ASSERT_EQ(ii->SkipTo(ii, 8), ITERATOR_OK);
+  ASSERT_EQ(ii->lastDocId, 8);
+  ASSERT_EQ(ii->Read(ii), ITERATOR_OK);
+  ASSERT_EQ(ii->lastDocId, 12);
   // test for last id
-  ASSERT_EQ(ii->SkipTo(ii->ctx, 200000, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 200000);
-  ASSERT_EQ(ii->Read(ii->ctx, &h), INDEXREAD_EOF);
+  ASSERT_EQ(ii->SkipTo(ii, 200000), ITERATOR_OK);
+  ASSERT_EQ(ii->lastDocId, 200000);
+  ASSERT_EQ(ii->Read(ii), ITERATOR_EOF);
 
   ii->Free(ii);
   // IndexResult_Free(&h);
@@ -806,7 +757,6 @@ TEST_F(IndexTest, testHybridVector) {
   VecSimMetric met = VecSimMetric_L2;
   VecSimType t = VecSimType_FLOAT32;
   InvertedIndex *w = createPopulateTermsInvIndex(n, step);
-  IndexReader *r = NewTermIndexReader(w);
 
   // Create vector index
   VecSimLogCtx logCtx = { .index_field_name = "v" };
@@ -848,92 +798,88 @@ TEST_F(IndexTest, testHybridVector) {
                                   .filterCtx = &filterCtx
   };
   QueryError err = {QUERY_OK};
-  IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
+  QueryIterator *vecIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
-  RSIndexResult *h = NULL;
   size_t count = 0;
 
   // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
-  while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
-    ASSERT_EQ(h->type, RSResultType_Metric);
-    ASSERT_EQ(h->docId, max_id - count);
+  while (vecIt->Read(vecIt) != ITERATOR_EOF) {
+    ASSERT_EQ(vecIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(vecIt->current->docId, max_id - count);
     count++;
   }
   ASSERT_EQ(count, k);
-  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_TRUE(vecIt->atEOF);
 
-  vecIt->Rewind(vecIt->ctx);
-  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
-  ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), k);
-  ASSERT_EQ(vecIt->Len(vecIt->ctx), k);
+  vecIt->Rewind(vecIt);
+  ASSERT_FALSE(vecIt->atEOF);
+  ASSERT_EQ(vecIt->NumEstimated(vecIt), k);
   // Read one result to verify that we get the one with best score after rewind.
-  ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, max_id);
+  ASSERT_EQ(vecIt->Read(vecIt), ITERATOR_OK);
+  ASSERT_EQ(vecIt->current->docId, max_id);
   vecIt->Free(vecIt);
 
   // Test in hybrid mode.
-  IndexIterator *ir = NewReadIterator(r);
+  QueryIterator *ir = NewInvIndIterator_TermFull(w);
   hParams.childIt = ir;
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
-  HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
+  HybridIterator *hr = (HybridIterator *)hybridIt;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
   // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
   count = 0;
-  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
-    ASSERT_EQ(h->type, RSResultType_Metric);
+  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
+    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get lower id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(h->docId, expected_id);
+    ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
   ASSERT_EQ(count, k);
-  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_TRUE(hybridIt->atEOF);
 
-  hybridIt->Rewind(hybridIt->ctx);
-  ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
-  ASSERT_EQ(hybridIt->NumEstimated(hybridIt->ctx), k);
-  ASSERT_EQ(hybridIt->Len(hybridIt->ctx), k);
+  hybridIt->Rewind(hybridIt);
+  ASSERT_FALSE(hybridIt->atEOF);
+  ASSERT_EQ(hybridIt->NumEstimated(hybridIt), k);
 
   // check rerun and abort (go over only half of the results)
   count = 0;
   for (size_t i = 0; i < k/2; i++) {
-    ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
-    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(hybridIt->Read(hybridIt), ITERATOR_OK);
+    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
     size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(h->docId, expected_id);
+    ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
-  ASSERT_EQ(hybridIt->LastDocId(hybridIt->ctx), max_id - step*((k/2)-1));
-  hybridIt->Abort(hybridIt->ctx);
-  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_EQ(hybridIt->lastDocId, max_id - step*((k/2)-1));
+  ASSERT_EQ(hybridIt->Revalidate(hybridIt), VALIDATE_OK);
 
   // Rerun in AD_HOC BF mode.
-  hybridIt->Rewind(hybridIt->ctx);
+  hybridIt->Rewind(hybridIt);
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
-  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
-    ASSERT_EQ(h->type, RSResultType_Metric);
+  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
+    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(h->docId, expected_id);
+    ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
   hybridIt->Free(hybridIt);
 
   // Rerun without ignoring document scores.
-  r = NewTermIndexReader(w);
-  ir = NewReadIterator(r);
+  ir = NewInvIndIterator_TermFull(w);
   hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-  hr = (HybridIterator *)hybridIt->ctx;
+  hr = (HybridIterator *)hybridIt;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
   // This time, result is a tree with 2 children: vector score and subtree of terms (for scoring).
   count = 0;
-  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
+    RSIndexResult *h = hybridIt->current;
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
@@ -943,13 +889,14 @@ TEST_F(IndexTest, testHybridVector) {
     ASSERT_EQ(h->docId, expected_id);
   }
   ASSERT_EQ(count, k);
-  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_TRUE(hybridIt->atEOF);
 
   // Rerun in AD_HOC BF mode.
-  hybridIt->Rewind(hybridIt->ctx);
+  hybridIt->Rewind(hybridIt);
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
-  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
+    RSIndexResult *h = hybridIt->current;
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
@@ -969,7 +916,6 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   size_t n = 1;
   size_t d = 4;
   InvertedIndex *w = createPopulateTermsInvIndex(n, 1);
-  IndexReader *r = NewTermIndexReader(w);
 
   // Create vector index with a single vector.
   VecSimLogCtx logCtx = { .index_field_name = "v" };
@@ -984,34 +930,6 @@ TEST_F(IndexTest, testInvalidHybridVector) {
   VecSimIndex_AddVector(index, (const void *)vec, n);
   ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
-  KNNVectorQuery top_k_query = {.vector = vec, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams = {};
-
-  // Create invalid intersection iterator (with a child iterator which is NULL).
-  IndexIterator **irs = (IndexIterator **)calloc(2, sizeof(IndexIterator *));
-  irs[0] = NewReadIterator(r);
-  irs[1] = NULL;
-  // The iterator is initialized with inOrder=true, to test the case where the null
-  // child isn't the first child (since inOrder=true will trigger sorting).
-  IndexIterator *ii = NewIntersectIterator(irs, 2, NULL, RS_FIELDMASK_ALL, -1, 1, 1);
-
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
-  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-  // Create hybrid iterator - should return NULL.
-  HybridIteratorParams hParams = {.sctx = NULL,
-                                  .index = index,
-                                  .query = top_k_query,
-                                  .qParams = queryParams,
-                                  .vectorScoreField = (char *)"__v_score",
-                                  .canTrimDeepResults = true,
-                                  .childIt = ii,
-                                  .filterCtx = &filterCtx};
-  QueryError err = {QUERY_OK};
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-  ASSERT_FALSE(hybridIt);
-
-  ii->Free(ii);
   InvertedIndex_Free(w);
   VecSimIndex_Free(index);
 }
@@ -1053,15 +971,15 @@ TEST_F(IndexTest, testMetric_VectorRange) {
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
-  IndexIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true);
-  RSIndexResult *h = NULL;
+  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
 
   // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100
   VecSim_Normalize(query, d, t);
-  while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
+  while (vecIt->Read(vecIt) != ITERATOR_EOF) {
+    RSIndexResult *h = vecIt->current;
     ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
@@ -1070,56 +988,52 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
-  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_TRUE(vecIt->atEOF);
 
-  vecIt->Rewind(vecIt->ctx);
-  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
-  ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), n_expected_res);
-  ASSERT_EQ(vecIt->Len(vecIt->ctx), n_expected_res);
+  vecIt->Rewind(vecIt);
+  ASSERT_FALSE(vecIt->atEOF);
+  ASSERT_EQ(vecIt->NumEstimated(vecIt), n_expected_res);
 
   // Read one result to verify that we get the minimum id after rewind.
-  ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, lowest_id);
+  ASSERT_EQ(vecIt->Read(vecIt), ITERATOR_OK);
+  ASSERT_EQ(vecIt->lastDocId, lowest_id);
 
   // Test valid combinations of SkipTo
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, lowest_id + 10);
-  double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
-  ASSERT_EQ(h->data.num.value, exp_dist);
-  ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + 10);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10), ITERATOR_OK);
+  ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
+  double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
+  ASSERT_EQ(vecIt->current->data.num.value, exp_dist);
+  ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
 
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n-1, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, n-1);
-  exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
-  ASSERT_EQ(h->data.num.value, exp_dist);
-  ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n-1);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
+  ASSERT_EQ(vecIt->lastDocId, n-1);
+  exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
+  ASSERT_EQ(vecIt->current->data.num.value, exp_dist);
+  ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
 
   // Invalid SkipTo
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n+1, &h), INDEXREAD_EOF);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n);
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n, &h), INDEXREAD_EOF);
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, n+1), ITERATOR_EOF);
+  ASSERT_EQ(vecIt->lastDocId, n - 1);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, n), ITERATOR_EOF);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10), ITERATOR_EOF);
 
   // Rewind and test skipping to the first id.
-  vecIt->Rewind(vecIt->ctx);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), 0);
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id, &h), INDEXREAD_OK);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id);
+  vecIt->Rewind(vecIt);
+  ASSERT_EQ(vecIt->lastDocId, 0);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id), ITERATOR_OK);
+  ASSERT_EQ(vecIt->lastDocId, lowest_id);
 
   // check rerun and abort (go over only half of the results)
   count = 1;
   for (size_t i = 0; i < n_expected_res/2; i++) {
-    ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(vecIt->Read(vecIt), ITERATOR_OK);
+    RSIndexResult *h = vecIt->current;
     ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     count++;
   }
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + count - 1);
-  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
-  vecIt->Abort(vecIt->ctx);
-  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_EQ(vecIt->lastDocId, lowest_id + count - 1);
+  ASSERT_FALSE(vecIt->atEOF);
 
   vecIt->Free(vecIt);
   VecSimIndex_Free(index);
@@ -1128,41 +1042,39 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 TEST_F(IndexTest, testMetric_SkipTo) {
   size_t results_num = 7;
 
-  t_docId *ids_arr = array_new(t_docId, results_num);
+  t_docId *ids_arr = (t_docId *)rm_malloc(sizeof(t_docId) * results_num);
   t_docId ids[] = {2, 4, 6, 8, 10, 15, 20};
-  array_ensure_append_n(ids_arr, ids , results_num);
+  memcpy(ids_arr, ids, sizeof(t_docId) * results_num);
 
-  double *metrics_arr = array_new(double, results_num);
+  double *metrics_arr = (double *)rm_malloc(sizeof(double) * results_num);
   double metrics[7] = {1.0};
-  array_ensure_append_n(metrics_arr, metrics, results_num);
+  memcpy(metrics_arr, metrics, sizeof(double) * results_num);
 
-  IndexIterator *metric_it = NewMetricIterator(ids_arr, metrics_arr, VECTOR_DISTANCE, false);
-  RSIndexResult *h = NULL;
+  QueryIterator *metric_it = NewMetricIterator(ids_arr, metrics_arr, results_num, VECTOR_DISTANCE);
 
-  // Copy the behaviour of READ_ITERATOR in terms of SkipTo. That is, the iterator will return the
+  // Copy the behaviour of INV_IDX_ITERATOR in terms of SkipTo. That is, the iterator will return the
   // next docId whose id is equal or greater than the given id, as if we call Read and returned
   // that id (hence the iterator will advance its pointer).
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 1, &h), INDEXREAD_NOTFOUND);
-  ASSERT_EQ(h->docId, 2);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 1), ITERATOR_NOTFOUND);
+  ASSERT_EQ(metric_it->lastDocId, 2);
 
-  // This situation should not occur in practice, but this is READ_ITERATOR's behavior.
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 2, &h), INDEXREAD_NOTFOUND);
-  ASSERT_EQ(h->docId, 4);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 3), ITERATOR_NOTFOUND);
+  ASSERT_EQ(metric_it->lastDocId, 4);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 8, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 8);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 8), ITERATOR_OK);
+  ASSERT_EQ(metric_it->lastDocId, 8);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 9, &h), INDEXREAD_NOTFOUND);
-  ASSERT_EQ(h->docId, 10);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 9), ITERATOR_NOTFOUND);
+  ASSERT_EQ(metric_it->lastDocId, 10);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 12, &h), INDEXREAD_NOTFOUND);
-  ASSERT_EQ(h->docId, 15);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 12), ITERATOR_NOTFOUND);
+  ASSERT_EQ(metric_it->lastDocId, 15);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 20, &h), INDEXREAD_OK);
-  ASSERT_EQ(h->docId, 20);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 20), ITERATOR_OK);
+  ASSERT_EQ(metric_it->lastDocId, 20);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 21, &h), INDEXREAD_EOF);
-  ASSERT_EQ(h->docId, 20);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 21), ITERATOR_EOF);
+  ASSERT_EQ(metric_it->lastDocId, 20);
 
   metric_it->Free(metric_it);
 }
@@ -1580,23 +1492,22 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
   ASSERT_EQ(idx->size, 2);
 
-  IndexReader *ir = NewTermIndexReader(idx);
-  RSIndexResult *h = NULL;
-  ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
-  ASSERT_EQ(1, h->docId);
+  QueryIterator *ir = NewInvIndIterator_TermFull(idx);
+  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
+  ASSERT_EQ(1, ir->lastDocId);
 
-  ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
-  ASSERT_EQ(200, h->docId);
+  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
+  ASSERT_EQ(200, ir->lastDocId);
 
-  ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
-  ASSERT_EQ((1LLU << 48), h->docId);
+  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
+  ASSERT_EQ((1LLU << 48), ir->lastDocId);
 
-  ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
-  ASSERT_EQ((1LLU << 48) + 1, h->docId);
+  ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
+  ASSERT_EQ((1LLU << 48) + 1, ir->lastDocId);
 
-  ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &h));
+  ASSERT_EQ(ITERATOR_EOF, ir->Read(ir));
 
-  IR_Free(ir);
+  ir->Free(ir);
   InvertedIndex_Free(idx);
 }
 
@@ -1614,31 +1525,31 @@ TEST_F(IndexTest, testRawDocId) {
   }
 
   // Test that we can read them back
-  IndexReader *ir = NewTermIndexReader(idx);
-  RSIndexResult *cur;
+  QueryIterator *ir = NewInvIndIterator_TermFull(idx);
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
-    ASSERT_EQ(id, cur->docId);
+    ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
+    ASSERT_EQ(id, ir->lastDocId);
   }
-  ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
+  ASSERT_EQ(ITERATOR_EOF, ir->Read(ir));
 
   // Test that we can skip to all the ids
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id++) {
-    IR_Rewind(ir);
-    int rc = IR_SkipTo(ir, id, &cur);
+    ir->Rewind(ir);
+    IteratorStatus rc = ir->SkipTo(ir, id);
+    RSIndexResult *cur = ir->current;
     if (id % 2 == 0) {
-      ASSERT_EQ(INDEXREAD_NOTFOUND, rc);
-      ASSERT_EQ(id + 1, ir->lastId);
+      ASSERT_EQ(ITERATOR_NOTFOUND, rc);
+      ASSERT_EQ(id + 1, ir->lastDocId);
       ASSERT_EQ(id + 1, cur->docId) << "Expected to skip to " << id + 1 << " but got " << cur->docId;
     } else {
-      ASSERT_EQ(INDEXREAD_OK, rc);
-      ASSERT_EQ(id, ir->lastId);
+      ASSERT_EQ(ITERATOR_OK, rc);
+      ASSERT_EQ(id, ir->lastDocId);
       ASSERT_EQ(id, cur->docId);
     }
   }
 
   // Clean up
-  IR_Free(ir);
+  ir->Free(ir);
   InvertedIndex_Free(idx);
   RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
 }
@@ -1670,7 +1581,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithEmptyChild) {
   };
 
   QueryError err = {QUERY_OK};
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
 
   // Verify the iterator was not created due to NULL child
   ASSERT_FALSE(QueryError_HasError(&err));
@@ -1692,8 +1603,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
 
   // Mock the WILDCARD_ITERATOR consideration
-  IndexIterator* wildcardIt = NewEmptyIterator();
-  wildcardIt->type = WILDCARD_ITERATOR;
+  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, n, 1.0);
 
   HybridIteratorParams hParams = {
     .sctx = NULL,
@@ -1710,12 +1620,12 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
   };
 
   QueryError err = {QUERY_OK};
-  IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
+  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
 
   // Verify the iterator was not created due to NULL child
   ASSERT_FALSE(QueryError_HasError(&err));
   ASSERT_EQ(hybridIt->type, HYBRID_ITERATOR);
-  HybridIterator* hi = (HybridIterator *)hybridIt->ctx;
+  HybridIterator* hi = (HybridIterator *)hybridIt;
   ASSERT_EQ(hi->searchMode, VECSIM_STANDARD_KNN);
   hybridIt->Free(hybridIt);
 }

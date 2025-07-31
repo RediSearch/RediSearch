@@ -71,8 +71,8 @@ TEST_F(ExpireTest, testSkipTo) {
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_TAG);
   TagIndex *idx = TagIndex_Open(sctx->spec, kstr, DONT_CREATE_INDEX);
   ASSERT_NE(idx, nullptr);
-  IndexIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
-  ASSERT_EQ(it->LastDocId(it->ctx), 1);
+  QueryIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
+  ASSERT_EQ(it->lastDocId, 0);
   // should skip to last document, we index every doc twice so we should have 2 * maxDocId entries in the inverted index
   for (t_docId doc = 2; doc < (2 * maxDocId); doc += 2) {
     RSIndexResult *result = NULL;
@@ -81,8 +81,8 @@ TEST_F(ExpireTest, testSkipTo) {
     // for hexpire there will be
     // if we skip to an odd doc number we should get the requested doc id
     // if we skip to an even doc number we should not get it since it will be expired
-    it->SkipTo(it->ctx, doc, &result);
-    ASSERT_EQ(result->docId, doc + 1);
+    it->SkipTo(it, doc);
+    ASSERT_EQ(it->lastDocId, doc + 1);
   }
   it->Free(it);
   SearchCtx_Free(sctx);

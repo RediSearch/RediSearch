@@ -37,6 +37,6 @@ static QueryIterator eofIterator = {.Read = EOI_Read,
                                     .Revalidate = Default_Revalidate,
     };
 
-QueryIterator *IT_V2(NewEmptyIterator)(void) {
+QueryIterator *NewEmptyIterator(void) {
   return &eofIterator;
 }

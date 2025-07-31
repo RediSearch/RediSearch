@@ -153,7 +153,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
 // Used to determine if the field mask for the given doc id are valid based on their ttl:
 // it->filterCtx.predicate
 // returns true if the we don't have expiration information for the document
-// otherwise will return the same as DocTable_VerifyFieldExpirationPredicate
+// otherwise will return the same as DocTable_CheckFieldExpirationPredicate
 // if predicate is default then it means at least one of the fields need to not be expired for us to return true
 // if predicate is missing then it means at least one of the fields needs to be expired for us to return true
 static inline bool VerifyFieldMaskExpirationForCurrent(InvIndIterator *it) {
@@ -501,7 +501,7 @@ static inline bool ShouldSkipMulti(const InvIndIterator *it) {
         (it->idx->flags & Index_HasMultiValue); // The index holds multi-values (if not, no need to check)
 }
 
-static QueryIterator *InitInvIndIterator(InvIndIterator *it, InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   it->idx = idx;
   it->currentBlock = 0;
@@ -518,7 +518,7 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, InvertedIndex *idx,
 
   QueryIterator *base = &it->base;
   base->current = res;
-  base->type = READ_ITERATOR;
+  base->type = INV_IDX_ITERATOR;
   base->atEOF = false;
   base->lastDocId = 0;
   base->NumEstimated = InvIndIterator_NumEstimated;
@@ -566,14 +566,14 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, InvertedIndex *idx,
   return base;
 }
 
-static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+static QueryIterator *NewInvIndIterator(const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
   RS_ASSERT(idx && idx->size > 0);
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
   return InitInvIndIterator(it, idx, res, filterCtx, skipMulti, sctx, decoderCtx, checkAbortFn);
 }
 
-static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndexResult *res, const FieldSpec* fieldSpec, const FieldFilterContext *filterCtx,
+static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, RSIndexResult *res, const FieldSpec* fieldSpec, const FieldFilterContext *filterCtx,
                 bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
   RS_ASSERT(idx && idx->size > 0);
   NumericInvIndIterator *it = rm_calloc(1, sizeof(*it));
@@ -596,7 +596,7 @@ static QueryIterator *NewInvIndIterator_NumericRange(InvertedIndex *idx, RSIndex
   return &it->base.base;
 }
 
-QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {
+QueryIterator *NewInvIndIterator_NumericFull(const InvertedIndex *idx) {
   FieldFilterContext fieldCtx = {
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
@@ -605,7 +605,7 @@ QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {
   return NewInvIndIterator_NumericRange(idx, NewNumericResult(), NULL, &fieldCtx, false, NULL, &decoderCtx);
 }
 
-QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx) {
+QueryIterator *NewInvIndIterator_TermFull(const InvertedIndex *idx) {
   FieldFilterContext fieldCtx = {
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
@@ -617,7 +617,7 @@ QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx) {
   return NewInvIndIterator(idx, res, &fieldCtx, false, NULL, &decoderCtx, TermCheckAbort);
 }
 
-QueryIterator *NewInvIndIterator_TagFull(InvertedIndex *idx, TagIndex *tagIdx) {
+QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagIndex *tagIdx) {
   FieldFilterContext fieldCtx = {
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
@@ -631,10 +631,9 @@ QueryIterator *NewInvIndIterator_TagFull(InvertedIndex *idx, TagIndex *tagIdx) {
   return InitInvIndIterator(&it->base, idx, res, &fieldCtx, false, NULL, &decoderCtx, TagCheckAbort);
 }
 
-QueryIterator *NewInvIndIterator_NumericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
-                                              const NumericFilter *flt, double rangeMin, double rangeMax) {
+QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
+                                              const NumericFilter *flt, const FieldSpec *fieldSpec, double rangeMin, double rangeMax) {
   IndexDecoderCtx decoderCtx = {.filter = flt};
-  const FieldSpec *fieldSpec = flt->fieldSpec;
   QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), fieldSpec, fieldCtx, true, sctx, &decoderCtx);
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
@@ -652,7 +651,7 @@ static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
   return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 
-QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight) {
   FieldFilterContext fieldCtx = {
     .field = fieldMaskOrIndex,
@@ -660,8 +659,8 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs);
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->docs.size, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs); // FIXME: docs.size starts at 1???
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
@@ -679,13 +678,18 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
   return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx, TermCheckAbort);
 }
 
-QueryIterator *NewInvIndIterator_TagQuery(InvertedIndex *idx, TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tagIdx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight) {
 
   FieldFilterContext fieldCtx = {
     .field = fieldMaskOrIndex,
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
+  if (term && sctx) {
+    // compute IDF based on num of docs in the header
+    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs); // FIXME: docs.size starts at 1???
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
+  }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
   record->fieldMask = RS_FIELDMASK_ALL;
@@ -705,7 +709,7 @@ QueryIterator *NewInvIndIterator_TagQuery(InvertedIndex *idx, TagIndex *tagIdx, 
 }
 
 
-QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+QueryIterator *NewInvIndIterator_GenericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                               enum FieldExpirationPredicate predicate, double weight) {
   FieldFilterContext fieldCtx = {
     .field = {.isFieldMask = false, .value = {.index = fieldIndex}},

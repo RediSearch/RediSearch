@@ -17,7 +17,7 @@ protected:
   QueryIterator *iterator_base;
 
   void SetUp() override {
-    iterator_base = IT_V2(NewEmptyIterator)();
+    iterator_base = NewEmptyIterator();
   }
 
   void TearDown() override {

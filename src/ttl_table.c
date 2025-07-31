@@ -74,10 +74,6 @@ static inline bool DidExpire(const t_expirationTimePoint* field, const t_expirat
   return !((field->tv_sec > now->tv_sec) || (field->tv_sec == now->tv_sec && field->tv_nsec > now->tv_nsec));
 }
 
-bool TimeToLiveTable_HasExpiration(TimeToLiveTable *table, t_docId docId) {
-  return dictFind(table, (void*)docId) != NULL;
-}
-
 bool TimeToLiveTable_HasDocExpired(TimeToLiveTable *table, t_docId docId, const struct timespec* expirationPoint) {
   dictEntry *entry = dictFind(table, (void*)docId);
   if (!entry) {
@@ -86,51 +82,6 @@ bool TimeToLiveTable_HasDocExpired(TimeToLiveTable *table, t_docId docId, const 
 
   TimeToLiveEntry* ttlEntry = (TimeToLiveEntry*)dictGetVal(entry);
   return DidExpire(&ttlEntry->documentExpirationPoint, expirationPoint);
-}
-
-bool TimeToLiveTable_VerifyDocAndFields(TimeToLiveTable *table, t_docId docId, const t_fieldIndex* sortedFieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
-  dictEntry *entry = dictFind(table, (void*)docId);
-  if (!entry) {
-    // the document did not have a ttl for itself or its fields
-    // if predicate is default then we know at least one field is valid
-    // if predicate is missing then we know the field is indeed missing since the document has no expiration for it
-    return true;
-  }
-
-  TimeToLiveEntry* ttlEntry = (TimeToLiveEntry*)dictGetVal(entry);
-  if (ttlEntry->fieldExpirations == NULL) {
-    // the document has no fields with expiration times, there exists at least one valid field
-    return true;
-  }
-
-  const size_t fieldWithExpirationCount = array_len(ttlEntry->fieldExpirations);
-  if (fieldWithExpirationCount < fieldCount && predicate == FIELD_EXPIRATION_DEFAULT) {
-    // the document has less fields with expiration times than the fields we are checking
-    // at least one field is valid
-    return true;
-  }
-
-  size_t currentFieldIndex = 0;
-  for (size_t runningFieldIndex = 0; runningFieldIndex < fieldCount && currentFieldIndex < fieldWithExpirationCount; ) {
-    t_fieldIndex fieldIndexToCheck = sortedFieldIndices[runningFieldIndex];
-    FieldExpiration* fieldExpiration = &ttlEntry->fieldExpirations[currentFieldIndex];
-    if (fieldIndexToCheck > fieldExpiration->index) {
-      ++currentFieldIndex;
-    } else if (fieldIndexToCheck < fieldExpiration->index) {
-      ++runningFieldIndex;
-    } else {
-      // the field has an expiration time
-      const bool expired = DidExpire(&fieldExpiration->point, expirationPoint);
-      if (!expired && predicate == FIELD_EXPIRATION_DEFAULT) {
-        return true;
-      } else if (expired && predicate == FIELD_EXPIRATION_MISSING) {
-        return true;
-      }
-      ++currentFieldIndex;
-      ++runningFieldIndex;
-    }
-  }
-  return false;
 }
 
 bool TimeToLiveTable_VerifyDocAndField(TimeToLiveTable *table, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {

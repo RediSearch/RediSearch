@@ -13,14 +13,15 @@ extern "C" {
 #endif
 
 #include "trie/trie_type.h"
-#include "index.h"
+#include "triemap.h"
+#include "util/arr.h"
 
 #define MIN_SUFFIX 2
 
 typedef enum {
     SUFFIX_TYPE_SUFFIX = 0,
     SUFFIX_TYPE_CONTAINS = 1,
-    SUFFIX_TYPE_WILDCARD = 2,    
+    SUFFIX_TYPE_WILDCARD = 2,
 } SuffixType;
 
 /***********************************************************/
@@ -54,7 +55,7 @@ void suffixTrie_freeCallback(void *data);
 /* Iterate on suffix trie and add use callback function on results */
 void Suffix_IterateContains(SuffixCtx *sufCtx);
 
-/* Iterate on suffix trie and add use callback function on results 
+/* Iterate on suffix trie and add use callback function on results
  * If wildcard pattern does not support suffix trie, return 0, else return 1. */
 int Suffix_IterateWildcard(SuffixCtx *sufCtx);
 

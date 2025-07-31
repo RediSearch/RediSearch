@@ -11,6 +11,7 @@
 #include "tokenize.h"
 #include "toksep.h"
 #include "rmalloc.h"
+#include "config.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <strings.h>

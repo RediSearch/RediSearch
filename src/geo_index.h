@@ -12,7 +12,7 @@
 #include "redisearch.h"
 #include "redismodule.h"
 #include "index_result.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 #include "search_ctx.h"
 #include "query_error.h"
 #include "rs_geo.h"
@@ -79,7 +79,7 @@ int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
 void LegacyGeoFilter_Free(LegacyGeoFilter *gf);
-IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config);
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, IteratorsConfig *config);
 
 /*****************************************************************************/
 

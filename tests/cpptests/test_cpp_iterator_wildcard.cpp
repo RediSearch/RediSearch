@@ -20,7 +20,7 @@ protected:
   const double weight = 2.0;
 
   void SetUp() override {
-    iterator_base = IT_V2(NewWildcardIterator_NonOptimized)(maxDocId, numDocs, weight);
+    iterator_base = NewWildcardIterator_NonOptimized(maxDocId, numDocs, weight);
   }
 
   void TearDown() override {
@@ -135,7 +135,7 @@ TEST_F(WildcardIteratorTest, ResultProperties) {
 
 TEST_F(WildcardIteratorTest, ZeroDocuments) {
   // Create a wildcard iterator with zero documents
-  QueryIterator *emptyIterator = IT_V2(NewWildcardIterator_NonOptimized)(0, 0, weight);
+  QueryIterator *emptyIterator = NewWildcardIterator_NonOptimized(0, 0, weight);
 
   // Should immediately return EOF on read
   ASSERT_EQ(emptyIterator->Read(emptyIterator), ITERATOR_EOF);

@@ -1451,7 +1451,6 @@ static bool hasQuerySortby(const AGGPlan *pln) {
  */
 static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   RedisSearchCtx *sctx = req->sctx;
-  req->qiter.conc = &req->conc;
   req->qiter.sctx = sctx;
   req->qiter.err = Status;
 
@@ -1461,7 +1460,8 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(req->rootiter);
+  ResultProcessor *rp = RPQueryIterator_New(req->rootiter);
+  req->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
@@ -1749,8 +1749,6 @@ void AREQ_Free(AREQ *req) {
   if (req->searchopts.stopwords) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
-
-  ConcurrentSearchCtx_Free(&req->conc);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.

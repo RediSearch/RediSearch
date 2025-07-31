@@ -10,7 +10,6 @@
 
 #include "geometry/geometry_types.h"
 #include "search_ctx.h"
-#include "index_iterator.h"
 
 typedef struct GeometryQuery {
     GEOMETRY_FORMAT format;

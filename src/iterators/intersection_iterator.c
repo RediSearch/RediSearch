@@ -277,7 +277,7 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
   // Check for empty iterators
   for (size_t ii = 0; ii < write_idx; ++ii) {
     if (!its[ii] || its[ii]->type == EMPTY_ITERATOR) {
-      ret = its[ii] ? its[ii] : IT_V2(NewEmptyIterator)();
+      ret = its[ii] ? its[ii] : NewEmptyIterator();
       its[ii] = NULL; // Mark as taken
       break;
     }

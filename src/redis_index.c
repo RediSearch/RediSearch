@@ -10,6 +10,7 @@
 #include "doc_table.h"
 #include "redismodule.h"
 #include "inverted_index.h"
+#include "iterators/inverted_index_iterator.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
@@ -187,9 +188,9 @@ InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *te
   return idx;
 }
 
-IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
-                              double weight) {
+QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+                                t_fieldMask fieldMask, double weight) {
+
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
   InvertedIndex *idx = NULL;
   RedisModuleKey *k = NULL;
@@ -207,12 +208,9 @@ IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocT
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
-  IndexReader *ret = NewTermIndexReaderEx(idx, ctx, fieldMaskOrIndex, term, weight);
-  if (csx) {
-    ConcurrentSearch_AddKey(csx, TermReader_OnReopen, ret, NULL);
-  }
+  QueryIterator *it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
   RedisModule_FreeString(ctx->redisCtx, termKey);
-  return ret;
+  return it;
 
 err:
   if (k) {

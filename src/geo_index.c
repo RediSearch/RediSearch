@@ -6,13 +6,14 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "index.h"
+
 #include "geo_index.h"
 #include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "query_node.h"
 #include "query_param.h"
+#include "iterators/union_iterator.h"
 
 static double extractUnitFactor(GeoDistance unit);
 
@@ -138,7 +139,7 @@ done:
   return docIds;
 }
 
-IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config) {
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, IteratorsConfig *config) {
   // check input parameters are valid
   if (gf->radius <= 0 ||
       gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
@@ -150,7 +151,7 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
   double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
   calcRanges(gf->lon, gf->lat, radius_meter, ranges);
 
-  IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
+  QueryIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
   size_t itersCount = 0;
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->fieldSpec->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
@@ -160,7 +161,7 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
       filt->fieldSpec = gf->fieldSpec;
       filt->geoFilter = gf;
-      struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
+      QueryIterator *numIter = NewNumericFilterIterator(ctx, filt, INDEXFLD_T_GEO, config, &filterCtx);
       if (numIter != NULL) {
         iters[itersCount++] = numIter;
       }
@@ -171,15 +172,11 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
     rm_free(iters);
     return NULL;
   } else if (itersCount == 1) {
-    IndexIterator *it = iters[0];
+    QueryIterator *it = iters[0];
     rm_free(iters);
     return it;
   }
-  IndexIterator *it = NewUnionIterator(iters, itersCount, 1, 1, QN_GEO, NULL, config);
-  if (!it) {
-    return NULL;
-  }
-  return it;
+  return NewUnionIterator(iters, itersCount, true, 1, QN_GEO, NULL, config);
 }
 
 GeoDistance GeoDistance_Parse(const char *s) {

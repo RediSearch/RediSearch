@@ -9,7 +9,7 @@
 #pragma once
 #include "search_ctx.h"
 #include "VecSim/vec_sim.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 #include "query_node.h"
 #include "query_ctx.h"
 
@@ -148,7 +148,7 @@ typedef struct VecSimLogCtx {
 
 VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
@@ -183,7 +183,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef);
 extern "C" {
 #endif
 
-IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
                                                           bool yields_metric);
 #ifdef __cplusplus
 }

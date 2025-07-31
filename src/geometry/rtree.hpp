@@ -67,7 +67,7 @@ class RTree {
   int insertWKT(std::string_view wkt, t_docId id, RedisModuleString** err_msg);
   bool remove(t_docId id);
   [[nodiscard]] auto query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, std::string_view wkt, QueryType query_type,
-                           RedisModuleString** err_msg) const -> IndexIterator*;
+                           RedisModuleString** err_msg) const -> QueryIterator*;
 
   void dump(RedisModuleCtx* ctx) const;
   [[nodiscard]] std::size_t report() const noexcept;

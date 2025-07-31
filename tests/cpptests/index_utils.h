@@ -6,7 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "index.h"
+
+#pragma once
+
+#include "query_ctx.h"
 #include "inverted_index.h"
 #include "numeric_index.h"
 #include "ttl_table.h"
@@ -73,6 +76,7 @@ public:
     spec.monitorFieldExpiration = true; // Only depends on API availability, so always true
     spec.docs.maxDocId = maxDocId;
     spec.docs.size = numDocs ?: maxDocId;
+    spec.stats.numDocuments = spec.docs.size;
 
     // Initialize RedisSearchCtx
     sctx = {0};
@@ -89,6 +93,7 @@ public:
     docs.erase(std::unique(docs.begin(), docs.end()), docs.end());
     spec.docs.maxDocId = docs.empty() ? 0 : docs.back();
     spec.docs.size = docs.size();
+    spec.stats.numDocuments = docs.size();
     rule.index_all = true; // Enable index_all for wildcard iterator tests
     spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &spec.stats.invertedSize);
     IndexEncoder enc = InvertedIndex_GetEncoder(spec.existingDocs->flags);
