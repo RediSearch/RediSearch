@@ -13,9 +13,9 @@ use inverted_index::RSIndexResult;
 /// An iterator has two successful states: `OK` and `NotFound`.
 /// `OK` indicates that the iterator has found a valid result, in either "read" or "skip_to",
 /// `NotFound` indicates that a "skip_to(doc_id)" operation has found a result with a doc_id greater than the requested `doc_id`.
-pub enum RQEIteratorStatus<'a> {
-    OK(&'a RSIndexResult),
-    NotFound(&'a RSIndexResult),
+pub enum RQEIteratorStatus {
+    OK(RSIndexResult),
+    NotFound(RSIndexResult),
 }
 
 /// An iterator can fail with one of the following errors:
