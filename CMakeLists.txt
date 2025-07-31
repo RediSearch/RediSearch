@@ -241,6 +241,7 @@ add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
+add_subdirectory(src/redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -292,7 +293,26 @@ set(FINAL_OBJECTS
 #----------------------------------------------------------------------------------------------
 # Build the shared library
 # Build as static library for integration with disk storage
-add_library(redisearch STATIC ${FINAL_OBJECTS})
+# Allow overriding library type via option
+option(REDISEARCH_BUILD_SHARED "Build RediSearch as shared library" OFF)
+
+# Default behavior: SHARED when main project, STATIC when subdirectory
+if(NOT DEFINED REDISEARCH_BUILD_SHARED)
+    if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+        set(REDISEARCH_BUILD_SHARED ON)
+    else()
+        set(REDISEARCH_BUILD_SHARED OFF)
+    endif()
+endif()
+
+# Create library with determined type
+if(REDISEARCH_BUILD_SHARED)
+    add_library(redisearch SHARED ${FINAL_OBJECTS})
+    message(STATUS "Building RediSearch as SHARED library")
+else()
+    add_library(redisearch STATIC ${FINAL_OBJECTS})
+    message(STATUS "Building RediSearch as STATIC library")
+endif()
 
 if(COORD_TYPE STREQUAL "rlec")
     set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
@@ -315,7 +335,7 @@ target_link_libraries(redisearch
         inverted_index
         wildcard
         uv_a
-        ${BINDIR}/linux-x64-release/search-community/redisearch_rs/libredisearch_rs.a
+        redisearch_rs_lib
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
@@ -323,6 +343,7 @@ target_link_libraries(redisearch
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
+add_dependencies(redisearch redisearch_rs_lib)
 
 
 #----------------------------------------------------------------------------------------------
