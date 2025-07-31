@@ -17,12 +17,13 @@ pub enum RQEIteratorStatus {
 
     /// A `skip_to()` has found a result with a `doc_id` greater than the requested `doc_id`
     NotFound(RSIndexResult),
+
+    /// The iterator has reached the end of the index.
+    EOF,
 }
 
 /// An iterator failure indications
 pub enum RQEIteratorError {
-    /// The iterator has reached the end of the index.
-    EOF,
     /// The iterator has reached the time limit for execution.
     TimedOut,
 }
