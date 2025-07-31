@@ -4084,7 +4084,7 @@ def cluster_set_test(env: Env):
     prepare_env(env)
     env.expect('SEARCH.CLUSTERSET',
                'MYID',
-            '1',
+               '1',
                'HASHFUNC',
                'CRC16',
                'NUMSLOTS',

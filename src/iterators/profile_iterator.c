@@ -11,6 +11,12 @@
 #include "rmalloc.h"
 #include <time.h>
 
+static inline void SyncWithChild(ProfileIterator *pi) {
+  pi->base.current = pi->child->current;
+  pi->base.lastDocId = pi->child->lastDocId;
+  pi->base.atEOF = pi->child->atEOF;
+}
+
 static IteratorStatus PI_Read(struct QueryIterator *self) {
   ProfileIterator *pi = (ProfileIterator *)self;
   clock_t begin = clock();
@@ -22,9 +28,7 @@ static IteratorStatus PI_Read(struct QueryIterator *self) {
   }
 
   // Copy the current result from the child
-  self->current = pi->child->current;
-  self->lastDocId = pi->child->lastDocId;
-  self->atEOF = pi->child->atEOF;
+  SyncWithChild(pi);
 
   pi->cpuTime += clock() - begin;
   return ret;
@@ -41,9 +45,7 @@ static IteratorStatus PI_SkipTo(struct QueryIterator *self, t_docId docId) {
   }
 
   // Copy the current result from the child
-  self->current = pi->child->current;
-  self->lastDocId = pi->child->lastDocId;
-  self->atEOF = pi->child->atEOF;
+  SyncWithChild(pi);
 
   pi->cpuTime += clock() - begin;
   return ret;
@@ -63,18 +65,14 @@ static size_t PI_NumEstimated(struct QueryIterator *self) {
 static void PI_Rewind(struct QueryIterator *self) {
   ProfileIterator *pi = (ProfileIterator *)self;
   pi->child->Rewind(pi->child);
-  self->lastDocId = pi->child->lastDocId;
-  self->current = pi->child->current;
-  self->atEOF = pi->child->atEOF;
+  SyncWithChild(pi);
 }
 
 static ValidateStatus PI_Revalidate(struct QueryIterator *self) {
   ProfileIterator *pi = (ProfileIterator *)self;
   ValidateStatus val = pi->child->Revalidate(pi->child);
   if (val == VALIDATE_MOVED) {
-    self->lastDocId = pi->child->lastDocId;
-    self->current = pi->child->current;
-    self->atEOF = pi->child->atEOF;
+    SyncWithChild(pi);
   }
   return val;
 }
@@ -90,10 +88,7 @@ QueryIterator *NewProfileIterator(QueryIterator *child) {
 
   QueryIterator *ret = &pc->base;
   ret->type = PROFILE_ITERATOR;
-  ret->atEOF = child->atEOF;
-  ret->lastDocId = child->lastDocId;
-  ret->current = child->current;
-
+  SyncWithChild(pc);
   ret->Free = PI_Free;
   ret->Read = PI_Read;
   ret->SkipTo = PI_SkipTo;

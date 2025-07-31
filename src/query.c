@@ -1125,9 +1125,6 @@ static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   return ret;
 }
 
-typedef QueryIterator **QueryIteratorArray;
-
-
 /**
  * Converts a given string to lowercase and handles escape sequences.
  *
@@ -1175,7 +1172,7 @@ static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 }
 
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                                QueryIteratorArray *iterout, double weight, bool caseSensitive) {
+                                                double weight, bool caseSensitive) {
   TrieMap *t = idx->values;
   LexRangeCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight};
 
@@ -1210,8 +1207,7 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
-static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                              QueryIteratorArray *iterout, double weight,
+static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn, double weight,
                                               int withSuffixTrie, t_fieldIndex fieldIndex,
                                               bool caseSensitive) {
   if (qn->type != QN_PREFIX) {
@@ -1307,13 +1303,12 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     return iter;
   }
 
-  array_ensure_append(*iterout, its, itsSz, QueryIterator *);
   return NewUnionIterator(its, itsSz, 1, weight, QN_PREFIX, qn->pfx.tok.str, q->config);
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
-                     QueryNode *qn, QueryIteratorArray *iterout, double weight,
+                     QueryNode *qn, double weight,
                      t_fieldIndex fieldIndex, bool caseSensitive) {
   if (qn->type != QN_WILDCARD_QUERY) {
     return NULL;
@@ -1402,13 +1397,11 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     return iter;
   }
 
-  array_ensure_append(*iterout, its, itsSz, QueryIterator *);
   return NewUnionIterator(its, itsSz, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
 }
 
 static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
-                                              QueryIteratorArray *iterout, double weight,
-                                              const FieldSpec *fs) {
+                                              double weight, const FieldSpec *fs) {
   QueryIterator *ret = NULL;
   int caseSensitive = fs->tagOpts.tagFlags & TagField_CaseSensitive;
 
@@ -1419,15 +1412,13 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
     case QN_PREFIX:
-      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight,
-                         FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
+      return Query_EvalTagPrefixNode(q, idx, n, weight, FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
 
     case QN_WILDCARD_QUERY:
-      return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index,
-                                       caseSensitive);
+      return Query_EvalTagWildcardNode(q, idx, n, weight, fs->index, caseSensitive);
 
     case QN_LEXRANGE:
-      return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight, caseSensitive);
+      return Query_EvalTagLexRangeNode(q, idx, n, weight, caseSensitive);
 
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
@@ -1451,9 +1442,6 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       return NULL;
   }
 
-  if (ret) {
-    *array_ensure_tail(iterout, QueryIterator *) = ret;
-  }
   return ret;
 }
 
@@ -1465,7 +1453,6 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, node->fs, INDEXFLD_T_TAG);
   TagIndex *idx = TagIndex_Open(q->sctx->spec, kstr, DONT_CREATE_INDEX);
 
-  QueryIterator **total_its = NULL;
   QueryIterator *ret = NULL;
 
   if (!idx) {
@@ -1474,10 +1461,7 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   if (QueryNode_NumChildren(qn) == 1) {
     // a union stage with one child is the same as the child, so we just return it
-    ret = query_EvalSingleTagNode(q, idx, qn->children[0], &total_its, qn->opts.weight, node->fs);
-    if (ret) {
-      array_free(total_its);
-    }
+    ret = query_EvalSingleTagNode(q, idx, qn->children[0], qn->opts.weight, node->fs);
     goto done;
   }
 
@@ -1485,8 +1469,7 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryIterator **iters = rm_calloc(QueryNode_NumChildren(qn), sizeof(QueryIterator *));
   size_t n = 0;
   for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
-    QueryIterator *it =
-        query_EvalSingleTagNode(q, idx, qn->children[i], &total_its, qn->opts.weight, node->fs);
+    QueryIterator *it = query_EvalSingleTagNode(q, idx, qn->children[i], qn->opts.weight, node->fs);
     if (it) {
       iters[n++] = it;
     }
@@ -1496,9 +1479,6 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     goto done;
   }
 
-  if (total_its) {
-    array_free(total_its);
-  }
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs
   bool quickExit = q->notSubtree;

@@ -284,10 +284,12 @@ void Profile_AddIters(QueryIterator **root) {
     case ID_LIST_ITERATOR:
     case METRIC_ITERATOR:
       break;
+    // LCOV_EXCL_START
     case PROFILE_ITERATOR:
     case MAX_ITERATOR:
       RS_ABORT("Error");
       break;
+    // LCOV_EXCL_STOP
   }
 
   // Create a profile iterator and update outparam pointer
@@ -322,8 +324,10 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   case QN_NUMERIC : unionTypeStr = "NUMERIC"; break;
   case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
   case QN_WILDCARD_QUERY : unionTypeStr = "WILDCARD"; break;
+  // LCOV_EXCL_START
   default:
     RS_ABORT_ALWAYS("Invalid type for union");
+  // LCOV_EXCL_STOP
   }
   if (!ui->q_str) {
     RedisModule_Reply_SimpleString(reply, unionTypeStr);
@@ -389,10 +393,12 @@ PRINT_PROFILE_FUNC(printMetricIt) {
       printProfileType("METRIC - VECTOR DISTANCE");
       break;
     }
+    // LCOV_EXCL_START
     default: {
       RS_ABORT("Invalid type for metric");
       break;
     }
+    // LCOV_EXCL_STOP
   }
 
   if (config->printProfileClock) {
@@ -464,12 +470,6 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
                           double cpuTime, int depth, int limited, PrintProfileConfig *config) {
   if (root == NULL) return;
 
-  // protect against limit of 7 reply layers
-  if (depth == REDIS_ARRAY_LIMIT && !isFeatureSupported(NO_REPLY_DEPTH_LIMIT)) {
-    RedisModule_Reply_Null(reply);
-    return;
-  }
-
   switch (root->type) {
     // Reader
     case INV_IDX_ITERATOR:    { printInvIdxIt(reply, root, counters, cpuTime, config);                     break; }
@@ -486,6 +486,6 @@ void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, Profile
     case HYBRID_ITERATOR:     { printHybridIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
     case METRIC_ITERATOR:     { printMetricIt(reply, root, counters, cpuTime, depth, limited, config);     break; }
     case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counters, cpuTime, depth, limited, config);    break; }
-    case MAX_ITERATOR:        { RS_ABORT("nope");   break; }
+    case MAX_ITERATOR:        { RS_ABORT("nope");   break; } // LCOV_EXCL_LINE
   }
 }
