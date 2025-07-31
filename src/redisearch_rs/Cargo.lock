@@ -1356,7 +1356,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/hdoordt/redismodule-rs.git?branch=patches-redisearch#97bc3c2cf26939f4a8a92d21ddc497d5e547bafe"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
 dependencies = [
  "backtrace",
  "bindgen 0.66.1",
@@ -1378,7 +1378,7 @@ dependencies = [
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/hdoordt/redismodule-rs.git?branch=patches-redisearch#97bc3c2cf26939f4a8a92d21ddc497d5e547bafe"
+source = "git+https://github.com/RedisLabsModules/redismodule-rs.git"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1474,8 +1474,10 @@ dependencies = [
  "libc",
  "pin-project",
  "proptest",
+ "redis-module",
  "sorting_vector",
  "strum",
+ "thiserror",
  "value",
 ]
 
