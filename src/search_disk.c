@@ -3,15 +3,29 @@
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *db = NULL;
 
+// Weak default implementations for when disk API is not available
+__attribute__((weak))
+bool SearchDisk_HasAPI() {
+  return false;
+}
+
+__attribute__((weak))
+RedisSearchDiskAPI *SearchDisk_GetAPI() {
+  return NULL;
+}
+
 bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
-  if (!SearchDisk_GetAPI) {
+  if (!SearchDisk_HasAPI(ctx)) {
+    RedisModule_Log(ctx, "notice", "RediSearch_Disk API not available");
     return false;
   }
+
   disk = SearchDisk_GetAPI(ctx);
   if (!disk) {
-    RedisModule_Log(ctx, "warning", "Could not find RediSearch_Disk API");
+    RedisModule_Log(ctx, "warning", "Could not get RediSearch_Disk API");
     return false;
   }
+
   db = disk->basic.open(ctx, "redisearch");
   return db != NULL;
 }

@@ -6,7 +6,10 @@
 #include <stdbool.h>
 
 __attribute__((weak))
- RedisSearchDiskAPI *SearchDisk_GetAPI(RedisModuleCtx *ctx);
+bool SearchDisk_HasAPI();
+
+__attribute__((weak))
+ RedisSearchDiskAPI *SearchDisk_GetAPI();
 
 /**
  * @brief Initialize the search disk module
