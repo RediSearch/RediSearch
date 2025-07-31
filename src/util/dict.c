@@ -243,7 +243,7 @@ dict *RS_dictCreate(dictType *type,
 }
 
 /* Initialize the hash table */
-int _dictInit(dict *d, dictType *type,
+static int _dictInit(dict *d, dictType *type,
         void *privDataPtr)
 {
     _dictReset(&d->ht[0]);
@@ -566,7 +566,7 @@ void RS_dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
 }
 
 /* Destroy an entire dictionary */
-int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
+int RS_dictClear(dict *d, dictht *ht, void(callback)(void *)) {
     unsigned long i;
 
     /* Free all the elements */
@@ -595,8 +595,8 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
 /* Clear & Release the hash table */
 void RS_dictRelease(dict *d)
 {
-    _dictClear(d,&d->ht[0],NULL);
-    _dictClear(d,&d->ht[1],NULL);
+    RS_dictClear(d,&d->ht[0],NULL);
+    RS_dictClear(d,&d->ht[1],NULL);
     rm_free(d);
 }
 
@@ -1118,8 +1118,8 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
 }
 
 void RS_dictEmpty(dict *d, void(callback)(void*)) {
-    _dictClear(d,&d->ht[0],callback);
-    _dictClear(d,&d->ht[1],callback);
+    RS_dictClear(d,&d->ht[0],callback);
+    RS_dictClear(d,&d->ht[1],callback);
     d->rehashidx = -1;
     d->pauserehash = 0;
 }
