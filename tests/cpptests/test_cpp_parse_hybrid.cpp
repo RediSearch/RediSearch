@@ -789,22 +789,8 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER","@title:(foo bar)=> {$weight: 2.0}" );
-
-  // Create a fresh sctx for this test since parseHybridRequest takes ownership
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT);
-  ASSERT_STREQ(status.detail, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
+  testErrorCode(args, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
 }
 
 // Helper function to test error cases with less boilerplate
@@ -827,28 +813,15 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
 }
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
-  QueryError status = {QueryErrorCode(0)};
-
-  //Dialect 2 is required for vector queries
+  // Setup: Dialect 2 is required for vector queries
   unsigned int previousDialectVersion = RSGlobalConfig.requestConfigParams.dialectVersion;
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, 2);
 
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER", "@vector:[VECTOR_RANGE 0.01 $BLOB]", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
 
-  // Create a fresh sctx for this test since parseHybridRequest takes ownership
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-  ASSERT_TRUE(result == NULL);
-  ASSERT_EQ(status.code, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY);
-  ASSERT_STREQ(status.detail, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
-
+  // Teardown: Restore previous dialect version
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, previousDialectVersion);
-
-  // Clean up
-  SearchCtx_Free(test_sctx);
-  QueryError_ClearError(&status);
 }
 
 // ============================================================================
