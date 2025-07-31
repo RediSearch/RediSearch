@@ -31,7 +31,7 @@ fn test_encode_doc_ids_only() {
         let mut buf = Cursor::new(Vec::new());
         let record = RSIndexResult::term().doc_id(doc_id).frequency(1);
 
-        let bytes_written = DocIdsOnly::default()
+        let bytes_written = DocIdsOnly
             .encode(&mut buf, delta, &record)
             .expect("to encode freqs only record");
 
@@ -58,9 +58,9 @@ fn test_doc_ids_only_output_too_small() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::term().doc_id(10).frequency(5);
-    let res = DocIdsOnly::default().encode(&mut cursor, 256, &record);
+    let res = DocIdsOnly.encode(&mut cursor, 256, &record);
 
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
@@ -72,7 +72,7 @@ fn test_decode_doc_ids_only_empty_input() {
     let mut cursor = Cursor::new(buf.as_ref());
     let res = DocIdsOnly.decode(&mut cursor, 100);
 
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }

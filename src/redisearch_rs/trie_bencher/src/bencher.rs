@@ -313,7 +313,7 @@ fn remove_rust_benchmark<M: Measurement>(
     c.bench_function("Rust", |b| {
         b.iter_batched_ref(
             || map.clone(),
-            |data| data.remove(black_box(&bytes)).is_some(),
+            |data| data.remove(black_box(bytes)).is_some(),
             BatchSize::LargeInput,
         )
     });

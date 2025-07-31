@@ -111,19 +111,17 @@ impl CorpusType {
         let mut rdr = csv::Reader::from_reader(reader);
 
         // generate strings without prefix:
-        let strings = rdr
-            .records()
+
+        rdr.records()
             .map(|e| {
                 e.unwrap()
                     .get(idx)
                     .unwrap()
                     .strip_prefix(prefix)
-                    .unwrap_or_else(|| panic!("prefix in csv isn't {} anymore.", prefix))
+                    .unwrap_or_else(|| panic!("prefix in csv isn't {prefix} anymore."))
                     .to_owned()
             })
-            .collect::<Vec<_>>();
-
-        strings
+            .collect::<Vec<_>>()
     }
 
     fn create_terms_gutenberg(&self, contents: &str, full: bool) -> Vec<String> {
@@ -153,19 +151,17 @@ impl CorpusType {
         let mut rdr = csv::Reader::from_reader(reader);
 
         // generate strings without prefix:
-        let strings = rdr
-            .records()
+
+        rdr.records()
             .map(|e| {
                 e.unwrap()
                     .get(title_offset)
                     .unwrap()
                     .strip_prefix(prefix)
-                    .unwrap_or_else(|| panic!("prefix in csv isn't {} anymore.", prefix))
+                    .unwrap_or_else(|| panic!("prefix in csv isn't {prefix} anymore."))
                     .to_owned()
             })
-            .collect::<Vec<_>>();
-
-        strings
+            .collect::<Vec<_>>()
     }
 
     /// Returns the url of the corpus.
