@@ -279,8 +279,8 @@ run:
 
 lint:
 	@echo "Running linters..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace --exclude ffi --exclude inverted_index_bencher --exclude trie_bencher --exclude varint_bencher -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace --exclude ffi --exclude inverted_index_bencher --exclude trie_bencher --exclude varint_bencher
 
 fmt:
 ifeq ($(CHECK),1)

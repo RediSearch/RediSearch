@@ -380,7 +380,9 @@ build_redisearch_rs() {
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
   pushd .
   cd "$REDISEARCH_RS_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --profile="$RUST_PROFILE"
+  # Rust code is built first, so exclude crates linking on C code as the internal lib is not built yet.
+  # Keep the exclude list synced with the clippy and rustdoc exclude lists in Makefile.
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --workspace --exclude ffi --exclude inverted_index_bencher --exclude trie_bencher --exclude varint_bencher --profile="$RUST_PROFILE"
 
   # Copy artifacts to the target directory
   mkdir -p "$REDISEARCH_RS_BINDIR"
