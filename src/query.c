@@ -576,6 +576,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     addTerm(target_str, tok_len, q, opts, &its, &itsSz, &itsCap);
     rm_free(target_str);
   }
+  TrieIterator_Free(it);
 
   if (hasNext && itsSz == q->config->maxPrefixExpansions) {
     q->status->reachedMaxPrefixExpansions = true;
@@ -586,11 +587,7 @@ static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     addTerm("", 0, q, opts, &its, &itsSz, &itsCap);
   }
 
-  TrieIterator_Free(it);
-  if (itsSz == 0) {
-    rm_free(its);
-    return NULL;
-  }
+
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
   return NewUnionIterator(its, itsSz, 1, opts->weight, type, str, q->config);
 }
@@ -602,7 +599,7 @@ typedef struct {
   QueryEvalCtx *q;
   QueryNodeOptions *opts;
   double weight;
-} ContainsCtx;
+} TrieCallbackCtx;
 
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
@@ -633,7 +630,7 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
 
   IndexSpec *spec = q->sctx->spec;
   Trie *t = spec->terms;
-  ContainsCtx ctx = {.q = q, .opts = &qn->opts};
+  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts};
 
   if (!t) {
     return NULL;
@@ -674,17 +671,8 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   rm_free(str);
-  if (!ctx.its || ctx.nits == 0) {
-    rm_free(ctx.its);
-    return NULL;
-  // TODO: This should be a single iterator.
-  // } else if (ctx.nits == 1) {
-  //   // In case of a single iterator, we can just return it
-  //   return ctx.its[0];
-  } else {
-    return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
-                            QN_PREFIX, qn->pfx.tok.str, q->config);
-  }
+
+  return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_PREFIX, qn->pfx.tok.str, q->config);
 }
 
 /* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
@@ -696,7 +684,7 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
 
   IndexSpec *spec = q->sctx->spec;
   Trie *t = spec->terms;
-  ContainsCtx ctx = {.q = q, .opts = &qn->opts};
+  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts};
   RSToken *token = &qn->verb.tok;
 
   if (!t || !token->str) {
@@ -746,25 +734,11 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   }
 
   rm_free(str);
-  if (!ctx.its || ctx.nits == 0) {
-    rm_free(ctx.its);
-    return NULL;
-  } else {
-    return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
-                            QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
-  }
+
+  return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
 }
 
-typedef struct {
-  QueryIterator **its;
-  size_t nits;
-  size_t cap;
-  QueryEvalCtx *q;
-  QueryNodeOptions *opts;
-  double weight;
-} LexRangeCtx;
-
-static void rangeItersAddIterator(LexRangeCtx *ctx, QueryIterator *it) {
+static void rangeItersAddIterator(TrieCallbackCtx *ctx, QueryIterator *it) {
   ctx->its[ctx->nits++] = it;
   if (ctx->nits == ctx->cap) {
     ctx->cap *= 2;
@@ -773,7 +747,7 @@ static void rangeItersAddIterator(LexRangeCtx *ctx, QueryIterator *it) {
 }
 
 static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
-  LexRangeCtx *ctx = p;
+  TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
   tok.str = (char *)r;
@@ -790,7 +764,7 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
 }
 
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
-  LexRangeCtx *ctx = p;
+  TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
     q->status->reachedMaxPrefixExpansions = true;
@@ -812,7 +786,7 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
 }
 
 static int charIterCb(const char *s, size_t n, void *p, void *payload) {
-  LexRangeCtx *ctx = p;
+  TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   if (ctx->nits >= q->config->maxPrefixExpansions) {
     q->status->reachedMaxPrefixExpansions = true;
@@ -835,7 +809,7 @@ static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   RS_LOG_ASSERT(lx->type == QN_LEXRANGE, "query node type should be lexrange");
 
   Trie *t = q->sctx->spec->terms;
-  LexRangeCtx ctx = {.q = q, .opts = &lx->opts};
+  TrieCallbackCtx ctx = {.q = q, .opts = &lx->opts};
 
   if (!t) {
     return NULL;
@@ -858,12 +832,8 @@ static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
                         end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
   rm_free(begin);
   rm_free(end);
-  if (!ctx.its || ctx.nits == 0) {
-    rm_free(ctx.its);
-    return NULL;
-  } else {
-    return NewUnionIterator(ctx.its, ctx.nits, 1, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
-  }
+
+  return NewUnionIterator(ctx.its, ctx.nits, true, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
 }
 
 static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -894,21 +864,14 @@ static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryIterator *ret;
 
   if (node->exact) {
-    ret = NewIntersectionIterator(iters, QueryNode_NumChildren(qn), 0, 1, qn->opts.weight);
+    ret = NewIntersectionIterator(iters, QueryNode_NumChildren(qn), 0, true, qn->opts.weight);
   } else {
     // Let the query node override the slop/order parameters
     int slop = qn->opts.maxSlop;
     if (slop == -1) slop = q->opts->slop;
 
     // Let the query node override the inorder of the whole query
-    int inOrder = q->opts->flags & Search_InOrder;
-    if (qn->opts.inOrder) inOrder = 1;
-
-    // If in order was specified and not slop, set slop to maximum possible value.
-    // Otherwise we can't check if the results are in order
-    if (inOrder && slop == -1) {
-      slop = __INT_MAX__;
-    }
+    bool inOrder = (q->opts->flags & Search_InOrder) || qn->opts.inOrder;
 
     ret = NewIntersectionIterator(iters, QueryNode_NumChildren(qn), slop, inOrder, qn->opts.weight);
   }
@@ -935,10 +898,9 @@ static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
 
 static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
-
   RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
-  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]),
-                             q, qn->opts.weight);
+
+  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]), q, qn->opts.weight);
 }
 
 static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
@@ -1157,7 +1119,7 @@ static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 double weight, bool caseSensitive) {
   TrieMap *t = idx->values;
-  LexRangeCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight};
+  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight};
 
   if (!t) {
     return NULL;
@@ -1181,12 +1143,8 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 
   TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
                        rangeIterCbStrs, &ctx);
-  if (ctx.nits == 0) {
-    rm_free(ctx.its);
-    return NULL;
-  } else {
-    return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
-  }
+
+  return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
