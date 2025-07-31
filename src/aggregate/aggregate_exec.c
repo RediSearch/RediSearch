@@ -26,8 +26,6 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 
-typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
-
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
   EXEC_WITH_PROFILE = 0x01,
@@ -1123,7 +1121,7 @@ static void parseProfile(AREQ *r, int execOptions) {
   }
 }
 
-static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status) {
+int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status) {
   AREQ *r = *r_ptr;
   // If we got here, we know `argv[0]` is a valid registered command name.
   // If it starts with an underscore, it is an internal command.

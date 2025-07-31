@@ -1842,6 +1842,17 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
   ) {
     return REDISMODULE_OK;
   }
+
+  // Skip root validation and validate only children
+  if (q->validationFlags & QAST_SKIP_ROOT_VALIDATION) {
+    for (size_t ii = 0; ii < QueryNode_NumChildren(q->root); ++ii) {
+      if (QueryNode_CheckIsValid(q->root->children[ii], spec, opts, status, q->validationFlags) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+    }
+    return REDISMODULE_OK;
+  }
+
   return QueryNode_CheckIsValid(q->root, spec, opts, status, q->validationFlags);
 }
 

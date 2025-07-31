@@ -22,16 +22,16 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "obfuscation/hidden.h"
+#include "hybrid/vector_query_utils.h"
+#include "vector_index.h"
 
 extern RSConfig RSGlobalConfig;
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
- * @param areq the request
- * @param name the name of the option that requires simple mode. Used for error
- *   formatting
- * @param status the error object
+ * @param req the request
+ * @return true if the request is in simple mode, false otherwise
  */
 static bool ensureSimpleMode(AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {
@@ -1135,6 +1135,66 @@ static bool IsIndexCoherent(AREQ *req) {
   return true;
 }
 
+
+static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
+  ParsedVectorData *pvd = req->parsedVectorData;
+  VectorQuery *vq = pvd->query;
+  const char *fieldName = pvd->fieldName;
+
+  // Resolve field spec
+  const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, strlen(fieldName));
+  if (!vectorField) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown field", " `%s`", fieldName);
+    return REDISMODULE_ERR;
+  } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
+    return REDISMODULE_ERR;
+  }
+  vq->field = vectorField;
+
+  QueryNode *vecNode = NewQueryNode(QN_VECTOR);
+  vecNode->vn.vq = vq;
+  pvd->query = NULL;
+  //QueryNode now owns the VectorQuery
+
+  // Always yield distance for hybrid vector subqueries
+  vecNode->opts.flags |= QueryNode_YieldsDistance;
+
+  if (pvd->isParameter) {
+    // PARAMETER CASE: Set up parameter for evalnode to resolve later
+    QueryToken vecToken = {
+      .type = QT_PARAM_VEC,
+      .s = (vq->type == VECSIM_QT_KNN) ? vq->knn.vector : vq->range.vector,
+      .len = (vq->type == VECSIM_QT_KNN) ? vq->knn.vecLen : vq->range.vecLen,
+      .pos = 0,
+      .numval = 0,
+      .sign = 0
+    };
+
+    QueryParseCtx q = {0};
+    QueryNode_InitParams(vecNode, 1);
+    switch (vq->type) {
+      case VECSIM_QT_KNN:
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
+        break;
+      case VECSIM_QT_RANGE:
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
+        break;
+    }
+    // Update AST's numParams since we used a local QueryParseCtx
+    ast->numParams += q.numParams;
+  }
+  // Handle non-vector-specific attributes (like YIELD_DISTANCE_AS)
+  if (pvd->attributes) {
+    QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
+  }
+
+  QueryNode_AddChild(vecNode, ast->root);
+  ast->root = vecNode;
+
+  return REDISMODULE_OK;
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1204,6 +1264,16 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  if (req->parsedVectorData) {
+    ast->validationFlags |= QAST_HYBRID_VSIM_FILTER_CLAUSE;
+    int rv = ApplyVectorQuery(req, sctx, ast, status);
+    if (rv != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+    // After vector is added, skip root in validation
+    ast->validationFlags |= QAST_SKIP_ROOT_VALIDATION;
   }
 
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
@@ -1299,9 +1369,17 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
+  // Free parsed vector data
+  if (req->parsedVectorData) {
+    ParsedVectorData_Free(req->parsedVectorData);
+    req->parsedVectorData = NULL;
+  }
+
   rm_free(req->args);
   rm_free(req);
 }
+
+
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
