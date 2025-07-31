@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod ccalls;
 mod hash;
 
 use std::ptr::NonNull;
@@ -197,7 +198,6 @@ pub struct LoadDocumentOptions<'a, T: RSValueTrait = RSValueFFI> {
     force_string: bool,
 
     /// Temporary C struct provided by C and used when called back in C from Rust
-    #[expect(unused, reason = "Used in follow-up PRs")]
     tmp_cstruct: Option<NonNull<ffi::RLookupLoadOptions>>,
 }
 
