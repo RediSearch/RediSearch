@@ -98,20 +98,25 @@ void UnionRLookupRows(RLookupRow *target_row, const RLookupRow *source_row, cons
 
 
 /**
- * RRF wrapper - computes RRF score and populates explanation in target SearchResult.
+ * Generic hybrid wrapper - computes hybrid score and populates explanation in target SearchResult.
  * Merges score explanations from source SearchResults into target.
+ * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
+ * Uses HybridSearchResult which contains sources, hasResults flags, and numSources.
  */
-double mergeRRFWrapper(SearchResult **sources, size_t numSources, size_t targetIndex, double *ranks, size_t k, HybridScoringContext *scoringCtx) {
-  if (!sources || !ranks || !scoringCtx || numSources == 0 || targetIndex >= numSources || !sources[targetIndex]) {
+double mergeHybridWrapper(HybridSearchResult *hybridResult, size_t targetIndex, double *values, HybridScoringContext *scoringCtx) {
+  if (!hybridResult || !values || !scoringCtx ||
+      targetIndex >= hybridResult->numSources ||
+      !hybridResult->hasResults[targetIndex] ||
+      !hybridResult->searchResults[targetIndex]) {
     return 0.0;
   }
 
-  SearchResult *target = sources[targetIndex];
+  SearchResult *target = hybridResult->searchResults[targetIndex];
 
-  // Count valid sources
+  // Count valid sources using hasResults flags
   int numValidSources = 0;
-  for (size_t i = 0; i < numSources; i++) {
-    if (sources[i]) {
+  for (size_t i = 0; i < hybridResult->numSources; i++) {
+    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
       numValidSources++;
     }
   }
@@ -122,34 +127,47 @@ double mergeRRFWrapper(SearchResult **sources, size_t numSources, size_t targetI
   scrExp->children = rm_calloc(numValidSources, sizeof(RSScoreExplain));
   scrExp->numChildren = numValidSources;
 
-  // Copy children explanations from all sources and take ownership
+  // Copy children explanations from all valid sources and take ownership
   int childIdx = 0;
-  for (size_t i = 0; i < numSources; i++) {
-    if (sources[i] && sources[i]->scoreExplain) {
-      scrExp->children[childIdx] = *sources[i]->scoreExplain;
+  for (size_t i = 0; i < hybridResult->numSources; i++) {
+    if (hybridResult->hasResults[i] && hybridResult->searchResults[i] &&
+        hybridResult->searchResults[i]->scoreExplain) {
+      scrExp->children[childIdx] = *hybridResult->searchResults[i]->scoreExplain;
 
       // Nullify the source scoreExplain since we took ownership
       // But be careful not to nullify target (we'll handle it at the end)
       if (i != targetIndex) {
-        sources[i]->scoreExplain = NULL;
+        hybridResult->searchResults[i]->scoreExplain = NULL;
       }
 
       childIdx++;
     }
   }
 
-  // Calculate RRF score
-  bool *hasRanks = rm_malloc(numValidSources * sizeof(bool));
+  // Calculate hybrid score using generic scoring function
+  bool *hasValues = rm_malloc(numValidSources * sizeof(bool));
   for (int i = 0; i < numValidSources; i++) {
-    hasRanks[i] = true;
+    hasValues[i] = true;
   }
-  double rrf = HybridRRFScore(scoringCtx, ranks, hasRanks, numValidSources);
+  HybridScoringFunction scoringFunc = GetScoringFunction(scoringCtx->scoringType);
+  double hybridScore = scoringFunc(scoringCtx, values, hasValues, numValidSources);
 
-  // Create explanation string
-  if (numValidSources == 2) {
-    EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f) + 1/(%zu+%.0f)", rrf, k, ranks[0], k, ranks[1]);
-  } else if (numValidSources == 1) {
-    EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f)", rrf, k, ranks[0]);
+  // Create explanation string based on scoring type
+  if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    if (numValidSources == 2) {
+      EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f) + 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0], values[1]);
+    } else if (numValidSources == 1) {
+      EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0]);
+    }
+  } else if (scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+    if (numValidSources == 2) {
+      EXPLAIN(scrExp, "Linear: %.2f: %.2f*%.2f + %.2f*%.2f", hybridScore,
+              scoringCtx->linearCtx.linearWeights[0], values[0],
+              scoringCtx->linearCtx.linearWeights[1], values[1]);
+    } else if (numValidSources == 1) {
+      EXPLAIN(scrExp, "Linear: %.2f: %.2f*%.2f", hybridScore,
+              scoringCtx->linearCtx.linearWeights[0], values[0]);
+    }
   }
 
   // Free target's old explanation if it exists (we took ownership above)
@@ -160,8 +178,8 @@ double mergeRRFWrapper(SearchResult **sources, size_t numSources, size_t targetI
 
   // Populate the target SearchResult's scoreExplain (in-place)
   target->scoreExplain = scrExp;
-  rm_free(hasRanks);
-  return rrf;
+  rm_free(hasValues);
+  return hybridScore;
 }
 
 

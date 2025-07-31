@@ -303,9 +303,9 @@ int testUnionRLookupRows_Idempotency() {
 }
 
 /**
- * Test mergeRRFWrapper function with targetIndex = 0 (first result as target)
+ * Test mergeHybridWrapper function with RRF scoring and targetIndex = 0 (first result as target)
  */
-int testMergeRRFWrapper_TargetIndex0() {
+int testMergeHybridWrapper_RRF_TargetIndex0() {
   // Create HybridSearchResult with 2 upstreams
   HybridSearchResult* hybridResult = HybridSearchResult_New(2);
   ASSERT(hybridResult != NULL);
@@ -341,11 +341,8 @@ int testMergeRRFWrapper_TargetIndex0() {
   // Set up ranks for RRF calculation
   double ranks[2] = {1.0, 2.0}; // rank 1 and rank 2
 
-  // Create sources array
-  SearchResult *sources[2] = {result1, result2};
-
-  // Test: Call mergeRRFWrapper with result1 as target (index 0)
-  double rrfScore = mergeRRFWrapper(sources, 2, 0, ranks, 60, &scoringCtx);
+  // Test: Call mergeHybridWrapper with result1 as target (index 0)
+  double rrfScore = mergeHybridWrapper(hybridResult, 0, ranks, &scoringCtx);
 
   // Verify: RRF score was calculated and returned
   ASSERT(rrfScore > 0.0);
@@ -380,9 +377,13 @@ int testMergeRRFWrapper_TargetIndex0() {
 }
 
 /**
- * Test mergeRRFWrapper function with targetIndex = 1 (second result as target)
+ * Test mergeHybridWrapper function with RRF scoring and targetIndex = 1 (second result as target)
  */
-int testMergeRRFWrapper_TargetIndex1() {
+int testMergeHybridWrapper_RRF_TargetIndex1() {
+  // Create HybridSearchResult with 2 upstreams
+  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
+  ASSERT(hybridResult != NULL);
+
   // Create SearchResults with mock explanations
   SearchResult* result1 = createTestSearchResult(1);
   SearchResult* result2 = createTestSearchResult(2);
@@ -400,6 +401,12 @@ int testMergeRRFWrapper_TargetIndex1() {
   result2->scoreExplain->numChildren = 0;
   result2->scoreExplain->children = NULL;
 
+  // Store results in hybrid result
+  hybridResult->searchResults[0] = result1;
+  hybridResult->searchResults[1] = result2;
+  hybridResult->hasResults[0] = true;
+  hybridResult->hasResults[1] = true;
+
   // Create RRF scoring context
   HybridScoringContext scoringCtx = {0};
   scoringCtx.scoringType = HYBRID_SCORING_RRF;
@@ -408,11 +415,8 @@ int testMergeRRFWrapper_TargetIndex1() {
   // Set up ranks for RRF calculation
   double ranks[2] = {1.0, 2.0}; // rank 1 and rank 2
 
-  // Create sources array
-  SearchResult *sources[2] = {result1, result2};
-
-  // Test: Call mergeRRFWrapper with result2 as target (index 1)
-  double rrfScore = mergeRRFWrapper(sources, 2, 1, ranks, 60, &scoringCtx);
+  // Test: Call mergeHybridWrapper with result2 as target (index 1)
+  double rrfScore = mergeHybridWrapper(hybridResult, 1, ranks, &scoringCtx);
 
   // Verify: RRF score was calculated and returned
   ASSERT(rrfScore > 0.0);
@@ -440,17 +444,14 @@ int testMergeRRFWrapper_TargetIndex1() {
   ASSERT(result1->scoreExplain == NULL);
 
   // Cleanup
-  SearchResult_Destroy(result1);
-  SearchResult_Destroy(result2);
-  rm_free(result1);
-  rm_free(result2);
+  HybridSearchResult_Free(hybridResult);
   return 0;
 }
 
 /**
- * Test mergeRRFWrapper function with single upstream result
+ * Test mergeHybridWrapper function with RRF scoring and single upstream result
  */
-int testMergeRRFWrapper_SingleResult() {
+int testMergeHybridWrapper_RRF_SingleResult() {
   // Create HybridSearchResult with 1 upstream
   HybridSearchResult* hybridResult = HybridSearchResult_New(1);
   ASSERT(hybridResult != NULL);
@@ -477,11 +478,8 @@ int testMergeRRFWrapper_SingleResult() {
   // Set up rank for single result
   double ranks[1] = {1.0}; // rank 1
 
-  // Create sources array
-  SearchResult *sources[1] = {result1};
-
-  // Test: Call mergeRRFWrapper with single result (index 0)
-  double rrfScore = mergeRRFWrapper(sources, 1, 0, ranks, 60, &scoringCtx);
+  // Test: Call mergeHybridWrapper with single result (index 0)
+  double rrfScore = mergeHybridWrapper(hybridResult, 0, ranks, &scoringCtx);
 
   // Verify: RRF score was calculated correctly for single result
   ASSERT(rrfScore > 0.0);
@@ -507,6 +505,73 @@ int testMergeRRFWrapper_SingleResult() {
   return 0;
 }
 
+/**
+ * Test mergeHybridWrapper function with Linear scoring
+ */
+int testMergeHybridWrapper_Linear() {
+  // Create HybridSearchResult with 2 upstreams
+  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
+  ASSERT(hybridResult != NULL);
+
+  // Create SearchResults with mock explanations
+  SearchResult* result1 = createTestSearchResult(1);
+  SearchResult* result2 = createTestSearchResult(2);
+  ASSERT(result1 != NULL);
+  ASSERT(result2 != NULL);
+
+  // Create mock score explanations for both results
+  result1->scoreExplain = rm_calloc(1, sizeof(RSScoreExplain));
+  result1->scoreExplain->str = rm_strdup("Upstream1: TF-IDF score = 0.85");
+  result1->scoreExplain->numChildren = 0;
+  result1->scoreExplain->children = NULL;
+
+  result2->scoreExplain = rm_calloc(1, sizeof(RSScoreExplain));
+  result2->scoreExplain->str = rm_strdup("Upstream2: Vector similarity = 0.92");
+  result2->scoreExplain->numChildren = 0;
+  result2->scoreExplain->children = NULL;
+
+  // Store results in hybrid result
+  hybridResult->searchResults[0] = result1;
+  hybridResult->searchResults[1] = result2;
+  hybridResult->hasResults[0] = true;
+  hybridResult->hasResults[1] = true;
+
+  // Create Linear scoring context
+  HybridScoringContext scoringCtx = {0};
+  scoringCtx.scoringType = HYBRID_SCORING_LINEAR;
+  scoringCtx.linearCtx.numWeights = 2;
+  scoringCtx.linearCtx.linearWeights = rm_malloc(2 * sizeof(double));
+  scoringCtx.linearCtx.linearWeights[0] = 0.7;  // 70% weight for first score
+  scoringCtx.linearCtx.linearWeights[1] = 0.3;  // 30% weight for second score
+
+  // Set up scores for Linear calculation
+  double scores[2] = {0.85, 0.92}; // raw scores
+
+  // Test: Call mergeHybridWrapper with Linear scoring (result1 as target)
+  double linearScore = mergeHybridWrapper(hybridResult, 0, scores, &scoringCtx);
+
+  // Verify: Linear score was calculated and returned
+  ASSERT(linearScore > 0.0);
+  double expectedLinear = (0.7 * 0.85) + (0.3 * 0.92); // 0.595 + 0.276 = 0.871
+  ASSERT(fabs(linearScore - expectedLinear) < 0.0001);
+
+  // Verify: First SearchResult (target) has scoreExplain populated
+  ASSERT(result1->scoreExplain != NULL);
+  ASSERT(result1->scoreExplain->str != NULL);
+
+  // Verify: Explanation string matches expected Linear formula
+  ASSERT(strcmp(result1->scoreExplain->str, "Linear: 0.87: 0.70*0.85 + 0.30*0.92") == 0);
+
+  // Verify: Structure has 2 children
+  ASSERT(result1->scoreExplain->numChildren == 2);
+  ASSERT(result1->scoreExplain->children != NULL);
+
+  // Cleanup
+  rm_free(scoringCtx.linearCtx.linearWeights);
+  HybridSearchResult_Free(hybridResult);
+  return 0;
+}
+
 
 
 TEST_MAIN({
@@ -517,8 +582,9 @@ TEST_MAIN({
   TESTFUNC(testUnionRLookupRows_RefCounting);
   TESTFUNC(testUnionRLookupRows_OverlappingFields);
   TESTFUNC(testUnionRLookupRows_Idempotency);
-  TESTFUNC(testMergeRRFWrapper_TargetIndex0);
-  TESTFUNC(testMergeRRFWrapper_TargetIndex1);
-  TESTFUNC(testMergeRRFWrapper_SingleResult);
+  TESTFUNC(testMergeHybridWrapper_RRF_TargetIndex0);
+  TESTFUNC(testMergeHybridWrapper_RRF_TargetIndex1);
+  TESTFUNC(testMergeHybridWrapper_RRF_SingleResult);
+  TESTFUNC(testMergeHybridWrapper_Linear);
 
 })
