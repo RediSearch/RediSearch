@@ -158,39 +158,73 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictPauseRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, 1, __ATOMIC_RELAXED) >= 0)
 #define dictResumeRehashing(d) (__atomic_fetch_add(&(d)->pauserehash, -1, __ATOMIC_RELAXED) > 0)
 
-/* API - with hidden visibility to avoid conflicts with Redis dict functions */
-__attribute__((visibility("hidden"))) dict *dictCreate(dictType *type, void *privDataPtr);
-__attribute__((visibility("hidden"))) int dictExpand(dict *d, unsigned long size);
-__attribute__((visibility("hidden"))) int dictAdd(dict *d, void *key, void *val);
-__attribute__((visibility("hidden"))) dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
-__attribute__((visibility("hidden"))) dictEntry *dictAddOrFind(dict *d, void *key);
-__attribute__((visibility("hidden"))) int dictReplace(dict *d, void *key, void *val);
-__attribute__((visibility("hidden"))) int dictDelete(dict *d, const void *key);
-__attribute__((visibility("hidden"))) dictEntry *dictUnlink(dict *ht, const void *key);
-__attribute__((visibility("hidden"))) void dictFreeUnlinkedEntry(dict *d, dictEntry *he);
-__attribute__((visibility("hidden"))) void dictRelease(dict *d);
-__attribute__((visibility("hidden"))) dictEntry * dictFind(dict *d, const void *key);
-__attribute__((visibility("hidden"))) void *dictFetchValue(dict *d, const void *key);
-__attribute__((visibility("hidden"))) int dictResize(dict *d);
-__attribute__((visibility("hidden"))) dictIterator *dictGetIterator(dict *d);
-__attribute__((visibility("hidden"))) dictIterator *dictGetSafeIterator(dict *d);
-__attribute__((visibility("hidden"))) dictEntry *dictNext(dictIterator *iter);
-__attribute__((visibility("hidden"))) void dictReleaseIterator(dictIterator *iter);
-__attribute__((visibility("hidden"))) dictEntry *dictGetRandomKey(dict *d);
-__attribute__((visibility("hidden"))) unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
-__attribute__((visibility("hidden"))) void dictGetStats(char *buf, size_t bufsize, dict *d);
-__attribute__((visibility("hidden"))) uint64_t dictGenHashFunction(const void *key, int len);
-__attribute__((visibility("hidden"))) uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len);
-__attribute__((visibility("hidden"))) void dictEmpty(dict *d, void(callback)(void*));
-__attribute__((visibility("hidden"))) void dictEnableResize(void);
-__attribute__((visibility("hidden"))) void dictDisableResize(void);
-__attribute__((visibility("hidden"))) int dictRehash(dict *d, int n);
-__attribute__((visibility("hidden"))) int dictRehashMilliseconds(dict *d, int ms);
-__attribute__((visibility("hidden"))) void dictSetHashFunctionSeed(uint8_t *seed);
-__attribute__((visibility("hidden"))) uint8_t *dictGetHashFunctionSeed(void);
-__attribute__((visibility("hidden"))) unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, dictScanBucketFunction *bucketfn, void *privdata);
-__attribute__((visibility("hidden"))) uint64_t dictGetHash(dict *d, const void *key);
-__attribute__((visibility("hidden"))) dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
+/* API - RediSearch-specific dict functions to avoid conflicts with Redis dict functions */
+dict *RS_dictCreate(dictType *type, void *privDataPtr);
+int RS_dictExpand(dict *d, unsigned long size);
+int RS_dictAdd(dict *d, void *key, void *val);
+dictEntry *RS_dictAddRaw(dict *d, void *key, dictEntry **existing);
+dictEntry *RS_dictAddOrFind(dict *d, void *key);
+int RS_dictReplace(dict *d, void *key, void *val);
+int RS_dictDelete(dict *d, const void *key);
+dictEntry *RS_dictUnlink(dict *ht, const void *key);
+void RS_dictFreeUnlinkedEntry(dict *d, dictEntry *he);
+void RS_dictRelease(dict *d);
+dictEntry * RS_dictFind(dict *d, const void *key);
+void *RS_dictFetchValue(dict *d, const void *key);
+int RS_dictResize(dict *d);
+dictIterator *RS_dictGetIterator(dict *d);
+dictIterator *RS_dictGetSafeIterator(dict *d);
+dictEntry *RS_dictNext(dictIterator *iter);
+void RS_dictReleaseIterator(dictIterator *iter);
+dictEntry *RS_dictGetRandomKey(dict *d);
+unsigned int RS_dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
+void RS_dictGetStats(char *buf, size_t bufsize, dict *d);
+uint64_t RS_dictGenHashFunction(const void *key, int len);
+uint64_t RS_dictGenCaseHashFunction(const unsigned char *buf, int len);
+void RS_dictEmpty(dict *d, void(callback)(void*));
+void RS_dictEnableResize(void);
+void RS_dictDisableResize(void);
+int RS_dictRehash(dict *d, int n);
+int RS_dictRehashMilliseconds(dict *d, int ms);
+void RS_dictSetHashFunctionSeed(uint8_t *seed);
+uint8_t *RS_dictGetHashFunctionSeed(void);
+unsigned long RS_dictScan(dict *d, unsigned long v, dictScanFunction *fn, dictScanBucketFunction *bucketfn, void *privdata);
+uint64_t RS_dictGetHash(dict *d, const void *key);
+dictEntry **RS_dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t hash);
+
+/* Compatibility macros - existing code can continue using dict* names */
+#define dictCreate RS_dictCreate
+#define dictExpand RS_dictExpand
+#define dictAdd RS_dictAdd
+#define dictAddRaw RS_dictAddRaw
+#define dictAddOrFind RS_dictAddOrFind
+#define dictReplace RS_dictReplace
+#define dictDelete RS_dictDelete
+#define dictUnlink RS_dictUnlink
+#define dictFreeUnlinkedEntry RS_dictFreeUnlinkedEntry
+#define dictRelease RS_dictRelease
+#define dictFind RS_dictFind
+#define dictFetchValue RS_dictFetchValue
+#define dictResize RS_dictResize
+#define dictGetIterator RS_dictGetIterator
+#define dictGetSafeIterator RS_dictGetSafeIterator
+#define dictNext RS_dictNext
+#define dictReleaseIterator RS_dictReleaseIterator
+#define dictGetRandomKey RS_dictGetRandomKey
+#define dictGetSomeKeys RS_dictGetSomeKeys
+#define dictGetStats RS_dictGetStats
+#define dictGenHashFunction RS_dictGenHashFunction
+#define dictGenCaseHashFunction RS_dictGenCaseHashFunction
+#define dictEmpty RS_dictEmpty
+#define dictEnableResize RS_dictEnableResize
+#define dictDisableResize RS_dictDisableResize
+#define dictRehash RS_dictRehash
+#define dictRehashMilliseconds RS_dictRehashMilliseconds
+#define dictSetHashFunctionSeed RS_dictSetHashFunctionSeed
+#define dictGetHashFunctionSeed RS_dictGetHashFunctionSeed
+#define dictScan RS_dictScan
+#define dictGetHash RS_dictGetHash
+#define dictFindEntryRefByPtrAndHash RS_dictFindEntryRefByPtrAndHash
 
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapHiddenStrings;
