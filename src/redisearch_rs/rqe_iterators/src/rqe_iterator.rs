@@ -14,7 +14,7 @@ use inverted_index::RSIndexResult;
 pub enum RQEIteratorStatus {
     /// The iterator has found a valid result, in either `read()` or `skip_to()`
     OK(RSIndexResult),
-    
+
     /// A `skip_to()` has found a result with a `doc_id` greater than the requested `doc_id`
     NotFound(RSIndexResult),
 }
@@ -39,7 +39,7 @@ pub enum RQEValidateStatus {
 
 pub trait RQEIterator {
     /// Read the next entry from the iterator.
-    /// 
+    ///
     /// On a successful read, the iterator must:
     /// 1. Set its `lastDocId` member to the new current result id
     /// 2. Set its `current` index result property to its current result, for the caller to access if desired
@@ -59,7 +59,7 @@ pub trait RQEIterator {
     fn skip_to(&mut self, doc_id: t_docId) -> Result<RQEIteratorStatus, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
-    /// 
+    ///
     /// The iterator should check if it is still valid.
     /// Return Ok if the iterator is still valid, Moved if the iterator is still valid, but the lastDocId has changed (moved forward) or Aborted if the iterator is no longer valid
 
