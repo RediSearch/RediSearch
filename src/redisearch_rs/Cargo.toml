@@ -100,8 +100,9 @@ default-features = false
 
 [workspace.dependencies.redis-module]
 # Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
-git = "https://github.com/hdoordt/redismodule-rs.git"
-branch = "patches-redisearch"
+#path = "../../../redismodule-rs"
+git = "https://github.com/darthb/redismodule-rs.git"
+branch = "tj/fix/build-for-redisearch"
 default-features = false
 
 [profile.release]
