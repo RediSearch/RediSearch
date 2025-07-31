@@ -13,11 +13,28 @@
 #include "redisearch.h"
 #include "rlookup.h"
 #include "value.h"
-
+#include <math.h>
+#include <string.h>
 #include <stdio.h>
 #include <assert.h>
-#include <string.h>
 
+/**
+ * Debug function to print RSScoreExplain structure recursively
+ */
+static void printScoreExplain(RSScoreExplain *scrExp, int depth) {
+  if (!scrExp) {
+    printf("%*sNULL\n", depth * 2, "");
+    return;
+  }
+
+  printf("%*s[%d children] %s\n", depth * 2, "", scrExp->numChildren,
+         scrExp->str ? scrExp->str : "(no string)");
+
+  for (int i = 0; i < scrExp->numChildren; i++) {
+    printf("%*sChild %d:\n", depth * 2, "", i);
+    printScoreExplain(&scrExp->children[i], depth + 1);
+  }
+}
 
 /**
  * Helper function to create a test SearchResult with specified flags
@@ -56,9 +73,9 @@ int testMergeFlags_NoFlags() {
   hybridResult->hasResults[0] = true;
   hybridResult->hasResults[1] = true;
 
-  // Test merging
-  uint8_t mergedFlags = MergeFlags(hybridResult);
-  ASSERT_EQUAL(mergedFlags, 0);
+  // Test in-place merging
+  MergeFlags(hybridResult);
+  ASSERT_EQUAL(hybridResult->searchResults[0]->flags, 0);
 
   HybridSearchResult_Free(hybridResult);
   return 0;
@@ -83,20 +100,11 @@ int testMergeFlags_ExpiredDoc() {
   hybridResult->hasResults[0] = true;
   hybridResult->hasResults[1] = true;
 
-  // Test merging - should have expired flag since ANY upstream has it
-  uint8_t mergedFlags = MergeFlags(hybridResult);
-  ASSERT(mergedFlags & Result_ExpiredDoc);
+  // Test in-place merging - first result should have expired flag since ANY upstream has it
+  MergeFlags(hybridResult);
+  ASSERT(hybridResult->searchResults[0]->flags & Result_ExpiredDoc);
 
   HybridSearchResult_Free(hybridResult);
-  return 0;
-}
-
-/**
- * Test MergeFlags function with NULL input
- */
-int testMergeFlags_NullInput() {
-  uint8_t mergedFlags = MergeFlags(NULL);
-  ASSERT_EQUAL(mergedFlags, 0);
   return 0;
 }
 
@@ -115,9 +123,9 @@ int testMergeFlags_SingleUpstream() {
   hybridResult->searchResults[0] = result1;
   hybridResult->hasResults[0] = true;
 
-  // Test merging
-  uint8_t mergedFlags = MergeFlags(hybridResult);
-  ASSERT(mergedFlags & Result_ExpiredDoc);
+  // Test in-place merging
+  MergeFlags(hybridResult);
+  ASSERT(hybridResult->searchResults[0]->flags & Result_ExpiredDoc);
 
   HybridSearchResult_Free(hybridResult);
   return 0;
@@ -364,17 +372,149 @@ int testUnionRLookupRows_Idempotency() {
   return 0;
 }
 
+/**
+ * Test mergeRRFWrapper function - verify it populates scoreExplain and creates proper explanation
+ */
+int testMergeRRFWrapper_ScoreExplanation() {
+  // Create HybridSearchResult with 2 upstreams
+  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
+  ASSERT(hybridResult != NULL);
+
+  // Create SearchResults with mock explanations
+  SearchResult* result1 = createTestSearchResult(1);
+  SearchResult* result2 = createTestSearchResult(2);
+  ASSERT(result1 != NULL);
+  ASSERT(result2 != NULL);
+
+  // Create mock score explanations for upstream results
+  result1->scoreExplain = rm_calloc(1, sizeof(RSScoreExplain));
+  result1->scoreExplain->str = rm_strdup("Upstream1: TF-IDF score = 0.85");
+  result1->scoreExplain->numChildren = 0;
+  result1->scoreExplain->children = NULL;
+
+  result2->scoreExplain = rm_calloc(1, sizeof(RSScoreExplain));
+  result2->scoreExplain->str = rm_strdup("Upstream2: Vector similarity = 0.92");
+  result2->scoreExplain->numChildren = 0;
+  result2->scoreExplain->children = NULL;
+
+  // Store results in hybrid result
+  hybridResult->searchResults[0] = result1;
+  hybridResult->searchResults[1] = result2;
+  hybridResult->hasResults[0] = true;
+  hybridResult->hasResults[1] = true;
+
+  // Create RRF scoring context
+  HybridScoringContext scoringCtx = {0};
+  scoringCtx.scoringType = HYBRID_SCORING_RRF;
+  scoringCtx.rrfCtx.k = 60;
+
+  // Set up ranks for RRF calculation
+  double ranks[2] = {1.0, 2.0}; // rank 1 and rank 2
+
+  // Test: Call mergeRRFWrapper
+  double rrfScore = mergeRRFWrapper(hybridResult, ranks, 60, &scoringCtx);
+
+  // Verify: RRF score was calculated and returned
+  ASSERT(rrfScore > 0.0);
+  double expectedRRF = (1.0 / (60 + 1)) + (1.0 / (60 + 2)); // 1/61 + 1/62
+  ASSERT(fabs(rrfScore - expectedRRF) < 0.0001); // Allow small floating point difference
+
+  // Verify: First SearchResult now has scoreExplain populated
+  ASSERT(result1->scoreExplain != NULL);
+  ASSERT(result1->scoreExplain->str != NULL);
+
+  // Verify: Explanation string matches expected RRF formula exactly
+  ASSERT(strcmp(result1->scoreExplain->str, "RRF: 0.03: 1/(60+1) + 1/(60+2)") == 0);
+
+  // Verify: Structure matches observed output - [2 children] with proper hierarchy
+  ASSERT(result1->scoreExplain->numChildren == 2);
+  ASSERT(result1->scoreExplain->children != NULL);
+
+  // Verify: Children have no sub-children (as observed: [0 children])
+  ASSERT(result1->scoreExplain->children[0].numChildren == 0);
+  ASSERT(result1->scoreExplain->children[1].numChildren == 0);
+
+  // Verify: Children contain exact upstream explanations as seen in output
+  ASSERT(result1->scoreExplain->children[0].str != NULL);
+  ASSERT(result1->scoreExplain->children[1].str != NULL);
+
+  // Test against actual results we observed
+  ASSERT(strcmp(result1->scoreExplain->children[0].str, "Upstream1: TF-IDF score = 0.85") == 0);
+  ASSERT(strcmp(result1->scoreExplain->children[1].str, "Upstream2: Vector similarity = 0.92") == 0);
+
+  HybridSearchResult_Free(hybridResult);
+  return 0;
+}
+
+/**
+ * Test mergeRRFWrapper function with single upstream result
+ */
+int testMergeRRFWrapper_SingleResult() {
+  // Create HybridSearchResult with 1 upstream
+  HybridSearchResult* hybridResult = HybridSearchResult_New(1);
+  ASSERT(hybridResult != NULL);
+
+  // Create single SearchResult with mock explanation
+  SearchResult* result1 = createTestSearchResult(0);
+  ASSERT(result1 != NULL);
+
+  // Create mock score explanation for the single upstream
+  result1->scoreExplain = rm_calloc(1, sizeof(RSScoreExplain));
+  result1->scoreExplain->str = rm_strdup("Single: Vector search score = 0.95");
+  result1->scoreExplain->numChildren = 0;
+  result1->scoreExplain->children = NULL;
+
+  // Store result in hybrid result
+  hybridResult->searchResults[0] = result1;
+  hybridResult->hasResults[0] = true;
+
+  // Create RRF scoring context
+  HybridScoringContext scoringCtx = {0};
+  scoringCtx.scoringType = HYBRID_SCORING_RRF;
+  scoringCtx.rrfCtx.k = 60;
+
+  // Set up rank for single result
+  double ranks[1] = {1.0}; // rank 1
+
+  // Test: Call mergeRRFWrapper with single result
+  double rrfScore = mergeRRFWrapper(hybridResult, ranks, 60, &scoringCtx);
+
+  // Verify: RRF score was calculated correctly for single result
+  ASSERT(rrfScore > 0.0);
+  double expectedRRF = 1.0 / (60 + 1); // 1/61
+  ASSERT(fabs(rrfScore - expectedRRF) < 0.0001);
+
+  // Verify: First SearchResult has scoreExplain populated
+  ASSERT(result1->scoreExplain != NULL);
+  ASSERT(result1->scoreExplain->str != NULL);
+
+  // Verify: Explanation string matches expected single RRF formula
+  ASSERT(strcmp(result1->scoreExplain->str, "RRF: 0.02: 1/(60+1)") == 0);
+
+  // Verify: Structure has 1 child
+  ASSERT(result1->scoreExplain->numChildren == 1);
+  ASSERT(result1->scoreExplain->children != NULL);
+
+  // Verify: Child has no sub-children and contains original explanation
+  ASSERT(result1->scoreExplain->children[0].numChildren == 0);
+  ASSERT(strcmp(result1->scoreExplain->children[0].str, "Single: Vector search score = 0.95") == 0);
+
+  HybridSearchResult_Free(hybridResult);
+  return 0;
+}
+
 
 
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testMergeFlags_NoFlags);
   TESTFUNC(testMergeFlags_ExpiredDoc);
-  TESTFUNC(testMergeFlags_NullInput);
   TESTFUNC(testMergeFlags_SingleUpstream);
   TESTFUNC(testUnionRLookupRows_SimpleUnion);
   TESTFUNC(testUnionRLookupRows_InPlaceMerge);
   TESTFUNC(testUnionRLookupRows_OverlappingFields);
   TESTFUNC(testUnionRLookupRows_Idempotency);
+  TESTFUNC(testMergeRRFWrapper_ScoreExplanation);
+  TESTFUNC(testMergeRRFWrapper_SingleResult);
 
 })

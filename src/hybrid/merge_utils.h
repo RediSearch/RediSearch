@@ -13,6 +13,7 @@
 #include "result_processor.h"
 #include "hybrid_scoring.h"
 #include "util/arr/arr.h"
+#include "score_explain.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,15 +39,23 @@ HybridSearchResult* HybridSearchResult_New(size_t numUpstreams);
 void HybridSearchResult_Free(HybridSearchResult* result);
 
 /**
- * Merge flags from all upstream SearchResults.
+ * Merge flags from all upstream SearchResults into the first SearchResult (in-place).
  */
-uint8_t MergeFlags(HybridSearchResult *hybridResult);
+void MergeFlags(HybridSearchResult *hybridResult);
 
 /**
  * Simple RLookup union - copy fields from all upstreams to merged row.
  * No conflict resolution is performed, assuming no conflicts (all keys have same values)
  */
 void UnionRLookupRows(HybridSearchResult *hybridResult, RLookupRow *mergedRow, RLookup *lookup);
+
+/**
+ * RRF wrapper that computes RRF score and populates explanation (in-place merging).
+ * Works with HybridSearchResult and merges into the first SearchResult.
+ */
+double mergeRRFWrapper(HybridSearchResult *hybridResult, double *ranks, size_t k, HybridScoringContext *scoringCtx);
+
+
 
 #ifdef __cplusplus
 }
