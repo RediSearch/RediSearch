@@ -10,11 +10,12 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-/// An iterator has two successful states: `OK` and `NotFound`.
-/// `OK` indicates that the iterator has found a valid result, in either "read" or "skip_to",
-/// `NotFound` indicates that a "skip_to(doc_id)" operation has found a result with a doc_id greater than the requested `doc_id`.
+/// The result of an iterator read or skipping operation
 pub enum RQEIteratorStatus {
+    /// The iterator has found a valid result, in either `read()` or `skip_to()`
     OK(RSIndexResult),
+    
+    /// A `skip_to()` has found a result with a `doc_id` greater than the requested `doc_id`
     NotFound(RSIndexResult),
 }
 
