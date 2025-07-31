@@ -34,11 +34,11 @@ impl Encoder for FreqsOnly {
 }
 
 impl Decoder for FreqsOnly {
-    fn decode(
+    fn decode<'a>(
         &self,
-        cursor: &mut Cursor<&[u8]>,
+        cursor: &mut Cursor<&'a [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'_>> {
+    ) -> std::io::Result<RSIndexResult<'a>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
 
