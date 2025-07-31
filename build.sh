@@ -38,7 +38,7 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 
-# Rust code is built first, so exclude crates linking on C code as the internal lib is not built yet.
+# Rust code is built first, so exclude crates that link C code, since the static libraries they depend on haven't been built yet.
 # Keep the exclude list synced with the clippy and rustdoc exclude lists in Makefile.
 RUST_EXCLUDE_CRATES="--exclude ffi --exclude inverted_index_bencher --exclude trie_bencher --exclude varint_bencher"
 
