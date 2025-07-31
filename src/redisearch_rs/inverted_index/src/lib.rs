@@ -55,6 +55,20 @@ unsafe extern "C" {
     /// # Safety
     /// The caller must ensure that the `t` pointer is valid and points to an `RSQueryTerm`.
     unsafe fn Term_Free(t: *mut RSQueryTerm);
+
+    /// Make a copy of the offset vector into the destination. This assumes the destination is empty
+    ///
+    /// # Safety
+    /// The caller must ensure that the `src` pointer is valid and points to an `RSOffsetVector`, and
+    /// the `dest` pointer is valid and points to an empty `RSOffsetVector`.
+    unsafe fn RSOffsetVector_Copy(src: *const RSOffsetVector, dest: *mut RSOffsetVector);
+
+    /// Make a complete clone of the metrics array and increment the reference count of each value
+    ///
+    /// # Safety
+    /// The caller must ensure that the `src` pointer is valid and points to an `RSYieldableMetric`.
+    /// The caller must also not free the returned pointer.
+    unsafe fn RSYieldableMetrics_Clone(src: *mut RSYieldableMetric) -> *mut RSYieldableMetric;
 }
 
 /// Trait used to correctly derive the delta needed for different encoders
@@ -85,7 +99,7 @@ impl IdDelta for u32 {
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
@@ -136,6 +150,13 @@ impl RSTermRecord {
     pub fn new() -> Self {
         Self {
             term: ptr::null_mut(),
+            offsets: RSOffsetVector::empty(),
+        }
+    }
+
+    fn with_term(term: *mut RSQueryTerm) -> Self {
+        Self {
+            term,
             offsets: RSOffsetVector::empty(),
         }
     }
@@ -219,10 +240,26 @@ pub struct RSAggregateResult {
     /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<*const RSIndexResult>,
+    records: LowMemoryThinVec<*mut RSIndexResult>,
 
     /// A map of the aggregate type of the underlying records
     type_mask: RSResultTypeMask,
+}
+
+impl Clone for RSAggregateResult {
+    fn clone(&self) -> Self {
+        let mut new = Self::with_capacity(self.len());
+
+        for child in self.iter() {
+            let boxed_child = Box::new(child.clone());
+
+            new.records.push(Box::into_raw(boxed_child));
+        }
+
+        new.type_mask = self.type_mask;
+
+        new
+    }
 }
 
 impl RSAggregateResult {
@@ -270,6 +307,20 @@ impl RSAggregateResult {
         if let Some(result_addr) = self.records.get(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
             Some(unsafe { &**result_addr })
+        } else {
+            None
+        }
+    }
+
+    /// Get a mutable child at the given index, if it exists
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the memory at the given index is still valid
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut RSIndexResult> {
+        if let Some(result_addr) = self.records.get_mut(index) {
+            // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
+            Some(unsafe { &mut **result_addr })
         } else {
             None
         }
@@ -339,7 +390,7 @@ impl Iterator for RSAggregateResultIterOwned {
 
             // SAFETY: The caller is to ensure the `RSAggregateResult` was cloned to allow getting
             // the pointer as a `Box<RSIndexResult>`.
-            unsafe { Some(Box::from_raw(*result_ptr as *mut _)) }
+            unsafe { Some(Box::from_raw(*result_ptr)) }
         } else {
             None
         }
@@ -393,7 +444,7 @@ pub struct RSIndexResult {
     /// directly into memory
     pub offsets_sz: u32,
 
-    data: RSIndexResultData,
+    pub data: RSIndexResultData,
 
     /// The type of data stored at ['Self::data']
     pub result_type: RSResultType,
@@ -549,6 +600,21 @@ impl RSIndexResult {
         }
     }
 
+    /// Get this record as a mutable numeric record if possible. If the record is not numeric,
+    /// returns `None`.
+    pub fn as_numeric_mut(&mut self) -> Option<&mut RSNumericRecord> {
+        if matches!(
+            self.result_type,
+            RSResultType::Numeric | RSResultType::Metric,
+        ) {
+            // SAFETY: We are guaranteed the record data is numeric because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &mut self.data.num })
+        } else {
+            None
+        }
+    }
+
     /// True if this is an aggregate type
     pub fn is_aggregate(&self) -> bool {
         matches!(
@@ -600,6 +666,83 @@ impl RSIndexResult {
         } else {
             None
         }
+    }
+
+    /// Get a mutable child at the given index if this is an aggregate record. Returns `None` if this
+    /// is not an aggregate record or if the index is out-of-bounds.
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut RSIndexResult> {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &mut self.data.agg };
+
+            agg.get_mut(index)
+        } else {
+            None
+        }
+    }
+}
+
+impl Clone for RSIndexResult {
+    fn clone(&self) -> Self {
+        let mut new = Self {
+            doc_id: self.doc_id,
+            dmd: self.dmd,
+            field_mask: self.field_mask,
+            freq: self.freq,
+            offsets_sz: self.offsets_sz,
+            data: RSIndexResultData {
+                virt: ManuallyDrop::new(RSVirtualResult),
+            },
+            result_type: self.result_type,
+            is_copy: true,
+            metrics: ptr::null_mut(),
+            weight: self.weight,
+        };
+
+        if !self.metrics.is_null() {
+            // SAFETY: we know metric is a valid pointer to `RSYieldableMetric` because we created
+            // it in a constructor. We also know it is not NULL because of the check above.
+            new.metrics = unsafe { RSYieldableMetrics_Clone(self.metrics) }
+        }
+
+        new.data = match self.result_type {
+            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
+                // SAFETY: we just checked the type to ensure the union has aggregated data
+                let old_agg = unsafe { &self.data.agg };
+                let agg = old_agg.clone();
+
+                RSIndexResultData { agg }
+            }
+            RSResultType::Term => {
+                // SAFETY: we just checked the type to ensure the union has term data
+                let old_term = unsafe { &self.data.term };
+                let mut term = RSTermRecord::with_term(old_term.term);
+
+                // SAFETY: we know `offset` is a valid pointer to `RSOffsetVector` because we
+                // created it in a constructor. We also know the `term.offsets` will be empty
+                // because of the constructor call above.
+                unsafe {
+                    RSOffsetVector_Copy(&old_term.offsets, &mut term.offsets);
+                }
+
+                RSIndexResultData {
+                    term: ManuallyDrop::new(term),
+                }
+            }
+            RSResultType::Numeric | RSResultType::Metric => {
+                // SAFETY: we just checked the type to ensure the union has numeric data
+                let old_num = unsafe { &self.data.num };
+
+                RSIndexResultData {
+                    num: old_num.clone(),
+                }
+            }
+            RSResultType::Virtual => RSIndexResultData {
+                virt: ManuallyDrop::new(RSVirtualResult),
+            },
+        };
+
+        new
     }
 }
 
