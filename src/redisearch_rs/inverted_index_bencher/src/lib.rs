@@ -32,8 +32,6 @@ pub extern "C" fn ResultMetrics_Free(result: *mut inverted_index::RSIndexResult)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(t: *mut ::ffi::RSQueryTerm) {
-    if !t.is_null() {
-        panic!("Nothing should have created a term record");
-    }
+pub extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
+    // RSQueryTerm used by the benchers are created on the stack so we don't need to free them.
 }

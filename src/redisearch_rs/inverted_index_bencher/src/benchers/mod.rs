@@ -11,4 +11,5 @@ pub mod doc_ids_only;
 pub mod fields_only;
 pub mod freqs_fields;
 pub mod freqs_only;
+pub mod full;
 pub mod numeric;
