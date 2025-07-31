@@ -488,6 +488,14 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   ASSERT_EQ(vq->knn.k, 10);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
+  // verify the filter child
+  ASSERT_TRUE(vn->children != NULL);
+  ASSERT_EQ(vn->children[0]->type, QN_UNION);
+  ASSERT_EQ(vn->children[0]->children[0]->type, QN_TOKEN); //hello
+  ASSERT_STREQ(vn->children[0]->children[0]->tn.str, "hello");
+  ASSERT_EQ(vn->children[0]->children[1]->type, QN_TOKEN); //+hello
+  ASSERT_STREQ(vn->children[0]->children[1]->tn.str, "+hello");
+
   // Clean up
   // The scoring context is freed by the hybrid merger
   HybridScoringContext_Free(result->hybridParams->scoringCtx);
@@ -591,6 +599,10 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
   ASSERT_EQ(vq->knn.k, 5);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
+
+  // Verify wildcard query is the child of the vector querynode
+  ASSERT_TRUE(vn->children != NULL);
+  ASSERT_EQ(vn->children[0]->type, QN_WILDCARD);
 
   // Clean up
   // The scoring context is freed by the hybrid merger
