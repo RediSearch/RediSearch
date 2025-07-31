@@ -73,6 +73,8 @@ pub enum RLookupKeyFlag {
     Numeric = 0x1000,
 }
 
+/// Helper type for [`RLookupKeyFlag`]s.
+/// cbindgen:ignore
 pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
@@ -95,6 +97,9 @@ pub enum RLookupOption {
     /// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
     AllLoaded = 0x02,
 }
+
+/// Helper type for [`RLookupOption`]s.
+/// cbindgen:ignore
 pub type RLookupOptions = BitFlags<RLookupOption>;
 
 /// RLookup key
@@ -136,6 +141,7 @@ pub type RLookupOptions = BitFlags<RLookupOption>;
 /// This is used for data generated on the fly, or for data not stored within
 /// the sorting vector.
 /// ```
+/// cbindgen:field-names=[dstidx, svidx, flags, path, name, name_len, next, anna, bob]
 #[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
