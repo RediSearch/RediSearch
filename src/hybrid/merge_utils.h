@@ -39,15 +39,16 @@ HybridSearchResult* HybridSearchResult_New(size_t numUpstreams);
 void HybridSearchResult_Free(HybridSearchResult* result);
 
 /**
- * Merge flags from all upstream SearchResults into the first SearchResult (in-place).
+ * Merge flags from source flags into target flags (in-place).
+ * Modifies target_flags by ORing it with source_flags.
  */
-void MergeFlags(HybridSearchResult *hybridResult);
+void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags);
 
 /**
- * Simple RLookup union - copy fields from all upstreams to merged row.
+ * Simple RLookup union - copy fields from source row to target row.
  * No conflict resolution is performed, assuming no conflicts (all keys have same values)
  */
-void UnionRLookupRows(HybridSearchResult *hybridResult, RLookupRow *mergedRow, RLookup *lookup);
+void UnionRLookupRows(RLookupRow *target_row, const RLookupRow *source_row, const RLookup *lookup);
 
 /**
  * RRF wrapper that computes RRF score and populates explanation (in-place merging).

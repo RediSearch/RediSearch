@@ -53,65 +53,45 @@ void HybridSearchResult_Free(HybridSearchResult* result) {
 }
 
 /**
- * Merge flags from all upstream SearchResults into the first SearchResult (in-place).
+ * Merge flags from source into target (in-place).
+ * Modifies target by ORing it with source flags.
  */
-void MergeFlags(HybridSearchResult *hybridResult) {
-  RS_ASSERT(hybridResult)
-
-  // Find the first valid SearchResult to merge into
-  SearchResult *targetResult = NULL;
-  for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
-      targetResult = hybridResult->searchResults[i];
-      break;
-    }
-  }
-
-  if (!targetResult) return;
-
-  // Merge flags from other upstreams into the first one (in-place)
-  for (size_t i = 1; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
-      targetResult->flags |= hybridResult->searchResults[i]->flags;
-    }
-  }
-}
-
-/**
- * Simple RLookup union - merge fields from other upstreams into the first upstream's row (in-place).
- */
-void UnionRLookupRows(HybridSearchResult *hybridResult, RLookupRow *targetRow, RLookup *lookup) {
-  if (!hybridResult || !targetRow || !lookup) {
+void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags) {
+  if (!target_flags || !source_flags) {
     return;
   }
 
-  // In-place union: merge fields from upstreams 1,2,3... into upstream 0's row
-  // Skip upstream 0 since targetRow is typically upstream 0's row
-  for (size_t i = 1; i < hybridResult->numSources; i++) {
-    if (!hybridResult->hasResults[i] || !hybridResult->searchResults[i]) continue;
+  *target_flags |= *source_flags;
+}
 
-    RLookupRow *upstreamRow = &hybridResult->searchResults[i]->rowdata;
+/**
+ * Union RLookup rows - copy fields from source row to target row.
+ * No conflict resolution is performed, assuming no conflicts (all keys have same values).
+ */
+void UnionRLookupRows(RLookupRow *target_row, const RLookupRow *source_row, const RLookup *lookup) {
+  if (!target_row || !source_row || !lookup) {
+    return;
+  }
 
-    // Union all fields from this upstream into target row
-    for (const RLookupKey *key = lookup->head; key; key = key->next) {
-      if (!key->name) continue;  // Skip overridden keys
+  // Union all fields from source row into target row
+  for (const RLookupKey *key = lookup->head; key; key = key->next) {
+    if (!key->name) continue;  // Skip overridden keys
 
-      RSValue *upstreamValue = RLookup_GetItem(key, upstreamRow);
-      if (!upstreamValue) continue;  // Skip if upstream doesn't have this field
+    RSValue *sourceValue = RLookup_GetItem(key, source_row);
+    if (!sourceValue) continue;  // Skip if source doesn't have this field
 
-      RSValue *existingValue = RLookup_GetItem(key, targetRow);
-      if (!existingValue) {
-        // Field doesn't exist in target - add it
-        RLookup_WriteKey(key, targetRow, upstreamValue);
-      } else {
-        // Field exists - assert that values are the same (our assumption)
-        // This validates that "first upstream wins" == "no conflict resolution needed"
-        QueryError err;
-        QueryError_Init(&err);
-        int equal = RSValue_Equal(existingValue, upstreamValue, &err);
-        QueryError_ClearError(&err);  // Clean up any error details
-        RS_ASSERT(equal == 1);
-      }
+    RSValue *existingValue = RLookup_GetItem(key, target_row);
+    if (!existingValue) {
+      // Field doesn't exist in target - add it
+      RLookup_WriteKey(key, target_row, sourceValue);
+    } else {
+      // Field exists - assert that values are the same (our assumption)
+      // This validates that "first upstream wins" == "no conflict resolution needed"
+      QueryError err;
+      QueryError_Init(&err);
+      int equal = RSValue_Equal(existingValue, sourceValue, &err);
+      QueryError_ClearError(&err);  // Clean up any error details
+      RS_ASSERT(equal == 1);
     }
   }
 }

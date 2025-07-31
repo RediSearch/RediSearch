@@ -58,26 +58,13 @@ static SearchResult* createTestSearchResult(uint8_t flags) {
  * Test MergeFlags function with no flags set
  */
 int testMergeFlags_NoFlags() {
-  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
-  ASSERT(hybridResult != NULL);
+  uint8_t target_flags = 0;
+  uint8_t source_flags = 0;
 
-  // Create SearchResults with no flags
-  SearchResult* result1 = createTestSearchResult(0);
-  SearchResult* result2 = createTestSearchResult(0);
-  ASSERT(result1 != NULL);
-  ASSERT(result2 != NULL);
+  // Test merging no flags
+  MergeFlags(&target_flags, &source_flags);
+  ASSERT_EQUAL(target_flags, 0);
 
-  // Store results
-  hybridResult->searchResults[0] = result1;
-  hybridResult->searchResults[1] = result2;
-  hybridResult->hasResults[0] = true;
-  hybridResult->hasResults[1] = true;
-
-  // Test in-place merging
-  MergeFlags(hybridResult);
-  ASSERT_EQUAL(hybridResult->searchResults[0]->flags, 0);
-
-  HybridSearchResult_Free(hybridResult);
   return 0;
 }
 
@@ -85,51 +72,17 @@ int testMergeFlags_NoFlags() {
  * Test MergeFlags function with Result_ExpiredDoc flag
  */
 int testMergeFlags_ExpiredDoc() {
-  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
-  ASSERT(hybridResult != NULL);
+  uint8_t target_flags = 0;  // No flags initially
+  uint8_t source_flags = Result_ExpiredDoc;  // Source has expired flag
 
-  // Create SearchResults: one with expired flag, one without
-  SearchResult* result1 = createTestSearchResult(0);  // No flags
-  SearchResult* result2 = createTestSearchResult(Result_ExpiredDoc);  // Expired
-  ASSERT(result1 != NULL);
-  ASSERT(result2 != NULL);
+  // Test merging expired flag
+  MergeFlags(&target_flags, &source_flags);
+  ASSERT(target_flags & Result_ExpiredDoc);
 
-  // Store results
-  hybridResult->searchResults[0] = result1;
-  hybridResult->searchResults[1] = result2;
-  hybridResult->hasResults[0] = true;
-  hybridResult->hasResults[1] = true;
-
-  // Test in-place merging - first result should have expired flag since ANY upstream has it
-  MergeFlags(hybridResult);
-  ASSERT(hybridResult->searchResults[0]->flags & Result_ExpiredDoc);
-
-  HybridSearchResult_Free(hybridResult);
   return 0;
 }
 
-/**
- * Test MergeFlags function with single upstream
- */
-int testMergeFlags_SingleUpstream() {
-  HybridSearchResult* hybridResult = HybridSearchResult_New(1);
-  ASSERT(hybridResult != NULL);
 
-  // Create SearchResult with expired flag
-  SearchResult* result1 = createTestSearchResult(Result_ExpiredDoc);
-  ASSERT(result1 != NULL);
-
-  // Store result
-  hybridResult->searchResults[0] = result1;
-  hybridResult->hasResults[0] = true;
-
-  // Test in-place merging
-  MergeFlags(hybridResult);
-  ASSERT(hybridResult->searchResults[0]->flags & Result_ExpiredDoc);
-
-  HybridSearchResult_Free(hybridResult);
-  return 0;
-}
 
 /**
  * Test UnionRLookupRows function with simple field union
@@ -145,30 +98,20 @@ int testUnionRLookupRows_SimpleUnion() {
   ASSERT(titleKey != NULL);
   ASSERT(contentKey != NULL);
 
-  // Create HybridSearchResult with 2 upstreams
-  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
-  ASSERT(hybridResult != NULL);
-
   // Create SearchResults with different fields
   SearchResult* result1 = createTestSearchResult(0);
   SearchResult* result2 = createTestSearchResult(0);
   ASSERT(result1 != NULL);
   ASSERT(result2 != NULL);
 
-  // Add fields to upstream 1: title field
+  // Add fields to result1: title field
   RLookup_WriteOwnKey(titleKey, &result1->rowdata, RS_StringVal(rm_strdup("Hello"), 5));
 
-  // Add fields to upstream 2: content field
+  // Add fields to result2: content field
   RLookup_WriteOwnKey(contentKey, &result2->rowdata, RS_StringVal(rm_strdup("World"), 5));
 
-  // Store results in hybrid result
-  hybridResult->searchResults[0] = result1;
-  hybridResult->searchResults[1] = result2;
-  hybridResult->hasResults[0] = true;
-  hybridResult->hasResults[1] = true;
-
-  // Test in-place union: merge into result1's row
-  UnionRLookupRows(hybridResult, &result1->rowdata, &lookup);
+  // Test union: merge result2's fields into result1's row
+  UnionRLookupRows(&result1->rowdata, &result2->rowdata, &lookup);
 
   // Verify both fields exist in result1's row (now merged)
   RSValue *titleValue = RLookup_GetItem(titleKey, &result1->rowdata);
@@ -178,15 +121,20 @@ int testUnionRLookupRows_SimpleUnion() {
   ASSERT(contentValue != NULL);
   ASSERT(RSValue_IsString(titleValue));
   ASSERT(RSValue_IsString(contentValue));
+
+  // Cleanup
   RLookup_Cleanup(&lookup);
-  HybridSearchResult_Free(hybridResult);
+  SearchResult_Destroy(result1);
+  SearchResult_Destroy(result2);
+  rm_free(result1);
+  rm_free(result2);
   return 0;
 }
 
 /**
- * Test UnionRLookupRows with in-place merging (dst = src1)
+ * Test UnionRLookupRows with reference counting
  */
-int testUnionRLookupRows_InPlaceMerge() {
+int testUnionRLookupRows_RefCounting() {
   // Create RLookup structure
   RLookup lookup = {0};
   RLookup_Init(&lookup, NULL);
@@ -197,36 +145,26 @@ int testUnionRLookupRows_InPlaceMerge() {
   ASSERT(titleKey != NULL);
   ASSERT(contentKey != NULL);
 
-  // Create HybridSearchResult with 2 upstreams
-  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
-  ASSERT(hybridResult != NULL);
-
   // Create SearchResults
   SearchResult* result1 = createTestSearchResult(0);
   SearchResult* result2 = createTestSearchResult(0);
   ASSERT(result1 != NULL);
   ASSERT(result2 != NULL);
 
-  // Add fields to upstream 1: title field
+  // Add fields to result1: title field
   RSValue *titleVal = RS_StringVal(rm_strdup("Hello"), 5);
   RLookup_WriteOwnKey(titleKey, &result1->rowdata, titleVal);
 
-  // Add fields to upstream 2: content field
+  // Add fields to result2: content field
   RLookup_WriteOwnKey(contentKey, &result2->rowdata, RS_StringVal(rm_strdup("World"), 5));
-
-  // Store results in hybrid result
-  hybridResult->searchResults[0] = result1;
-  hybridResult->searchResults[1] = result2;
-  hybridResult->hasResults[0] = true;
-  hybridResult->hasResults[1] = true;
 
   // Check initial refcount
   ASSERT_EQUAL(titleVal->refcount, 1);
 
-  // Test in-place union: mergedRow = result1->rowdata (same memory!)
-  UnionRLookupRows(hybridResult, &result1->rowdata, &lookup);
+  // Test union: merge result2's fields into result1's row
+  UnionRLookupRows(&result1->rowdata, &result2->rowdata, &lookup);
 
-  // Check refcount after in-place merge - should still be 1, not 2!
+  // Check refcount after merge - should still be 1 for existing field
   ASSERT_EQUAL(titleVal->refcount, 1);
 
   // Verify both fields exist
@@ -239,7 +177,10 @@ int testUnionRLookupRows_InPlaceMerge() {
 
   // Cleanup
   RLookup_Cleanup(&lookup);
-  HybridSearchResult_Free(hybridResult);
+  SearchResult_Destroy(result1);
+  SearchResult_Destroy(result2);
+  rm_free(result1);
+  rm_free(result2);
   return 0;
 }
 
@@ -257,39 +198,29 @@ int testUnionRLookupRows_OverlappingFields() {
   ASSERT(titleKey != NULL);
   ASSERT(contentKey != NULL);
 
-  // Create HybridSearchResult with 2 upstreams
-  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
-  ASSERT(hybridResult != NULL);
-
   // Create SearchResults
   SearchResult* result1 = createTestSearchResult(0);
   SearchResult* result2 = createTestSearchResult(0);
   ASSERT(result1 != NULL);
   ASSERT(result2 != NULL);
 
-  // Add SAME title field to BOTH upstreams (overlapping field)
+  // Add SAME title field to BOTH results (overlapping field)
   RSValue *titleVal1 = RS_StringVal(rm_strdup("Hello"), 5);
   RSValue *titleVal2 = RS_StringVal(rm_strdup("Hello"), 5);  // Same content, different object
   RLookup_WriteOwnKey(titleKey, &result1->rowdata, titleVal1);
   RLookup_WriteOwnKey(titleKey, &result2->rowdata, titleVal2);
 
-  // Add unique content field to upstream 2
+  // Add unique content field to result2
   RSValue *contentVal = RS_StringVal(rm_strdup("World"), 5);
   RLookup_WriteOwnKey(contentKey, &result2->rowdata, contentVal);
-
-  // Store results in hybrid result
-  hybridResult->searchResults[0] = result1;
-  hybridResult->searchResults[1] = result2;
-  hybridResult->hasResults[0] = true;
-  hybridResult->hasResults[1] = true;
 
   // Check initial refcounts
   ASSERT_EQUAL(titleVal1->refcount, 1);  // In result1
   ASSERT_EQUAL(titleVal2->refcount, 1);  // In result2
   ASSERT_EQUAL(contentVal->refcount, 1); // In result2
 
-  // Test in-place union: merge into result1's row
-  UnionRLookupRows(hybridResult, &result1->rowdata, &lookup);
+  // Test union: merge result2's fields into result1's row
+  UnionRLookupRows(&result1->rowdata, &result2->rowdata, &lookup);
 
   // Verify fields exist in result1's row (now merged)
   RSValue *mergedTitle = RLookup_GetItem(titleKey, &result1->rowdata);
@@ -298,16 +229,21 @@ int testUnionRLookupRows_OverlappingFields() {
   ASSERT(mergedTitle != NULL);
   ASSERT(mergedContent != NULL);
 
-  // First upstream should win for overlapping field
-  ASSERT(mergedTitle == titleVal1);  // Should be the first upstream's value
+  // Target should win for overlapping field (no change since it already exists)
+  ASSERT(mergedTitle == titleVal1);  // Should be the target's value
   ASSERT(mergedContent == contentVal);
 
-  // Check refcounts after in-place merge
+  // Check refcounts after merge
   ASSERT_EQUAL(titleVal1->refcount, 1);  // Only in result1 (no extra copy)
   ASSERT_EQUAL(titleVal2->refcount, 1);  // Only in result2 (not used in merge)
   ASSERT_EQUAL(contentVal->refcount, 2); // result2 + result1 (merged)
+
+  // Cleanup
   RLookup_Cleanup(&lookup);
-  HybridSearchResult_Free(hybridResult);
+  SearchResult_Destroy(result1);
+  SearchResult_Destroy(result2);
+  rm_free(result1);
+  rm_free(result2);
   return 0;
 }
 
@@ -323,9 +259,6 @@ int testUnionRLookupRows_Idempotency() {
   RLookupKey *titleKey = RLookup_GetKey_Write(&lookup, "title", RLOOKUP_F_NOFLAGS);
   RLookupKey *contentKey = RLookup_GetKey_Write(&lookup, "content", RLOOKUP_F_NOFLAGS);
 
-  // Create HybridSearchResult with 2 upstreams
-  HybridSearchResult* hybridResult = HybridSearchResult_New(2);
-
   // Create SearchResults
   SearchResult* result1 = createTestSearchResult(0);
   SearchResult* result2 = createTestSearchResult(0);
@@ -336,25 +269,19 @@ int testUnionRLookupRows_Idempotency() {
   RLookup_WriteOwnKey(titleKey, &result1->rowdata, titleVal);
   RLookup_WriteOwnKey(contentKey, &result2->rowdata, contentVal);
 
-  // Store results
-  hybridResult->searchResults[0] = result1;
-  hybridResult->searchResults[1] = result2;
-  hybridResult->hasResults[0] = true;
-  hybridResult->hasResults[1] = true;
-
   // Check initial refcounts
   ASSERT_EQUAL(titleVal->refcount, 1);   // Only in result1
   ASSERT_EQUAL(contentVal->refcount, 1); // Only in result2
 
-  // First union: merge result2 into result1 (in-place)
-  UnionRLookupRows(hybridResult, &result1->rowdata, &lookup);
+  // First union: merge result2 into result1
+  UnionRLookupRows(&result1->rowdata, &result2->rowdata, &lookup);
 
   // After first union: result1 = {title, content}
   ASSERT_EQUAL(titleVal->refcount, 1);   // Still only in result1
   ASSERT_EQUAL(contentVal->refcount, 2); // result2 + result1
 
   // Second union: same operation should be idempotent (no-op)
-  UnionRLookupRows(hybridResult, &result1->rowdata, &lookup);
+  UnionRLookupRows(&result1->rowdata, &result2->rowdata, &lookup);
 
   // After second union: refcounts should be UNCHANGED
   ASSERT_EQUAL(titleVal->refcount, 1);   // Still only in result1
@@ -368,7 +295,10 @@ int testUnionRLookupRows_Idempotency() {
 
   // Cleanup
   RLookup_Cleanup(&lookup);
-  HybridSearchResult_Free(hybridResult);
+  SearchResult_Destroy(result1);
+  SearchResult_Destroy(result2);
+  rm_free(result1);
+  rm_free(result2);
   return 0;
 }
 
@@ -509,11 +439,11 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testMergeFlags_NoFlags);
   TESTFUNC(testMergeFlags_ExpiredDoc);
-  TESTFUNC(testMergeFlags_SingleUpstream);
   TESTFUNC(testUnionRLookupRows_SimpleUnion);
-  TESTFUNC(testUnionRLookupRows_InPlaceMerge);
+  TESTFUNC(testUnionRLookupRows_RefCounting);
   TESTFUNC(testUnionRLookupRows_OverlappingFields);
   TESTFUNC(testUnionRLookupRows_Idempotency);
+  // TODO: Refactor RRF wrapper tests after mergeRRFWrapper is refactored
   TESTFUNC(testMergeRRFWrapper_ScoreExplanation);
   TESTFUNC(testMergeRRFWrapper_SingleResult);
 
