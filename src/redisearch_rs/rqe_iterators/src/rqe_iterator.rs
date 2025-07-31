@@ -68,6 +68,11 @@ pub trait RQEIterator {
      */
     fn rewind(&mut self);
 
+    /**
+     * Returns an upper-bound estimation for the number of results the iterator is going to yield.
+     */
+    fn num_estimated(&self) -> usize;
+
     /**************** properties ****************/
 
     /**
