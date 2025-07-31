@@ -7,7 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Encoder, IdDelta, InvertedIndex, RSIndexResult};
+use crate::{
+    Decoder, Encoder, FilterMaskReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
+    RSIndexResult, SkipDuplicatesReader,
+};
+use pretty_assertions::assert_eq;
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
 struct Dummy;
@@ -237,5 +241,211 @@ fn u32_delta_overflow() {
     assert_eq!(
         delta, None,
         "Delta will overflow, so should request a new block for encoding"
+    );
+}
+
+impl Decoder for Dummy {
+    fn decode<R: std::io::Read>(
+        &self,
+        reader: &mut R,
+        prev_doc_id: u64,
+    ) -> std::io::Result<RSIndexResult> {
+        let mut buffer = [0; 4];
+        reader.read_exact(&mut buffer)?;
+
+        let delta = u32::from_be_bytes(buffer);
+        let doc_id = prev_doc_id + (delta as u64);
+
+        Ok(RSIndexResult::virt().doc_id(doc_id))
+    }
+}
+
+#[test]
+fn reading_records() {
+    // Make two blocks. The first with two records and the second with one record
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 0,
+            first_doc_id: 100,
+            last_doc_id: 100,
+        },
+    ];
+    let mut ir = IndexReader::new(&blocks, Dummy);
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(10));
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(11));
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(100));
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer");
+    assert_eq!(record, None);
+}
+
+#[test]
+fn reading_over_empty_blocks() {
+    // Make three blocks with the second one being empty and the other two containing one entries.
+    // The second should automatically continue from the third block
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 10,
+            last_doc_id: 10,
+        },
+        IndexBlock {
+            buffer: vec![],
+            num_entries: 0,
+            first_doc_id: 20,
+            last_doc_id: 20,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+    ];
+    let mut ir = IndexReader::new(&blocks, Dummy);
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(10));
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(30));
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer");
+    assert!(record.is_none(), "should not return any more records");
+}
+
+#[test]
+fn read_using_the_first_block_id_as_the_base() {
+    struct FirstBlockIdDummy;
+
+    impl Decoder for FirstBlockIdDummy {
+        fn decode<R: std::io::Read>(
+            &self,
+            reader: &mut R,
+            prev_doc_id: u64,
+        ) -> std::io::Result<RSIndexResult> {
+            let mut buffer = [0; 4];
+            reader.read_exact(&mut buffer)?;
+
+            let delta = u32::from_be_bytes(buffer);
+            let doc_id = prev_doc_id + (delta as u64);
+
+            Ok(RSIndexResult::virt().doc_id(doc_id))
+        }
+
+        fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
+            block.first_doc_id
+        }
+    }
+
+    // Make a block with three different doc IDs
+    let blocks = vec![IndexBlock {
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
+        num_entries: 3,
+        first_doc_id: 10,
+        last_doc_id: 12,
+    }];
+    let mut ir = IndexReader::new(&blocks, FirstBlockIdDummy);
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(10));
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(11));
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(12));
+}
+
+#[test]
+#[should_panic(expected = "IndexReader should not be created with an empty block list")]
+fn index_reader_construction_with_no_blocks() {
+    let blocks: Vec<IndexBlock> = vec![];
+    let _ir = IndexReader::new(&blocks, Dummy);
+}
+
+#[test]
+fn read_skipping_over_duplicates() {
+    // Make an iterator where the first two entries have the same doc ID and the third one is different
+    let iter = vec![
+        RSIndexResult::virt().doc_id(10).weight(2.0),
+        RSIndexResult::virt().doc_id(10).weight(5.0),
+        RSIndexResult::virt().doc_id(11),
+    ];
+
+    let reader = SkipDuplicatesReader::new(iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::virt().doc_id(10).weight(2.0),
+            RSIndexResult::virt().doc_id(11),
+        ],
+        "should skip duplicates"
+    );
+}
+
+#[test]
+fn reading_filter_based_on_field_mask() {
+    // Make an iterator with three records having different field masks. The second record will be
+    // filtered out based on the field mask.
+    let iter = vec![
+        RSIndexResult::default().doc_id(10).field_mask(0b0001),
+        RSIndexResult::default().doc_id(11).field_mask(0b0010),
+        RSIndexResult::default().doc_id(12).field_mask(0b0100),
+    ];
+
+    let reader = FilterMaskReader::new(0b0101 as _, iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::default().doc_id(10).field_mask(0b0001),
+            RSIndexResult::default().doc_id(12).field_mask(0b0100),
+        ]
     );
 }

@@ -751,7 +751,7 @@ TEST_F(IndexTest, testIntersection) {
   uint32_t topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Intersection);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_TRUE(RSIndexResult_HasOffsets(h));
     topFreq = topFreq > h->freq ? topFreq : h->freq;
 
@@ -933,7 +933,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
     ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
@@ -949,7 +949,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
     ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).

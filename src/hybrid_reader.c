@@ -71,7 +71,7 @@ static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
 
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
-  ResultMetrics_Concat(*vec_res, child_res); // Pass child metrics, if there are any
+  IndexResult_ConcatMetrics(*vec_res, child_res); // Pass child metrics, if there are any
   ResultMetrics_Add(*vec_res, hr->base.ownKey, RS_NumVal((*vec_res)->data.num.value));
 
   if (hr->topResults->count < hr->query.k) {

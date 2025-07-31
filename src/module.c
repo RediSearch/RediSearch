@@ -3564,7 +3564,7 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 /* Perform basic configurations and init all threads and global structures */
 static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isClusterEnabled) {
-  RedisModule_Log(ctx, "notice",
+  RedisModule_Log(ctx, "warning",
                   "Cluster configuration: AUTO partitions, type: %d, coordinator timeout: %dms",
                   clusterConfig.type, clusterConfig.timeoutMS);
 
@@ -3579,18 +3579,23 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
   }
 
-  size_t num_connections_per_shard;
-  if (clusterConfig.connPerShard) {
-    num_connections_per_shard = clusterConfig.connPerShard;
+  // Only initialize the coordinator/cluster functionality if we're actually in cluster mode
+  if (isClusterEnabled) {
+    size_t num_connections_per_shard;
+    if (clusterConfig.connPerShard) {
+      num_connections_per_shard = clusterConfig.connPerShard;
+    } else {
+      // default
+      num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
+    }
+
+    size_t num_io_threads = clusterConfig.coordinatorIOThreads;
+    size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
+
+    MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
   } else {
-    // default
-    num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
+    RedisModule_Log(ctx, "notice", "Standalone mode: skipping coordinator initialization");
   }
-
-  size_t num_io_threads = clusterConfig.coordinatorIOThreads;
-  size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
-
-  MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;
 }
@@ -3723,6 +3728,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
+  RedisModule_Log(ctx, "warning", "Cluster enabled: %s", isClusterEnabled ? "true" : "false");
   const Version unstableRedis = {7, 9, 227};
   const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
 

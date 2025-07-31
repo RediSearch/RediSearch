@@ -11,7 +11,7 @@ use std::io::Cursor;
 
 use ffi::t_fieldMask;
 use inverted_index::{
-    Decoder, DecoderResult, Encoder, RSIndexResult,
+    Decoder, Encoder, RSIndexResult,
     fields_only::{FieldsOnly, FieldsOnlyWide},
 };
 
@@ -54,12 +54,9 @@ fn test_encode_fields_only() {
 
         buf.set_position(0);
         let prev_doc_id = doc_id - (delta as u64);
-        let DecoderResult::Record(record_decoded) = FieldsOnly::default()
+        let record_decoded = FieldsOnly::default()
             .decode(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
+            .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
     }
@@ -120,12 +117,9 @@ fn test_encode_fields_only_wide() {
 
         buf.set_position(0);
         let prev_doc_id = doc_id - (delta as u64);
-        let DecoderResult::Record(record_decoded) = FieldsOnlyWide::default()
+        let record_decoded = FieldsOnlyWide::default()
             .decode(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
+            .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
     }

@@ -233,6 +233,7 @@ static void _dictReset(dictht *ht)
 }
 
 /* Create a new hash table */
+__attribute__((visibility("hidden")))
 dict *dictCreate(dictType *type,
         void *privDataPtr)
 {
@@ -389,6 +390,7 @@ static void _dictRehashStep(dict *d) {
 }
 
 /* Add an element to the target hash table */
+__attribute__((visibility("hidden")))
 int dictAdd(dict *d, void *key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key,NULL);
@@ -600,6 +602,7 @@ void dictRelease(dict *d)
     rm_free(d);
 }
 
+__attribute__((visibility("hidden")))
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
@@ -621,6 +624,7 @@ dictEntry *dictFind(dict *d, const void *key)
     return NULL;
 }
 
+__attribute__((visibility("hidden")))
 void *dictFetchValue(dict *d, const void *key) {
     dictEntry *he;
 

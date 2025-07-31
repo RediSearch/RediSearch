@@ -8,9 +8,9 @@
 */
 
 use std::{
-    ffi::{c_char, c_int},
+    ffi::c_char,
     fmt::Debug,
-    io::{Cursor, Read, Seek, Write},
+    io::{BufRead, Cursor, Read, Seek, Write},
     mem::ManuallyDrop,
     ptr,
 };
@@ -18,11 +18,23 @@ use std::{
 use enumflags2::{BitFlags, bitflags};
 use ffi::{FieldMask, RS_FIELDMASK_ALL};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
+use low_memory_thin_vec::LowMemoryThinVec;
 
 pub mod fields_only;
 pub mod freqs_fields;
 pub mod freqs_only;
 pub mod numeric;
+
+// Manually define some C functions, because we'll create a circular dependency if we use the FFI
+// crate to make them automatically.
+unsafe extern "C" {
+    /// Adds the metrics of a child [`RSIndexResult`] to the parent [`RSIndexResult`].
+    ///
+    /// # Safety
+    /// Both should be valid `RSIndexResult` instances.
+    #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
+    unsafe fn IndexResult_ConcatMetrics(parent: *mut RSIndexResult, child: *const RSIndexResult);
+}
 
 /// Trait used to correctly derive the delta needed for different encoders
 pub trait IdDelta
@@ -118,37 +130,48 @@ pub enum RSResultType {
 pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 
 /// Represents an aggregate array of values in an index record.
+///
+/// The C code should always use `AggregateResult_New` to construct a new instance of this type
+/// using Rust since the internals cannot be constructed directly in C. The reason is because of
+/// the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+/// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSAggregateResult {
-    /// The number of child records
-    num_children: c_int,
-
-    /// The capacity of the records array. Has no use for extensions
-    children_cap: c_int,
-
-    /// An array of records
-    children: *mut *mut RSIndexResult,
+    /// The records making up this aggregate result
+    ///
+    /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+    /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+    /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+    records: LowMemoryThinVec<*const RSIndexResult>,
 
     /// A map of the aggregate type of the underlying records
     type_mask: RSResultTypeMask,
 }
 
 impl RSAggregateResult {
+    /// Create a new empty aggregate result with the given capacity
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            records: LowMemoryThinVec::with_capacity(cap),
+            type_mask: RSResultTypeMask::empty(),
+        }
+    }
+
     /// The number of results in this aggregate result
     pub fn len(&self) -> usize {
-        self.num_children as _
+        self.records.len()
     }
 
     /// Check whether this aggregate result is empty
     pub fn is_empty(&self) -> bool {
-        self.num_children == 0
+        self.records.is_empty()
     }
 
     /// The capacity of the aggregate result
     pub fn capacity(&self) -> usize {
-        self.children_cap as _
+        self.records.capacity()
     }
 
     /// The current type mask of the aggregate result
@@ -169,16 +192,9 @@ impl RSAggregateResult {
     /// # Safety
     /// The caller must ensure that the memory at the given index is still valid
     pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
-        if index < self.num_children as usize {
-            // SAFETY: We are guaranteed that the index is within bounds because of the check above.
-            let result_ptr = unsafe { self.children.add(index) };
-
-            // SAFETY: It is safe to dereference the pointer because we correctly got it using
-            // `add` above.
-            let result_addr = unsafe { *result_ptr };
-
+        if let Some(result_addr) = self.records.get(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
-            Some(unsafe { &*result_addr })
+            Some(unsafe { &**result_addr })
         } else {
             None
         }
@@ -189,8 +205,19 @@ impl RSAggregateResult {
     /// Note, this does not deallocate the children pointers, it just resets the count and type
     /// mask. The owner of the children pointers is responsible for deallocating them when needed.
     pub fn reset(&mut self) {
-        self.num_children = 0;
+        self.records.clear();
         self.type_mask = RSResultTypeMask::empty();
+    }
+
+    /// Add a child to the aggregate result and update the type mask
+    ///
+    /// # Safety
+    /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
+    /// the child with [`Self::get()`] will cause undefined behavior.
+    pub fn push(&mut self, child: &RSIndexResult) {
+        self.records.push(child as *const _ as *mut _);
+
+        self.type_mask |= child.result_type;
     }
 }
 
@@ -213,18 +240,6 @@ impl<'a> Iterator for RSAggregateResultIter<'a> {
             Some(result)
         } else {
             None
-        }
-    }
-}
-
-impl RSAggregateResult {
-    /// Dummy until this is managed by Rust
-    pub fn with_capacity(cap: usize) -> Self {
-        Self {
-            num_children: 0,
-            children_cap: cap as _,
-            children: ptr::null_mut(),
-            type_mask: RSResultTypeMask::empty(),
         }
     }
 }
@@ -418,6 +433,59 @@ impl RSIndexResult {
             None
         }
     }
+
+    /// True if this is an aggregate type
+    pub fn is_aggregate(&self) -> bool {
+        matches!(
+            self.result_type,
+            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+        )
+    }
+
+    /// If this is an aggregate result, then add a child to it. Also updates the following of this
+    /// record:
+    /// - The document ID will inherit the new child added
+    /// - The child's frequency will contribute to this result
+    /// - The child's field mask will contribute to this result's field mask
+    /// - If the child has metrics, then they will be concatenated to this result's metrics
+    ///
+    /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
+    /// to make sure this is an aggregate result.
+    ///
+    /// # Safety
+    ///
+    /// The given `result` has to stay valid for the lifetime of this index result. Else reading
+    /// from this result will cause undefined behaviour.
+    pub fn push(&mut self, child: &RSIndexResult) {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &mut self.data.agg };
+
+            agg.push(child);
+
+            self.doc_id = child.doc_id;
+            self.freq += child.freq;
+            self.field_mask |= child.field_mask;
+
+            // SAFETY: we know both arguments are valid `RSIndexResult` types
+            unsafe {
+                IndexResult_ConcatMetrics(self, child);
+            }
+        }
+    }
+
+    /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
+    /// an aggregate record or if the index is out-of-bounds.
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult> {
+        if self.is_aggregate() {
+            // SAFETY: we know the data will be an aggregate because we just checked the type
+            let agg = unsafe { &self.data.agg };
+
+            agg.get(index)
+        } else {
+            None
+        }
+    }
 }
 
 impl Debug for RSIndexResult {
@@ -549,19 +617,11 @@ pub trait Encoder {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub enum DecoderResult {
-    /// The record was successfully decoded.
-    Record(RSIndexResult),
-    /// The record was filtered out and should not be returned.
-    FilteredOut,
-}
-
 /// Decoder to read records from an index
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult>;
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
@@ -574,14 +634,19 @@ pub trait Decoder {
     ) -> std::io::Result<Option<RSIndexResult>> {
         loop {
             match self.decode(reader, base) {
-                Ok(DecoderResult::Record(record)) if record.doc_id >= target => {
+                Ok(record) if record.doc_id >= target => {
                     return Ok(Some(record));
                 }
-                Ok(DecoderResult::Record(_)) | Ok(DecoderResult::FilteredOut) => continue,
+                Ok(_) => continue,
                 Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
                 Err(err) => return Err(err),
             }
         }
+    }
+
+    /// Returns the base value to use for any delta calculations
+    fn base_id(_block: &IndexBlock, last_doc_id: t_docId) -> t_docId {
+        last_doc_id
     }
 }
 
@@ -757,6 +822,155 @@ impl<E: Encoder> InvertedIndex<E> {
                     .expect("to get the last block since we know there is one"),
                 0,
             )
+        }
+    }
+}
+
+/// Reader that is able to read the records from an [`InvertedIndex`]
+pub struct IndexReader<'a, D> {
+    /// The block of the inverted index that is being read from. This might be used to determine the
+    /// base document ID for delta calculations.
+    blocks: &'a Vec<IndexBlock>,
+
+    /// The decoder used to decode the records from the index blocks.
+    decoder: D,
+
+    /// The current position in the block that is being read from.
+    current_buffer: Cursor<&'a [u8]>,
+
+    /// The current block that is being read from. This might be used to determine the base document
+    /// ID for delta calculations and to read the next record from the block.
+    current_block: &'a IndexBlock,
+
+    /// The index of the current block in the `blocks` vector. This is used to keep track of
+    /// which block we are currently reading from, especially when the current buffer is empty and we
+    /// need to move to the next block.
+    current_block_idx: usize,
+
+    /// The last document ID that was read from the index. This is used to determine the base
+    /// document ID for delta calculations.
+    last_doc_id: t_docId,
+}
+
+impl<'a, D: Decoder> IndexReader<'a, D> {
+    /// Create a new index reader that reads from the given blocks using the provided decoder.
+    ///
+    /// # Panic
+    /// This function will panic if the `blocks` vector is empty. The reader expects at least one block to read from.
+    pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
+        debug_assert!(
+            !blocks.is_empty(),
+            "IndexReader should not be created with an empty block list"
+        );
+
+        let first_block = blocks.first().expect("to have at least one block");
+
+        Self {
+            blocks,
+            decoder,
+            current_buffer: Cursor::new(&first_block.buffer),
+            current_block: first_block,
+            current_block_idx: 0,
+            last_doc_id: first_block.first_doc_id,
+        }
+    }
+
+    /// Read the next record from the index. If there are no more records to read, then `None` is returned.
+    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult>> {
+        // Check if the current buffer is empty. The GC might clean out a block so we have to
+        // continue checking until we find a block with data.
+        while self.current_buffer.fill_buf()?.is_empty() {
+            let Some(next_block) = self.blocks.get(self.current_block_idx + 1) else {
+                // No more blocks to read from
+                return Ok(None);
+            };
+
+            self.current_block_idx += 1;
+            self.current_block = next_block;
+            self.last_doc_id = next_block.first_doc_id;
+            self.current_buffer = Cursor::new(&next_block.buffer);
+        }
+
+        let base = D::base_id(self.current_block, self.last_doc_id);
+        let result = self.decoder.decode(&mut self.current_buffer, base)?;
+
+        self.last_doc_id = result.doc_id;
+
+        Ok(Some(result))
+    }
+}
+
+/// A reader that skips duplicate records in the index. It is used to ensure that the same document
+/// ID is not returned multiple times in the results. This is useful when the index contains
+/// multiple entries for the same document ID, such as when the document has multiple values for a
+/// field or when the document is indexed multiple times.
+pub struct SkipDuplicatesReader<I> {
+    /// The last document ID that was read from the index. This is used to determine if the next
+    /// record is a duplicate of the last one.
+    last_doc_id: t_docId,
+
+    /// The inner reader that is used to read the records from the index.
+    inner: I,
+}
+
+impl<I: Iterator<Item = RSIndexResult>> SkipDuplicatesReader<I> {
+    /// Create a new skip duplicates reader over the given inner iterator.
+    pub fn new(inner: I) -> Self {
+        Self {
+            last_doc_id: 0,
+            inner,
+        }
+    }
+}
+
+impl<I: Iterator<Item = RSIndexResult>> Iterator for SkipDuplicatesReader<I> {
+    type Item = RSIndexResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let next = self.inner.next()?;
+
+            if next.doc_id == self.last_doc_id {
+                continue;
+            }
+
+            self.last_doc_id = next.doc_id;
+
+            return Some(next);
+        }
+    }
+}
+
+/// A reader that filters out records that do not match a given field mask. It is used to
+/// filter records in an index based on their field mask, allowing only those that match the
+/// specified mask to be returned.
+pub struct FilterMaskReader<I> {
+    /// Mask which a record needs to match to be valid
+    mask: t_fieldMask,
+
+    /// The inner reader that will be used to read the records from the index.
+    inner: I,
+}
+
+impl<I: Iterator<Item = RSIndexResult>> FilterMaskReader<I> {
+    /// Create a new filter mask reader with the given mask and inner iterator
+    pub fn new(mask: t_fieldMask, inner: I) -> Self {
+        Self { mask, inner }
+    }
+}
+
+impl<I: Iterator<Item = RSIndexResult>> Iterator for FilterMaskReader<I> {
+    type Item = RSIndexResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let next = self.inner.next()?;
+
+            if next.field_mask & self.mask == 0 {
+                continue;
+            }
+
+            return Some(next);
         }
     }
 }

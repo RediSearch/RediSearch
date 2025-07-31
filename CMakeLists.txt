@@ -22,13 +22,13 @@ function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
     elseif(PROFILE)
         set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
         set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
@@ -291,7 +291,8 @@ set(FINAL_OBJECTS
 
 #----------------------------------------------------------------------------------------------
 # Build the shared library
-add_library(redisearch SHARED ${FINAL_OBJECTS})
+# Build as static library for integration with disk storage
+add_library(redisearch STATIC ${FINAL_OBJECTS})
 
 if(COORD_TYPE STREQUAL "rlec")
     set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
@@ -301,7 +302,8 @@ set_target_properties(redisearch
     PROPERTIES
     LINKER_LANGUAGE CXX
     C_STANDARD 17
-    C_STANDARD_REQUIRED ON)
+    C_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
 target_link_libraries(redisearch
         redisearch-geometry
@@ -313,7 +315,7 @@ target_link_libraries(redisearch
         inverted_index
         wildcard
         uv_a
-        ${BINDIR}/redisearch_rs/libredisearch_rs.a
+        ${BINDIR}/linux-x64-release/search-community/redisearch_rs/libredisearch_rs.a
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})

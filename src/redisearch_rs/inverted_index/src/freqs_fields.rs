@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, DecoderResult, Encoder, RSIndexResult};
+use crate::{Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode the delta, frequency and field mask of a record.
 ///
@@ -46,7 +46,7 @@ impl Encoder for FreqsFields {
 }
 
 impl Decoder for FreqsFields {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult> {
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(reader)?;
         let [delta, freq, field_mask] = decoded_values;
 
@@ -54,7 +54,7 @@ impl Decoder for FreqsFields {
             .doc_id(base + delta as t_docId)
             .field_mask(field_mask as t_fieldMask)
             .frequency(freq);
-        Ok(DecoderResult::Record(record))
+        Ok(record)
     }
 }
 
@@ -86,7 +86,7 @@ impl Encoder for FreqsFieldsWide {
 }
 
 impl Decoder for FreqsFieldsWide {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult> {
+    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
         let [delta, freq] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(reader)?;
@@ -95,6 +95,6 @@ impl Decoder for FreqsFieldsWide {
             .doc_id(base + delta as t_docId)
             .field_mask(field_mask)
             .frequency(freq);
-        Ok(DecoderResult::Record(record))
+        Ok(record)
     }
 }

@@ -140,7 +140,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
   it->hitCounter = 0;
 
   while (1) {
-    IndexResult_ResetAggregate(it->base.current);
+    IndexResult_Clear(it->base.current);
 
 
     while (1) {
