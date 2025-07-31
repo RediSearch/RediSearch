@@ -131,7 +131,7 @@ Setup:
 Build:
   make build         Compile and link
     COORD=oss|rlec     Build coordinator (default: oss)
-    MT=0|1              # control multithreaded mode (like REDISEARCH_MT_BUILD)
+    MT=0|1             Control multithreaded mode (like REDISEARCH_MT_BUILD)
     DEBUG=1            Build for debugging
     PROFILE=1          Build with profiling support
     TESTS=1            Build unit tests
