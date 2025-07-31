@@ -204,16 +204,12 @@ void VectorQuery_Free(VectorQuery *vq) {
     case VECSIM_QT_RANGE:
       break;
   }
-  if (vq->params.params) {
-    for (int i = 0; i < array_len(vq->params.params); i++) {
-      rm_free((char *)vq->params.params[i].name);
-      rm_free((char *)vq->params.params[i].value);
-    }
-    array_free(vq->params.params);
+  for (int i = 0; i < array_len(vq->params.params); i++) {
+    rm_free((char *)vq->params.params[i].name);
+    rm_free((char *)vq->params.params[i].value);
   }
-  if (vq->params.needResolve) {
-    array_free(vq->params.needResolve);
-  }
+  array_free(vq->params.params);
+  array_free(vq->params.needResolve);
   rm_free(vq);
 }
 

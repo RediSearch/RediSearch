@@ -161,6 +161,7 @@ typedef struct AREQ {
   /** Search query string */
   const char *query;
 
+  /** For hybrid queries: contains parsed vector data and partially constructed query node */
   ParsedVectorData *parsedVectorData;
 
   /** Fields to be output and otherwise processed */
