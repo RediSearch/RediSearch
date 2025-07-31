@@ -100,45 +100,6 @@ void LegacyGeoFilter_Free(LegacyGeoFilter *gf) {
   GeoFilter_Free(&gf->base);
 }
 
-static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
-  *num = 0;
-  t_docId *docIds = NULL;
-  RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  RS_LOG_ASSERT(s, "failed to retrieve key");
-  /*GEORADIUS key longitude latitude radius m|km|ft|mi */
-  RedisModuleCtx *ctx = gi->ctx->redisCtx;
-  RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
-  RedisModuleString *slat = RedisModule_CreateStringPrintf(ctx, "%f", gf->lat);
-  RedisModuleString *srad = RedisModule_CreateStringPrintf(ctx, "%f", gf->radius);
-  const char *unitstr = GeoDistance_ToString(gf->unitType);
-  RedisModuleCallReply *rep =
-      RedisModule_Call(ctx, "GEORADIUS", "ssssc", s, slon, slat, srad, unitstr);
-  if (rep == NULL || RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ARRAY) {
-    goto done;
-  }
-
-  size_t sz = RedisModule_CallReplyLength(rep);
-  docIds = rm_calloc(sz, sizeof(t_docId));
-  for (size_t i = 0; i < sz; i++) {
-    const char *s = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, i), NULL);
-    if (!s) continue;
-
-    docIds[i] = (t_docId)atol(s);
-  }
-
-  *num = sz;
-
-done:
-  RedisModule_FreeString(ctx, slon);
-  RedisModule_FreeString(ctx, slat);
-  RedisModule_FreeString(ctx, srad);
-  if (rep) {
-    RedisModule_FreeCallReply(rep);
-  }
-
-  return docIds;
-}
-
 QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, IteratorsConfig *config) {
   // check input parameters are valid
   if (gf->radius <= 0 ||
@@ -151,9 +112,8 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
   double radius_meter = gf->radius * extractUnitFactor(gf->unitType);
   calcRanges(gf->lon, gf->lat, radius_meter, ranges);
 
-  QueryIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
-  ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
-  size_t itersCount = 0;
+  QueryIterator **iters = rm_malloc(GEO_RANGE_COUNT * sizeof(*iters));
+  ((GeoFilter *)gf)->numericFilters = rm_malloc(GEO_RANGE_COUNT * sizeof(*gf->numericFilters));
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->fieldSpec->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
@@ -161,22 +121,11 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
       filt->fieldSpec = gf->fieldSpec;
       filt->geoFilter = gf;
-      QueryIterator *numIter = NewNumericFilterIterator(ctx, filt, INDEXFLD_T_GEO, config, &filterCtx);
-      if (numIter != NULL) {
-        iters[itersCount++] = numIter;
-      }
+      iters[ii] = NewNumericFilterIterator(ctx, filt, INDEXFLD_T_GEO, config, &filterCtx);
     }
   }
 
-  if (itersCount == 0) {
-    rm_free(iters);
-    return NULL;
-  } else if (itersCount == 1) {
-    QueryIterator *it = iters[0];
-    rm_free(iters);
-    return it;
-  }
-  return NewUnionIterator(iters, itersCount, true, 1, QN_GEO, NULL, config);
+  return NewUnionIterator(iters, GEO_RANGE_COUNT, true, 1, QN_GEO, NULL, config);
 }
 
 GeoDistance GeoDistance_Parse(const char *s) {
@@ -287,21 +236,6 @@ static double extractUnitFactor(GeoDistance unit) {
 }
 
 /**
- * Populates the numeric range to search for within a given square direction
- * specified by `dir`
- */
-static int populateRange(const GeoFilter *gf, GeoHashRange *ranges) {
-  double xy[2] = {gf->lon, gf->lat};
-
-  double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
-  if (radius_meters < 0) {
-    return -1;
-  }
-  calcRanges(gf->lon, gf->lat, radius_meters, ranges);
-  return 0;
-}
-
-/**
  * Checks if the given coordinate d is within the radius gf
  */
 int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
@@ -310,25 +244,4 @@ int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
   double radius_meters = gf->radius * extractUnitFactor(gf->unitType);
   int rv = isWithinRadiusLonLat(gf->lon, gf->lat, xy[0], xy[1], radius_meters, distance);
   return rv;
-}
-
-static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
-  double distance;
-  if (cur->type == RSResultType_Numeric) {
-    return isWithinRadius(gf, cur->data.num.value, &distance);
-  }
-
-  RSAggregateResultIter *iter = AggregateResult_Iter(&cur->data.agg);
-  RSIndexResult *child = NULL;
-
-  while (AggregateResultIter_Next(iter, &child)) {
-    if (checkResult(gf, child)) {
-      AggregateResultIter_Free(iter);
-      return 1;
-    }
-  }
-
-  AggregateResultIter_Free(iter);
-
-  return 0;
 }

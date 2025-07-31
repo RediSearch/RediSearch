@@ -88,8 +88,6 @@ void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask);
 /* Free the query node and its children recursively */
 void QueryNode_Free(QueryNode *n);
 
-void RangeNumber_Free(RangeNumber *r);
-
 #ifdef __cplusplus
 }
 #endif
