@@ -45,14 +45,16 @@ pub trait RQEIterator {
     /// returns Ok(RQEIteratorStatus::OK) with a reference to the current result or Err(RQEIteratorError) for any error.
     fn read(&mut self) -> Result<RQEIteratorStatus, RQEIteratorError>;
 
-    /// Skip to the next ID of the iterator, which is greater or equal to `docId`.
+    /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
+    ///
     /// It is assumed that when `skip_to` is called, `self.lastDocId() < docId`.
+    ///
     /// On a successful read, the iterator must:
     /// 1. Set its `lastDocId` member to the new current result id
     /// 2. Set its `current` index result property to its current result, for the caller to access if desired
-    /// returns Ok(RQEIteratorStatus::OK) if the iterator has found `docId`.
-    /// returns Ok(RQEIteratorStatus::NotFound) if the iterator has only found a result greater than `docId`.
-    /// returns Err(RQEIteratorError) for any error.
+    ///
+    /// Return `Ok(RQEIteratorStatus::OK)` if the iterator has found a record with the `docId` and `Ok(RQEIteratorStatus::NotFound)`
+    /// if the iterator found a result greater than `docId`.
     fn skip_to(&mut self, doc_id: t_docId) -> Result<RQEIteratorStatus, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
