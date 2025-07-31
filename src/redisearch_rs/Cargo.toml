@@ -86,6 +86,7 @@ itertools = "0.14.0"
 lending-iterator = "0.1.7"
 libc = "0.2.170"
 memchr = "2.7.4"
+mockall = "0.13.1"
 pretty_assertions = "1.4.1"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
@@ -101,9 +102,7 @@ version = "0.72"
 default-features = false
 
 [workspace.dependencies.redis-module]
-# Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
-git = "https://github.com/hdoordt/redismodule-rs.git"
-branch = "patches-redisearch"
+git = "https://github.com/RedisLabsModules/redismodule-rs.git"
 default-features = false
 
 [profile.release]
