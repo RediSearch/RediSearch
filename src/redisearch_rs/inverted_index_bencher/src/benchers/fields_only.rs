@@ -209,12 +209,15 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = if self.wide {
-                            FieldsOnlyWide::default().decode(buffer, 100)
+                        if self.wide {
+                            let decoder = FieldsOnlyWide::default();
+                            let result = decoder.decode(buffer, 100);
+                            let _ = black_box(result);
                         } else {
-                            FieldsOnly::default().decode(buffer, 100)
-                        };
-                        let _ = black_box(result);
+                            let decoder = FieldsOnly::default();
+                            let result = decoder.decode(buffer, 100);
+                            let _ = black_box(result);
+                        }
                     },
                     BatchSize::SmallInput,
                 );

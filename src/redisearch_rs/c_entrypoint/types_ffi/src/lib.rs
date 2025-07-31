@@ -130,7 +130,7 @@ pub unsafe extern "C" fn AggregateResult_Reset(agg: *mut RSAggregateResult) {
 /// in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
 /// should return to Rust to free up any heap memory using [`AggregateResult_Free`].
 #[unsafe(no_mangle)]
-pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult {
+pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static> {
     RSAggregateResult::with_capacity(cap)
 }
 
@@ -181,7 +181,7 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_Iter(
-    agg: *const RSAggregateResult,
+    agg: *const RSAggregateResult<'static>,
 ) -> *mut RSAggregateResultIter<'static> {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
