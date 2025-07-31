@@ -1156,6 +1156,8 @@ static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   vecNode->vn.vq = vq;
   pvd->query = NULL;
   //QueryNode now owns the VectorQuery
+
+  // Always yield distance for hybrid vector subqueries
   vecNode->opts.flags |= QueryNode_YieldsDistance;
 
   if (pvd->isParameter) {
