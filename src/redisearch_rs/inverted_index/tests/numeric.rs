@@ -12,7 +12,6 @@ use inverted_index::{
     numeric::{Numeric, NumericDelta},
 };
 use pretty_assertions::assert_eq;
-use proptest::prelude::*;
 use std::io::Cursor;
 
 mod c_mocks;
@@ -595,53 +594,58 @@ fn numeric_delta_overflow() {
         "Delta will overflow, so should request a new block for encoding"
     );
 }
+mod property_based {
+    #![cfg(not(miri))]
+    use super::*;
+    use pretty_assertions::assert_eq;
 
-proptest! {
-    #[test]
-    fn numeric_encode_decode_integers(
-        delta in 0u64..72_057_594_037_927_935u64,
-        value in u64::MIN..u64::MAX,
-    ) {
-        let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(value as _).doc_id(u64::MAX);
+    proptest::proptest! {
+        #[test]
+        fn numeric_encode_decode_integers(
+            delta in 0u64..72_057_594_037_927_935u64,
+            value in u64::MIN..u64::MAX,
+        ) {
+            let mut buf = Cursor::new(Vec::new());
+            let record = RSIndexResult::numeric(value as _).doc_id(u64::MAX);
 
-        let mut numeric = Numeric::new();
-        let _bytes_written =
-            numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
+            let mut numeric = Numeric::new();
+            let _bytes_written =
+                numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
 
-        buf.set_position(0);
-        let prev_doc_id = u64::MAX - delta;
+            buf.set_position(0);
+            let prev_doc_id = u64::MAX - delta;
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let record_decoded = numeric
-            .decode(&mut buf, prev_doc_id)
-            .expect("to decode numeric record");
+            let record_decoded = numeric
+                .decode(&mut buf, prev_doc_id)
+                .expect("to decode numeric record");
 
-        assert_eq!(record_decoded, record, "failed for value: {}", value);
-    }
+            assert_eq!(record_decoded, record, "failed for value: {}", value);
+        }
 
-    #[test]
-    fn numeric_encode_decode_floats(
-        delta in 0u64..72_057_594_037_927_935u64,
-        value in f64::MIN..f64::MAX,
-    ) {
-        let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
+        #[test]
+        fn numeric_encode_decode_floats(
+            delta in 0u64..72_057_594_037_927_935u64,
+            value in f64::MIN..f64::MAX,
+        ) {
+            let mut buf = Cursor::new(Vec::new());
+            let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
-        let mut numeric = Numeric::new();
-        let _bytes_written =
-            numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
+            let mut numeric = Numeric::new();
+            let _bytes_written =
+                numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
 
-        buf.set_position(0);
-        let prev_doc_id = u64::MAX - delta;
+            buf.set_position(0);
+            let prev_doc_id = u64::MAX - delta;
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let record_decoded = numeric
-            .decode(&mut buf, prev_doc_id)
-            .expect("to decode numeric record");
+            let record_decoded = numeric
+                .decode(&mut buf, prev_doc_id)
+                .expect("to decode numeric record");
 
-        assert_eq!(record_decoded, record, "failed for value: {}", value);
+            assert_eq!(record_decoded, record, "failed for value: {}", value);
+        }
     }
 }
