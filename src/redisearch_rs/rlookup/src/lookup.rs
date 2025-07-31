@@ -175,7 +175,6 @@ impl DerefMut for RLookupKey<'_> {
 
 /// The type is part of the [`RLookupKey`] and is used to store the actual subset of the struct
 /// that is used by the C API.
-#[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookupKeyCRepr<'a> {
@@ -809,23 +808,22 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         mut self,
         flags: RLookupKeyFlags,
     ) -> Option<Pin<&'list mut RLookupKey<'a>>> {
-        let old = self.current()?;
+        let mut old = self.current()?;
 
         let new = {
-            let old = old.project();
-            let crepr: RLookupKeyCRepr = todo!(); //pin!(old.inner).project();
-            let crepr = pin!(crepr).project();
+            let mut old = old.as_mut().project();
+            let crepr = &mut old.inner;
 
-            *crepr.name = ptr::null();
-            *crepr.name_len = usize::MAX;
+            crepr.name = ptr::null();
+            crepr.name_len = usize::MAX;
             let name = mem::take(old._name.deref_mut());
 
-            *crepr.path = ptr::null();
+            crepr.path = ptr::null();
             let path = mem::take(old._path.deref_mut());
 
-            let new = RLookupKey::from_parts(name, path, *crepr.dstidx, *crepr.flags | flags);
+            let new = RLookupKey::from_parts(name, path, crepr.dstidx, crepr.flags | flags);
             // Mark the old key as hidden, so it won't show up in iteration.
-            *crepr.flags |= RLookupKeyFlag::Hidden;
+            crepr.flags |= RLookupKeyFlag::Hidden;
 
             new
         };

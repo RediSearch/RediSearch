@@ -8,7 +8,7 @@
 #include <stdlib.h>
 
 // forwards for bitflags types
-typedef uint32_t RLookupKeyFlags;
+typedef uin32_t RLookupKeyFlags;
 
 
 enum RLookupKeyFlag
