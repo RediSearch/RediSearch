@@ -49,6 +49,9 @@ set(VECSIM_BUILD_TESTS OFF CACHE BOOL "Build vecsim tests" FORCE)
 #     REDIS_MODULE_TARGET
 # )
 
+# Configure RediSearch to build as static library when included as subdirectory
+set(REDISEARCH_BUILD_SHARED OFF)
+
 # Include RediSearch - this creates a static library named 'redisearch'
 add_subdirectory(deps/RediSearch)
 
