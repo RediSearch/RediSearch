@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{Read, Seek, Write};
+use std::io::{Cursor, Seek, Write};
 
 use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
@@ -34,8 +34,8 @@ impl Encoder for FreqsOnly {
 }
 
 impl Decoder for FreqsOnly {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
-        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
+    fn decode(&self, cursor: &mut Cursor<&[u8]>, base: t_docId) -> std::io::Result<RSIndexResult> {
+        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
 
         let record = RSIndexResult::virt()
