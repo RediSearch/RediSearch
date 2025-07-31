@@ -17,6 +17,9 @@ members = [
     "trie_rs",
     "value",
     "varint",
+    "rlookup", 
+    "build_utils",
+    "rqe_iterators",
     "varint_bencher",
     "wildcard",
 ]

@@ -1455,6 +1455,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rqe_iterators"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "inverted_index",
+ "pretty_assertions",
+ "proptest",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
