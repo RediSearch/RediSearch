@@ -7,6 +7,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+// forwards for bitflags types
+typedef uint32_t RLookupKeyFlags;
+
+
 enum RLookupKeyFlag
 #ifdef __cplusplus
   : uint32_t
@@ -94,3 +98,45 @@ enum RLookupOption
 #ifndef __cplusplus
 typedef uint32_t RLookupOption;
 #endif // __cplusplus
+
+/**
+ * The type is part of the [`RLookupKey`] and is used to store the actual subset of the struct
+ * that is used by the C API.
+ */
+typedef struct RLookupKey {
+  /**
+   * Index into the dynamic values array within the associated `RLookupRow`.
+   */
+  uint16_t dstidx;
+  /**
+   * If the source for this key is a sorting vector, this is the index
+   * into the `RSSortingVector` within the associated `RLookupRow`.
+   */
+  uint16_t svidx;
+  /**
+   * Various flags dictating the behavior of looking up the value of this key.
+   * Most notably, `Flags::SVSRC` means the source is an `RSSortingVector` and
+   * `Self::svidx` should be used to look up the value.
+   */
+  RLookupKeyFlags flags;
+  /**
+   * The path of this key.
+   *
+   * For fields *not* loaded from a [`FieldSpec`][ffi::FieldSpec], this points to the *same* string
+   * as `Self::path`.
+   */
+  const char *path;
+  /**
+   * The name of this key.
+   */
+  const char *name;
+  /**
+   * The length of this key in bytes, without the null-terminator.
+   * Should be used to avoid repeated `strlen` computations.
+   */
+  uintptr_t name_len;
+  /**
+   * Pointer to next field in the list
+   */
+  RLookupKey *next;
+} RLookupKey;

@@ -17,8 +17,8 @@ use std::{
     cell::UnsafeCell,
     ffi::{CStr, c_char},
     mem,
-    ops::DerefMut,
-    pin::Pin,
+    ops::{Deref, DerefMut},
+    pin::{Pin, pin},
     ptr::{self, NonNull},
     slice,
 };
@@ -73,6 +73,8 @@ pub enum RLookupKeyFlag {
     Numeric = 0x1000,
 }
 
+/// Helper type to represent a set of [`RLookupKeyFlag`]s.
+/// cbindgen:ignore
 pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
@@ -95,6 +97,9 @@ pub enum RLookupOption {
     /// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
     AllLoaded = 0x02,
 }
+
+/// Helper type to represent a set of [`RLookupOption`]s.
+/// cbindgen:ignore
 pub type RLookupOptions = BitFlags<RLookupOption>;
 
 /// RLookup key
@@ -136,10 +141,44 @@ pub type RLookupOptions = BitFlags<RLookupOption>;
 /// This is used for data generated on the fly, or for data not stored within
 /// the sorting vector.
 /// ```
+/// cbindgen:ignore
 #[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookupKey<'a> {
+    inner: RLookupKeyCRepr<'a>,
+
+    // Private Rust fields
+    /// The actual "owning" strings, we need to hold onto these
+    /// so the pointers above stay valid. Note that you
+    /// MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
+    /// YOU WANT TO POTENTIALLY RISK UB
+    #[pin]
+    _name: Cow<'a, CStr>,
+    #[pin]
+    _path: Option<Cow<'a, CStr>>,
+}
+
+impl<'a> Deref for RLookupKey<'a> {
+    type Target = RLookupKeyCRepr<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for RLookupKey<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+/// The type is part of the [`RLookupKey`] and is used to store the actual subset of the struct
+/// that is used by the C API.
+#[pin_project(!Unpin)]
+#[derive(Debug)]
+#[repr(C)]
+pub struct RLookupKeyCRepr<'a> {
     /// Index into the dynamic values array within the associated `RLookupRow`.
     pub dstidx: u16,
 
@@ -166,16 +205,6 @@ pub struct RLookupKey<'a> {
 
     /// Pointer to next field in the list
     pub next: UnsafeCell<Option<NonNull<RLookupKey<'a>>>>,
-
-    // Private Rust fields
-    /// The actual "owning" strings, we need to hold onto these
-    /// so the pointers above stay valid. Note that you
-    /// MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
-    /// YOU WANT TO POTENTIALLY RISK UB
-    #[pin]
-    _name: Cow<'a, CStr>,
-    #[pin]
-    _path: Option<Cow<'a, CStr>>,
 }
 
 /// An append-only list of [`RLookupKey`]s.
@@ -242,15 +271,17 @@ impl<'a> RLookupKey<'a> {
         };
 
         Self {
-            dstidx: 0,
-            svidx: 0,
-            flags: flags & !TRANSIENT_FLAGS,
-            name: name.as_ptr(),
-            path: name.as_ptr(),
-            name_len: name.count_bytes(),
+            inner: RLookupKeyCRepr {
+                dstidx: 0,
+                svidx: 0,
+                flags: flags & !TRANSIENT_FLAGS,
+                name: name.as_ptr(),
+                path: name.as_ptr(),
+                name_len: name.count_bytes(),
+                next: UnsafeCell::new(None),
+            },
             _name: name,
             _path: None,
-            next: UnsafeCell::new(None),
         }
     }
 
@@ -325,17 +356,20 @@ impl<'a> RLookupKey<'a> {
         }
 
         Self {
-            dstidx,
-            svidx: 0,
-            flags: flags & !TRANSIENT_FLAGS,
-            name: name.as_ptr(),
-            // if a separate path was provided we should set the pointer accordingly
-            // if not, we fall back to the name as usual
-            path: path.as_ref().map_or(name.as_ptr(), |path| path.as_ptr()),
-            name_len: name.count_bytes(),
+            inner: RLookupKeyCRepr {
+                dstidx,
+                svidx: 0,
+                flags: flags & !TRANSIENT_FLAGS,
+                name: name.as_ptr(),
+                // if a separate path was provided we should set the pointer accordingly
+                // if not, we fall back to the name as usual
+                path: path.as_ref().map_or(name.as_ptr(), |path| path.as_ptr()),
+                name_len: name.count_bytes(),
+
+                next: UnsafeCell::new(None),
+            },
             _name: name,
             _path: path,
-            next: UnsafeCell::new(None),
         }
     }
 
@@ -413,7 +447,7 @@ impl<'a> RLookupKey<'a> {
         next: Option<NonNull<RLookupKey<'a>>>,
     ) -> Option<NonNull<RLookupKey<'a>>> {
         let me = self.project();
-        mem::replace(me.next.get_mut(), next)
+        mem::replace(me.inner.next.get_mut(), next)
     }
 
     #[cfg(any(debug_assertions, test))]
@@ -775,22 +809,23 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         mut self,
         flags: RLookupKeyFlags,
     ) -> Option<Pin<&'list mut RLookupKey<'a>>> {
-        let mut old = self.current()?;
+        let old = self.current()?;
 
         let new = {
-            let mut old = old.as_mut().project();
+            let old = old.project();
+            let crepr: RLookupKeyCRepr = todo!(); //pin!(old.inner).project();
+            let crepr = pin!(crepr).project();
 
-            *old.name = ptr::null();
-            *old.name_len = usize::MAX;
+            *crepr.name = ptr::null();
+            *crepr.name_len = usize::MAX;
             let name = mem::take(old._name.deref_mut());
 
-            *old.path = ptr::null();
+            *crepr.path = ptr::null();
             let path = mem::take(old._path.deref_mut());
 
-            let new = RLookupKey::from_parts(name, path, *old.dstidx, *old.flags | flags);
-
+            let new = RLookupKey::from_parts(name, path, *crepr.dstidx, *crepr.flags | flags);
             // Mark the old key as hidden, so it won't show up in iteration.
-            *old.flags |= RLookupKeyFlag::Hidden;
+            *crepr.flags |= RLookupKeyFlag::Hidden;
 
             new
         };
