@@ -1496,32 +1496,6 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   return rc;
 }
 
-static inline uint64_t HighPart(t_fieldMask mask) { return mask >> 64; }
-static inline uint64_t LowPart(t_fieldMask mask) { return (uint64_t)mask; }
-
-static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translationTable, t_fieldIndex *out, uint16_t n, uint8_t offset) {
-  for (int lsbPos = ffsll(maskPart); lsbPos && (offset + lsbPos - 1) < array_len(translationTable); lsbPos = ffsll(maskPart)) {
-    const t_fieldId ftId = offset + lsbPos - 1;
-    RS_LOG_ASSERT(ftId < array_len(translationTable), "ftId out of bounds");
-    out[n++] = translationTable[ftId];
-    maskPart &= ~(1 << (lsbPos - 1));
-  }
-  return n;
-}
-
-uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out) {
-  uint16_t count = 0;
-  const uint8_t LOW_OFFSET = 0;
-  if (sizeof(mask) == sizeof(uint64_t)) {
-    count = TranslateMask(mask, sp->fieldIdToIndex, out, count, LOW_OFFSET);
-  } else {
-    const uint8_t HIGH_OFFSET = 64;
-    count = TranslateMask(LowPart(mask), sp->fieldIdToIndex, out, count, LOW_OFFSET);
-    count = TranslateMask(HighPart(mask), sp->fieldIdToIndex, out, count, HIGH_OFFSET);
-  }
-  return count;
-}
-
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */

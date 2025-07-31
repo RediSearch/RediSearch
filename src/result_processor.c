@@ -20,17 +20,6 @@
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
 
-void QITR_Cleanup(QueryProcessingCtx *qitr) {
-  ResultProcessor *p = qitr->rootProc;
-  while (p) {
-    ResultProcessor *next = p->upstream;
-    if (p->Free) {
-      p->Free(p);
-    }
-    p = next;
-  }
-}
-
 // Allocates a new SearchResult, and populates it with `r`'s data (takes
 // ownership as well)
 SearchResult *SearchResult_Copy(SearchResult *r) {

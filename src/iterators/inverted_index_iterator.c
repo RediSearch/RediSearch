@@ -153,7 +153,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
 // Used to determine if the field mask for the given doc id are valid based on their ttl:
 // it->filterCtx.predicate
 // returns true if the we don't have expiration information for the document
-// otherwise will return the same as DocTable_VerifyFieldExpirationPredicate
+// otherwise will return the same as DocTable_CheckFieldExpirationPredicate
 // if predicate is default then it means at least one of the fields need to not be expired for us to return true
 // if predicate is missing then it means at least one of the fields needs to be expired for us to return true
 static inline bool VerifyFieldMaskExpirationForCurrent(InvIndIterator *it) {

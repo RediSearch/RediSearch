@@ -27,7 +27,7 @@ IteratorStatus CPPQueryIterator::read_single() noexcept {
   }
   t_docId docId = iter_[index_++];
   const t_fieldIndex fieldIndex = filterCtx_.field.value.index;
-  if (sctx_ && fieldIndex != RS_INVALID_FIELD_INDEX && !DocTable_VerifyFieldExpirationPredicate(&sctx_->spec->docs, docId, &fieldIndex, 1, filterCtx_.predicate, &sctx_->time.current)) {
+  if (sctx_ && fieldIndex != RS_INVALID_FIELD_INDEX && !DocTable_CheckFieldExpirationPredicate(&sctx_->spec->docs, docId, fieldIndex, filterCtx_.predicate, &sctx_->time.current)) {
     return ITERATOR_NOTFOUND;
   }
 
