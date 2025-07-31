@@ -10,12 +10,12 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-/// The result of an iterator read or skipping operation
-pub enum RQEIteratorStatus {
-    /// The iterator has found a valid result, in either `read()` or `skip_to()`
-    OK(RSIndexResult),
+/// The outcome of [`RQEIterator::skip_to`].
+pub enum SkipToOutcome {
+    /// The iterator has a valid entry for the requested `doc_id`.
+    Found(RSIndexResult),
 
-    /// A `skip_to()` has found a result with a `doc_id` greater than the requested `doc_id`
+    /// The iterator doesn't have an entry for the requested `doc_id`, but there are entries with an id greater than the requested one.
     NotFound(RSIndexResult),
 }
 
