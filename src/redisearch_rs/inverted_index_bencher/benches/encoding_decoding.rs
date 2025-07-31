@@ -46,11 +46,18 @@ fn benchmark_fields_only(c: &mut Criterion) {
     bencher.decoding(c);
 }
 
+fn benchmark_doc_ids_only(c: &mut Criterion) {
+    let bencher = benchers::doc_ids_only::Bencher::default();
+    bencher.encoding(c);
+    bencher.decoding(c);
+}
+
 criterion_group!(
     benches,
     benchmark_numeric,
     benchmark_freqs_only,
     benchmark_freqs_fields,
     benchmark_fields_only,
+    benchmark_doc_ids_only,
 );
 criterion_main!(benches);
