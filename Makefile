@@ -28,12 +28,14 @@ $(BUILD_SCRIPT):
 BUILD_ARGS :=
 
 # Coordinator type
+ifneq ($(COORD),)
 ifeq ($(COORD),1)
 	override COORD := oss
 else ifeq ($(COORD),)
 	override COORD := oss
 endif
 BUILD_ARGS += COORD=$(COORD)
+endif
 
 # Build flags
 ifeq ($(DEBUG),1)
