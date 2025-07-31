@@ -98,62 +98,68 @@ void UnionRLookupRows(RLookupRow *target_row, const RLookupRow *source_row, cons
 
 
 /**
- * RRF wrapper - computes RRF score and populates explanation (in-place merging)
- * Works with HybridSearchResult and merges into the first SearchResult
+ * RRF wrapper - computes RRF score and populates explanation in target SearchResult.
+ * Merges score explanations from source SearchResults into target.
  */
-double mergeRRFWrapper(HybridSearchResult *hybridResult, double *ranks, size_t k, HybridScoringContext *scoringCtx) {
-  if (!hybridResult || !ranks || !scoringCtx) {
+double mergeRRFWrapper(SearchResult **sources, size_t numSources, size_t targetIndex, double *ranks, size_t k, HybridScoringContext *scoringCtx) {
+  if (!sources || !ranks || !scoringCtx || numSources == 0 || targetIndex >= numSources || !sources[targetIndex]) {
     return 0.0;
   }
 
-  // Find the first valid SearchResult to merge into
-  SearchResult *targetResult = NULL;
-  int numResults = 0;
-  for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
-      if (!targetResult) {
-        targetResult = hybridResult->searchResults[i];
-      }
-      numResults++;
+  SearchResult *target = sources[targetIndex];
+
+  // Count valid sources
+  int numValidSources = 0;
+  for (size_t i = 0; i < numSources; i++) {
+    if (sources[i]) {
+      numValidSources++;
     }
   }
 
-  if (!targetResult || numResults == 0) return 0.0;
+  if (numValidSources == 0) return 0.0;
 
   RSScoreExplain *scrExp = rm_calloc(1, sizeof(RSScoreExplain));
-  scrExp->children = rm_calloc(numResults, sizeof(RSScoreExplain));
-  scrExp->numChildren = numResults;
+  scrExp->children = rm_calloc(numValidSources, sizeof(RSScoreExplain));
+  scrExp->numChildren = numValidSources;
 
-  // Copy children explanations from all upstreams and take ownership
+  // Copy children explanations from all sources and take ownership
   int childIdx = 0;
-  for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i] &&
-        hybridResult->searchResults[i]->scoreExplain) {
-      scrExp->children[childIdx] = *hybridResult->searchResults[i]->scoreExplain;
+  for (size_t i = 0; i < numSources; i++) {
+    if (sources[i] && sources[i]->scoreExplain) {
+      scrExp->children[childIdx] = *sources[i]->scoreExplain;
 
       // Nullify the source scoreExplain since we took ownership
-      hybridResult->searchResults[i]->scoreExplain = NULL;
+      // But be careful not to nullify target (we'll handle it at the end)
+      if (i != targetIndex) {
+        sources[i]->scoreExplain = NULL;
+      }
 
       childIdx++;
     }
   }
 
   // Calculate RRF score
-  bool *hasRanks = rm_malloc(numResults * sizeof(bool));
-  for (int i = 0; i < numResults; i++) {
+  bool *hasRanks = rm_malloc(numValidSources * sizeof(bool));
+  for (int i = 0; i < numValidSources; i++) {
     hasRanks[i] = true;
   }
-  double rrf = HybridRRFScore(scoringCtx, ranks, hasRanks, numResults);
+  double rrf = HybridRRFScore(scoringCtx, ranks, hasRanks, numValidSources);
 
   // Create explanation string
-  if (numResults == 2) {
+  if (numValidSources == 2) {
     EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f) + 1/(%zu+%.0f)", rrf, k, ranks[0], k, ranks[1]);
-  } else if (numResults == 1) {
+  } else if (numValidSources == 1) {
     EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f)", rrf, k, ranks[0]);
   }
 
-  // Populate the first SearchResult's scoreExplain (in-place)
-  targetResult->scoreExplain = scrExp;
+  // Free target's old explanation if it exists (we took ownership above)
+  if (target->scoreExplain) {
+    // The target's old explanation was copied to children, now we can nullify it
+    target->scoreExplain = NULL;
+  }
+
+  // Populate the target SearchResult's scoreExplain (in-place)
+  target->scoreExplain = scrExp;
   rm_free(hasRanks);
   return rrf;
 }

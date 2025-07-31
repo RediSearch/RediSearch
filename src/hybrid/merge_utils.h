@@ -51,10 +51,10 @@ void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags);
 void UnionRLookupRows(RLookupRow *target_row, const RLookupRow *source_row, const RLookup *lookup);
 
 /**
- * RRF wrapper that computes RRF score and populates explanation (in-place merging).
- * Works with HybridSearchResult and merges into the first SearchResult.
+ * RRF wrapper that computes RRF score and populates explanation in target SearchResult.
+ * Merges score explanations from source SearchResults into target.
  */
-double mergeRRFWrapper(HybridSearchResult *hybridResult, double *ranks, size_t k, HybridScoringContext *scoringCtx);
+double mergeRRFWrapper(SearchResult **sources, size_t numSources, size_t targetIndex, double *ranks, size_t k, HybridScoringContext *scoringCtx);
 
 
 

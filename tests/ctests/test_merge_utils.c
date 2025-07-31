@@ -303,9 +303,9 @@ int testUnionRLookupRows_Idempotency() {
 }
 
 /**
- * Test mergeRRFWrapper function - verify it populates scoreExplain and creates proper explanation
+ * Test mergeRRFWrapper function with targetIndex = 0 (first result as target)
  */
-int testMergeRRFWrapper_ScoreExplanation() {
+int testMergeRRFWrapper_TargetIndex0() {
   // Create HybridSearchResult with 2 upstreams
   HybridSearchResult* hybridResult = HybridSearchResult_New(2);
   ASSERT(hybridResult != NULL);
@@ -341,8 +341,11 @@ int testMergeRRFWrapper_ScoreExplanation() {
   // Set up ranks for RRF calculation
   double ranks[2] = {1.0, 2.0}; // rank 1 and rank 2
 
-  // Test: Call mergeRRFWrapper
-  double rrfScore = mergeRRFWrapper(hybridResult, ranks, 60, &scoringCtx);
+  // Create sources array
+  SearchResult *sources[2] = {result1, result2};
+
+  // Test: Call mergeRRFWrapper with result1 as target (index 0)
+  double rrfScore = mergeRRFWrapper(sources, 2, 0, ranks, 60, &scoringCtx);
 
   // Verify: RRF score was calculated and returned
   ASSERT(rrfScore > 0.0);
@@ -377,6 +380,74 @@ int testMergeRRFWrapper_ScoreExplanation() {
 }
 
 /**
+ * Test mergeRRFWrapper function with targetIndex = 1 (second result as target)
+ */
+int testMergeRRFWrapper_TargetIndex1() {
+  // Create SearchResults with mock explanations
+  SearchResult* result1 = createTestSearchResult(1);
+  SearchResult* result2 = createTestSearchResult(2);
+  ASSERT(result1 != NULL);
+  ASSERT(result2 != NULL);
+
+  // Create mock score explanations for both results
+  result1->scoreExplain = rm_calloc(1, sizeof(RSScoreExplain));
+  result1->scoreExplain->str = rm_strdup("Upstream1: TF-IDF score = 0.85");
+  result1->scoreExplain->numChildren = 0;
+  result1->scoreExplain->children = NULL;
+
+  result2->scoreExplain = rm_calloc(1, sizeof(RSScoreExplain));
+  result2->scoreExplain->str = rm_strdup("Upstream2: Vector similarity = 0.92");
+  result2->scoreExplain->numChildren = 0;
+  result2->scoreExplain->children = NULL;
+
+  // Create RRF scoring context
+  HybridScoringContext scoringCtx = {0};
+  scoringCtx.scoringType = HYBRID_SCORING_RRF;
+  scoringCtx.rrfCtx.k = 60;
+
+  // Set up ranks for RRF calculation
+  double ranks[2] = {1.0, 2.0}; // rank 1 and rank 2
+
+  // Create sources array
+  SearchResult *sources[2] = {result1, result2};
+
+  // Test: Call mergeRRFWrapper with result2 as target (index 1)
+  double rrfScore = mergeRRFWrapper(sources, 2, 1, ranks, 60, &scoringCtx);
+
+  // Verify: RRF score was calculated and returned
+  ASSERT(rrfScore > 0.0);
+  double expectedRRF = (1.0 / (60 + 1)) + (1.0 / (60 + 2)); // 1/61 + 1/62
+  ASSERT(fabs(rrfScore - expectedRRF) < 0.0001); // Allow small floating point difference
+
+  // Verify: Second SearchResult (target) has scoreExplain populated
+  ASSERT(result2->scoreExplain != NULL);
+  ASSERT(result2->scoreExplain->str != NULL);
+
+  // Verify: Explanation string matches expected RRF formula
+  ASSERT(strcmp(result2->scoreExplain->str, "RRF: 0.03: 1/(60+1) + 1/(60+2)") == 0);
+
+  // Verify: Structure has 2 children
+  ASSERT(result2->scoreExplain->numChildren == 2);
+  ASSERT(result2->scoreExplain->children != NULL);
+
+  // Verify: Children have no sub-children and contain original explanations
+  ASSERT(result2->scoreExplain->children[0].numChildren == 0);
+  ASSERT(result2->scoreExplain->children[1].numChildren == 0);
+  ASSERT(strcmp(result2->scoreExplain->children[0].str, "Upstream1: TF-IDF score = 0.85") == 0);
+  ASSERT(strcmp(result2->scoreExplain->children[1].str, "Upstream2: Vector similarity = 0.92") == 0);
+
+  // Verify: First result's scoreExplain was nullified (ownership transferred)
+  ASSERT(result1->scoreExplain == NULL);
+
+  // Cleanup
+  SearchResult_Destroy(result1);
+  SearchResult_Destroy(result2);
+  rm_free(result1);
+  rm_free(result2);
+  return 0;
+}
+
+/**
  * Test mergeRRFWrapper function with single upstream result
  */
 int testMergeRRFWrapper_SingleResult() {
@@ -406,8 +477,11 @@ int testMergeRRFWrapper_SingleResult() {
   // Set up rank for single result
   double ranks[1] = {1.0}; // rank 1
 
-  // Test: Call mergeRRFWrapper with single result
-  double rrfScore = mergeRRFWrapper(hybridResult, ranks, 60, &scoringCtx);
+  // Create sources array
+  SearchResult *sources[1] = {result1};
+
+  // Test: Call mergeRRFWrapper with single result (index 0)
+  double rrfScore = mergeRRFWrapper(sources, 1, 0, ranks, 60, &scoringCtx);
 
   // Verify: RRF score was calculated correctly for single result
   ASSERT(rrfScore > 0.0);
@@ -443,8 +517,8 @@ TEST_MAIN({
   TESTFUNC(testUnionRLookupRows_RefCounting);
   TESTFUNC(testUnionRLookupRows_OverlappingFields);
   TESTFUNC(testUnionRLookupRows_Idempotency);
-  // TODO: Refactor RRF wrapper tests after mergeRRFWrapper is refactored
-  TESTFUNC(testMergeRRFWrapper_ScoreExplanation);
+  TESTFUNC(testMergeRRFWrapper_TargetIndex0);
+  TESTFUNC(testMergeRRFWrapper_TargetIndex1);
   TESTFUNC(testMergeRRFWrapper_SingleResult);
 
 })
