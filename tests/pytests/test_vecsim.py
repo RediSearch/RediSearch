@@ -991,16 +991,15 @@ def test_hybrid_query_batches_mode_with_tags():
     execute_hybrid_query(env, '(@tags:{hybrid})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
     execute_hybrid_query(env, '(@tags:{hy*})=>[KNN 10 @v $vec_param]', query_data, 'tags').equal(expected_res)
 
-    # Search with tag list. Expect that docs with 'hybrid' will have the same score as the docs with 'different, tag', as they are
-    # both matched by a single tag.
+    # Search with tag list. Expect that docs with 'hybrid' will have lower score (1 vs 2), since they are more frequent.
     expected_res = [10]
+    expected_res.extend([str(int(index_size/2) - 5), '2', ['__v_score', str(dim*5**2), 'tags',  'different, tag'],
+                            str(int(index_size/2)), '2', ['__v_score', str(0), 'tags',  'different, tag']])
     for i in range(1, 10):
         if i == 5:      # ids that divide by 5 were already inserted.
             continue
         expected_res.extend([str(int(index_size/2) - 5 + i), '1'])
         expected_res.append(['__v_score', str(dim*abs(5-i)**2), 'tags', 'hybrid'])
-    expected_res.extend([str(int(index_size/2) - 5), '1', ['__v_score', str(dim*5**2), 'tags',  'different, tag'],
-                            str(int(index_size/2)), '1', ['__v_score', str(0), 'tags',  'different, tag']])
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags',
                             sort_by_vector=False, scorer='TFIDF').equal(expected_res)
 
@@ -2115,7 +2114,7 @@ def test_range_query_complex_queries():
         env.assertEqual(con.execute_command('HSET', str(index_size), 't', 'unique'), 0)
 
         radius = dim * 10**2
-        expected_res = [11, str(index_size), '8' if env.isCluster() and env.shardsCount > 1 else '18']  # Todo: fix this inconsistency
+        expected_res = [11, str(index_size), '16' if env.isCluster() and env.shardsCount > 1 else '18']  # Todo: fix this inconsistency
         for i in range(index_size-10, index_size, 5):
             expected_res.extend([str(i), '2'])
         for i in sorted(set(range(index_size-10, index_size))-set(range(index_size-10, index_size+1, 5))):

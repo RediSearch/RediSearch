@@ -115,12 +115,18 @@ def testTFIDFScorerExplanation(env):
                                     ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    dialect1_coord =['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1', [[
+                                '(Weight 1.00 * total children TFIDF 30.00)', [
+                                  '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)', [
+                                    '(Weight 1.00 * total children TFIDF 20.00)', [
+                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]]]
     dialect2 = ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)', [
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                     '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
-    env.assertEqual(res[2][1], dialect1 if dialect == 1 else dialect2)
+    env.assertEqual(res[2][1], dialect2 if dialect != 1 else dialect1_coord if env.isCluster() else dialect1)
 
     res1 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
             [['(Weight 1.00 * total children TFIDF 40.00)',
