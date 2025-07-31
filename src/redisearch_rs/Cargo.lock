@@ -1451,7 +1451,6 @@ dependencies = [
 name = "rqe_iterators"
 version = "0.0.1"
 dependencies = [
- "enumflags2",
  "ffi",
  "inverted_index",
  "pretty_assertions",
