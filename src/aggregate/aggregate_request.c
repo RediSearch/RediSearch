@@ -1162,8 +1162,8 @@ static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     // PARAMETER CASE: Set up parameter for evalnode to resolve later
     QueryToken vecToken = {
       .type = QT_PARAM_VEC,
-      .s = vq->knn.vector,  // Parameter name (stored in vector field)
-      .len = vq->knn.vecLen,
+      .s = (vq->type == VECSIM_QT_KNN) ? vq->knn.vector : vq->range.vector,
+      .len = (vq->type == VECSIM_QT_KNN) ? vq->knn.vecLen : vq->range.vecLen,
       .pos = 0,
       .numval = 0,
       .sign = 0

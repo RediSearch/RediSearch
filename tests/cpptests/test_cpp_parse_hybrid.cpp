@@ -684,6 +684,13 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_EQ(vq->range.radius, 0.5);
   ASSERT_EQ(vq->range.order, BY_SCORE);
 
+  // Verify BLOB parameter was correctly resolved (parameter resolution test)
+  const char* expectedBlob = TEST_BLOB_DATA;
+  size_t expectedBlobLen = strlen(expectedBlob);
+  ASSERT_TRUE(vq->range.vector != NULL);
+  ASSERT_EQ(vq->range.vecLen, expectedBlobLen);
+  ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
+
   // Clean up
   // The scoring context is freed by the hybrid merger
   HybridScoringContext_Free(result->hybridParams->scoringCtx);
@@ -726,6 +733,13 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.8);
   ASSERT_EQ(vq->range.order, BY_SCORE);
+
+  // Verify BLOB parameter was correctly resolved (parameter resolution test)
+  const char* expectedBlob = TEST_BLOB_DATA;
+  size_t expectedBlobLen = strlen(expectedBlob);
+  ASSERT_TRUE(vq->range.vector != NULL);
+  ASSERT_EQ(vq->range.vecLen, expectedBlobLen);
+  ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
 
   // Verify EPSILON parameter is stored in VectorQuery params
   ASSERT_TRUE(vq->params.params != NULL);
