@@ -18,6 +18,8 @@ use crate::{
     bindings::{DocumentType, RLookupLoadMode},
 };
 
+mod hash;
+
 /// Populate the provided `dst_row` by loading a document (either a [Redis hash] or JSON object).
 /// Either all keys are loaded or only the individual keys given in `options.keys`.
 ///
@@ -69,15 +71,15 @@ use crate::{
 ///
 /// [Redis hash]: https://redis.io/docs/latest/develop/data-types/hashes/
 pub fn load_document<'a>(
-    _lookup: &mut RLookup<'a>,
-    _dst_row: &mut RLookupRow<'a, RSValueFFI>,
-    _options: &LoadDocumentOptions<'a>,
+    lookup: &mut RLookup<'a>,
+    dst_row: &mut RLookupRow<'a, RSValueFFI>,
+    options: &LoadDocumentOptions<'a>,
 ) -> Result<(), LoadDocumentError> {
-    unimplemented!("in followup PR")
+    let pimpl = LoadDocumentContextImpl;
+    load_document_int(lookup, dst_row, options, &pimpl)
 }
 
 // the following function is only used internally to allow for mocking out the context in tests
-#[cfg_attr(not(test), expect(unused, reason = "Used in follow-up PRs"))]
 #[inline(always)]
 fn load_document_int<'a, C, V>(
     lookup: &mut RLookup<'a>,
@@ -120,19 +122,14 @@ where
 
 /// A verified version of [RLookupLoadOptions] that also provides an easier access to the variables.
 pub struct LoadDocumentOptions<'a, T: RSValueTrait = RSValueFFI> {
-    #[expect(unused, reason = "Used in follow-up PRs")]
     context: NonNull<redis_module::raw::RedisModuleCtx>,
     sorting_vector: &'a RSSortingVector<T>,
     document_type: DocumentType,
-
-    #[expect(unused, reason = "Used in follow-up PRs")]
     key_ptr: Option<NonNull<std::ffi::c_char>>,
     mode: RLookupLoadMode,
 
     #[expect(unused, reason = "Used in follow-up PRs")]
     force_load: bool,
-
-    #[expect(unused, reason = "Used in follow-up PRs")]
     force_string: bool,
 
     #[expect(unused, reason = "Used in follow-up PRs")]
@@ -381,6 +378,62 @@ trait LoadDocumentContext<V: RSValueTrait> {
 
     /// Returns true if the current context provides the scan key feature of a Redis deployment.
     fn has_scan_key_feature(&self) -> bool;
+}
+
+struct LoadDocumentContextImpl;
+impl LoadDocumentContext<RSValueFFI> for LoadDocumentContextImpl {
+    fn hval_provide_keystr(
+        &self,
+        options: &LoadDocumentOptions<'_>,
+    ) -> Result<RedisString, LoadDocumentError> {
+        hash::provide_keystr(options)
+    }
+
+    fn hval_get_all_scan(
+        &self,
+        _lookup: &mut RLookup,
+        _dst_row: &mut RLookupRow<'_, RSValueFFI>,
+        _options: &LoadDocumentOptions,
+        _key_str: RedisString,
+    ) -> Result<(), LoadDocumentError> {
+        unimplemented!("in followup PR")
+    }
+
+    fn hval_get_all_fallback(
+        &self,
+        lookup: &mut RLookup,
+        dst_row: &mut RLookupRow<'_, RSValueFFI>,
+        options: &LoadDocumentOptions,
+        key_str: RedisString,
+    ) -> Result<(), LoadDocumentError> {
+        hash::get_all_fallback(lookup, dst_row, options, key_str)
+    }
+
+    fn json_get_all(
+        &self,
+        _lookup: &mut RLookup,
+        _dst_row: &mut RLookupRow<'_, RSValueFFI>,
+        _options: &LoadDocumentOptions,
+    ) -> Result<(), LoadDocumentError> {
+        unimplemented!("in followup PR")
+    }
+
+    fn load_individual_keys(
+        &self,
+        _lookup: &mut RLookup,
+        _dst_row: &mut RLookupRow<'_, RSValueFFI>,
+        _options: &LoadDocumentOptions,
+    ) -> Result<(), LoadDocumentError> {
+        unimplemented!("in followup PR")
+    }
+
+    fn is_crdt(&self) -> bool {
+        hash::is_crdt()
+    }
+
+    fn has_scan_key_feature(&self) -> bool {
+        hash::has_scan_key_feature()
+    }
 }
 
 #[cfg(test)]
