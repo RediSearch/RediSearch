@@ -14,12 +14,12 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters 
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
-  if (ir->idx->flags == Index_DocIdsOnly) {
+  if (InvertedIndex_Flags(ir->idx) == Index_DocIdsOnly) {
     if (ir->record->data.term.term != NULL) {
       printProfileType("TAG");
       REPLY_KVSTR_SAFE("Term", ir->record->data.term.term->str);
     }
-  } else if (ir->idx->flags & Index_StoreNumeric) {
+  } else if (InvertedIndex_Flags(ir->idx) & Index_StoreNumeric) {
     const NumericFilter *flt = ir->decoderCtx.filter;
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");

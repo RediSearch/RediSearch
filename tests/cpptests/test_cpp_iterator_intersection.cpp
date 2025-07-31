@@ -214,7 +214,7 @@ public:
     // Write the forward index entries to the inverted indexes
     for (auto &[term, entry] : entries) {
       InvertedIndex *index = invertedIndexes[term];
-      IndexEncoder enc = InvertedIndex_GetEncoder(index->flags);
+      IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(index));
       InvertedIndex_WriteForwardIndexEntry(index, enc, &entry);
       // Free the entry's vector writer
       VVW_Free(entry.vw);
@@ -403,8 +403,8 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
   size_t memsize;
   InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
   ASSERT_TRUE(idx != nullptr);
-  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
-  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
+  auto encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,

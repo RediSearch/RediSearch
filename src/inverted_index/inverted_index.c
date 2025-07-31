@@ -23,10 +23,10 @@
 uint64_t TotalIIBlocks = 0;
 
 // The last block of the index
-#define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
+#define INDEX_LAST_BLOCK(idx) (InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1))
 
 // pointer to the current block while reading the index
-#define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
+#define IR_CURRENT_BLOCK(ir) (InvertedIndex_BlockRef(ir->idx, ir->currentBlock))
 
 static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIndex *idx,
                                           IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, bool skipMulti,
@@ -39,9 +39,9 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
   IndexBlock *last = idx->blocks + (idx->size - 1);
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
-  Buffer_Init(IndexBlock_Buffer(&INDEX_LAST_BLOCK(idx)), INDEX_BLOCK_INITIAL_CAP);
+  Buffer_Init(IndexBlock_Buffer(INDEX_LAST_BLOCK(idx)), INDEX_BLOCK_INITIAL_CAP);
   (*memsize) += sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
-  return &INDEX_LAST_BLOCK(idx);
+  return INDEX_LAST_BLOCK(idx);
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize) {
@@ -67,6 +67,101 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
     InvertedIndex_AddBlock(idx, 0, memsize);
   }
   return idx;
+}
+
+IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex) {
+  if (blockIndex >= idx->size) {
+    return NULL; // Out of bounds
+  }
+  return &idx->blocks[blockIndex];
+}
+
+IndexBlock InvertedIndex_Block(InvertedIndex *idx, size_t blockIndex) {
+  if (blockIndex >= idx->size) {
+    return (IndexBlock){0}; // Return an empty block
+  }
+  return idx->blocks[blockIndex];
+}
+
+void InvertedIndex_SetBlock(InvertedIndex *idx, size_t blockIndex, IndexBlock block) {
+  if (blockIndex >= idx->size) {
+    return; // Out of bounds
+  }
+  idx->blocks[blockIndex] = block;
+}
+
+void InvertedIndex_SetBlocks(InvertedIndex *idx, IndexBlock *blocks, size_t size) {
+  if (idx->blocks) {
+    rm_free(idx->blocks);
+  }
+  idx->blocks = blocks;
+  idx->size = size;
+}
+
+size_t InvertedIndex_BlocksShift(InvertedIndex *idx, size_t shift) {
+  size_t numBlocks = idx->size - shift;
+  memmove(idx->blocks, idx->blocks + shift, numBlocks * sizeof(*idx->blocks));
+  idx->size = numBlocks;
+  return numBlocks;
+}
+
+size_t InvertedIndex_NumBlocks(const InvertedIndex *idx) {
+  return idx->size;
+}
+
+void InvertedIndex_SetNumBlocks(InvertedIndex *idx, size_t numBlocks) {
+  idx->size = numBlocks;
+}
+
+IndexFlags InvertedIndex_Flags(const InvertedIndex *idx) {
+  return idx->flags;
+}
+
+t_docId InvertedIndex_LastId(const InvertedIndex *idx) {
+  return idx->lastId;
+}
+
+void InvertedIndex_SetLastId(InvertedIndex *idx, t_docId lastId) {
+  idx->lastId = lastId;
+}
+
+uint32_t InvertedIndex_NumDocs(const InvertedIndex *idx) {
+  return idx->numDocs;
+}
+
+void InvertedIndex_SetNumDocs(InvertedIndex *idx, uint32_t numDocs) {
+  idx->numDocs = numDocs;
+}
+
+uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx) {
+  return idx->gcMarker;
+}
+
+void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker) {
+  idx->gcMarker = marker;
+}
+
+t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx) {
+  if (idx->flags & Index_StoreFieldFlags) {
+    return idx->fieldMask;
+  }
+  return (t_fieldMask)0; // No field mask stored
+}
+
+void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask) {
+  if (idx->flags & Index_StoreFieldFlags) {
+    idx->fieldMask |= fieldMask;
+  }
+}
+
+uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx) {
+  return (idx->flags & Index_StoreNumeric) ? idx->numEntries : 0;
+}
+
+void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries) {
+  if (idx->flags & Index_StoreNumeric) {
+    idx->numEntries = numEntries;
+  }
 }
 
 size_t indexBlock_Free(IndexBlock *blk) {
@@ -123,8 +218,9 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
 
 void InvertedIndex_Free(void *ctx) {
   InvertedIndex *idx = ctx;
-  TotalIIBlocks -= idx->size;
-  for (uint32_t i = 0; i < idx->size; i++) {
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  TotalIIBlocks -= numBlocks;
+  for (uint32_t i = 0; i < numBlocks; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
   rm_free(idx->blocks);
@@ -167,10 +263,10 @@ void IndexReader_OnReopen(IndexReader *ir) {
     return;
   }
   // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
-  if (ir->gcMarker == ir->idx->gcMarker) {
+  if (ir->gcMarker == InvertedIndex_GcMarker(ir->idx)) {
     // no GC - we just go to the same offset we were at
     size_t offset = ir->br.pos;
-    ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
+    ir->br = NewBufferReader(IndexBlock_Buffer(IR_CURRENT_BLOCK(ir)));
     ir->br.pos = offset;
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
@@ -569,7 +665,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   }
 
   t_docId delta = 0;
-  IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
+  IndexBlock *blk = INDEX_LAST_BLOCK(idx);
 
   // use proper block size. Index_DocIdsOnly == 0x00
   uint16_t blockSize = (idx->flags & INDEX_STORAGE_MASK) ?
@@ -629,8 +725,8 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
 
 static void IndexReader_AdvanceBlock(IndexReader *ir) {
   ir->currentBlock++;
-  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
-  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
+  ir->br = NewBufferReader(IndexBlock_Buffer(IR_CURRENT_BLOCK(ir)));
+  ir->lastId = IndexBlock_FirstId(IR_CURRENT_BLOCK(ir));
 }
 
 /******************************************************************************
@@ -1022,7 +1118,7 @@ IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti) {
 
 size_t IR_NumEstimated(void *ctx) {
   IndexReader *ir = ctx;
-  return ir->idx->numDocs;
+  return InvertedIndex_NumDocs(ir->idx);
 }
 
 #define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
@@ -1079,7 +1175,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     IndexBlockReader reader = (IndexBlockReader){
       .buffReader = ir->br,
-      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir)),
+      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IndexBlock_FirstId(IR_CURRENT_BLOCK(ir)),
     };
     int rv = ir->decoders.decoder(&reader, &ir->decoderCtx, ir->record);
     RSIndexResult *record = ir->record;
@@ -1129,7 +1225,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
     // try and find docId using seeker
     IndexBlockReader reader = (IndexBlockReader){
       .buffReader = ir->br,
-      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir)),
+      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IndexBlock_FirstId(IR_CURRENT_BLOCK(ir)),
     };
     found = ir->decoders.seeker(&reader, &ir->decoderCtx, docId, ir->record);
     ir->br = reader.buffReader;
@@ -1150,7 +1246,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
     // if found is true we found a doc id that is greater or equal to the searched doc id
     // if found is false we need to continue scanning the inverted index, possibly advancing to the next block
     if (!found && BufferReader_AtEnd(&ir->br)) {
-      if (ir->currentBlock < ir->idx->size - 1) {
+      if (ir->currentBlock < InvertedIndex_NumBlocks(ir->idx) - 1) {
         // We reached the end of the current block but we have more blocks to advance to
         // advance to the next block and continue the search using the seeker from there
       	IndexReader_AdvanceBlock(ir);
@@ -1171,10 +1267,11 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
 // Assumes there is a valid block to skip to (matching or past the requested docId)
 static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   InvertedIndex *idx = ir->idx;
-  uint32_t top = idx->size - 1;
+  uint32_t top = InvertedIndex_NumBlocks(idx) - 1;
   uint32_t bottom = ir->currentBlock + 1;
 
-  t_docId lastId = IndexBlock_LastId(&idx->blocks[bottom]);
+  IndexBlock *bottomBlock = InvertedIndex_BlockRef(idx, bottom);
+  t_docId lastId = IndexBlock_LastId(bottomBlock);
   if (docId <= lastId) {
     // the next block is the one we're looking for, although it might not contain the docId
     ir->currentBlock = bottom;
@@ -1184,7 +1281,7 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   uint32_t i;
   while (bottom <= top) {
     i = (bottom + top) / 2;
-    const IndexBlock *blk = idx->blocks + i;
+    const IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
     if (BLOCK_MATCHES(*blk, docId)) {
       ir->currentBlock = i;
       goto new_block;
@@ -1201,15 +1298,15 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   // We didn't find a matching block. According to the assumptions, there must be a block past the
   // requested docId, and the binary search brought us to it or the one before it.
   ir->currentBlock = i;
-  t_docId currentLastId = IndexBlock_LastId(&IR_CURRENT_BLOCK(ir));
+  t_docId currentLastId = IndexBlock_LastId(IR_CURRENT_BLOCK(ir));
   if (currentLastId < docId) {
     ir->currentBlock++; // It's not the current block. Advance
   }
 
 new_block:
-  RS_LOG_ASSERT(ir->currentBlock < idx->size, "Invalid block index");
-  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
-  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
+  RS_LOG_ASSERT(ir->currentBlock < InvertedIndex_NumBlocks(idx), "Invalid block index");
+  ir->lastId = IndexBlock_FirstId(IR_CURRENT_BLOCK(ir));
+  ir->br = NewBufferReader(IndexBlock_Buffer(IR_CURRENT_BLOCK(ir)));
 }
 
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
@@ -1222,11 +1319,11 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     goto eof;
   }
 
-  if (docId > ir->idx->lastId || ir->idx->size == 0) {
+  if (docId > InvertedIndex_LastId(ir->idx) || InvertedIndex_NumBlocks(ir->idx) == 0) {
     goto eof;
   }
 
-  t_docId lastId = IndexBlock_LastId(&IR_CURRENT_BLOCK(ir));
+  t_docId lastId = IndexBlock_LastId(IR_CURRENT_BLOCK(ir));
   if (lastId < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
@@ -1297,13 +1394,13 @@ static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, Inver
   // The default ctx is needed because filterCtx can be null in the case of NewOptimizerIterator
   ret->currentBlock = 0;
   ret->idx = idx;
-  ret->gcMarker = idx->gcMarker;
+  ret->gcMarker = InvertedIndex_GcMarker(idx);
   ret->record = record;
   ret->len = 0;
-  ret->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ret));
+  ret->lastId = IndexBlock_FirstId(IR_CURRENT_BLOCK(ret));
   ret->sameId = 0;
   ret->skipMulti = skipMulti;
-  ret->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ret)));
+  ret->br = NewBufferReader(IndexBlock_Buffer(IR_CURRENT_BLOCK(ret)));
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
   ret->filterCtx = *filterCtx;
@@ -1334,19 +1431,19 @@ IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx
                                 RSQueryTerm *term, double weight) {
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs);
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx));
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
   // Get the decoder
-  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(idx->flags);
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(InvertedIndex_Flags(idx));
 
   RSIndexResult *record = NewTokenRecord(term, weight);
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
   IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
+  if (fieldMaskOrIndex.isFieldMask && (InvertedIndex_Flags(idx) & Index_WideSchema))
     dctx.wideMask = fieldMaskOrIndex.value.mask;
   else if (fieldMaskOrIndex.isFieldMask)
     dctx.mask = fieldMaskOrIndex.value.mask;
@@ -1366,7 +1463,7 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx) {
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
                                    t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate) {
   IndexDecoderCtx dctx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(idx->flags);
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(InvertedIndex_Flags(idx));
   FieldFilterContext fieldFilterCtx = {.field.isFieldMask = false, .field.value.index = fieldIndex, .predicate = predicate };
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = freq;
@@ -1401,9 +1498,9 @@ void IR_Rewind(void *ctx) {
   IndexReader *ir = ctx;
   IR_SetAtEnd(ir, 0);
   ir->currentBlock = 0;
-  ir->gcMarker = ir->idx->gcMarker;
-  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
-  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
+  ir->gcMarker = InvertedIndex_GcMarker(ir->idx);
+  ir->br = NewBufferReader(IndexBlock_Buffer(IR_CURRENT_BLOCK(ir)));
+  ir->lastId = IndexBlock_FirstId(IR_CURRENT_BLOCK(ir));
   ir->sameId = 0;
 }
 

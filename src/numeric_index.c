@@ -86,7 +86,7 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
  * like QuickSelect or an approximation algorithm for the median.
  */
 static double NumericRange_GetMedian(IndexReader *ir) {
-  size_t median_idx = ir->idx->numEntries / 2;
+  size_t median_idx = InvertedIndex_NumEntries(ir->idx) / 2;
   double_heap_t *low_half = double_heap_new(median_idx);
   RSIndexResult *cur;
 
@@ -174,7 +174,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
   // free resources
   rv->sz -= temp->invertedIndexSize;
-  rv->numRecords -= temp->entries->numEntries;
+  rv->numRecords -= InvertedIndex_NumEntries(temp->entries);
   InvertedIndex_Free(temp->entries);
   hll_destroy(&temp->hll);
   rm_free(temp);
@@ -241,7 +241,7 @@ static void NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double va
 
     size_t card = getCardinality(n->range);
     if (card >= getSplitCardinality(depth) ||
-        (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
+        (InvertedIndex_NumEntries(n->range->entries) > NR_MAXRANGE_SIZE && card > 1)) {
 
       // split this node but don't delete its range
       NumericRangeNode_Split(n, rv);
@@ -263,10 +263,10 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {
       if (!nf->offset) {
-        *total += n->range->entries->numDocs;
+        *total += InvertedIndex_NumDocs(n->range->entries);
         Vector_Push(v, n->range);
       } else {
-        *total += n->range->entries->numDocs;
+        *total += InvertedIndex_NumDocs(n->range->entries);
         if (*total > nf->offset) {
           Vector_Push(v, n->range);
         }
@@ -298,7 +298,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
       }
     }
   } else if (NumericRange_Overlaps(n->range, min, max)) {
-    *total += (*total == 0 && nf->offset == 0) ? 1 : n->range->entries->numDocs;
+    *total += (*total == 0 && nf->offset == 0) ? 1 : InvertedIndex_NumDocs(n->range->entries);
     if (*total > nf->offset) {
       Vector_Push(v, n->range);
     }
@@ -379,7 +379,7 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   NumericRangeNode *n = *node;
   // stop condition - we are at leaf
   if (NumericRangeNode_IsLeaf(n)) {
-    if (n->range->entries->numDocs == 0) {
+    if (InvertedIndex_NumDocs(n->range->entries) == 0) {
       return CHILD_EMPTY;
     } else {
       return CHILD_NOT_EMPTY;
@@ -398,7 +398,7 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
     return CHILD_NOT_EMPTY;
   }
 
-  if (n->range && n->range->entries->numDocs != 0) {
+  if (n->range && InvertedIndex_NumDocs(n->range->entries) != 0) {
     // We are on a non-leaf node, with some data in it but some of its children are empty.
     // Ideally we would like to trim the empty children, but today we don't fix missing ranges
     // of inner nodes, so we better keep the node as is.
