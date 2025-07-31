@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::io::{Cursor, Read};
+
 use crate::{
     Decoder, Encoder, FilterMaskReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
     RSIndexResult, SkipDuplicatesReader,
@@ -272,13 +274,13 @@ fn u32_delta_overflow() {
 }
 
 impl Decoder for Dummy {
-    fn decode<R: std::io::Read>(
+    fn decode(
         &self,
-        reader: &mut R,
+        cursor: &mut Cursor<&[u8]>,
         prev_doc_id: u64,
     ) -> std::io::Result<RSIndexResult> {
         let mut buffer = [0; 4];
-        reader.read_exact(&mut buffer)?;
+        cursor.read_exact(&mut buffer)?;
 
         let delta = u32::from_be_bytes(buffer);
         let doc_id = prev_doc_id + (delta as u64);
@@ -379,13 +381,13 @@ fn read_using_the_first_block_id_as_the_base() {
     struct FirstBlockIdDummy;
 
     impl Decoder for FirstBlockIdDummy {
-        fn decode<R: std::io::Read>(
+        fn decode(
             &self,
-            reader: &mut R,
+            cursor: &mut Cursor<&[u8]>,
             prev_doc_id: u64,
         ) -> std::io::Result<RSIndexResult> {
             let mut buffer = [0; 4];
-            reader.read_exact(&mut buffer)?;
+            cursor.read_exact(&mut buffer)?;
 
             let delta = u32::from_be_bytes(buffer);
             let doc_id = prev_doc_id + (delta as u64);

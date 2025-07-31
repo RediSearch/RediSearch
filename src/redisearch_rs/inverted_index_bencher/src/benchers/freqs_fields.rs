@@ -214,7 +214,7 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || Cursor::new(&test.encoded),
+                    || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         let result = if self.wide {
                             FreqsFieldsWide::default().decode(buffer, 100)
