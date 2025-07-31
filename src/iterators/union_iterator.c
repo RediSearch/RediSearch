@@ -391,7 +391,7 @@ static void UI_Free(QueryIterator *base) {
  * 2. If in quick exit mode and any of the iterators is a wildcard iterator, return it and free the rest
  * 3. Otherwise, return NULL and let the caller create the union iterator
  */
-static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool quickExit, double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool quickExit) {
   QueryIterator *ret = NULL;
   // Let's remove all the empty iterators from the list
   size_t current_size = *num;
@@ -488,7 +488,7 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
 QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
                                 double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
 
-  QueryIterator* ret = UnionIteratorReducer(its, &num, quickExit, weight, type, q_str, config);
+  QueryIterator* ret = UnionIteratorReducer(its, &num, quickExit);
   if (ret != NULL) {
     return ret;
   }
