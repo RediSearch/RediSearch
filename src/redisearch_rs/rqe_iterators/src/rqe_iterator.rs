@@ -39,7 +39,8 @@ pub trait RQEIterator {
     /// Read the next entry from the iterator.
     ///
     /// On a successful read, the iterator must set its `last_doc_id` property to the new current result id
-    /// This function returns Ok with the current result or Err(RQEIteratorError) for any error.
+    /// This function returns Ok with the current result for valid results, or None if the iterator is depleted.
+    /// The function will return rr(RQEIteratorError) for any error.
     fn read(&mut self) -> Result<Option<RSIndexResult>, RQEIteratorError>;
 
     /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
@@ -56,7 +57,6 @@ pub trait RQEIterator {
     ///
     /// The iterator should check if it is still valid.
     /// Return Ok if the iterator is still valid, Moved if the iterator is still valid, its internal state has changed or Aborted if the iterator is no longer valid
-
     fn revalidate(&mut self) -> RQEValidateStatus;
 
     ///Rewind the iterator to the beginning and reset its properties.
