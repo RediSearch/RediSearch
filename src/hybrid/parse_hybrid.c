@@ -336,9 +336,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
       goto error;
     }
   }
-  // If not FILTER, the parameter may be for the next parsing function (COMBINE, etc.)
-
-  goto final;
 
 final:
   if (!vreq->query) {  // meaning there is no filter clause
