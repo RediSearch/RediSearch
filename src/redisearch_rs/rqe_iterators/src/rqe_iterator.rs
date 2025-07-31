@@ -17,9 +17,6 @@ pub enum RQEIteratorStatus {
 
     /// A `skip_to()` has found a result with a `doc_id` greater than the requested `doc_id`
     NotFound(RSIndexResult),
-
-    /// The iterator has reached the end of the index.
-    EOF,
 }
 
 /// An iterator failure indications
@@ -44,8 +41,8 @@ pub trait RQEIterator {
     /// On a successful read, the iterator must:
     /// 1. Set its `lastDocId` member to the new current result id
     /// 2. Set its `current` index result property to its current result, for the caller to access if desired
-    /// This function returns Ok(RQEIteratorStatus::OK) with a reference to the current result or Err(RQEIteratorError) for any error.
-    fn read(&mut self) -> Result<RQEIteratorStatus, RQEIteratorError>;
+    /// This function returns Ok with the current result or Err(RQEIteratorError) for any error.
+    fn read(&mut self) -> Result<Option<RSIndexResult>, RQEIteratorError>;
 
     /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
     ///
@@ -56,8 +53,8 @@ pub trait RQEIterator {
     /// 2. Set its `current` index result property to its current result, for the caller to access if desired
     ///
     /// Return `Ok(RQEIteratorStatus::OK)` if the iterator has found a record with the `docId` and `Ok(RQEIteratorStatus::NotFound)`
-    /// if the iterator found a result greater than `docId`.
-    fn skip_to(&mut self, doc_id: t_docId) -> Result<RQEIteratorStatus, RQEIteratorError>;
+    /// if the iterator found a result greater than `docId`. 'None" will be returned if the iterator has reached the end of the index.
+    fn skip_to(&mut self, doc_id: t_docId) -> Result<Option<RQEIteratorStatus>, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
