@@ -40,7 +40,7 @@ pub trait RQEIterator {
     ///
     /// On a successful read, the iterator must set its `last_doc_id` property to the new current result id
     /// This function returns Ok with the current result for valid results, or None if the iterator is depleted.
-    /// The function will return rr(RQEIteratorError) for any error.
+    /// The function will return Err(RQEIteratorError) for any error.
     fn read(&mut self) -> Result<Option<RSIndexResult>, RQEIteratorError>;
 
     /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
