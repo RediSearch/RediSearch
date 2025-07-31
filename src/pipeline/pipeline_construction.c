@@ -157,7 +157,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  if (params->common.optimizer->type != Q_OPT_NO_SORTER && !astp->noSort) {
+  if (params->common.optimizer && params->common.optimizer->type != Q_OPT_NO_SORTER && !astp->noSort) {
     if (astp->sortKeys) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
@@ -392,12 +392,12 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
       case PLN_T_ARRANGE: {
         // Disabled for now, because for HybridRequest params->common.optimizer is NULL.
-        // rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
-        // if (!rp) {
-        //   goto error;
-        // }
-        // hasArrange = 1;
-        // rpUpstream = rp;
+        rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
+        if (!rp) {
+          goto error;
+        }
+        hasArrange = 1;
+        rpUpstream = rp;
 
         break;
       }
