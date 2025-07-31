@@ -1448,6 +1448,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rqe_iterators"
+version = "0.0.1"
+dependencies = [
+ "enumflags2",
+ "ffi",
+ "inverted_index",
+ "low_memory_thin_vec",
+ "pretty_assertions",
+ "proptest",
+ "thiserror",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"

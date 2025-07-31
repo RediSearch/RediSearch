@@ -19,6 +19,7 @@ members = [
     "varint",
     "rlookup", 
     "build_utils",
+    "rqe_iterators",
 ]
 default-members = [
     "low_memory_thin_vec",
