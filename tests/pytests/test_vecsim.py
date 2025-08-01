@@ -2505,7 +2505,6 @@ def test_vector_index_ptr_valid(env):
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()
 
-
 @skip(cluster=True)
 def test_svs_vamana_info_with_compression():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -2526,19 +2525,22 @@ def test_svs_vamana_info_with_compression():
         except (IOError, FileNotFoundError):
             return False
 
-
     # Create SVS VAMANA index with all compression flavors (except for global SQ8).
-    for compression_type in ['LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', '8', 'TYPE', data_type,
-                    'DIM', dim, 'DISTANCE_METRIC', 'L2', 'COMPRESSION', compression_type).ok()
+    for compression_type in ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
+        cmd_params = ['TYPE', data_type,
+                    'DIM', dim, 'DISTANCE_METRIC', 'L2']
+        if compression_type != 'NO_COMPRESSION':
+            cmd_params.extend(['COMPRESSION', compression_type])
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', len(cmd_params), *cmd_params).ok()
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression
         # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
-        compression_runtime = compression_type if is_intel_cpu() else 'GlobalSQ8'
+        compression_runtime = compression_type if is_intel_cpu() or compression_type == 'NO_COMPRESSION' else 'GlobalSQ8'
         expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
                           'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
-                          'construction_window_size', 200, 'compression', compression_runtime, 'training_threshold',
-                          10240]]
+                          'construction_window_size', 200, 'compression', compression_runtime]]
+        if compression_type != 'NO_COMPRESSION':
+            expected_info[0].extend(['training_threshold', 10240])
         if compression_type == 'LeanVec4x8' or compression_type == 'LeanVec8x8':
             expected_info[0].extend(['reduced_dim', dim // 2])
         assertInfoField(env, 'idx', 'attributes',
