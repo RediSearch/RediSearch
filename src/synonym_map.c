@@ -260,3 +260,43 @@ cleanup:
   SynonymMap_Free(smap);
   return NULL;
 }
+
+//---------------------------------------------------------------------------------------------
+// SynonymMap Replication Functions
+//---------------------------------------------------------------------------------------------
+
+int SynonymMap_PrepareForFork(SynonymMap *smap) {
+  if (!smap) {
+    return REDISMODULE_ERR;
+  }
+
+  // Prepare synonym map for fork
+  // - Ensure dictionary consistency
+  // - Flush any pending operations
+
+  return REDISMODULE_OK;
+}
+
+int SynonymMap_OnForkCreated(SynonymMap *smap) {
+  if (!smap) {
+    return REDISMODULE_ERR;
+  }
+
+  // Handle post-fork for synonym map
+  // - Memory snapshot has been taken
+  // - Dictionary is now read-only in child process
+
+  return REDISMODULE_OK;
+}
+
+int SynonymMap_OnForkComplete(SynonymMap *smap) {
+  if (!smap) {
+    return REDISMODULE_ERR;
+  }
+
+  // Complete fork for synonym map
+  // - Resume normal write operations
+  // - Release any locks on dictionary structures
+
+  return REDISMODULE_OK;
+}

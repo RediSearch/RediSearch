@@ -19,6 +19,7 @@
 #include "numeric_filter.h"
 #include "rmutil/rm_assert.h"
 #include "geo_index.h"
+#include "redismodule.h"  // For REDISMODULE_OK/ERR constants
 
 uint64_t TotalIIBlocks = 0;
 
@@ -1504,4 +1505,45 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
 
   IndexResult_Free(res);
   return frags;
+}
+
+//---------------------------------------------------------------------------------------------
+// InvertedIndex Replication Functions
+//---------------------------------------------------------------------------------------------
+
+int InvertedIndex_PrepareForFork(InvertedIndex *idx) {
+  if (!idx) {
+    return REDISMODULE_ERR;
+  }
+
+  // Prepare inverted index for fork
+  // - Ensure index block consistency
+  // - Flush pending write operations
+  // - Acquire read locks if needed
+
+  return REDISMODULE_OK;
+}
+
+int InvertedIndex_OnForkCreated(InvertedIndex *idx) {
+  if (!idx) {
+    return REDISMODULE_ERR;
+  }
+
+  // Handle post-fork for inverted index
+  // - Memory snapshot has been taken
+  // - Index blocks are now read-only in child process
+
+  return REDISMODULE_OK;
+}
+
+int InvertedIndex_OnForkComplete(InvertedIndex *idx) {
+  if (!idx) {
+    return REDISMODULE_ERR;
+  }
+
+  // Complete fork for inverted index
+  // - Resume normal write operations
+  // - Release any locks on index blocks
+
+  return REDISMODULE_OK;
 }

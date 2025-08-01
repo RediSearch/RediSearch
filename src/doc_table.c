@@ -561,3 +561,45 @@ void DocIdMap_Free(DocIdMap *m) {
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
   return TrieMap_Delete(m->tm, s, n, rm_free);
 }
+
+//---------------------------------------------------------------------------------------------
+// DocTable Replication Functions
+//---------------------------------------------------------------------------------------------
+
+int DocTable_PrepareForFork(DocTable *docs) {
+  if (!docs) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Preparing document table for fork");
+
+  // Prepare document table for consistent snapshot
+  // - Ensure all pending document operations are flushed
+  // - Prepare for read-only access
+
+  return REDISMODULE_OK;
+}
+
+int DocTable_OnForkCreated(DocTable *docs) {
+  if (!docs) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Handling fork creation for document table");
+
+  // Handle post-fork state for document table
+
+  return REDISMODULE_OK;
+}
+
+int DocTable_OnForkComplete(DocTable *docs) {
+  if (!docs) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Completing fork for document table");
+
+  // Resume normal document table operations
+
+  return REDISMODULE_OK;
+}

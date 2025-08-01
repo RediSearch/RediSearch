@@ -159,6 +159,31 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
 */
 size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs);
 
+//---------------------------------------------------------------------------------------------
+// Tag Index Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Prepare tag index for fork
+ * @param tagIndex The TagIndex to prepare
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int TagIndex_PrepareForFork(TagIndex *tagIndex);
+
+/**
+ * Handle post-fork state for tag index
+ * @param tagIndex The TagIndex to handle
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int TagIndex_OnForkCreated(TagIndex *tagIndex);
+
+/**
+ * Resume normal operations for tag index after fork completion
+ * @param tagIndex The TagIndex to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int TagIndex_OnForkComplete(TagIndex *tagIndex);
+
 #ifdef __cplusplus
 }
 #endif

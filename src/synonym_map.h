@@ -126,4 +126,29 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
  */
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);
 
+//---------------------------------------------------------------------------------------------
+// SynonymMap Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Prepare synonym map for fork
+ * @param smap The SynonymMap to prepare
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int SynonymMap_PrepareForFork(SynonymMap *smap);
+
+/**
+ * Handle post-fork state for synonym map
+ * @param smap The SynonymMap to handle
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int SynonymMap_OnForkCreated(SynonymMap *smap);
+
+/**
+ * Resume normal operations for synonym map after fork completion
+ * @param smap The SynonymMap to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int SynonymMap_OnForkComplete(SynonymMap *smap);
+
 #endif /* SRC_SYNONYM_MAP_H_ */

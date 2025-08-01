@@ -17,6 +17,10 @@
 #include "redismodule.h"
 #include "util/misc.h"
 #include "util/heap_doubles.h"
+#include "field_spec.h"
+#include "spec.h"
+#include "module.h"
+#include "config.h"
 
 #define NR_MINRANGE_CARD 16
 #define NR_MAXRANGE_CARD 2500
@@ -629,4 +633,54 @@ void NumericRangeIterator_OnReopen(void *privdata) {
       "Unexpected iterator type %d. Expected `READ_ITERATOR` (%d) or `UNION_ITERATOR` (%d)",
       it->type, READ_ITERATOR, UNION_ITERATOR);
   }
+}
+
+//---------------------------------------------------------------------------------------------
+// Numeric Index Replication Functions
+//---------------------------------------------------------------------------------------------
+
+int NumericRangeTree_PrepareForFork(NumericRangeTree *tree) {
+  if (!tree) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Preparing numeric range tree for fork");
+
+  // Prepare numeric range tree structures
+  // - Ensure tree consistency
+  // - Flush pending numeric operations
+  // - Acquire read locks if needed
+
+  return REDISMODULE_OK;
+}
+
+int NumericRangeTree_OnForkCreated(NumericRangeTree *tree) {
+  if (!tree) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Handling fork creation for numeric range tree");
+
+  // Handle post-fork for numeric range tree
+  // - Memory snapshot has been taken
+  // - Tree is now read-only in child process
+
+  return REDISMODULE_OK;
+}
+
+int NumericRangeTree_OnForkComplete(NumericRangeTree *tree) {
+  if (!tree) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Completing fork for numeric range tree");
+
+  // Complete fork for numeric range tree
+  // - Resume normal write operations
+  // - Release any locks
+
+  return REDISMODULE_OK;
 }

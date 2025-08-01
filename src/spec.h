@@ -727,6 +727,108 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
 
+//---------------------------------------------------------------------------------------------
+// Global Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Called when fork process starts - prepare all indexes for consistent snapshot
+ * Acquires necessary locks and ensures all structures are in consistent state
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int RediSearch_PrepareForFork(void);
+
+/**
+ * Called when fork process has been created - memory snapshot taken
+ * Releases locks and allows limited operations to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int RediSearch_OnForkCreated(void);
+
+/**
+ * Called when fork process has finished - resume normal operations
+ * Fully resumes all write operations and cleans up replication state
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int RediSearch_OnForkComplete(void);
+
+/**
+ * Main orchestrator functions that call the hierarchy
+ */
+int RediSearch_ExecutePreForkSequence(void);
+int RediSearch_ExecutePostForkSequence(void);
+int RediSearch_ExecuteForkCompleteSequence(void);
+
+/**
+ * Error handling and rollback
+ */
+int RediSearch_RollbackForkPreparation(void);
+int RediSearch_HandleForkError(int error_code);
+
+//---------------------------------------------------------------------------------------------
+// IndexSpec Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Prepare all IndexSpecs for fork - ensure consistent state
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int IndexSpec_PrepareAllForFork(void);
+
+/**
+ * Handle post-fork state for all IndexSpecs
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int IndexSpec_OnAllForkCreated(void);
+
+/**
+ * Resume normal operations for all IndexSpecs after fork completion
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int IndexSpec_OnAllForkComplete(void);
+
+/**
+ * Prepare a specific IndexSpec for fork - ensure consistent state
+ * @param spec The IndexSpec to prepare
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int IndexSpec_PrepareForFork(IndexSpec *spec);
+
+/**
+ * Handle post-fork state for a specific IndexSpec
+ * @param spec The IndexSpec to handle
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int IndexSpec_OnForkCreated(IndexSpec *spec);
+
+/**
+ * Resume normal operations for a specific IndexSpec after fork completion
+ * @param spec The IndexSpec to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int IndexSpec_OnForkComplete(IndexSpec *spec);
+
+/**
+ * Prepare global dictionary for fork
+ * @param keysDict The global dictionary to prepare
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int GlobalDict_PrepareForFork(dict *keysDict);
+
+/**
+ * Handle post-fork for global dictionary
+ * @param keysDict The global dictionary to handle
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int GlobalDict_OnForkCreated(dict *keysDict);
+
+/**
+ * Resume operations for global dictionary after fork completion
+ * @param keysDict The global dictionary to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int GlobalDict_OnForkComplete(dict *keysDict);
+
 #ifdef __cplusplus
 }
 #endif

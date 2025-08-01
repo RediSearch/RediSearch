@@ -123,6 +123,31 @@ NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
 
+//---------------------------------------------------------------------------------------------
+// Numeric Index Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Prepare numeric range tree for fork
+ * @param tree The NumericRangeTree to prepare
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int NumericRangeTree_PrepareForFork(NumericRangeTree *tree);
+
+/**
+ * Handle post-fork state for numeric range tree
+ * @param tree The NumericRangeTree to handle
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int NumericRangeTree_OnForkCreated(NumericRangeTree *tree);
+
+/**
+ * Resume normal operations for numeric range tree after fork completion
+ * @param tree The NumericRangeTree to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int NumericRangeTree_OnForkComplete(NumericRangeTree *tree);
+
 #ifdef __cplusplus
 }
 #endif

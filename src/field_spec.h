@@ -168,4 +168,37 @@ static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *quer
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 
+//---------------------------------------------------------------------------------------------
+// FieldSpec Replication Functions
+//---------------------------------------------------------------------------------------------
+
+// Forward declaration to avoid circular dependency
+struct IndexSpec;
+
+// Field iteration is handled within IndexSpec-level functions
+
+/**
+ * Prepare a specific field for fork
+ * @param field The FieldSpec to prepare
+ * @param parent_spec The parent IndexSpec
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int FieldSpec_PrepareForFork(FieldSpec *field, struct IndexSpec *parent_spec);
+
+/**
+ * Handle post-fork state for a field
+ * @param field The FieldSpec to handle
+ * @param parent_spec The parent IndexSpec
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int FieldSpec_OnForkCreated(FieldSpec *field, struct IndexSpec *parent_spec);
+
+/**
+ * Resume normal operations for a field
+ * @param field The FieldSpec to resume
+ * @param parent_spec The parent IndexSpec
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int FieldSpec_OnForkComplete(FieldSpec *field, struct IndexSpec *parent_spec);
+
 #endif /* SRC_FIELD_SPEC_H_ */

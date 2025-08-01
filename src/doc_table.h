@@ -216,6 +216,31 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
 
 void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
+//---------------------------------------------------------------------------------------------
+// DocTable Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Prepare document table for fork
+ * @param docs The DocTable to prepare
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int DocTable_PrepareForFork(DocTable *docs);
+
+/**
+ * Handle post-fork state for document table
+ * @param docs The DocTable to handle
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int DocTable_OnForkCreated(DocTable *docs);
+
+/**
+ * Resume normal operations for document table after fork completion
+ * @param docs The DocTable to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int DocTable_OnForkComplete(DocTable *docs);
+
 #ifdef __cplusplus
 }
 #endif

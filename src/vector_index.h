@@ -185,6 +185,32 @@ extern "C" {
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
                                                           bool yields_metric);
+
+//---------------------------------------------------------------------------------------------
+// Vector Index Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Prepare vector index for fork
+ * @param vecsimIndex The VecSimIndex to prepare
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int VecSimIndex_PrepareForFork(VecSimIndex *vecsimIndex);
+
+/**
+ * Handle post-fork state for vector index
+ * @param vecsimIndex The VecSimIndex to handle
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int VecSimIndex_OnForkCreated(VecSimIndex *vecsimIndex);
+
+/**
+ * Resume normal operations for vector index after fork completion
+ * @param vecsimIndex The VecSimIndex to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int VecSimIndex_OnForkComplete(VecSimIndex *vecsimIndex);
+
 #ifdef __cplusplus
 }
 #endif

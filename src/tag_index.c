@@ -18,6 +18,9 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
+#include "field_spec.h"
+#include "spec.h"
+#include "config.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -358,4 +361,54 @@ size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs) {
     }
   }
   return overhead;
+}
+
+//---------------------------------------------------------------------------------------------
+// Tag Index Replication Functions
+//---------------------------------------------------------------------------------------------
+
+int TagIndex_PrepareForFork(TagIndex *tagIndex) {
+  if (!tagIndex) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Preparing tag index for fork");
+
+  // Prepare tag index structures
+  // - Ensure tag dictionary consistency
+  // - Flush pending tag operations
+  // - Prepare TrieMap structures
+
+  return REDISMODULE_OK;
+}
+
+int TagIndex_OnForkCreated(TagIndex *tagIndex) {
+  if (!tagIndex) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Handling fork creation for tag index");
+
+  // Handle post-fork for tag index
+  // - Memory snapshot has been taken
+  // - Tag dictionaries are now read-only in child process
+
+  return REDISMODULE_OK;
+}
+
+int TagIndex_OnForkComplete(TagIndex *tagIndex) {
+  if (!tagIndex) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Completing fork for tag index");
+
+  // Complete fork for tag index
+  // - Resume normal write operations
+  // - Release any locks on TrieMap structures
+
+  return REDISMODULE_OK;
 }

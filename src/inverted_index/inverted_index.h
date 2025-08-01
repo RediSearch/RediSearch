@@ -321,6 +321,31 @@ IndexIterator *NewReadIterator(IndexReader *ir);
 
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
+//---------------------------------------------------------------------------------------------
+// InvertedIndex Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Prepare inverted index for fork
+ * @param idx The InvertedIndex to prepare
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int InvertedIndex_PrepareForFork(InvertedIndex *idx);
+
+/**
+ * Handle post-fork state for inverted index
+ * @param idx The InvertedIndex to handle
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int InvertedIndex_OnForkCreated(InvertedIndex *idx);
+
+/**
+ * Resume normal operations for inverted index after fork completion
+ * @param idx The InvertedIndex to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int InvertedIndex_OnForkComplete(InvertedIndex *idx);
+
 #ifdef __cplusplus
 }
 #endif

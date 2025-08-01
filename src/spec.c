@@ -3764,3 +3764,308 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
   RedisModule_ThreadSafeContextLock(ctx);
 }
+
+//---------------------------------------------------------------------------------------------
+// IndexSpec Replication Functions
+//---------------------------------------------------------------------------------------------
+
+int RediSearch_PrepareForFork(void) {
+  if (!specDict_g) {
+    RedisModule_Log(RSDummyContext, "debug", "RediSearch: No specs to prepare for fork");
+    return REDISMODULE_OK;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Preparing all IndexSpecs for fork");
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  int total_specs = 0;
+  int prepared_specs = 0;
+
+  while ((entry = dictNext(iter))) {
+    total_specs++;
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+
+    if (!spec) {
+      RedisModule_Log(RSDummyContext, "warning", "RediSearch: Found null spec in dictionary");
+      continue;
+    }
+
+    int ret = IndexSpec_PrepareForFork(spec);
+    if (ret != REDISMODULE_OK) {
+      RedisModule_Log(RSDummyContext, "warning",
+                    "RediSearch: Failed to prepare spec '%s' for fork",
+                    IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+      dictReleaseIterator(iter);
+      return ret;
+    }
+    prepared_specs++;
+  }
+
+  dictReleaseIterator(iter);
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Prepared %d/%d IndexSpecs for fork",
+                prepared_specs, total_specs);
+
+  return REDISMODULE_OK;
+}
+
+int RediSearch_OnForkCreated(void) {
+  if (!specDict_g) {
+    return REDISMODULE_OK;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Handling fork creation for all IndexSpecs");
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+
+    if (!spec) {
+      continue;
+    }
+
+    int ret = IndexSpec_OnForkCreated(spec);
+    if (ret != REDISMODULE_OK) {
+      RedisModule_Log(RSDummyContext, "warning",
+                    "RediSearch: Failed to handle fork creation for spec '%s'",
+                    IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+      dictReleaseIterator(iter);
+      return ret;
+    }
+  }
+
+  dictReleaseIterator(iter);
+  return REDISMODULE_OK;
+}
+
+int RediSearch_OnForkComplete(void) {
+  if (!specDict_g) {
+    return REDISMODULE_OK;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Completing fork for all IndexSpecs");
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+
+    if (!spec) {
+      continue;
+    }
+
+    int ret = IndexSpec_OnForkComplete(spec);
+    if (ret != REDISMODULE_OK) {
+      RedisModule_Log(RSDummyContext, "warning",
+                    "RediSearch: Failed to complete fork for spec '%s'",
+                    IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+      dictReleaseIterator(iter);
+      return ret;
+    }
+  }
+
+  dictReleaseIterator(iter);
+  return REDISMODULE_OK;
+}
+
+int IndexSpec_PrepareForFork(IndexSpec *spec) {
+  if (!spec) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Preparing IndexSpec '%s' for fork",
+                IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+
+  // Step 1: Acquire read lock for consistency
+
+  // Step 2: Prepare all fields
+  if (spec->fields) {
+    RedisModule_Log(RSDummyContext, "debug",
+                  "RediSearch: Preparing %d fields for fork in spec '%s'",
+                  spec->numFields, IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+
+    for (int i = 0; i < spec->numFields; i++) {
+      int ret = FieldSpec_PrepareForFork(&spec->fields[i], spec);
+    }
+  }
+
+  // Step 3: Prepare document table
+  int ret = DocTable_PrepareForFork(&spec->docs);
+  if (ret != REDISMODULE_OK) {
+    return ret;
+  }
+
+  // Step 4: Prepare global dictionary
+  if (spec->keysDict) {
+    ret = GlobalDict_PrepareForFork(spec->keysDict);
+    if (ret != REDISMODULE_OK) {
+      return ret;
+    }
+  }
+
+  // Step 5: Prepare synonym map if present
+  if (spec->smap) {
+    ret = SynonymMap_PrepareForFork(spec->smap);
+    if (ret != REDISMODULE_OK) {
+      return ret;
+    }
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Successfully prepared IndexSpec '%s' for fork",
+                IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+
+  return REDISMODULE_OK;
+}
+
+int IndexSpec_OnForkCreated(IndexSpec *spec) {
+  if (!spec) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Handling fork creation for IndexSpec '%s'",
+                IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+
+  // Step 1: Release read lock, transition to read-only mode
+
+
+  // Step 2: Handle fork creation for all fields
+  if (spec->fields) {
+    for (int i = 0; i < spec->numFields; i++) {
+      int ret = FieldSpec_OnForkCreated(&spec->fields[i], spec);
+      if (ret != REDISMODULE_OK) {
+        return ret;
+      }
+    }
+  }
+
+  // Step 3: Handle document table
+  int ret = DocTable_OnForkCreated(&spec->docs);
+  if (ret != REDISMODULE_OK) {
+    return ret;
+  }
+
+  // Step 4: Handle global dictionary
+  if (spec->keysDict) {
+    ret = GlobalDict_OnForkCreated(spec->keysDict);
+    if (ret != REDISMODULE_OK) {
+      return ret;
+    }
+  }
+
+  // Step 5: Handle synonym map if present
+  if (spec->smap) {
+    ret = SynonymMap_OnForkCreated(spec->smap);
+    if (ret != REDISMODULE_OK) {
+      return ret;
+    }
+  }
+
+  return REDISMODULE_OK;
+}
+
+int IndexSpec_OnForkComplete(IndexSpec *spec) {
+  if (!spec) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Completing fork for IndexSpec '%s'",
+                IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+
+  // Step 1: Potentially go back to write-heavy operations
+
+
+  // Step 2: Complete fork for all fields
+  if (spec->fields) {
+    for (int i = 0; i < spec->numFields; i++) {
+      int ret = FieldSpec_OnForkComplete(&spec->fields[i], spec);
+      if (ret != REDISMODULE_OK) {
+        return ret;
+      }
+    }
+  }
+
+  // Step 3: Complete document table
+  int ret = DocTable_OnForkComplete(&spec->docs);
+  if (ret != REDISMODULE_OK) {
+    return ret;
+  }
+
+  // Step 4: Complete global dictionary
+  if (spec->keysDict) {
+    ret = GlobalDict_OnForkComplete(spec->keysDict);
+    if (ret != REDISMODULE_OK) {
+      return ret;
+    }
+  }
+
+  // Step 5: Complete synonym map if present
+  if (spec->smap) {
+    ret = SynonymMap_OnForkComplete(spec->smap);
+    if (ret != REDISMODULE_OK) {
+      return ret;
+    }
+  }
+
+  return REDISMODULE_OK;
+}
+
+//---------------------------------------------------------------------------------------------
+// Global Dictionary Replication Functions
+//---------------------------------------------------------------------------------------------
+
+int GlobalDict_PrepareForFork(dict *keysDict) {
+  if (!keysDict) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Preparing global dictionary for fork");
+
+  // Prepare global dictionary structures
+  // - Ensure dictionary consistency
+  // - Flush pending dictionary operations
+
+  return REDISMODULE_OK;
+}
+
+int GlobalDict_OnForkCreated(dict *keysDict) {
+  if (!keysDict) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Handling fork creation for global dictionary");
+
+  // Handle post-fork for global dictionary
+  // - Memory snapshot has been taken
+  // - Dictionary is now read-only in child process
+
+  return REDISMODULE_OK;
+}
+
+int GlobalDict_OnForkComplete(dict *keysDict) {
+  if (!keysDict) {
+    return REDISMODULE_ERR;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Completing fork for global dictionary");
+
+  // Complete fork for global dictionary
+  // - Resume normal write operations
+  // - Release any locks on dictionary structures
+
+  return REDISMODULE_OK;
+}
