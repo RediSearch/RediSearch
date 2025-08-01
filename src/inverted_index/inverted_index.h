@@ -326,25 +326,25 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
 //---------------------------------------------------------------------------------------------
 
 /**
- * Prepare inverted index for fork
- * @param idx The InvertedIndex to prepare
+ * Freeze inverted index
+ * @param idx The InvertedIndex to freeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int InvertedIndex_PrepareForFork(InvertedIndex *idx);
+int InvertedIndex_Freeze(InvertedIndex *idx);
 
 /**
- * Handle post-fork state for inverted index
- * @param idx The InvertedIndex to handle
+ * Unfreeze inverted index
+ * @param idx The InvertedIndex to unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int InvertedIndex_OnForkCreated(InvertedIndex *idx);
+int InvertedIndex_Unfreeze(InvertedIndex *idx);
 
 /**
- * Resume normal operations for inverted index after fork completion
- * @param idx The InvertedIndex to resume
+ * Unfreeze expensive writes for inverted index
+ * @param idx The InvertedIndex to fully unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int InvertedIndex_OnForkComplete(InvertedIndex *idx);
+int InvertedIndex_Unfreeze_Expensive_Writes(InvertedIndex *idx);
 
 #ifdef __cplusplus
 }

@@ -3769,18 +3769,18 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 // IndexSpec Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int RediSearch_PrepareForFork(void) {
+int RediSearch_Freeze(void) {
   if (!specDict_g) {
-    RedisModule_Log(RSDummyContext, "debug", "RediSearch: No specs to prepare for fork");
+    RedisModule_Log(RSDummyContext, "debug", "RediSearch: No specs to freeze");
     return REDISMODULE_OK;
   }
 
-  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Preparing all IndexSpecs for fork");
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Freezing all IndexSpecs");
 
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   int total_specs = 0;
-  int prepared_specs = 0;
+  int frozen_specs = 0;
 
   while ((entry = dictNext(iter))) {
     total_specs++;
@@ -3792,32 +3792,32 @@ int RediSearch_PrepareForFork(void) {
       continue;
     }
 
-    int ret = IndexSpec_PrepareForFork(spec);
+    int ret = IndexSpec_Freeze(spec);
     if (ret != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "warning",
-                    "RediSearch: Failed to prepare spec '%s' for fork",
+                    "RediSearch: Failed to freeze spec '%s'",
                     IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
       dictReleaseIterator(iter);
       return ret;
     }
-    prepared_specs++;
+    frozen_specs++;
   }
 
   dictReleaseIterator(iter);
 
   RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Prepared %d/%d IndexSpecs for fork",
-                prepared_specs, total_specs);
+                "RediSearch: Froze %d/%d IndexSpecs",
+                frozen_specs, total_specs);
 
   return REDISMODULE_OK;
 }
 
-int RediSearch_OnForkCreated(void) {
+int RediSearch_Unfreeze(void) {
   if (!specDict_g) {
     return REDISMODULE_OK;
   }
 
-  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Handling fork creation for all IndexSpecs");
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Unfreezing all IndexSpecs");
 
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
@@ -3830,10 +3830,10 @@ int RediSearch_OnForkCreated(void) {
       continue;
     }
 
-    int ret = IndexSpec_OnForkCreated(spec);
+    int ret = IndexSpec_Unfreeze(spec);
     if (ret != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "warning",
-                    "RediSearch: Failed to handle fork creation for spec '%s'",
+                    "RediSearch: Failed to unfreeze spec '%s'",
                     IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
       dictReleaseIterator(iter);
       return ret;
@@ -3844,12 +3844,12 @@ int RediSearch_OnForkCreated(void) {
   return REDISMODULE_OK;
 }
 
-int RediSearch_OnForkComplete(void) {
+int RediSearch_Unfreeze_Expensive_Writes(void) {
   if (!specDict_g) {
     return REDISMODULE_OK;
   }
 
-  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Completing fork for all IndexSpecs");
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Unfreezing expensive writes for all IndexSpecs");
 
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
@@ -3862,10 +3862,10 @@ int RediSearch_OnForkComplete(void) {
       continue;
     }
 
-    int ret = IndexSpec_OnForkComplete(spec);
+    int ret = IndexSpec_Unfreeze_Expensive_Writes(spec);
     if (ret != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "warning",
-                    "RediSearch: Failed to complete fork for spec '%s'",
+                    "RediSearch: Failed to unfreeze expensive writes for spec '%s'",
                     IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
       dictReleaseIterator(iter);
       return ret;
@@ -3876,7 +3876,7 @@ int RediSearch_OnForkComplete(void) {
   return REDISMODULE_OK;
 }
 
-int IndexSpec_PrepareForFork(IndexSpec *spec) {
+int IndexSpec_Freeze(IndexSpec *spec) {
   if (!spec) {
     return REDISMODULE_ERR;
   }
@@ -3894,7 +3894,7 @@ int IndexSpec_PrepareForFork(IndexSpec *spec) {
                   spec->numFields, IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
 
     for (int i = 0; i < spec->numFields; i++) {
-      int ret = FieldSpec_PrepareForFork(&spec->fields[i], spec);
+      int ret = FieldSpec_Freeze(&spec->fields[i], spec);
     }
   }
 
@@ -3906,7 +3906,7 @@ int IndexSpec_PrepareForFork(IndexSpec *spec) {
 
   // Step 4: Prepare global dictionary
   if (spec->keysDict) {
-    ret = GlobalDict_PrepareForFork(spec->keysDict);
+    ret = GlobalDict_Freeze(spec->keysDict);
     if (ret != REDISMODULE_OK) {
       return ret;
     }
@@ -3914,7 +3914,7 @@ int IndexSpec_PrepareForFork(IndexSpec *spec) {
 
   // Step 5: Prepare synonym map if present
   if (spec->smap) {
-    ret = SynonymMap_PrepareForFork(spec->smap);
+    ret = SynonymMap_Freeze(spec->smap);
     if (ret != REDISMODULE_OK) {
       return ret;
     }
@@ -3927,7 +3927,7 @@ int IndexSpec_PrepareForFork(IndexSpec *spec) {
   return REDISMODULE_OK;
 }
 
-int IndexSpec_OnForkCreated(IndexSpec *spec) {
+int IndexSpec_Unfreeze(IndexSpec *spec) {
   if (!spec) {
     return REDISMODULE_ERR;
   }
@@ -3942,7 +3942,7 @@ int IndexSpec_OnForkCreated(IndexSpec *spec) {
   // Step 2: Handle fork creation for all fields
   if (spec->fields) {
     for (int i = 0; i < spec->numFields; i++) {
-      int ret = FieldSpec_OnForkCreated(&spec->fields[i], spec);
+      int ret = FieldSpec_Unfreeze(&spec->fields[i], spec);
       if (ret != REDISMODULE_OK) {
         return ret;
       }
@@ -3957,7 +3957,7 @@ int IndexSpec_OnForkCreated(IndexSpec *spec) {
 
   // Step 4: Handle global dictionary
   if (spec->keysDict) {
-    ret = GlobalDict_OnForkCreated(spec->keysDict);
+    ret = GlobalDict_Unfreeze(spec->keysDict);
     if (ret != REDISMODULE_OK) {
       return ret;
     }
@@ -3965,7 +3965,7 @@ int IndexSpec_OnForkCreated(IndexSpec *spec) {
 
   // Step 5: Handle synonym map if present
   if (spec->smap) {
-    ret = SynonymMap_OnForkCreated(spec->smap);
+    ret = SynonymMap_Unfreeze(spec->smap);
     if (ret != REDISMODULE_OK) {
       return ret;
     }
@@ -3974,7 +3974,7 @@ int IndexSpec_OnForkCreated(IndexSpec *spec) {
   return REDISMODULE_OK;
 }
 
-int IndexSpec_OnForkComplete(IndexSpec *spec) {
+int IndexSpec_Unfreeze_Expensive_Writes(IndexSpec *spec) {
   if (!spec) {
     return REDISMODULE_ERR;
   }
@@ -3989,7 +3989,7 @@ int IndexSpec_OnForkComplete(IndexSpec *spec) {
   // Step 2: Complete fork for all fields
   if (spec->fields) {
     for (int i = 0; i < spec->numFields; i++) {
-      int ret = FieldSpec_OnForkComplete(&spec->fields[i], spec);
+      int ret = FieldSpec_Unfreeze_Expensive_Writes(&spec->fields[i], spec);
       if (ret != REDISMODULE_OK) {
         return ret;
       }
@@ -4004,7 +4004,7 @@ int IndexSpec_OnForkComplete(IndexSpec *spec) {
 
   // Step 4: Complete global dictionary
   if (spec->keysDict) {
-    ret = GlobalDict_OnForkComplete(spec->keysDict);
+    ret = GlobalDict_Unfreeze_Expensive_Writes(spec->keysDict);
     if (ret != REDISMODULE_OK) {
       return ret;
     }
@@ -4012,7 +4012,7 @@ int IndexSpec_OnForkComplete(IndexSpec *spec) {
 
   // Step 5: Complete synonym map if present
   if (spec->smap) {
-    ret = SynonymMap_OnForkComplete(spec->smap);
+    ret = SynonymMap_Unfreeze_Expensive_Writes(spec->smap);
     if (ret != REDISMODULE_OK) {
       return ret;
     }
@@ -4025,7 +4025,7 @@ int IndexSpec_OnForkComplete(IndexSpec *spec) {
 // Global Dictionary Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int GlobalDict_PrepareForFork(dict *keysDict) {
+int GlobalDict_Freeze(dict *keysDict) {
   if (!keysDict) {
     return REDISMODULE_ERR;
   }
@@ -4040,7 +4040,7 @@ int GlobalDict_PrepareForFork(dict *keysDict) {
   return REDISMODULE_OK;
 }
 
-int GlobalDict_OnForkCreated(dict *keysDict) {
+int GlobalDict_Unfreeze(dict *keysDict) {
   if (!keysDict) {
     return REDISMODULE_ERR;
   }
@@ -4055,7 +4055,7 @@ int GlobalDict_OnForkCreated(dict *keysDict) {
   return REDISMODULE_OK;
 }
 
-int GlobalDict_OnForkComplete(dict *keysDict) {
+int GlobalDict_Unfreeze_Expensive_Writes(dict *keysDict) {
   if (!keysDict) {
     return REDISMODULE_ERR;
   }

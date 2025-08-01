@@ -1511,7 +1511,7 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
 // InvertedIndex Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int InvertedIndex_PrepareForFork(InvertedIndex *idx) {
+int InvertedIndex_Freeze(InvertedIndex *idx) {
   if (!idx) {
     return REDISMODULE_ERR;
   }
@@ -1524,7 +1524,7 @@ int InvertedIndex_PrepareForFork(InvertedIndex *idx) {
   return REDISMODULE_OK;
 }
 
-int InvertedIndex_OnForkCreated(InvertedIndex *idx) {
+int InvertedIndex_Unfreeze(InvertedIndex *idx) {
   if (!idx) {
     return REDISMODULE_ERR;
   }
@@ -1536,7 +1536,7 @@ int InvertedIndex_OnForkCreated(InvertedIndex *idx) {
   return REDISMODULE_OK;
 }
 
-int InvertedIndex_OnForkComplete(InvertedIndex *idx) {
+int InvertedIndex_Unfreeze_Expensive_Writes(InvertedIndex *idx) {
   if (!idx) {
     return REDISMODULE_ERR;
   }

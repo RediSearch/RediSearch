@@ -131,24 +131,24 @@ void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);
 //---------------------------------------------------------------------------------------------
 
 /**
- * Prepare synonym map for fork
- * @param smap The SynonymMap to prepare
+ * Freeze synonym map
+ * @param smap The SynonymMap to freeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int SynonymMap_PrepareForFork(SynonymMap *smap);
+int SynonymMap_Freeze(SynonymMap *smap);
 
 /**
- * Handle post-fork state for synonym map
- * @param smap The SynonymMap to handle
+ * Unfreeze synonym map
+ * @param smap The SynonymMap to unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int SynonymMap_OnForkCreated(SynonymMap *smap);
+int SynonymMap_Unfreeze(SynonymMap *smap);
 
 /**
- * Resume normal operations for synonym map after fork completion
- * @param smap The SynonymMap to resume
+ * Unfreeze expensive writes for synonym map
+ * @param smap The SynonymMap to fully unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int SynonymMap_OnForkComplete(SynonymMap *smap);
+int SynonymMap_Unfreeze_Expensive_Writes(SynonymMap *smap);
 
 #endif /* SRC_SYNONYM_MAP_H_ */

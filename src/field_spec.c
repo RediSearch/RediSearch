@@ -93,7 +93,7 @@ char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate) {
 
 // Field iteration is now handled within IndexSpec-level functions
 
-int FieldSpec_PrepareForFork(FieldSpec *field, IndexSpec *parent_spec) {
+int FieldSpec_Freeze(FieldSpec *field, IndexSpec *parent_spec) {
   if (!field || !parent_spec) {
     return REDISMODULE_ERR;
   }
@@ -133,7 +133,7 @@ int FieldSpec_PrepareForFork(FieldSpec *field, IndexSpec *parent_spec) {
   return REDISMODULE_OK;
 }
 
-int FieldSpec_OnForkCreated(FieldSpec *field, IndexSpec *parent_spec) {
+int FieldSpec_Unfreeze(FieldSpec *field, IndexSpec *parent_spec) {
   if (!field || !parent_spec) {
     return REDISMODULE_ERR;
   }
@@ -163,7 +163,7 @@ int FieldSpec_OnForkCreated(FieldSpec *field, IndexSpec *parent_spec) {
   return REDISMODULE_OK;
 }
 
-int FieldSpec_OnForkComplete(FieldSpec *field, IndexSpec *parent_spec) {
+int FieldSpec_Unfreeze_Expensive_Writes(FieldSpec *field, IndexSpec *parent_spec) {
   if (!field || !parent_spec) {
     return REDISMODULE_ERR;
   }

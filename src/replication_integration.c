@@ -33,7 +33,7 @@ int FGC_periodicCallback_WithReplication(RedisModuleCtx *ctx, void *privdata) {
 
     // STEP 1: PRE-FORK PREPARATION
     // Call replication preparation before any fork operations
-    int ret = RediSearch_PrepareForFork();
+    int ret = RediSearch_Freeze();
     if (ret != REDISMODULE_OK) {
         RedisModule_Log(ctx, "warning", "ForkGC: Failed to prepare for fork, aborting GC cycle");
         return ret;
@@ -71,7 +71,7 @@ int FGC_periodicCallback_WithReplication(RedisModuleCtx *ctx, void *privdata) {
         close(pipefd[0]); // Close read end
 
         // STEP 3: POST-FORK NOTIFICATION (CHILD)
-        ret = RediSearch_OnForkCreated();
+        ret = RediSearch_Unfreeze();
         if (ret != REDISMODULE_OK) {
             RedisModule_Log(ctx, "warning", "ForkGC Child: Failed to handle fork creation");
             close(pipefd[1]);
@@ -93,7 +93,7 @@ int FGC_periodicCallback_WithReplication(RedisModuleCtx *ctx, void *privdata) {
         close(pipefd[1]); // Close write end
 
         // STEP 4: POST-FORK NOTIFICATION (PARENT)
-        ret = RediSearch_OnForkCreated();
+        ret = RediSearch_Unfreeze();
         if (ret != REDISMODULE_OK) {
             RedisModule_Log(ctx, "warning", "ForkGC Parent: Failed to handle fork creation");
             close(pipefd[0]);
@@ -110,7 +110,7 @@ int FGC_periodicCallback_WithReplication(RedisModuleCtx *ctx, void *privdata) {
         close(pipefd[0]);
 
         // STEP 5: FORK COMPLETION
-        ret = RediSearch_OnForkComplete();
+        ret = RediSearch_Unfreeze_Expensive_Writes();
         if (ret != REDISMODULE_OK) {
             RedisModule_Log(ctx, "warning", "ForkGC Parent: Failed to complete fork");
             return ret;
@@ -134,7 +134,7 @@ void Indexes_RdbSave_WithReplication(RedisModuleIO *rdb, int when) {
     RedisModule_Log(RSDummyContext, "debug", "RDB Save: Starting with replication support");
 
     // STEP 1: Prepare for RDB save (similar to fork preparation)
-    int ret = RediSearch_PrepareForFork();
+    int ret = RediSearch_Freeze();
     if (ret != REDISMODULE_OK) {
         RedisModule_Log(RSDummyContext, "warning", "RDB Save: Failed to prepare for save");
         return;
@@ -146,7 +146,7 @@ void Indexes_RdbSave_WithReplication(RedisModuleIO *rdb, int when) {
 
     if (!specDict_g || dictSize(specDict_g) == 0) {
         RedisModule_Log(RSDummyContext, "debug", "RDB Save: No specs to save");
-        RediSearch_OnForkComplete();
+        RediSearch_Unfreeze_Expensive_Writes();
         return;
     }
 
@@ -180,7 +180,7 @@ void Indexes_RdbSave_WithReplication(RedisModuleIO *rdb, int when) {
     dictReleaseIterator(iter);
 
     // STEP 3: Complete the save operation
-    ret = RediSearch_OnForkComplete();
+    ret = RediSearch_Unfreeze_Expensive_Writes();
     if (ret != REDISMODULE_OK) {
         RedisModule_Log(RSDummyContext, "warning", "RDB Save: Failed to complete save");
     }
@@ -203,14 +203,14 @@ int RediSearch_ManualReplicationTest(void) {
     int ret;
 
     // Step 1: Prepare for fork
-    ret = RediSearch_PrepareForFork();
+    ret = RediSearch_Freeze();
     if (ret != REDISMODULE_OK) {
         RedisModule_Log(RSDummyContext, "warning", "Manual Test: Prepare failed");
         return ret;
     }
 
     // Step 2: Simulate fork creation
-    ret = RediSearch_OnForkCreated();
+    ret = RediSearch_Unfreeze();
     if (ret != REDISMODULE_OK) {
         RedisModule_Log(RSDummyContext, "warning", "Manual Test: Fork creation failed");
         return ret;
@@ -220,7 +220,7 @@ int RediSearch_ManualReplicationTest(void) {
     usleep(1000); // 1ms
 
     // Step 4: Complete fork
-    ret = RediSearch_OnForkComplete();
+    ret = RediSearch_Unfreeze_Expensive_Writes();
     if (ret != REDISMODULE_OK) {
         RedisModule_Log(RSDummyContext, "warning", "Manual Test: Fork completion failed");
         return ret;

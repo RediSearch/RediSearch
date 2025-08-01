@@ -265,7 +265,7 @@ cleanup:
 // SynonymMap Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int SynonymMap_PrepareForFork(SynonymMap *smap) {
+int SynonymMap_Freeze(SynonymMap *smap) {
   if (!smap) {
     return REDISMODULE_ERR;
   }
@@ -277,7 +277,7 @@ int SynonymMap_PrepareForFork(SynonymMap *smap) {
   return REDISMODULE_OK;
 }
 
-int SynonymMap_OnForkCreated(SynonymMap *smap) {
+int SynonymMap_Unfreeze(SynonymMap *smap) {
   if (!smap) {
     return REDISMODULE_ERR;
   }
@@ -289,7 +289,7 @@ int SynonymMap_OnForkCreated(SynonymMap *smap) {
   return REDISMODULE_OK;
 }
 
-int SynonymMap_OnForkComplete(SynonymMap *smap) {
+int SynonymMap_Unfreeze_Expensive_Writes(SynonymMap *smap) {
   if (!smap) {
     return REDISMODULE_ERR;
   }

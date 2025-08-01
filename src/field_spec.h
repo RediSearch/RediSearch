@@ -178,27 +178,27 @@ struct IndexSpec;
 // Field iteration is handled within IndexSpec-level functions
 
 /**
- * Prepare a specific field for fork
- * @param field The FieldSpec to prepare
+ * Freeze a specific field
+ * @param field The FieldSpec to freeze
  * @param parent_spec The parent IndexSpec
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int FieldSpec_PrepareForFork(FieldSpec *field, struct IndexSpec *parent_spec);
+int FieldSpec_Freeze(FieldSpec *field, struct IndexSpec *parent_spec);
 
 /**
- * Handle post-fork state for a field
- * @param field The FieldSpec to handle
+ * Unfreeze a field
+ * @param field The FieldSpec to unfreeze
  * @param parent_spec The parent IndexSpec
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int FieldSpec_OnForkCreated(FieldSpec *field, struct IndexSpec *parent_spec);
+int FieldSpec_Unfreeze(FieldSpec *field, struct IndexSpec *parent_spec);
 
 /**
- * Resume normal operations for a field
- * @param field The FieldSpec to resume
+ * Unfreeze expensive writes for a field
+ * @param field The FieldSpec to fully unfreeze
  * @param parent_spec The parent IndexSpec
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int FieldSpec_OnForkComplete(FieldSpec *field, struct IndexSpec *parent_spec);
+int FieldSpec_Unfreeze_Expensive_Writes(FieldSpec *field, struct IndexSpec *parent_spec);
 
 #endif /* SRC_FIELD_SPEC_H_ */

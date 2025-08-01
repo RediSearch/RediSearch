@@ -732,25 +732,25 @@ void IndexSpecRef_Release(StrongRef ref);
 //---------------------------------------------------------------------------------------------
 
 /**
- * Called when fork process starts - prepare all indexes for consistent snapshot
- * Acquires necessary locks and ensures all structures are in consistent state
+ * Freeze all structures - acquire locks and ensure consistent state
+ * Makes all structures read-only and consistent for snapshot
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int RediSearch_PrepareForFork(void);
+int RediSearch_Freeze(void);
 
 /**
- * Called when fork process has been created - memory snapshot taken
+ * Unfreeze structures - allow basic operations to resume
  * Releases locks and allows limited operations to resume
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int RediSearch_OnForkCreated(void);
+int RediSearch_Unfreeze(void);
 
 /**
- * Called when fork process has finished - resume normal operations
+ * Unfreeze expensive writes - resume all write operations
  * Fully resumes all write operations and cleans up replication state
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int RediSearch_OnForkComplete(void);
+int RediSearch_Unfreeze_Expensive_Writes(void);
 
 /**
  * Main orchestrator functions that call the hierarchy
@@ -788,46 +788,46 @@ int IndexSpec_OnAllForkCreated(void);
 int IndexSpec_OnAllForkComplete(void);
 
 /**
- * Prepare a specific IndexSpec for fork - ensure consistent state
- * @param spec The IndexSpec to prepare
+ * Freeze a specific IndexSpec - ensure consistent state
+ * @param spec The IndexSpec to freeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int IndexSpec_PrepareForFork(IndexSpec *spec);
+int IndexSpec_Freeze(IndexSpec *spec);
 
 /**
- * Handle post-fork state for a specific IndexSpec
- * @param spec The IndexSpec to handle
+ * Unfreeze a specific IndexSpec - allow basic operations
+ * @param spec The IndexSpec to unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int IndexSpec_OnForkCreated(IndexSpec *spec);
+int IndexSpec_Unfreeze(IndexSpec *spec);
 
 /**
- * Resume normal operations for a specific IndexSpec after fork completion
- * @param spec The IndexSpec to resume
+ * Unfreeze expensive writes for a specific IndexSpec
+ * @param spec The IndexSpec to fully unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int IndexSpec_OnForkComplete(IndexSpec *spec);
+int IndexSpec_Unfreeze_Expensive_Writes(IndexSpec *spec);
 
 /**
- * Prepare global dictionary for fork
- * @param keysDict The global dictionary to prepare
+ * Freeze global dictionary
+ * @param keysDict The global dictionary to freeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int GlobalDict_PrepareForFork(dict *keysDict);
+int GlobalDict_Freeze(dict *keysDict);
 
 /**
- * Handle post-fork for global dictionary
- * @param keysDict The global dictionary to handle
+ * Unfreeze global dictionary
+ * @param keysDict The global dictionary to unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int GlobalDict_OnForkCreated(dict *keysDict);
+int GlobalDict_Unfreeze(dict *keysDict);
 
 /**
- * Resume operations for global dictionary after fork completion
- * @param keysDict The global dictionary to resume
+ * Unfreeze expensive writes for global dictionary
+ * @param keysDict The global dictionary to fully unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int GlobalDict_OnForkComplete(dict *keysDict);
+int GlobalDict_Unfreeze_Expensive_Writes(dict *keysDict);
 
 #ifdef __cplusplus
 }
