@@ -54,11 +54,7 @@ static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
   }
 }
 
-/** Cached variables to avoid serializeResult retrieving these each time */
-typedef struct {
-  RLookup *lastLk;
-  const PLN_ArrangeStep *lastAstp;
-} cachedVars;
+
 
 static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
   RedisModuleCtx *outctx = reply->ctx;
@@ -289,7 +285,7 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
   const uint32_t options = AREQ_RequestFlags(req);
   const RSDocumentMetadata *dmd = r->dmd;
 
-  RedisModule_Reply_Map(reply);
+  RedisModule_Reply_Map(reply); // >result
 
   // Reply should have the same structure of an FT.AGGREGATE reply
 
@@ -357,9 +353,11 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
         }
         RSValue_SendReply(reply, v, flags);
       }
-      RedisModule_Reply_MapEnd(reply); // >attributes
+      RedisModule_Reply_MapEnd(reply);
     }
+    RedisModule_Reply_MapEnd(reply); // >attributes
   }
+  RedisModule_Reply_MapEnd(reply); // >result
 }
 
 static size_t getResultsFactor(AREQ *req) {
@@ -462,6 +460,7 @@ void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, Sear
       }
     } else {
       // Send the results received from the pipeline as they come (no need to aggregate)
+      // TODO: For FT.SEARCH this updates req.pipeline.qctx.totalResults, but for FT.HYBRID it does not.
       *rc = rp->Next(rp, r);
     }
 }
@@ -527,13 +526,16 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
  * not support cursors and profiling, thus this function does not handle
  * those cases. Support should be added as these features are added.
  */
-static void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
+void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
+
+    // Set the chunk size limit for the query
+    rp->parent->resultLimit = limit;
 
     startPipeline(req, rp, &results, &r, &rc);
 

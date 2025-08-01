@@ -46,6 +46,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), &areq->conc, areq->reqflags, &req->errors[i]);
+
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
         // Worth noting that in the current syntax we expect the AGGPlan to be empty
@@ -110,13 +112,64 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    if (rc != REDISMODULE_OK) {
+        return rc;
+    };
 
     // Restore the LOAD step to the tail pipeline for proper cleanup
     if (loadStep) {
         AGPLN_AddStep(&req->tailPipeline->ap, &loadStep->base);
     }
     return REDISMODULE_OK;
+}
+
+/**
+ * Execute the hybrid search pipeline and send results to the client.
+ * This function creates a temporary AREQ wrapper around the tail pipeline
+ * and uses the hybrid-specific result serialization functions.
+ *
+ * @param req The HybridRequest with built pipeline
+ * @param ctx Redis module context for sending the reply
+ */
+void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
+                            RedisSearchCtx *sctx, const char *indexname) {
+
+    // Create temporary AREQ wrapper
+    AREQ *tailAREQ = AREQ_New();
+
+    // Store the original empty pipeline
+    Pipeline originalPipeline = tailAREQ->pipeline;
+
+    // Temporarily assign the tail pipeline (shallow copy)
+    tailAREQ->pipeline = *hreq->tailPipeline;
+
+    // Clear the processor chain in the original to prevent double-free
+    hreq->tailPipeline->qctx.rootProc = NULL;
+    hreq->tailPipeline->qctx.endProc = NULL;
+
+    tailAREQ->sctx = NewSearchCtxC(ctx, indexname, true);
+
+    if (hreq->nrequests > 0) {
+        tailAREQ->reqConfig = hreq->reqConfig;
+        tailAREQ->reqflags = hreq->requests[0]->reqflags;
+        tailAREQ->maxAggregateResults = hreq->requests[0]->maxAggregateResults;
+        tailAREQ->maxSearchResults = hreq->requests[0]->maxSearchResults;
+    }
+
+    AGGPlan *plan = AREQ_AGGPlan(tailAREQ);
+    cachedVars cv = {
+        .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+        .lastAstp = AGPLN_GetArrangeStep(plan)
+    };
+
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    sendChunk_hybrid(tailAREQ, reply, UINT64_MAX, cv);
+    RedisModule_EndReply(reply);
+
+    // Restore original empty pipeline
+    tailAREQ->pipeline = originalPipeline;
+    AREQ_Free(tailAREQ);
 }
 
 /**
@@ -162,6 +215,12 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
+      // Clear the pipeline's result processor chain to prevent double-free
+      // The processors (including depleters) will be freed by the tail pipeline
+      QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req->requests[i]);
+      qctx->rootProc = NULL;
+      qctx->endProc = NULL;
+
       // Check if we need to manually free the thread-safe context
       if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
         RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
@@ -196,6 +255,7 @@ void HybridRequest_Free(HybridRequest *req) {
       // Free the aggregationParams search context
       if(req->hybridParams->aggregationParams.common.sctx) {
         SearchCtx_Free(req->hybridParams->aggregationParams.common.sctx);
+        req->hybridParams->aggregationParams.common.sctx = NULL;
       }
       // Free the hybrid parameters
       rm_free(req->hybridParams);
