@@ -285,7 +285,7 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
   const uint32_t options = AREQ_RequestFlags(req);
   const RSDocumentMetadata *dmd = r->dmd;
 
-  RedisModule_Reply_Map(reply);
+  RedisModule_Reply_Map(reply); // >result
 
   // Reply should have the same structure of an FT.AGGREGATE reply
 
@@ -353,9 +353,11 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
         }
         RSValue_SendReply(reply, v, flags);
       }
-      RedisModule_Reply_MapEnd(reply); // >attributes
+      RedisModule_Reply_MapEnd(reply);
     }
+    RedisModule_Reply_MapEnd(reply); // >attributes
   }
+  RedisModule_Reply_MapEnd(reply); // >result
 }
 
 static size_t getResultsFactor(AREQ *req) {
