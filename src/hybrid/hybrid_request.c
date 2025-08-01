@@ -132,21 +132,24 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
  * @param req The HybridRequest with built pipeline
  * @param ctx Redis module context for sending the reply
  */
-void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
+void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
                             RedisSearchCtx *sctx, const char *indexname) {
-    // Create temporary AREQ wrapper around tail pipeline
+
+    // Create temporary AREQ wrapper
     AREQ *tailAREQ = AREQ_New();
 
     // Store the original empty pipeline
-    Pipeline originalPipelineContent = tailAREQ->pipeline;
+    Pipeline originalPipeline = tailAREQ->pipeline;
 
-    // Transfer the tail pipeline to the AREQ (without copying)
+    // Temporarily assign the tail pipeline (shallow copy)
     tailAREQ->pipeline = *hreq->tailPipeline;
 
-    // Create a RedisSearchCtx using the provided context
+    // Clear the processor chain in the original to prevent double-free
+    hreq->tailPipeline->qctx.rootProc = NULL;
+    hreq->tailPipeline->qctx.endProc = NULL;
+
     tailAREQ->sctx = NewSearchCtxC(ctx, indexname, true);
 
-    // Copy request configuration from the first individual request
     if (hreq->nrequests > 0) {
         tailAREQ->reqConfig = hreq->reqConfig;
         tailAREQ->reqflags = hreq->requests[0]->reqflags;
@@ -154,23 +157,18 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
         tailAREQ->maxSearchResults = hreq->requests[0]->maxSearchResults;
     }
 
-    // Set up the reply
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    // Set up cached variables for result serialization
     AGGPlan *plan = AREQ_AGGPlan(tailAREQ);
     cachedVars cv = {
         .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
         .lastAstp = AGPLN_GetArrangeStep(plan)
     };
 
-    // Execute the hybrid pipeline using the specialized hybrid serialization
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     sendChunk_hybrid(tailAREQ, reply, UINT64_MAX, cv);
-
     RedisModule_EndReply(reply);
 
-    // Restore the original empty pipeline to prevent AREQ_Free from freeing hreq's pipeline
-    tailAREQ->pipeline = originalPipelineContent;
+    // Restore original empty pipeline
+    tailAREQ->pipeline = originalPipeline;
     AREQ_Free(tailAREQ);
 }
 
@@ -263,13 +261,12 @@ void HybridRequest_Free(HybridRequest *req) {
       rm_free(req->hybridParams);
     }
 
-    // TODO: This generates a double free when the hybrid request return results
-    // // Free the tail pipeline
-    // if (req->tailPipeline) {
-    //   Pipeline_Clean(req->tailPipeline);
-    //   rm_free(req->tailPipeline);
-    //   req->tailPipeline = NULL;
-    // }
+    // Free the tail pipeline
+    if (req->tailPipeline) {
+      Pipeline_Clean(req->tailPipeline);
+      rm_free(req->tailPipeline);
+      req->tailPipeline = NULL;
+    }
 
     rm_free(req);
 }

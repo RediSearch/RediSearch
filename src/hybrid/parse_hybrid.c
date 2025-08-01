@@ -703,7 +703,7 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
       QueryError_SetError(status, QUERY_EGENERIC, "Error building hybrid pipeline");
       result = REDISMODULE_ERR;
     } else {
-      HybridRequest_Execute(hreq, ctx, sctx, indexname);
+      HREQ_Execute(hreq, ctx, sctx, indexname);
     }
 
     // Always unlock both specs

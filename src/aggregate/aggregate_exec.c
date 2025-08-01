@@ -460,6 +460,7 @@ void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, Sear
       }
     } else {
       // Send the results received from the pipeline as they come (no need to aggregate)
+      // TODO: For FT.SEARCH this updates req.pipeline.qctx.totalResults, but for FT.HYBRID it does not.
       *rc = rp->Next(rp, r);
     }
 }
@@ -532,6 +533,9 @@ void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
+
+    // Set the chunk size limit for the query
+    rp->parent->resultLimit = limit;
 
     startPipeline(req, rp, &results, &r, &rc);
 

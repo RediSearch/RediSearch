@@ -391,7 +391,6 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
       }
 
       case PLN_T_ARRANGE: {
-        // Disabled for now, because for HybridRequest params->common.optimizer is NULL.
         rp = getArrangeRP(pipeline, params, stp, status, rpUpstream, forceLoad, outStateFlags);
         if (!rp) {
           goto error;
