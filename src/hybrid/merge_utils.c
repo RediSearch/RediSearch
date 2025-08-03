@@ -11,6 +11,7 @@
 #include "rmutil/alloc.h"
 #include "query_error.h"
 #include "score_explain.h"
+#include "hybrid_scoring.h"
 #include <string.h>
 #include <assert.h>
 
@@ -148,23 +149,9 @@ double mergeHybridWrapper(HybridSearchResult *hybridResult, int8_t targetIndex, 
   HybridScoringFunction scoringFunc = GetScoringFunction(scoringCtx->scoringType);
   double hybridScore = scoringFunc(scoringCtx, values, hasValues, numValidSources);
 
-  // Create explanation string based on scoring type
-  if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    if (numValidSources == 2) {
-      EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f) + 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0], scoringCtx->rrfCtx.k, values[1]);
-    } else if (numValidSources == 1) {
-      EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0]);
-    }
-  } else if (scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    if (numValidSources == 2) {
-      EXPLAIN(scrExp, "Linear: %.2f: %.2f*%.2f + %.2f*%.2f", hybridScore,
-              scoringCtx->linearCtx.linearWeights[0], values[0],
-              scoringCtx->linearCtx.linearWeights[1], values[1]);
-    } else if (numValidSources == 1) {
-      EXPLAIN(scrExp, "Linear: %.2f: %.2f*%.2f", hybridScore,
-              scoringCtx->linearCtx.linearWeights[0], values[0]);
-    }
-  }
+  // Create explanation string using function pointer
+  HybridExplainFunction explainFunc = GetExplainFunction(scoringCtx->scoringType);
+  explainFunc(scrExp, scoringCtx, values, hybridScore, numValidSources);
 
   // Target's old explanation was already copied to children and destroyed above
   // Just need to assign the new merged explanation
