@@ -137,6 +137,7 @@ double mergeHybridWrapper(HybridSearchResult *hybridResult, size_t targetIndex, 
       // Nullify the source scoreExplain since we took ownership
       // But be careful not to nullify target (we'll handle it at the end)
       if (i != targetIndex) {
+        rm_free(hybridResult->searchResults[i]->scoreExplain);
         hybridResult->searchResults[i]->scoreExplain = NULL;
       }
 
@@ -172,7 +173,8 @@ double mergeHybridWrapper(HybridSearchResult *hybridResult, size_t targetIndex, 
 
   // Free target's old explanation if it exists (we took ownership above)
   if (target->scoreExplain) {
-    // The target's old explanation was copied to children, now we can nullify it
+    // The target's old explanation was copied to children, now we can free it
+    rm_free(target->scoreExplain);
     target->scoreExplain = NULL;
   }
 
