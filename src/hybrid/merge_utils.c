@@ -10,6 +10,7 @@
 #include "merge_utils.h"
 #include "rmutil/alloc.h"
 #include "query_error.h"
+#include "score_explain.h"
 #include <string.h>
 #include <assert.h>
 
@@ -123,18 +124,17 @@ double mergeHybridWrapper(HybridSearchResult *hybridResult, int8_t targetIndex, 
   scrExp->children = rm_calloc(numValidSources, sizeof(RSScoreExplain));
   scrExp->numChildren = numValidSources;
 
-  // Take children explanations from all valid sources
+  // Copy children explanations from all valid sources
   int childIdx = 0;
   for (size_t i = 0; i < hybridResult->numSources; i++) {
     if (hybridResult->hasResults[i] && hybridResult->searchResults[i] &&
         hybridResult->searchResults[i]->scoreExplain) {
-      scrExp->children[childIdx] = *hybridResult->searchResults[i]->scoreExplain;
+      // Copy all data from source to child
+      SECopy(&scrExp->children[childIdx], hybridResult->searchResults[i]->scoreExplain);
 
-      //Free only RSScoreExplain, its internal string was moved to the target
-      if (i != targetIndex) {
-        rm_free(hybridResult->searchResults[i]->scoreExplain);
-        hybridResult->searchResults[i]->scoreExplain = NULL;
-      }
+      // Clean up source explanation
+      SEDestroy(hybridResult->searchResults[i]->scoreExplain);
+      hybridResult->searchResults[i]->scoreExplain = NULL;
 
       childIdx++;
     }
@@ -166,12 +166,8 @@ double mergeHybridWrapper(HybridSearchResult *hybridResult, int8_t targetIndex, 
     }
   }
 
-  // Free target's old explanation if it exists (we took ownership above)
-  if (target->scoreExplain) {
-    // The target's old explanation was copied to children, now we can free it
-    rm_free(target->scoreExplain);
-    target->scoreExplain = NULL;
-  }
+  // Target's old explanation was already copied to children and destroyed above
+  // Just need to assign the new merged explanation
 
   // Populate the target SearchResult's scoreExplain (in-place)
   target->scoreExplain = scrExp;
