@@ -51,12 +51,23 @@ void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags);
 void UnionRLookupRows(RLookupRow *target_row, const RLookupRow *source_row, const RLookup *lookup);
 
 /**
- * Generic hybrid wrapper that computes hybrid score and populates explanation in target SearchResult.
+ * Apply hybrid scoring to merge search results and generate explanations.
+ * Computes hybrid score and populates explanation in target SearchResult.
  * Merges score explanations from source SearchResults into target.
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
- * Uses HybridSearchResult which contains sources, hasResults flags, and numSources.
  */
-double mergeHybridWrapper(HybridSearchResult *hybridResult, int8_t targetIndex, double *values, HybridScoringContext *scoringCtx);
+double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, double *values, HybridScoringContext *scoringCtx);
+
+/**
+ * Main function to merge SearchResults from multiple upstreams into a single comprehensive result.
+ * Finds the primary result, computes hybrid score, merges flags, and returns the merged result.
+ * This function transfers ownership of the primary result away from the HybridSearchResult.
+ * After calling this function, the caller is responsible for freeing the returned SearchResult.
+ * Note: Field data union is not performed due to RLookup index collision issues.
+ * Different upstreams may have different field index mappings even with same schema.
+ * Only the primary upstream's field data is preserved.
+ */
+SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx);
 
 
 

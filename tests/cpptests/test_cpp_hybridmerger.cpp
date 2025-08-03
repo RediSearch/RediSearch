@@ -13,6 +13,7 @@
 #include "gtest/gtest.h"
 #include "config.h"
 #include "hybrid/hybrid_scoring.h"
+#include "redisearch.h"  // For Result_ExpiredDoc flag
 #include <vector>
 #include <string>
 #include <set>
@@ -41,6 +42,7 @@ struct MockUpstream : public ResultProcessor {
   int errorAfterCount = -1;  // -1 means no error, >= 0 means return error after this many calls
   std::vector<double> scores;
   std::vector<int> docIds;
+  uint8_t flags = 0;  // Single flags value for all results
   int depletionCount = 0;
   int counter = 0;
   std::vector<RSDocumentMetadata> documentMetadata;
@@ -51,8 +53,9 @@ struct MockUpstream : public ResultProcessor {
                const std::vector<double>& Scores = {},
                const std::vector<int>& DocIds = {},
                int depletionCount = 0,
-               int errorAfterCount = -1)
-    : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), depletionCount(depletionCount) {
+               int errorAfterCount = -1,
+               uint8_t Flags = 0)
+    : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), flags(Flags), depletionCount(depletionCount) {
 
     this->Next = NextFn;
     documentMetadata.reserve(50);
@@ -117,6 +120,9 @@ struct MockUpstream : public ResultProcessor {
 
     // Use score from array
     res->score = p->scores[docIndex];
+
+    // Set flags from upstream
+    res->flags = p->flags;
 
     // Use pre-created document metadata
     res->dmd = &p->documentMetadata[p->counter];
@@ -591,7 +597,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 3); // depletionCount = 3
   MockUpstream upstream2(0, {2.0, 2.0, 2.0}, {21, 22, 23}, 1); // depletionCount = 1
 
-  
+
   ResultProcessor *rp1 = &upstream1;
   ResultProcessor *rp2 = &upstream2;
 
@@ -1190,4 +1196,152 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
 
   SearchResult_Destroy(&r);
   hybridMerger->Free(hybridMerger);
+}
+
+/*
+ * Test that hybrid merger with Linear scoring generates correct score explanations and merges flags
+ *
+ * Scoring function: Hybrid linear
+ * Number of upstreams: 2
+ * Intersection: Full intersection (same documents from both upstreams)
+ * Emptiness: Both upstreams have documents
+ * Timeout: No timeout
+ * Flag testing: Upstream1 has Result_ExpiredDoc flag, upstream2 has no flags
+ * Expected behavior: Each document gets combined score with detailed linear explanation and proper flag merging
+ */
+TEST_F(HybridMergerTest, testHybridMergerLinearScoreExplanation) {
+  QueryIterator qitr = {0};
+
+  // Create upstreams with same documents (full intersection) and different scores for interesting explanation
+  // Set Result_ExpiredDoc flag on upstream1 to test flag merging
+  MockUpstream upstream1(0, {3.0, 5.0}, {1, 2}, 0, -1, Result_ExpiredDoc);
+  MockUpstream upstream2(0, {2.0, 4.0}, {1, 2}); // Same docIds, no flags
+
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
+  // Create hybrid merger with linear scoring using specific weights for clear explanation
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  double weights[] = {0.3, 0.7}; // Clear fractional weights
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results with score explanations
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int lastResult;
+  size_t count = 0;
+
+  while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    count++;
+
+    // Basic verification
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    // Verify score explanation is populated
+    ASSERT_TRUE(r.scoreExplain != nullptr);
+    ASSERT_TRUE(r.scoreExplain->str != nullptr);
+
+    if (r.docId == 1) {
+      // Doc1: 0.3*3.0 + 0.7*2.0 = 0.9 + 1.4 = 2.3
+      ASSERT_NEAR(2.3, r.score, 0.0001);
+      // Verify explanation matches expected linear formula exactly
+      ASSERT_STREQ("Linear: 2.30: 0.30*3.00 + 0.70*2.00", r.scoreExplain->str);
+      // Verify flag merging: doc1 appears in both upstreams, should have Result_ExpiredDoc from upstream1
+      ASSERT_TRUE(r.flags & Result_ExpiredDoc);
+    } else if (r.docId == 2) {
+      // Doc2: 0.3*5.0 + 0.7*4.0 = 1.5 + 2.8 = 4.3
+      ASSERT_NEAR(4.3, r.score, 0.0001);
+      // Verify explanation matches expected linear formula exactly
+      ASSERT_STREQ("Linear: 4.30: 0.30*5.00 + 0.70*4.00", r.scoreExplain->str);
+      // Verify flag merging: doc2 appears in both upstreams, should have Result_ExpiredDoc from upstream1
+      ASSERT_TRUE(r.flags & Result_ExpiredDoc);
+    }
+
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(RS_RESULT_EOF, lastResult);
+  ASSERT_EQ(2, count); // Should have processed 2 documents
+  SearchResult_Destroy(&r);
+
+  QITR_FreeChain(&qitr);
+}
+
+/*
+ * Test that hybrid merger with RRF scoring generates correct score explanations and merges flags
+ *
+ * Scoring function: RRF (Reciprocal Rank Fusion)
+ * Number of upstreams: 2
+ * Intersection: Full intersection (same documents from both upstreams)
+ * Emptiness: Both upstreams have documents
+ * Timeout: No timeout
+ * Flag testing: Upstream1 has Result_ExpiredDoc flag, upstream2 has no flags
+ * Expected behavior: Each document gets combined RRF score with detailed explanation and proper flag merging
+ */
+TEST_F(HybridMergerTest, testHybridMergerRRFScoreExplanation) {
+  QueryIterator qitr = {0};
+
+  // Create upstreams with same documents but different rankings for interesting RRF explanation
+  // Set Result_ExpiredDoc flag on upstream1 for flag merging test
+  MockUpstream upstream1(0, {0.9, 0.5}, {1, 2}, 0, -1, Result_ExpiredDoc);
+  // Upstream2: doc2=rank1, doc1=rank2 (reverse ranking), no flags
+  MockUpstream upstream2(0, {0.8, 0.3}, {2, 1});
+
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
+  // Create hybrid merger with RRF scoring using k=60 for clear explanation
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // k=60, window=4
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results with score explanations
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int lastResult;
+  size_t count = 0;
+
+  while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    count++;
+
+    // Basic verification
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    // Verify score explanation is populated
+    ASSERT_TRUE(r.scoreExplain != nullptr);
+    ASSERT_TRUE(r.scoreExplain->str != nullptr);
+
+    if (r.docId == 1) {
+      // Doc1: 1/(60+1) + 1/(60+2) = 1/61 + 1/62 ≈ 0.0325 (rank1 in upstream1, rank2 in upstream2)
+      ASSERT_NEAR(1.0/61.0 + 1.0/62.0, r.score, 0.0001);
+      // Verify explanation matches expected RRF formula exactly
+      ASSERT_STREQ("RRF: 0.03: 1/(60+1) + 1/(60+2)", r.scoreExplain->str);
+      // Verify flag merging: doc1 appears in both upstreams, should have Result_ExpiredDoc from upstream1
+      ASSERT_TRUE(r.flags & Result_ExpiredDoc);
+    } else if (r.docId == 2) {
+      // Doc2: 1/(60+2) + 1/(60+1) = 1/62 + 1/61 ≈ 0.0325 (rank2 in upstream1, rank1 in upstream2)
+      ASSERT_NEAR(1.0/62.0 + 1.0/61.0, r.score, 0.0001);
+      // Verify explanation matches expected RRF formula exactly
+      ASSERT_STREQ("RRF: 0.03: 1/(60+2) + 1/(60+1)", r.scoreExplain->str);
+      // Verify flag merging: doc2 appears in both upstreams, should have Result_ExpiredDoc from upstream1
+      ASSERT_TRUE(r.flags & Result_ExpiredDoc);
+    }
+
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(RS_RESULT_EOF, lastResult);
+  ASSERT_EQ(2, count); // Should have processed 2 documents
+  SearchResult_Destroy(&r);
+
+  QITR_FreeChain(&qitr);
 }

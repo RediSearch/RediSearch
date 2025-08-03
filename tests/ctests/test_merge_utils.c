@@ -303,9 +303,9 @@ int testUnionRLookupRows_Idempotency() {
 }
 
 /**
- * Test mergeHybridWrapper function with RRF scoring and targetIndex = 0 (first result as target)
+ * Test ApplyHybridScoring function with RRF scoring and targetIndex = 0 (first result as target)
  */
-int testMergeHybridWrapper_RRF_TargetIndex0() {
+int testApplyHybridScoring_RRF_TargetIndex0() {
   // Create HybridSearchResult with 2 upstreams
   HybridSearchResult* hybridResult = HybridSearchResult_New(2);
   ASSERT(hybridResult != NULL);
@@ -341,8 +341,8 @@ int testMergeHybridWrapper_RRF_TargetIndex0() {
   // Set up ranks for RRF calculation
   double ranks[2] = {1.0, 2.0}; // rank 1 and rank 2
 
-  // Test: Call mergeHybridWrapper with result1 as target (index 0)
-  double rrfScore = mergeHybridWrapper(hybridResult, 0, ranks, &scoringCtx);
+  // Test: Call ApplyHybridScoring with result1 as target (index 0)
+  double rrfScore = ApplyHybridScoring(hybridResult, 0, ranks, &scoringCtx);
 
   // Verify: RRF score was calculated and returned
   ASSERT(rrfScore > 0.0);
@@ -377,9 +377,9 @@ int testMergeHybridWrapper_RRF_TargetIndex0() {
 }
 
 /**
- * Test mergeHybridWrapper function with RRF scoring and targetIndex = 1 (second result as target)
+ * Test ApplyHybridScoring function with RRF scoring and targetIndex = 1 (second result as target)
  */
-int testMergeHybridWrapper_RRF_TargetIndex1() {
+int testApplyHybridScoring_RRF_TargetIndex1() {
   // Create HybridSearchResult with 2 upstreams
   HybridSearchResult* hybridResult = HybridSearchResult_New(2);
   ASSERT(hybridResult != NULL);
@@ -415,8 +415,8 @@ int testMergeHybridWrapper_RRF_TargetIndex1() {
   // Set up ranks for RRF calculation
   double ranks[2] = {1.0, 2.0}; // rank 1 and rank 2
 
-  // Test: Call mergeHybridWrapper with result2 as target (index 1)
-  double rrfScore = mergeHybridWrapper(hybridResult, 1, ranks, &scoringCtx);
+  // Test: Call ApplyHybridScoring with result2 as target (index 1)
+  double rrfScore = ApplyHybridScoring(hybridResult, 1, ranks, &scoringCtx);
 
   // Verify: RRF score was calculated and returned
   ASSERT(rrfScore > 0.0);
@@ -449,9 +449,9 @@ int testMergeHybridWrapper_RRF_TargetIndex1() {
 }
 
 /**
- * Test mergeHybridWrapper function with RRF scoring and single upstream result
+ * Test ApplyHybridScoring function with RRF scoring and single upstream result
  */
-int testMergeHybridWrapper_RRF_SingleResult() {
+int testApplyHybridScoring_RRF_SingleResult() {
   // Create HybridSearchResult with 1 upstream
   HybridSearchResult* hybridResult = HybridSearchResult_New(1);
   ASSERT(hybridResult != NULL);
@@ -478,8 +478,8 @@ int testMergeHybridWrapper_RRF_SingleResult() {
   // Set up rank for single result
   double ranks[1] = {1.0}; // rank 1
 
-  // Test: Call mergeHybridWrapper with single result (index 0)
-  double rrfScore = mergeHybridWrapper(hybridResult, 0, ranks, &scoringCtx);
+  // Test: Call ApplyHybridScoring with single result (index 0)
+  double rrfScore = ApplyHybridScoring(hybridResult, 0, ranks, &scoringCtx);
 
   // Verify: RRF score was calculated correctly for single result
   ASSERT(rrfScore > 0.0);
@@ -506,9 +506,9 @@ int testMergeHybridWrapper_RRF_SingleResult() {
 }
 
 /**
- * Test mergeHybridWrapper function with Linear scoring
+ * Test ApplyHybridScoring function with Linear scoring
  */
-int testMergeHybridWrapper_Linear() {
+int testApplyHybridScoring_Linear() {
   // Create HybridSearchResult with 2 upstreams
   HybridSearchResult* hybridResult = HybridSearchResult_New(2);
   ASSERT(hybridResult != NULL);
@@ -547,8 +547,8 @@ int testMergeHybridWrapper_Linear() {
   // Set up scores for Linear calculation
   double scores[2] = {0.85, 0.92}; // raw scores
 
-  // Test: Call mergeHybridWrapper with Linear scoring (result1 as target)
-  double linearScore = mergeHybridWrapper(hybridResult, 0, scores, &scoringCtx);
+  // Test: Call ApplyHybridScoring with Linear scoring (result1 as target)
+  double linearScore = ApplyHybridScoring(hybridResult, 0, scores, &scoringCtx);
 
   // Verify: Linear score was calculated and returned
   ASSERT(linearScore > 0.0);
@@ -582,9 +582,9 @@ TEST_MAIN({
   TESTFUNC(testUnionRLookupRows_RefCounting);
   TESTFUNC(testUnionRLookupRows_OverlappingFields);
   TESTFUNC(testUnionRLookupRows_Idempotency);
-  TESTFUNC(testMergeHybridWrapper_RRF_TargetIndex0);
-  TESTFUNC(testMergeHybridWrapper_RRF_TargetIndex1);
-  TESTFUNC(testMergeHybridWrapper_RRF_SingleResult);
-  TESTFUNC(testMergeHybridWrapper_Linear);
+  TESTFUNC(testApplyHybridScoring_RRF_TargetIndex0);
+  TESTFUNC(testApplyHybridScoring_RRF_TargetIndex1);
+  TESTFUNC(testApplyHybridScoring_RRF_SingleResult);
+  TESTFUNC(testApplyHybridScoring_Linear);
 
 })
