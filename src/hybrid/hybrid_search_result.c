@@ -18,17 +18,17 @@
 
 /**
  * Constructor for HybridSearchResult.
- * Allocates memory for storing SearchResults from numUpstreams sources.
+ * Allocates memory for storing SearchResults from numSources sources.
  */
-HybridSearchResult* HybridSearchResult_New(size_t numUpstreams) {
-  if (numUpstreams == 0) {
+HybridSearchResult* HybridSearchResult_New(size_t numSources) {
+  if (numSources == 0) {
     return NULL;
   }
 
   HybridSearchResult* result = rm_calloc(1, sizeof(HybridSearchResult));
-  result->searchResults = array_newlen(SearchResult*, numUpstreams);
-  result->hasResults = array_newlen(bool, numUpstreams);
-  result->numSources = numUpstreams;
+  result->searchResults = array_newlen(SearchResult*, numSources);
+  result->hasResults = array_newlen(bool, numSources);
+  result->numSources = numSources;
   return result;
 }
 
@@ -53,6 +53,21 @@ void HybridSearchResult_Free(HybridSearchResult* result) {
   array_free(result->hasResults);
 
   rm_free(result);
+}
+
+/**
+ * Store a SearchResult from a source into the HybridSearchResult.
+ * Updates the score of the SearchResult and marks the source as having results.
+ */
+void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResult* searchResult, int sourceIndex) {
+  if (!hybridResult || !searchResult ) {
+    return;
+  }
+  RS_ASSERT(sourceIndex < hybridResult->numSources);
+
+  // Store the SearchResult from this source (preserving all data)
+  hybridResult->searchResults[sourceIndex] = searchResult;
+  hybridResult->hasResults[sourceIndex] = true;
 }
 
 

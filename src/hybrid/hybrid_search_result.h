@@ -20,23 +20,29 @@ extern "C" {
 #endif
 
 /**
- * HybridSearchResult structure that stores SearchResults from multiple upstreams.
+ * HybridSearchResult structure that stores SearchResults from multiple sources.
  */
 typedef struct {
-  arrayof(SearchResult*) searchResults;  // Array of SearchResults from each upstream
+  arrayof(SearchResult*) searchResults;  // Array of SearchResults from each source
   arrayof(bool) hasResults;              // Result availability flags
-  size_t numSources;                     // Number of upstreams
+  size_t numSources;                     // Number of sources
 } HybridSearchResult;
 
 /**
  * Constructor for HybridSearchResult.
  */
-HybridSearchResult* HybridSearchResult_New(size_t numUpstreams);
+HybridSearchResult* HybridSearchResult_New(size_t numSources);
 
 /**
  * Destructor for HybridSearchResult.
  */
 void HybridSearchResult_Free(HybridSearchResult* result);
+
+/**
+ * Store a SearchResult from a source into the HybridSearchResult.
+ * Updates the score of the SearchResult and marks the source as having results.
+ */
+void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResult* searchResult, int sourceIndex);
 
 
 

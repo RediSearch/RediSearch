@@ -1709,12 +1709,9 @@ dictType dictTypeHybridSearchResult = {
      dictAdd(hybridResults, (void*)keyPtr, hybridResult);
    }
 
-   // Store the SearchResult from this upstream (preserving all data)
-   hybridResult->searchResults[upstreamIndex] = r;
-   hybridResult->hasResults[upstreamIndex] = true;
-
-   // Update the score in the SearchResult itself
    r->score = score;
+   // Store the SearchResult using the encapsulated function
+   HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
  }
 
 
