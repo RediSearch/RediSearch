@@ -28,6 +28,10 @@ HybridSearchResult* HybridSearchResult_New(size_t numSources) {
   HybridSearchResult* result = rm_calloc(1, sizeof(HybridSearchResult));
   result->searchResults = array_newlen(SearchResult*, numSources);
   result->hasResults = array_newlen(bool, numSources);
+  for (size_t i = 0; i < numSources; ++i) {
+    result->searchResults[i] = NULL;
+    result->hasResults[i] = false;
+  }
   result->numSources = numSources;
   return result;
 }
