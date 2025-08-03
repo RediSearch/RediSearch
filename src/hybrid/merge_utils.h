@@ -56,7 +56,7 @@ void UnionRLookupRows(RLookupRow *target_row, const RLookupRow *source_row, cons
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  * Uses HybridSearchResult which contains sources, hasResults flags, and numSources.
  */
-double mergeHybridWrapper(HybridSearchResult *hybridResult, size_t targetIndex, double *values, HybridScoringContext *scoringCtx);
+double mergeHybridWrapper(HybridSearchResult *hybridResult, int8_t targetIndex, double *values, HybridScoringContext *scoringCtx);
 
 
 

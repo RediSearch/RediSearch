@@ -103,20 +103,16 @@ void UnionRLookupRows(RLookupRow *target_row, const RLookupRow *source_row, cons
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  * Uses HybridSearchResult which contains sources, hasResults flags, and numSources.
  */
-double mergeHybridWrapper(HybridSearchResult *hybridResult, size_t targetIndex, double *values, HybridScoringContext *scoringCtx) {
-  if (!hybridResult || !values || !scoringCtx ||
-      targetIndex >= hybridResult->numSources ||
-      !hybridResult->hasResults[targetIndex] ||
-      !hybridResult->searchResults[targetIndex]) {
-    return 0.0;
-  }
+double mergeHybridWrapper(HybridSearchResult *hybridResult, int8_t targetIndex, double *values, HybridScoringContext *scoringCtx) {
+  RS_ASSERT(hybridResult && values && scoringCtx);
+  RS_ASSERT(hybridResult->hasResults[targetIndex]);
 
   SearchResult *target = hybridResult->searchResults[targetIndex];
 
   // Count valid sources using hasResults flags
   int numValidSources = 0;
   for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
+    if (hybridResult->hasResults[i]) {
       numValidSources++;
     }
   }
@@ -127,15 +123,14 @@ double mergeHybridWrapper(HybridSearchResult *hybridResult, size_t targetIndex, 
   scrExp->children = rm_calloc(numValidSources, sizeof(RSScoreExplain));
   scrExp->numChildren = numValidSources;
 
-  // Copy children explanations from all valid sources and take ownership
+  // Take children explanations from all valid sources
   int childIdx = 0;
   for (size_t i = 0; i < hybridResult->numSources; i++) {
     if (hybridResult->hasResults[i] && hybridResult->searchResults[i] &&
         hybridResult->searchResults[i]->scoreExplain) {
       scrExp->children[childIdx] = *hybridResult->searchResults[i]->scoreExplain;
 
-      // Nullify the source scoreExplain since we took ownership
-      // But be careful not to nullify target (we'll handle it at the end)
+      //Free only RSScoreExplain, its internal string was moved to the target
       if (i != targetIndex) {
         rm_free(hybridResult->searchResults[i]->scoreExplain);
         hybridResult->searchResults[i]->scoreExplain = NULL;
@@ -156,7 +151,7 @@ double mergeHybridWrapper(HybridSearchResult *hybridResult, size_t targetIndex, 
   // Create explanation string based on scoring type
   if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {
     if (numValidSources == 2) {
-      EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f) + 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0], values[1]);
+      EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f) + 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0], scoringCtx->rrfCtx.k, values[1]);
     } else if (numValidSources == 1) {
       EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0]);
     }
