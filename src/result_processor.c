@@ -19,7 +19,7 @@
 #include <pthread.h>
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
-#include "hybrid/merge_utils.h"
+#include "hybrid/hybrid_search_result.h"
 #include "src/util/likely.h"
 
 /*******************************************************************************************************************
@@ -1661,7 +1661,7 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
   return &ret->base;
 }
 
-// Note: HybridSearchResult is now defined in hybrid/merge_utils.h
+// Note: HybridSearchResult is now defined in hybrid/hybrid_search_result.h
 
 // Wrapper for HybridSearchResult destructor to match dictionary value destructor signature
 static void hybridSearchResultValueDestructor(void *privdata, void *obj) {
