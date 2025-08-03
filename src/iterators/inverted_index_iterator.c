@@ -132,7 +132,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
   if (it->gcMarker == it->idx->gcMarker) {
     // no GC - we just go to the same offset we were at
     size_t offset = it->blockReader.buffReader.pos;
-    SetCurrentBlockReader(it);
+    it->blockReader.buffReader = NewBufferReader(IndexBlock_Buffer(&CURRENT_BLOCK(it)));
     it->blockReader.buffReader.pos = offset;
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
