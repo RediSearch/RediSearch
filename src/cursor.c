@@ -357,20 +357,6 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 }
 #endif // FTINFO_FOR_INFO_MODULES
 
-void CursorList_Destroy(CursorList *cl) {
-  for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
-    if (!kh_exist(cl->lookup, ii)) {
-      continue;
-    }
-    Cursor *c = kh_val(cl->lookup, ii);
-    Cursor_FreeInternal(c);
-  }
-  kh_destroy(cursors, cl->lookup);
-
-  pthread_mutex_destroy(&cl->lock);
-  Array_Free(&cl->idle);
-}
-
 void CursorList_Empty(CursorList *cl) {
   CursorList_Lock(cl);
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
