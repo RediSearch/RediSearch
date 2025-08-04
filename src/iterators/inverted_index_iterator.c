@@ -118,6 +118,39 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
   return VALIDATE_OK;
 }
 
+static ValidateStatus WildcardCheckAbort(QueryIterator *base) {
+  // Check if the wildcard iterator is still valid
+  InvIndIterator *wi = (InvIndIterator *)base;
+  RS_ASSERT(wi->idx);
+  RS_ASSERT(wi->sctx && wi->sctx->spec);
+
+  if (wi->sctx->spec->existingDocs != wi->idx) {
+    return VALIDATE_ABORTED;
+  }
+  return VALIDATE_OK;
+}
+
+static ValidateStatus MissingCheckAbort(QueryIterator *base) {
+  // Check if the missing iterator is still valid
+  InvIndIterator *mi = (InvIndIterator *)base;
+  RS_ASSERT(mi->idx);
+  RS_ASSERT(mi->sctx && mi->sctx->spec);
+  RS_ASSERT(mi->sctx->spec->missingFieldDict);
+  RS_ASSERT(mi->sctx->spec->numFields > mi->filterCtx.field.value.index);
+
+  const HiddenString *fieldName = mi->sctx->spec->fields[mi->filterCtx.field.value.index]->fieldName;
+  const InvertedIndex *missingII = dictFetchValue(mi->sctx->spec->missingFieldDict, fieldName);
+
+  if (mi->idx != missingII) {
+    // The inverted index was collected entirely by GC.
+    // All the documents that were inside were deleted and new ones were added.
+    // We will not continue reading those new results and instead abort reading
+    // for this specific inverted index.
+    return VALIDATE_ABORTED;
+  }
+  return VALIDATE_OK;
+}
+
 static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
   // Here we should apply the specifics of Term, Tag and Numeric
 
@@ -707,15 +740,29 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   return InitInvIndIterator(&it->base, idx, record, &fieldCtx, true, sctx, &dctx, TagCheckAbort);
 }
 
+QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight) {
+  FieldFilterContext fieldCtx = {
+    .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
+    .predicate = FIELD_EXPIRATION_DEFAULT,
+  };
+  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL};
+  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+  record->freq = 1;
 
-QueryIterator *NewInvIndIterator_GenericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
-                                              enum FieldExpirationPredicate predicate, double weight) {
+  InvIndIterator *it = rm_calloc(1, sizeof(*it));
+  InitInvIndIterator(it, idx, record, &fieldCtx, true, sctx, &decoderCtx, WildcardCheckAbort);
+  it->isWildcard = true; // Mark as wildcard iterator
+  return &it->base;
+}
+
+QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex) {
   FieldFilterContext fieldCtx = {
     .field = {.isFieldMask = false, .value = {.index = fieldIndex}},
-    .predicate = predicate,
+    .predicate = FIELD_EXPIRATION_MISSING, // Missing predicate
   };
   IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  record->freq = (predicate == FIELD_EXPIRATION_MISSING) ? 0 : 1; // TODO: is this required?
-  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx, EmptyCheckAbort);
+  RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);
+  record->freq = 1;
+
+  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx, MissingCheckAbort);
 }

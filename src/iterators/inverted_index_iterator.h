@@ -86,14 +86,12 @@ QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const Re
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight);
 
-// Returns an iterator for a generic index, suitable for queries
-// The returned iterator will yield "virtual" records. For term/numeric indexes, it is best to use
-// the specific functions NewInvIndIterator_TermQuery/NewInvIndIterator_NumericQuery
-// It is assumed that the index will not be dropped while the iterator is in use
-// (for general inverted indexes like terms, tags, this is NOT guaranteed,
-// if all the documents are deleted, the index will be dropped by the garbage collector).
-QueryIterator *NewInvIndIterator_GenericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
-                                              enum FieldExpirationPredicate predicate, double weight);
+// Returns an iterator for a wildcard index (optimized for wildcard queries) - mainly to revalidate the index
+QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
+
+// Returns an iterator for a missing index - revalidate the missing index was not deleted
+// Result is a virtual result with a weight of 0.0, and a field mask of RS_FIELDMASK_ALL
+QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex);
 
 // API for full index scan with TagIndex. Not suitable for queries
 QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagIndex *tagIdx);

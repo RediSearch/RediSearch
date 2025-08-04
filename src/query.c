@@ -1501,8 +1501,7 @@ static QueryIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   // Create an iterator for the missing values InvertedIndex.
-  // FIXME: Generic API must assume the index cannot be dropped, but missingII may be dropped
-  return NewInvIndIterator_GenericQuery(missingII, q->sctx, fs->index, FIELD_EXPIRATION_MISSING, 0.0);
+  return NewInvIndIterator_MissingQuery(missingII, q->sctx, fs->index);
 }
 
 QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
