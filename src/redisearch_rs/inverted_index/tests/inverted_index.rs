@@ -15,7 +15,9 @@ use inverted_index::{
 };
 
 // We can't use the defaults in `c_mocks` for these functions since the tests in this file will call
-// some of them. Therefore we are redefining them here with changes.
+// some of them. Therefore we are redefining the following functions here:
+// - Term_Offset_Data_Free
+// - Term_Free
 #[unsafe(no_mangle)]
 pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
     if result.is_null() {

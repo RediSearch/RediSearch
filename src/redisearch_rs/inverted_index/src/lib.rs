@@ -316,7 +316,8 @@ impl RSAggregateResult {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the memory at the given index is still valid
+    /// The caller must ensure that the memory at the given index is still valid - ie, the heap
+    /// memory pointed to by the `*mut RSIndexResult` is still valid and has not been deallocated.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut RSIndexResult> {
         if let Some(result_addr) = self.records.get_mut(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
