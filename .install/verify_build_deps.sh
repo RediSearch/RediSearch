@@ -180,7 +180,7 @@ declare -A common_dependencies=(
   ["g++"]="command"        # Verify using command -v
   ["python3"]="command"    # Verify using command -v
   ["cmake"]="command"      # Verify using command -v
-  ["cargo"]="command"      # Verify using command -v
+  # ["cargo"]="command"    # Only check if TESTS is set
 )
 
 # Define OS-specific dependencies
@@ -223,6 +223,11 @@ declare -A dependencies
 for key in "${!common_dependencies[@]}"; do
   dependencies["$key"]="${common_dependencies[$key]}"
 done
+
+# Conditionally add cargo if TEST
+if [[ "$TEST" == "1" ]]; then
+  dependencies["cargo"]="command"
+fi
 
 # Add OS-specific dependencies
 if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
