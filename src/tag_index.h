@@ -164,25 +164,25 @@ size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs);
 //---------------------------------------------------------------------------------------------
 
 /**
- * Prepare tag index for fork
- * @param tagIndex The TagIndex to prepare
+ * Freeze tag index
+ * @param tagIndex The TagIndex to freeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int TagIndex_PrepareForFork(TagIndex *tagIndex);
+int TagIndex_Freeze(TagIndex *tagIndex);
 
 /**
- * Handle post-fork state for tag index
- * @param tagIndex The TagIndex to handle
+ * Unfreeze tag index
+ * @param tagIndex The TagIndex to unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int TagIndex_OnForkCreated(TagIndex *tagIndex);
+int TagIndex_Unfreeze(TagIndex *tagIndex);
 
 /**
- * Resume normal operations for tag index after fork completion
- * @param tagIndex The TagIndex to resume
+ * Unfreeze expensive writes for tag index
+ * @param tagIndex The TagIndex to fully unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int TagIndex_OnForkComplete(TagIndex *tagIndex);
+int TagIndex_Unfreeze_Expensive_Writes(TagIndex *tagIndex);
 
 #ifdef __cplusplus
 }

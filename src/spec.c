@@ -3899,7 +3899,7 @@ int IndexSpec_Freeze(IndexSpec *spec) {
   }
 
   // Step 3: Prepare document table
-  int ret = DocTable_PrepareForFork(&spec->docs);
+  int ret = DocTable_Freeze(&spec->docs);
   if (ret != REDISMODULE_OK) {
     return ret;
   }
@@ -3950,7 +3950,7 @@ int IndexSpec_Unfreeze(IndexSpec *spec) {
   }
 
   // Step 3: Handle document table
-  int ret = DocTable_OnForkCreated(&spec->docs);
+  int ret = DocTable_Unfreeze(&spec->docs);
   if (ret != REDISMODULE_OK) {
     return ret;
   }
@@ -3997,7 +3997,7 @@ int IndexSpec_Unfreeze_Expensive_Writes(IndexSpec *spec) {
   }
 
   // Step 3: Complete document table
-  int ret = DocTable_OnForkComplete(&spec->docs);
+  int ret = DocTable_Unfreeze_Expensive_Writes(&spec->docs);
   if (ret != REDISMODULE_OK) {
     return ret;
   }

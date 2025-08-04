@@ -221,25 +221,25 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 //---------------------------------------------------------------------------------------------
 
 /**
- * Prepare document table for fork
- * @param docs The DocTable to prepare
+ * Freeze document table
+ * @param docs The DocTable to freeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int DocTable_PrepareForFork(DocTable *docs);
+int DocTable_Freeze(DocTable *docs);
 
 /**
- * Handle post-fork state for document table
- * @param docs The DocTable to handle
+ * Unfreeze document table
+ * @param docs The DocTable to unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int DocTable_OnForkCreated(DocTable *docs);
+int DocTable_Unfreeze(DocTable *docs);
 
 /**
- * Resume normal operations for document table after fork completion
- * @param docs The DocTable to resume
+ * Unfreeze expensive writes for document table
+ * @param docs The DocTable to fully unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int DocTable_OnForkComplete(DocTable *docs);
+int DocTable_Unfreeze_Expensive_Writes(DocTable *docs);
 
 #ifdef __cplusplus
 }

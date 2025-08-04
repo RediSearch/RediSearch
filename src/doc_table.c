@@ -566,7 +566,7 @@ int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
 // DocTable Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int DocTable_PrepareForFork(DocTable *docs) {
+int DocTable_Freeze(DocTable *docs) {
   if (!docs) {
     return REDISMODULE_ERR;
   }
@@ -580,7 +580,7 @@ int DocTable_PrepareForFork(DocTable *docs) {
   return REDISMODULE_OK;
 }
 
-int DocTable_OnForkCreated(DocTable *docs) {
+int DocTable_Unfreeze(DocTable *docs) {
   if (!docs) {
     return REDISMODULE_ERR;
   }
@@ -592,7 +592,7 @@ int DocTable_OnForkCreated(DocTable *docs) {
   return REDISMODULE_OK;
 }
 
-int DocTable_OnForkComplete(DocTable *docs) {
+int DocTable_Unfreeze_Expensive_Writes(DocTable *docs) {
   if (!docs) {
     return REDISMODULE_ERR;
   }

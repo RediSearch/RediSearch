@@ -667,7 +667,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
 // Vector Index Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int VecSimIndex_PrepareForFork(VecSimIndex *vecsimIndex) {
+int VecSimIndex_Freeze(VecSimIndex *vecsimIndex) {
   if (!vecsimIndex) {
     return REDISMODULE_ERR;
   }
@@ -683,7 +683,7 @@ int VecSimIndex_PrepareForFork(VecSimIndex *vecsimIndex) {
   return REDISMODULE_OK;
 }
 
-int VecSimIndex_OnForkCreated(VecSimIndex *vecsimIndex) {
+int VecSimIndex_Unfreeze(VecSimIndex *vecsimIndex) {
   if (!vecsimIndex) {
     return REDISMODULE_ERR;
   }
@@ -698,7 +698,7 @@ int VecSimIndex_OnForkCreated(VecSimIndex *vecsimIndex) {
   return REDISMODULE_OK;
 }
 
-int VecSimIndex_OnForkComplete(VecSimIndex *vecsimIndex) {
+int VecSimIndex_Unfreeze_Expensive_Writes(VecSimIndex *vecsimIndex) {
   if (!vecsimIndex) {
     return REDISMODULE_ERR;
   }

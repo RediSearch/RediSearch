@@ -769,23 +769,7 @@ int RediSearch_HandleForkError(int error_code);
 // IndexSpec Replication Functions
 //---------------------------------------------------------------------------------------------
 
-/**
- * Prepare all IndexSpecs for fork - ensure consistent state
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int IndexSpec_PrepareAllForFork(void);
-
-/**
- * Handle post-fork state for all IndexSpecs
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int IndexSpec_OnAllForkCreated(void);
-
-/**
- * Resume normal operations for all IndexSpecs after fork completion
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int IndexSpec_OnAllForkComplete(void);
+// Note: Global iteration through all IndexSpecs is handled at the Global level
 
 /**
  * Freeze a specific IndexSpec - ensure consistent state

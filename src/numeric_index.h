@@ -128,25 +128,25 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
 //---------------------------------------------------------------------------------------------
 
 /**
- * Prepare numeric range tree for fork
- * @param tree The NumericRangeTree to prepare
+ * Freeze numeric range tree
+ * @param tree The NumericRangeTree to freeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int NumericRangeTree_PrepareForFork(NumericRangeTree *tree);
+int NumericRangeTree_Freeze(NumericRangeTree *tree);
 
 /**
- * Handle post-fork state for numeric range tree
- * @param tree The NumericRangeTree to handle
+ * Unfreeze numeric range tree
+ * @param tree The NumericRangeTree to unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int NumericRangeTree_OnForkCreated(NumericRangeTree *tree);
+int NumericRangeTree_Unfreeze(NumericRangeTree *tree);
 
 /**
- * Resume normal operations for numeric range tree after fork completion
- * @param tree The NumericRangeTree to resume
+ * Unfreeze expensive writes for numeric range tree
+ * @param tree The NumericRangeTree to fully unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int NumericRangeTree_OnForkComplete(NumericRangeTree *tree);
+int NumericRangeTree_Unfreeze_Expensive_Writes(NumericRangeTree *tree);
 
 #ifdef __cplusplus
 }

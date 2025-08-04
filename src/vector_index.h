@@ -191,25 +191,25 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
 //---------------------------------------------------------------------------------------------
 
 /**
- * Prepare vector index for fork
- * @param vecsimIndex The VecSimIndex to prepare
+ * Freeze vector index
+ * @param vecsimIndex The VecSimIndex to freeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int VecSimIndex_PrepareForFork(VecSimIndex *vecsimIndex);
+int VecSimIndex_Freeze(VecSimIndex *vecsimIndex);
 
 /**
- * Handle post-fork state for vector index
- * @param vecsimIndex The VecSimIndex to handle
+ * Unfreeze vector index
+ * @param vecsimIndex The VecSimIndex to unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int VecSimIndex_OnForkCreated(VecSimIndex *vecsimIndex);
+int VecSimIndex_Unfreeze(VecSimIndex *vecsimIndex);
 
 /**
- * Resume normal operations for vector index after fork completion
- * @param vecsimIndex The VecSimIndex to resume
+ * Unfreeze expensive writes for vector index
+ * @param vecsimIndex The VecSimIndex to fully unfreeze
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int VecSimIndex_OnForkComplete(VecSimIndex *vecsimIndex);
+int VecSimIndex_Unfreeze_Expensive_Writes(VecSimIndex *vecsimIndex);
 
 #ifdef __cplusplus
 }

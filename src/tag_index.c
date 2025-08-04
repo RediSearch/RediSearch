@@ -367,7 +367,7 @@ size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs) {
 // Tag Index Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int TagIndex_PrepareForFork(TagIndex *tagIndex) {
+int TagIndex_Freeze(TagIndex *tagIndex) {
   if (!tagIndex) {
     return REDISMODULE_ERR;
   }
@@ -383,7 +383,7 @@ int TagIndex_PrepareForFork(TagIndex *tagIndex) {
   return REDISMODULE_OK;
 }
 
-int TagIndex_OnForkCreated(TagIndex *tagIndex) {
+int TagIndex_Unfreeze(TagIndex *tagIndex) {
   if (!tagIndex) {
     return REDISMODULE_ERR;
   }
@@ -398,7 +398,7 @@ int TagIndex_OnForkCreated(TagIndex *tagIndex) {
   return REDISMODULE_OK;
 }
 
-int TagIndex_OnForkComplete(TagIndex *tagIndex) {
+int TagIndex_Unfreeze_Expensive_Writes(TagIndex *tagIndex) {
   if (!tagIndex) {
     return REDISMODULE_ERR;
   }

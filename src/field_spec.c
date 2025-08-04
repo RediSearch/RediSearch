@@ -108,7 +108,7 @@ int FieldSpec_Freeze(FieldSpec *field, IndexSpec *parent_spec) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(parent_spec, field, INDEXFLD_T_NUMERIC);
     NumericRangeTree *tree = openNumericKeysDict(parent_spec, keyName, DONT_CREATE_INDEX);
     if (tree) {
-      return NumericRangeTree_PrepareForFork(tree);
+      return NumericRangeTree_Freeze(tree);
     }
     return REDISMODULE_OK;
   } else if (FIELD_IS(field, INDEXFLD_T_TAG)) {
@@ -117,7 +117,7 @@ int FieldSpec_Freeze(FieldSpec *field, IndexSpec *parent_spec) {
     TagIndex *tagIndex = TagIndex_Open(parent_spec, keyName, DONT_CREATE_INDEX);
     RedisModule_FreeString(RSDummyContext, keyName);
     if (tagIndex) {
-      return TagIndex_PrepareForFork(tagIndex);
+      return TagIndex_Freeze(tagIndex);
     }
     return REDISMODULE_OK;
   } else if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
@@ -125,7 +125,7 @@ int FieldSpec_Freeze(FieldSpec *field, IndexSpec *parent_spec) {
     // For now, just return OK as vector index handling is more complex
     return REDISMODULE_OK;
   } else if (FIELD_IS(field, INDEXFLD_T_FULLTEXT)) {
-    // Text fields are handled at the IndexSpec level via TextIndex_PrepareForFork
+    // Text fields are handled at the IndexSpec level via TextIndex_Freeze
     return REDISMODULE_OK;
   }
 
@@ -143,7 +143,7 @@ int FieldSpec_Unfreeze(FieldSpec *field, IndexSpec *parent_spec) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(parent_spec, field, INDEXFLD_T_NUMERIC);
     NumericRangeTree *tree = openNumericKeysDict(parent_spec, keyName, DONT_CREATE_INDEX);
     if (tree) {
-      return NumericRangeTree_OnForkCreated(tree);
+      return NumericRangeTree_Unfreeze(tree);
     }
     return REDISMODULE_OK;
   } else if (FIELD_IS(field, INDEXFLD_T_TAG)) {
@@ -151,7 +151,7 @@ int FieldSpec_Unfreeze(FieldSpec *field, IndexSpec *parent_spec) {
     TagIndex *tagIndex = TagIndex_Open(parent_spec, keyName, DONT_CREATE_INDEX);
     RedisModule_FreeString(RSDummyContext, keyName);
     if (tagIndex) {
-      return TagIndex_OnForkCreated(tagIndex);
+      return TagIndex_Unfreeze(tagIndex);
     }
     return REDISMODULE_OK;
   } else if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
@@ -173,7 +173,7 @@ int FieldSpec_Unfreeze_Expensive_Writes(FieldSpec *field, IndexSpec *parent_spec
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(parent_spec, field, INDEXFLD_T_NUMERIC);
     NumericRangeTree *tree = openNumericKeysDict(parent_spec, keyName, DONT_CREATE_INDEX);
     if (tree) {
-      return NumericRangeTree_OnForkComplete(tree);
+      return NumericRangeTree_Unfreeze_Expensive_Writes(tree);
     }
     return REDISMODULE_OK;
   } else if (FIELD_IS(field, INDEXFLD_T_TAG)) {
@@ -181,7 +181,7 @@ int FieldSpec_Unfreeze_Expensive_Writes(FieldSpec *field, IndexSpec *parent_spec
     TagIndex *tagIndex = TagIndex_Open(parent_spec, keyName, DONT_CREATE_INDEX);
     RedisModule_FreeString(RSDummyContext, keyName);
     if (tagIndex) {
-      return TagIndex_OnForkComplete(tagIndex);
+      return TagIndex_Unfreeze_Expensive_Writes(tagIndex);
     }
     return REDISMODULE_OK;
   } else if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {

@@ -639,7 +639,7 @@ void NumericRangeIterator_OnReopen(void *privdata) {
 // Numeric Index Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int NumericRangeTree_PrepareForFork(NumericRangeTree *tree) {
+int NumericRangeTree_Freeze(NumericRangeTree *tree) {
   if (!tree) {
     return REDISMODULE_ERR;
   }
@@ -655,7 +655,7 @@ int NumericRangeTree_PrepareForFork(NumericRangeTree *tree) {
   return REDISMODULE_OK;
 }
 
-int NumericRangeTree_OnForkCreated(NumericRangeTree *tree) {
+int NumericRangeTree_Unfreeze(NumericRangeTree *tree) {
   if (!tree) {
     return REDISMODULE_ERR;
   }
@@ -670,7 +670,7 @@ int NumericRangeTree_OnForkCreated(NumericRangeTree *tree) {
   return REDISMODULE_OK;
 }
 
-int NumericRangeTree_OnForkComplete(NumericRangeTree *tree) {
+int NumericRangeTree_Unfreeze_Expensive_Writes(NumericRangeTree *tree) {
   if (!tree) {
     return REDISMODULE_ERR;
   }
