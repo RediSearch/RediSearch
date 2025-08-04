@@ -130,10 +130,9 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
 
   // the gc marker tells us if there is a chance the keys have undergone GC while we were asleep
   if (it->gcMarker == it->idx->gcMarker) {
-    // no GC - we just go to the same offset we were at
-    size_t offset = it->blockReader.buffReader.pos;
-    it->blockReader.buffReader = NewBufferReader(IndexBlock_Buffer(&CURRENT_BLOCK(it)));
-    it->blockReader.buffReader.pos = offset;
+    // no GC - we just go to the same offset we were at.
+    // Reset the buffer pointer in case it was reallocated
+    it->blockReader.buffReader.buf = IndexBlock_Buffer(&CURRENT_BLOCK(it));
   } else {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
     // anymore. This means that we need to seek the last docId we were at
