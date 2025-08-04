@@ -38,6 +38,9 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 
+# Rust code is built first, so exclude crates that link C code, since the static libraries they depend on haven't been built yet.
+RUST_EXCLUDE_CRATES="--exclude inverted_index_bencher"
+
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
 # Parse command-line arguments and set configuration variables
@@ -380,7 +383,9 @@ build_redisearch_rs() {
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
   pushd .
   cd "$REDISEARCH_RS_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --profile="$RUST_PROFILE"
+  # Rust code is built first, so exclude crates linking on C code as the internal lib is not built yet.
+  # Keep the exclude list synced with the clippy and rustdoc exclude lists in Makefile.
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --workspace $RUST_EXCLUDE_CRATES --profile="$RUST_PROFILE"
 
   # Copy artifacts to the target directory
   mkdir -p "$REDISEARCH_RS_BINDIR"
@@ -547,10 +552,7 @@ run_rust_tests() {
     RUST_TEST_OPTIONS="
       --doctests
       --codecov
-      --workspace
-      --exclude=inverted_index_bencher
-      --exclude=trie_bencher
-      --exclude=varint_bencher
+      $RUST_EXCLUDE_CRATES
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
@@ -560,7 +562,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?

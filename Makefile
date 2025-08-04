@@ -277,10 +277,15 @@ run:
 		fi; \
 	fi
 
+# Function to extract RUST_EXCLUDE_CRATES from build.sh
+define get_rust_exclude_crates
+$(shell grep "RUST_EXCLUDE_CRATES=" build.sh | cut -d'=' -f2 | tr -d '"')
+endef
+
 lint:
 	@echo "Running linters..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc
+	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
+	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates)
 
 fmt:
 ifeq ($(CHECK),1)
