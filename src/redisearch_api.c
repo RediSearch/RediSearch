@@ -634,11 +634,9 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
 
 end:
 
-  if (QueryError_HasError(&status) || it->internal == NULL) {
-    if (it) {
-      RediSearch_ResultsIteratorFree(it);
-      it = NULL;
-    }
+  if (QueryError_HasError(&status)) {
+    RediSearch_ResultsIteratorFree(it);
+    it = NULL;
     if (error) {
       *error = rm_strdup(QueryError_GetUserError(&status));
     }
