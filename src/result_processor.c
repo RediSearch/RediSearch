@@ -136,7 +136,8 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     if (spec->diskSpec) {
       RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
       diskDmd->ref_count = 1;
-      const bool foundDocument = SearchDisk_GetDocumentMetadata(spec->diskSpec, r->docId, diskDmd);
+      // Start from checking the deleted-ids (in memory), then perform IO
+      const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, r->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, r->docId, diskDmd);
       if (!foundDocument) {
         DMD_Return(diskDmd);
         continue;
