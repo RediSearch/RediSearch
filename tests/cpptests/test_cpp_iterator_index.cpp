@@ -855,8 +855,9 @@ private:
         // First check if the dict is empty to avoid conflicts
         RS_ASSERT(spec->missingFieldDict != nullptr);
 
-        // Use dictAdd which should be available
-        dictAdd(spec->missingFieldDict, (void*)fs->fieldName, termIdx);
+        // Use dictAdd which should be available, and check its return value
+        int rc = dictAdd(spec->missingFieldDict, (void*)fs->fieldName, termIdx);
+        ASSERT_EQ(rc, DICT_OK) << "dictAdd failed: key already exists or other error";
 
         // Create missing iterator
         iterator = NewInvIndIterator_MissingQuery(termIdx, sctx, fs->index);
