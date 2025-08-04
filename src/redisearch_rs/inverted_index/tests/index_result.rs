@@ -106,14 +106,14 @@ fn pushing_to_index_result() {
     assert_eq!(ir.doc_id, 1);
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
-    assert_eq!(ir.freq, 1);
+    assert_eq!(ir.freq, 0);
     assert_eq!(ir.field_mask, 0);
 
     ir.push_borrowed(&result_virt);
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
-    assert_eq!(ir.freq, 4, "frequency should accumulate");
+    assert_eq!(ir.freq, 3, "frequency should accumulate");
     assert_eq!(ir.field_mask, 4, "field mask should be ORed");
     assert_eq!(
         ir.get(0),
@@ -124,7 +124,7 @@ fn pushing_to_index_result() {
     assert_eq!(ir.doc_id, 2);
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
-    assert_eq!(ir.freq, 11, "frequency should accumulate");
+    assert_eq!(ir.freq, 10, "frequency should accumulate");
     assert_eq!(ir.field_mask, RS_FIELDMASK_ALL);
 }
 

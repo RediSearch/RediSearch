@@ -664,7 +664,7 @@ impl<'index> RSIndexResult<'index> {
             doc_id: 0,
             dmd: ptr::null(),
             field_mask: 0,
-            freq: 1,
+            freq: 0,
             offsets_sz: 0,
             data: RSResultData::Virtual,
             metrics: ptr::null_mut(),
