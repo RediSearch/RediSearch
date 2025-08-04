@@ -4,21 +4,24 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+extern "C" {
+#include "src/util/dict.h"
+}
+
 #include "gtest/gtest.h"
 #include "iterator_util.h"
 #include <vector>
 #include "index_utils.h"
 
-extern "C" {
 #include "src/forward_index.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/redis_index.h"
-#include "src/spec.h"
 #include "src/index_result.h"
-#include "src/util/dict.h"
 #include "src/tag_index.h"
 #include "src/numeric_index.h"
 #include "redisearch_rs/headers/triemap.h"
+
+extern "C" {
+#include "src/redis_index.h"
 }
 
 typedef enum IndexIteratorType {
@@ -26,7 +29,6 @@ typedef enum IndexIteratorType {
   TYPE_NUMERIC_FULL,
   TYPE_TERM,
   TYPE_NUMERIC,
-  TYPE_GENERIC,
 } IndexIteratorType;
 
 class IndexIteratorTest : public ::testing::TestWithParam<std::tuple<IndexIteratorType, bool>> {
@@ -75,10 +77,6 @@ protected:
                 numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
                 it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
             }
-                break;
-            case TYPE_GENERIC:
-                SetGenericInvIndex();
-                it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
                 break;
         }
     }
@@ -139,8 +137,7 @@ INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Combine(
       TYPE_TERM_FULL,
       TYPE_NUMERIC_FULL,
       TYPE_TERM,
-      TYPE_NUMERIC,
-      TYPE_GENERIC
+      TYPE_NUMERIC
   ),
   ::testing::Bool()
 ));
@@ -360,7 +357,7 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
 
           // Make every even document ID field expired
           for (size_t i = 2; i <= n_docs; i += 2) {
-              if (flags & Index_StoreNumeric || flags == Index_DocIdsOnly) {
+              if (flags & Index_StoreNumeric) {
                   q_mock.TTL_Add(i, fieldIndex, {1, 1}); // Already expired
               } else {
                   q_mock.TTL_Add(i, fieldMask, {1, 1}); // Already expired
@@ -374,8 +371,6 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
               FieldFilterContext fieldCtx = {.field = {false, fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
               numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
               it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
-          } else if (flags == Index_DocIdsOnly) {
-              it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, fieldIndex, FIELD_EXPIRATION_DEFAULT, 1.0);
           } else {
               it_base = NewInvIndIterator_TermQuery(idx, &q_mock.sctx, {true, fieldMask}, nullptr, 1.0);
           }
@@ -451,12 +446,14 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
   }
 
 typedef enum RevalidateIndexType {
-    REVALIDATE_INDEX_TYPE_NUMERIC_QUERY = 0,
-    REVALIDATE_INDEX_TYPE_NUMERIC_FULL = 1,
-    REVALIDATE_INDEX_TYPE_TERM_QUERY = 2,
-    REVALIDATE_INDEX_TYPE_TERM_FULL = 3,
-    REVALIDATE_INDEX_TYPE_TAG_QUERY = 4,
-    REVALIDATE_INDEX_TYPE_TAG_FULL = 5,
+    REVALIDATE_INDEX_TYPE_NUMERIC_QUERY,
+    REVALIDATE_INDEX_TYPE_NUMERIC_FULL,
+    REVALIDATE_INDEX_TYPE_TERM_QUERY,
+    REVALIDATE_INDEX_TYPE_TERM_FULL,
+    REVALIDATE_INDEX_TYPE_TAG_QUERY,
+    REVALIDATE_INDEX_TYPE_TAG_FULL,
+    REVALIDATE_INDEX_TYPE_WILDCARD_QUERY,
+    REVALIDATE_INDEX_TYPE_MISSING_QUERY,
 } RevalidateIndexType;
 
 /**
@@ -552,6 +549,12 @@ protected:
                 break;
             case REVALIDATE_INDEX_TYPE_TAG_FULL:
                 SetupTagIndex(false);     // Full version
+                break;
+            case REVALIDATE_INDEX_TYPE_WILDCARD_QUERY:
+                SetupWildcardIndex();     // Wildcard query version
+                break;
+            case REVALIDATE_INDEX_TYPE_MISSING_QUERY:
+                SetupMissingIndex();      // Missing query version
                 break;
             default:
                 FAIL() << "Unknown index type: " << GetParam();
@@ -785,6 +788,80 @@ private:
         }
     }
 
+    void SetupWildcardIndex() {
+        // Create IndexSpec for TEXT field (wildcard uses existingDocs index)
+        const char *args[] = {"SCHEMA", "text_field", "TEXT"};
+        QueryError err = {QUERY_OK};
+        StrongRef ref = IndexSpec_ParseC("wildcard_idx", args, sizeof(args) / sizeof(const char *), &err);
+        spec = (IndexSpec *)StrongRef_Get(ref);
+        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+        ASSERT_TRUE(spec);
+
+        // Add the spec to the global dictionary so it can be found by name
+        Spec_AddToDict(spec->own_ref.rm);
+
+        // Create RedisSearchCtx
+        sctx = NewSearchCtxC(ctx, "wildcard_idx", false);
+        ASSERT_TRUE(sctx != nullptr);
+
+        // Create the existingDocs index that wildcard iterator expects
+        size_t memsize;
+        spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
+        IndexEncoder encoder = InvertedIndex_GetEncoder(spec->existingDocs->flags);
+
+        // Populate with document data for wildcard matching
+        for (size_t i = 0; i < n_docs; ++i) {
+            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            InvertedIndex_WriteEntryGeneric(spec->existingDocs, encoder, &rec);
+        }
+
+        // Create wildcard iterator using the existingDocs index
+        iterator = NewInvIndIterator_WildcardQuery(spec->existingDocs, sctx, 1.0);
+    }
+
+    void SetupMissingIndex() {
+        // Create IndexSpec for TEXT field (missing uses any field type)
+        const char *args[] = {"SCHEMA", "text_field", "TEXT"};
+        QueryError err = {QUERY_OK};
+        StrongRef ref = IndexSpec_ParseC("missing_idx", args, sizeof(args) / sizeof(const char *), &err);
+        spec = (IndexSpec *)StrongRef_Get(ref);
+        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+        ASSERT_TRUE(spec);
+
+        // Add the spec to the global dictionary so it can be found by name
+        Spec_AddToDict(spec->own_ref.rm);
+
+        // Create RedisSearchCtx
+        sctx = NewSearchCtxC(ctx, "missing_idx", false);
+        ASSERT_TRUE(sctx != nullptr);
+
+        // Get the field spec for the missing iterator
+        const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "text_field", strlen("text_field"));
+        ASSERT_TRUE(fs != nullptr);
+
+        // Create a missing field index for the field
+        size_t memsize;
+        termIdx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
+        IndexEncoder encoder = InvertedIndex_GetEncoder(termIdx->flags);
+
+        // Populate with some data (for missing iterator, the content represents what's missing)
+        for (size_t i = 0; i < n_docs; ++i) {
+            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            InvertedIndex_WriteEntryGeneric(termIdx, encoder, &rec);
+        }
+
+        // For test purposes, we'll add the missing index to the missingFieldDict
+        // using direct dict manipulation through the dict's internals
+        // First check if the dict is empty to avoid conflicts
+        RS_ASSERT(spec->missingFieldDict != nullptr);
+
+        // Use dictAdd which should be available
+        dictAdd(spec->missingFieldDict, (void*)fs->fieldName, termIdx);
+
+        // Create missing iterator
+        iterator = NewInvIndIterator_MissingQuery(termIdx, sctx, fs->index);
+    }
+
 public:
     // Helper functions to determine iterator type
     bool IsNumericIterator() const {
@@ -802,10 +879,20 @@ public:
                GetParam() == REVALIDATE_INDEX_TYPE_TAG_FULL;
     }
 
+    bool IsWildcardIterator() const {
+        return GetParam() == REVALIDATE_INDEX_TYPE_WILDCARD_QUERY;
+    }
+
+    bool IsMissingIterator() const {
+        return GetParam() == REVALIDATE_INDEX_TYPE_MISSING_QUERY;
+    }
+
     bool IsQueryIterator() const {
         return GetParam() == REVALIDATE_INDEX_TYPE_NUMERIC_QUERY ||
                GetParam() == REVALIDATE_INDEX_TYPE_TERM_QUERY ||
-               GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY;
+               GetParam() == REVALIDATE_INDEX_TYPE_TAG_QUERY ||
+               GetParam() == REVALIDATE_INDEX_TYPE_WILDCARD_QUERY ||
+               GetParam() == REVALIDATE_INDEX_TYPE_MISSING_QUERY;
     }
 
     bool IsFullIterator() const {
@@ -821,7 +908,9 @@ INSTANTIATE_TEST_SUITE_P(InvIndIteratorRevalidate, InvIndIteratorRevalidateTest,
     REVALIDATE_INDEX_TYPE_TERM_QUERY,
     REVALIDATE_INDEX_TYPE_TERM_FULL,
     REVALIDATE_INDEX_TYPE_TAG_QUERY,
-    REVALIDATE_INDEX_TYPE_TAG_FULL
+    REVALIDATE_INDEX_TYPE_TAG_FULL,
+    REVALIDATE_INDEX_TYPE_WILDCARD_QUERY,
+    REVALIDATE_INDEX_TYPE_MISSING_QUERY
 ));
 
 // Basic test to ensure the iterator setup works correctly
@@ -896,7 +985,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
 
             // Restore the original revision ID for proper cleanup
             numericRangeTree->revisionId--;
-        } else if (IsTermIterator() || IsTagIterator()) {
+        } else if (IsTermIterator() || IsTagIterator() || IsWildcardIterator() || IsMissingIterator()) {
             // For term and tag iterators, we can simulate index disappearance by
             // setting the iterator's idx pointer to a different value than what
             // the lookup would return. This simulates the GC scenario.
@@ -920,6 +1009,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
 
             // Restore the original index pointer for proper cleanup
             *((const InvertedIndex **)&invIt->idx) = originalIdx;
+        } else {
+            FAIL() << "RevalidateAfterIndexDisappears not implemented for this iterator type";
         }
     } else {
         // Full iterators don't have sctx, so they can't detect disappearance

@@ -138,7 +138,7 @@ static ValidateStatus MissingCheckAbort(QueryIterator *base) {
   RS_ASSERT(mi->sctx->spec->missingFieldDict);
   RS_ASSERT(mi->sctx->spec->numFields > mi->filterCtx.field.value.index);
 
-  const HiddenString *fieldName = mi->sctx->spec->fields[mi->filterCtx.field.value.index]->fieldName;
+  const HiddenString *fieldName = mi->sctx->spec->fields[mi->filterCtx.field.value.index].fieldName;
   const InvertedIndex *missingII = dictFetchValue(mi->sctx->spec->missingFieldDict, fieldName);
 
   if (mi->idx != missingII) {
