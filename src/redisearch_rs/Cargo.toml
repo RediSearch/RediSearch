@@ -99,8 +99,7 @@ branch = "patches-redisearch"
 default-features = false
 
 [profile.release]
-# Thin-LTO allows better cross-language LTO at the C/Rust boundary.
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 
 [profile.profiling]
