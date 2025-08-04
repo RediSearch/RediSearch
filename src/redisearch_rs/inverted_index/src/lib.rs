@@ -557,6 +557,16 @@ impl RSIndexResult {
         }
     }
 
+    pub fn with_term(term: *mut RSQueryTerm) -> Self {
+        Self {
+            data: RSIndexResultData {
+                term: ManuallyDrop::new(RSTermRecord::with_term(term)),
+            },
+            result_type: RSResultType::Term,
+            ..Default::default()
+        }
+    }
+
     /// Set the document ID of this record
     pub fn doc_id(mut self, doc_id: t_docId) -> Self {
         self.doc_id = doc_id;

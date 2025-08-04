@@ -1002,9 +1002,6 @@ IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, co
                               double rangeMin, double rangeMax, bool skipMulti,
                               const FieldFilterContext* fieldCtx) {
   RSIndexResult *res = NewNumericResult();
-  res->freq = 1;
-  res->fieldMask = RS_FIELDMASK_ALL;
-  res->data.num.value = 0;
 
   IndexDecoderCtx ctx = {.filter = flt};
   IndexDecoderProcs procs = {.decoder = readNumeric};
