@@ -64,9 +64,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
 
 // Get a pointer to the block at the given index.
 IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex) {
-  if (blockIndex >= idx->size) {
-    return NULL; // Out of bounds
-  }
+  RS_ASSERT(blockIndex < idx->size);
   return &idx->blocks[blockIndex];
 }
 
