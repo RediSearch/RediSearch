@@ -551,7 +551,7 @@ impl<'a> KeyList<'a> {
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`Cursor`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
-    fn find_by_name(&self, name: &'a CStr) -> Option<Cursor<'_, 'a>> {
+    fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find_by_name");
 
@@ -568,7 +568,7 @@ impl<'a> KeyList<'a> {
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`CursorMut`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
-    fn find_by_name_mut(&mut self, name: &'a CStr) -> Option<CursorMut<'_, 'a>> {
+    fn find_by_name_mut(&mut self, name: &CStr) -> Option<CursorMut<'_, 'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find_by_name_mut");
 
@@ -760,6 +760,12 @@ impl<'list, 'a> CursorMut<'list, 'a> {
         // Safety: RLookup treats the keys are pinned always, we just need consumers of this
         // iterator to uphold the pinning invariant too
         Some(unsafe { Pin::new_unchecked(curr) })
+    }
+
+    /// Consume this cursor returning an immutable reference to the current key, if any.
+    pub fn into_current(self) -> Option<&'list mut RLookupKey<'a>> {
+        // Safety: See Self::move_next.
+        Some(unsafe { self.current?.as_mut() })
     }
 
     /// Override the [`RLookupKey`] at this cursor position and extend it with the given flags.
@@ -1012,16 +1018,8 @@ impl<'a> RLookup<'a> {
         // 4. if the key is "loaded" at this point (in schema, sortable and un-normalized), create the key but return NULL
         //    (no need to load it from the document).
 
-        // Safety: The non-lexical lifetime analysis of current Rust, incorrectly handles borrows in early
-        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
-        // obviously not correct as `key` is either found and borrowed in which case we never reach the code below
-        // this early return OR it is *not* found and *not* borrowed which means the code below is fine to
-        // borrow self again. The current compiler is not smart enough to get this though, so we create a disjoint
-        // borrow below.
-        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
-        let me = unsafe { &mut *(self as *mut Self) };
-
-        let mut key = if let Some(mut c) = me.keys.find_by_name_mut(name) {
+        // Ensure the key is available, if it is check for flags and return None or override the key depending on flags, if key not available insert it.
+        if let Some(mut c) = self.keys.find_by_name_mut(name) {
             let key = c.current().unwrap();
 
             if (key.flags.contains(RLookupKeyFlag::ValAvailable)
@@ -1048,24 +1046,24 @@ impl<'a> RLookup<'a> {
                 return None;
             } else {
                 c.override_current(flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded)
-                    .unwrap()
+                    .unwrap();
             }
         } else {
             self.keys.push(RLookupKey::new(
                 name,
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
-            ))
+            ));
         };
 
-        if let Some(fs) = self.index_spec_cache.as_ref()?.find_field(name) {
-            let key = {
-                // Safety: We are unpinning the key here, so we can move the update from the field spec into it.
-                // this is safe because `RLookupKey::update_from_field_spec` ensures that the self referential
-                // path pointers are updated correctly.
-                let unpinned_key = unsafe { key.as_mut().get_unchecked_mut() };
-                unpinned_key.update_from_field_spec(fs);
-                pin!(unpinned_key)
-            };
+        // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
+        // See <https://github.com/rust-lang/rust/issues/54663>
+        let mut cursor = self
+            .keys
+            .find_by_name_mut(name)
+            .expect("key should have been created above");
+        let key = if let Some(fs) = self.index_spec_cache.as_ref()?.find_field(name) {
+            let key = cursor.into_current().unwrap();
+            key.update_from_field_spec(fs);
 
             if key.flags.contains(RLookupKeyFlag::ValAvailable)
                 && !flags.contains(RLookupKeyFlag::ForceLoad)
@@ -1074,8 +1072,10 @@ impl<'a> RLookup<'a> {
                 // so we can use the sorting vector as the source, and we don't need to load it from the document.
                 return None;
             }
+            key
         } else {
             // Field not found in the schema.
+            let mut key = cursor.current().unwrap();
             let is_borrowed = matches!(key._name, Cow::Borrowed(_));
             let mut key = key.as_mut().project();
 
@@ -1090,10 +1090,11 @@ impl<'a> RLookup<'a> {
             } // else
             // If the caller requested to allocate the name, and the name is the same as the path,
             // it was already set to the same allocation for the name, so we don't need to do anything.
-        }
 
-        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned reference.
-        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+            cursor.into_current().unwrap()
+        };
+
+        Some(key)
     }
 }
 
