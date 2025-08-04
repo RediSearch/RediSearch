@@ -168,7 +168,7 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
     let parent = unsafe { &mut *parent };
 
     // SAFETY: Caller is to ensure that `child` is a valid, non-null pointer to an `RSIndexResult`
-    let child = unsafe { &*child };
+    let child = unsafe { &mut *child };
 
     parent.push(child);
 }
