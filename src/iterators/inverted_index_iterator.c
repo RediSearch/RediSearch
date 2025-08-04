@@ -61,10 +61,6 @@ size_t InvIndIterator_NumEstimated(QueryIterator *base) {
   return it->idx->numDocs;
 }
 
-static ValidateStatus EmptyCheckAbort(QueryIterator *base) {
-  return VALIDATE_OK;
-}
-
 static ValidateStatus NumericCheckAbort(QueryIterator *base) {
   NumericInvIndIterator *nit = (NumericInvIndIterator *)base;
   InvIndIterator *it = (InvIndIterator *)base;
@@ -619,10 +615,6 @@ static QueryIterator *NewInvIndIterator_NumericRange(const InvertedIndex *idx, R
     RS_ASSERT(rt);
     it->revisionId = rt->revisionId;
     it->rt = rt;
-  } else {
-    it->rt = NULL;
-    it->revisionId = 0;
-    it->base.CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))EmptyCheckAbort;
   }
 
   return &it->base.base;
