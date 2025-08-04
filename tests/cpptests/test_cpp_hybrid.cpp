@@ -61,8 +61,7 @@ IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, Query
 AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, QueryError *status, bool isSearchSubquery = false) {
   AREQ *req = AREQ_New();
   if (isSearchSubquery) {
-    AREQ_AddRequestFlags(req, QEXEC_F_IS_SEARCH);
-    AREQ_AddRequestFlags(req, QEXEC_F_SEND_NOFIELDS);
+    AREQ_AddRequestFlags(req, QEXEC_F_IS_HYBRID);
   }
   RMCK::ArgvList args(ctx, query);
   int rv = AREQ_Compile(req, args, args.size(), status);

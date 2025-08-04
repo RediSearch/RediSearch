@@ -274,12 +274,12 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > *papCtx->maxSearchResults) &&
-               (*papCtx->reqflags & QEXEC_F_IS_SEARCH)) {
+               (*papCtx->reqflags & QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID)) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
     } else if ((arng->limit > *papCtx->maxAggregateResults) &&
-               !(*papCtx->reqflags & QEXEC_F_IS_SEARCH)) {
+               !(*papCtx->reqflags & QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID)) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxAggregateResults);
       return ARG_ERROR;
