@@ -358,7 +358,6 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 #endif // FTINFO_FOR_INFO_MODULES
 
 void CursorList_Destroy(CursorList *cl) {
-  Cursors_GCInternal(cl, 1);
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
     if (!kh_exist(cl->lookup, ii)) {
       continue;
