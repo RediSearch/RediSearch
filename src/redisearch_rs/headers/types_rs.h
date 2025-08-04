@@ -199,6 +199,9 @@ typedef struct RSAggregateResult {
  * over it with RSIndexResult_IterateOffsets
  */
 typedef struct RSOffsetVector {
+  /**
+   * At this point the data ownership is still managed by the caller.
+   */
   char *data;
   uint32_t len;
 } RSOffsetVector;
