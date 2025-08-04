@@ -3592,6 +3592,8 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
   } else {
     RedisModule_Log(ctx, "notice", "Standalone mode: skipping coordinator initialization");
+    // Temporary hack to get single-shard logic without sending first `search-CLUSTERSET` command
+    NumShards = 1;
   }
 
   return REDISMODULE_OK;
