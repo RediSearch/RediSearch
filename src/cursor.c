@@ -373,7 +373,21 @@ void CursorList_Destroy(CursorList *cl) {
 }
 
 void CursorList_Empty(CursorList *cl) {
-  bool is_coord = cl->is_coord;
-  CursorList_Destroy(cl);
-  CursorList_Init(cl, is_coord);
+  CursorList_Lock(cl);
+  for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
+    if (!kh_exist(cl->lookup, ii)) {
+      continue;
+    }
+    Cursor *cur = kh_val(cl->lookup, ii);
+    if (Cursor_IsIdle(cur)) {
+      // Since the cursor is idle, we can free it.
+      Cursor_RemoveFromIdle(cur);
+      Cursor_FreeInternal(cur);
+    } else {
+      // Since the cursor is not idle, we mark it for deletion.
+      // The next time the cursor is accessed, it will be freed.
+      cur->delete_mark = true;
+    }
+  }
+  CursorList_Unlock(cl);
 }
