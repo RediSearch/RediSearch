@@ -2,6 +2,7 @@
 #define __HYBRID_SCORING_H__
 
 #include "redisearch.h"
+#include "score_explain.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,8 +36,13 @@ void HybridScoringContext_Free(HybridScoringContext *hybridCtx);
 
 typedef double (*HybridScoringFunction)(HybridScoringContext *scoringCtx, const double *scores, const bool *hasScores, const size_t numUpstreams);
 
+typedef void (*HybridExplainFunction)(RSScoreExplain *scrExp, HybridScoringContext *scoringCtx, const double *values, double hybridScore, int numValidSources);
+
  /* Get scoring function based on scoring type */
 HybridScoringFunction GetScoringFunction(HybridScoringType scoringType);
+
+ /* Get explanation function based on scoring type */
+HybridExplainFunction GetExplainFunction(HybridScoringType scoringType);
 
 double HybridRRFScore(HybridScoringContext *scoringCtx, const double *ranks, const bool *has_rank, const size_t num_sources);
 

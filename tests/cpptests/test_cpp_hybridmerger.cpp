@@ -1199,13 +1199,20 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
 }
 
 /*
- * Test that hybrid merger with Linear scoring correctly merges flags from multiple upstreams.
- * Focus: Flag merging functionality and basic linear scoring
+ * Test that hybrid merger with Linear scoring generates correct score explanations and merges flags
+ *
+ * Scoring function: Hybrid linear
+ * Number of upstreams: 2
+ * Intersection: Full intersection (same documents from both upstreams)
+ * Emptiness: Both upstreams have documents
+ * Timeout: No timeout
+ * Flag testing: Upstream1 has Result_ExpiredDoc flag, upstream2 has no flags
+ * Expected behavior: Each document gets combined score with detailed linear explanation and proper flag merging
  */
-TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
+TEST_F(HybridMergerTest, testHybridMergerLinearScoreExplanation) {
   QueryIterator qitr = {0};
 
-  // Create upstreams with same documents (full intersection)
+  // Create upstreams with same documents (full intersection) and different scores for interesting explanation
   // Set Result_ExpiredDoc flag on upstream1 to test flag merging
   MockUpstream upstream1(0, {3.0, 5.0}, {1, 2}, 0, -1, Result_ExpiredDoc);
   MockUpstream upstream2(0, {2.0, 4.0}, {1, 2}); // Same docIds, no flags
@@ -1213,16 +1220,16 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
   ResultProcessor *rp1 = &upstream1;
   ResultProcessor *rp2 = &upstream2;
 
-  // Create hybrid merger with linear scoring
+  // Create hybrid merger with linear scoring using specific weights for clear explanation
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  double weights[] = {0.3, 0.7};
+  double weights[] = {0.3, 0.7}; // Clear fractional weights
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
 
   QITR_PushRP(&qitr, hybridMerger);
 
-  // Process and verify results focus on flag merging
+  // Process and verify results with score explanations
   SearchResult r = {0};
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
@@ -1235,15 +1242,23 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
     ASSERT_TRUE(r.dmd != nullptr);
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
 
+    // Verify score explanation is populated
+    ASSERT_TRUE(r.scoreExplain != nullptr);
+    ASSERT_TRUE(r.scoreExplain->str != nullptr);
+
     if (r.docId == 1) {
-      // Doc1: Verify linear score calculation: 0.3*3.0 + 0.7*2.0 = 2.3
+      // Doc1: 0.3*3.0 + 0.7*2.0 = 0.9 + 1.4 = 2.3
       ASSERT_NEAR(2.3, r.score, 0.0001);
-      // Verify flag merging: should have Result_ExpiredDoc from upstream1
+      // Verify explanation matches expected linear formula exactly
+      ASSERT_STREQ("Linear: 2.30: 0.30*3.00 + 0.70*2.00", r.scoreExplain->str);
+      // Verify flag merging: doc1 appears in both upstreams, should have Result_ExpiredDoc from upstream1
       ASSERT_TRUE(r.flags & Result_ExpiredDoc);
     } else if (r.docId == 2) {
-      // Doc2: Verify linear score calculation: 0.3*5.0 + 0.7*4.0 = 4.3
+      // Doc2: 0.3*5.0 + 0.7*4.0 = 1.5 + 2.8 = 4.3
       ASSERT_NEAR(4.3, r.score, 0.0001);
-      // Verify flag merging: should have Result_ExpiredDoc from upstream1
+      // Verify explanation matches expected linear formula exactly
+      ASSERT_STREQ("Linear: 4.30: 0.30*5.00 + 0.70*4.00", r.scoreExplain->str);
+      // Verify flag merging: doc2 appears in both upstreams, should have Result_ExpiredDoc from upstream1
       ASSERT_TRUE(r.flags & Result_ExpiredDoc);
     }
 
@@ -1258,13 +1273,20 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
 }
 
 /*
- * Test that hybrid merger with RRF scoring correctly merges flags from multiple upstreams.
- * Focus: Flag merging functionality and basic RRF scoring
+ * Test that hybrid merger with RRF scoring generates correct score explanations and merges flags
+ *
+ * Scoring function: RRF (Reciprocal Rank Fusion)
+ * Number of upstreams: 2
+ * Intersection: Full intersection (same documents from both upstreams)
+ * Emptiness: Both upstreams have documents
+ * Timeout: No timeout
+ * Flag testing: Upstream1 has Result_ExpiredDoc flag, upstream2 has no flags
+ * Expected behavior: Each document gets combined RRF score with detailed explanation and proper flag merging
  */
-TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
+TEST_F(HybridMergerTest, testHybridMergerRRFScoreExplanation) {
   QueryIterator qitr = {0};
 
-  // Create upstreams with same documents but different rankings
+  // Create upstreams with same documents but different rankings for interesting RRF explanation
   // Set Result_ExpiredDoc flag on upstream1 for flag merging test
   MockUpstream upstream1(0, {0.9, 0.5}, {1, 2}, 0, -1, Result_ExpiredDoc);
   // Upstream2: doc2=rank1, doc1=rank2 (reverse ranking), no flags
@@ -1273,7 +1295,7 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
   ResultProcessor *rp1 = &upstream1;
   ResultProcessor *rp2 = &upstream2;
 
-  // Create hybrid merger with RRF scoring
+  // Create hybrid merger with RRF scoring using k=60 for clear explanation
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
@@ -1281,7 +1303,7 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
 
   QITR_PushRP(&qitr, hybridMerger);
 
-  // Process and verify results focus on flag merging
+  // Process and verify results with score explanations
   SearchResult r = {0};
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
@@ -1294,15 +1316,23 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
     ASSERT_TRUE(r.dmd != nullptr);
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
 
+    // Verify score explanation is populated
+    ASSERT_TRUE(r.scoreExplain != nullptr);
+    ASSERT_TRUE(r.scoreExplain->str != nullptr);
+
     if (r.docId == 1) {
-      // Doc1: Verify RRF score calculation: 1/(60+1) + 1/(60+2) ≈ 0.0325
+      // Doc1: 1/(60+1) + 1/(60+2) = 1/61 + 1/62 ≈ 0.0325 (rank1 in upstream1, rank2 in upstream2)
       ASSERT_NEAR(1.0/61.0 + 1.0/62.0, r.score, 0.0001);
-      // Verify flag merging: should have Result_ExpiredDoc from upstream1
+      // Verify explanation matches expected RRF formula exactly
+      ASSERT_STREQ("RRF: 0.03: 1/(60+1) + 1/(60+2)", r.scoreExplain->str);
+      // Verify flag merging: doc1 appears in both upstreams, should have Result_ExpiredDoc from upstream1
       ASSERT_TRUE(r.flags & Result_ExpiredDoc);
     } else if (r.docId == 2) {
-      // Doc2: Verify RRF score calculation: 1/(60+2) + 1/(60+1) ≈ 0.0325
+      // Doc2: 1/(60+2) + 1/(60+1) = 1/62 + 1/61 ≈ 0.0325 (rank2 in upstream1, rank1 in upstream2)
       ASSERT_NEAR(1.0/62.0 + 1.0/61.0, r.score, 0.0001);
-      // Verify flag merging: should have Result_ExpiredDoc from upstream1
+      // Verify explanation matches expected RRF formula exactly
+      ASSERT_STREQ("RRF: 0.03: 1/(60+2) + 1/(60+1)", r.scoreExplain->str);
+      // Verify flag merging: doc2 appears in both upstreams, should have Result_ExpiredDoc from upstream1
       ASSERT_TRUE(r.flags & Result_ExpiredDoc);
     }
 
