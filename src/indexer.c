@@ -102,17 +102,23 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 
   while (entry != NULL) {
     bool isNew;
-    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
-    if (isNew && strlen(entry->term) != 0) {
-      IndexSpec_AddTerm(spec, entry->term, entry->len);
-    }
-    if (invidx) {
-      entry->docId = aCtx->doc->docId;
-      RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      IndexerYieldWhileLoading(ctx->redisCtx);
-      writeIndexEntry(spec, invidx, encoder, entry);
-      if (Index_StoreFieldMask(spec)) {
-        invidx->fieldMask |= entry->fieldMask;
+    if (spec->diskSpec) {
+      SearchDisk_IndexDocument(spec->diskSpec, entry->term, aCtx->doc->docId, entry->fieldMask);
+      // assume all terms are new, avoid the disk io to check
+      isNew = true;
+    } else {
+      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
+      if (isNew && strlen(entry->term) != 0) {
+        IndexSpec_AddTerm(spec, entry->term, entry->len);
+      }
+      if (invidx) {
+        entry->docId = aCtx->doc->docId;
+        RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+        IndexerYieldWhileLoading(ctx->redisCtx);
+        writeIndexEntry(spec, invidx, encoder, entry);
+        if (Index_StoreFieldMask(spec)) {
+          invidx->fieldMask |= entry->fieldMask;
+        }
       }
     }
 
@@ -183,6 +189,17 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   for (; cur; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
+      continue;
+    }
+
+    if (spec->diskSpec) {
+      const char *key = RedisModule_StringPtrLen(cur->doc->docKey, NULL);
+      t_docId docId = SearchDisk_PutDocument(spec->diskSpec, key, cur->doc->score, cur->docFlags, cur->fwIdx->maxFreq);
+      if (docId) {
+        cur->doc->docId = docId;
+      } else {
+        cur->stateFlags |= ACTX_F_ERRORED;
+      }
       continue;
     }
 

@@ -42,6 +42,7 @@
 #include "util/hash/hash.h"
 #include "reply_macros.h"
 #include "notifications.h"
+#include "search_disk.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1378,6 +1379,30 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       goto reset;
     }
 
+    if (sp->diskSpec)
+    {
+      if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support non-TEXT fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_NotIndexable) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support NOINDEX fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_Sortable) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support SORTABLE fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_IndexMissing) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support INDEXMISSING fields");
+        goto reset;
+      }
+      if (fs->options & FieldSpec_IndexEmpty) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Disk index does not support INDEXEMPTY fields");
+        goto reset;
+      }
+    }
+
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
       int textId = IndexSpec_CreateTextId(sp, fs->index);
       if (textId < 0) {
@@ -1613,6 +1638,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   if (spec->rule->filter_exp) {
     SchemaRule_FilterFields(spec);
   }
+
+  spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
 
   return spec_ref;
 
@@ -1854,6 +1881,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   } else {
     redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
   }
+  SearchDisk_CloseIndex(spec->diskSpec);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2966,6 +2994,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   }
 
 
+  sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   /* For version 3 or up - load the generic trie */
   //  if (encver >= 3) {
@@ -3120,6 +3149,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
+  sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
 
   dictDelete(legacySpecRules, sp->specName);
   SchemaRuleArgs_Free(rule_args);
