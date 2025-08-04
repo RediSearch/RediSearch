@@ -62,6 +62,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   return idx;
 }
 
+// Get a pointer to the block at the given index.
 IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex) {
   if (blockIndex >= idx->size) {
     return NULL; // Out of bounds
@@ -69,6 +70,7 @@ IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex) 
   return &idx->blocks[blockIndex];
 }
 
+// Take the block at the given index. This is needed by the fork GC to remove or move blocks
 IndexBlock InvertedIndex_Block(InvertedIndex *idx, size_t blockIndex) {
   if (blockIndex >= idx->size) {
     return (IndexBlock){0}; // Return an empty block
