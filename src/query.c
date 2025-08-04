@@ -517,11 +517,7 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = IndexSpec_GetFieldByBit(q->sctx->spec, qn->opts.fieldMask);
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-  QueryIterator *it = Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
-  if (!it) {
-    Term_Free(term);
-  }
-  return it;
+  return Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
 }
 
 static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
@@ -541,7 +537,6 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
                                        q->opts->fieldmask & opts->fieldMask, 1);
 
   if (!ir) {
-    Term_Free(term);
     return;
   }
 
@@ -776,12 +771,10 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
   QueryIterator *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                        q->opts->fieldmask & ctx->opts->fieldMask, 1);
   rm_free(tok.str);
-  if (!ir) {
-    Term_Free(term);
-    return REDISEARCH_OK;
+  if (ir) {
+    rangeItersAddIterator(ctx, ir);
   }
 
-  rangeItersAddIterator(ctx, ir);
   return REDISEARCH_OK;
 }
 
@@ -796,12 +789,10 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   QueryIterator *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                        q->opts->fieldmask & ctx->opts->fieldMask, 1);
-  if (!ir) {
-    Term_Free(term);
-    return REDISEARCH_OK;
+  if (ir) {
+    rangeItersAddIterator(ctx, ir);
   }
 
-  rangeItersAddIterator(ctx, ir);
   return REDISEARCH_OK;
 }
 
