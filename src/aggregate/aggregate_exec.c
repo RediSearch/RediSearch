@@ -25,6 +25,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
+#include "hybrid/hybrid_request.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -277,12 +278,21 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   return RedisModule_Reply_LocalCount(reply) - count0;
 }
 
+
+static inline RedisSearchCtx *HREQ_SearchCtx(struct HybridRequest *hreq) {
+  return hreq->hybridParams->aggregationParams.common.sctx;
+}
+
+static inline uint32_t HREQ_RequestFlags(HybridRequest *hreq) {
+  return hreq->hybridParams->aggregationParams.common.reqflags;
+}
+
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.
-static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
+static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
-  const uint32_t options = AREQ_RequestFlags(req);
+  const uint32_t options = HREQ_RequestFlags(hreq);
   const RSDocumentMetadata *dmd = r->dmd;
 
   RedisModule_Reply_Map(reply); // >result
@@ -310,12 +320,12 @@ static void serializeResult_hybrid(AREQ *req, RedisModule_Reply *reply, const Se
     if (r->flags & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
-      RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+      RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
       // Get the number of fields in the reply.
       // Excludes hidden fields, fields not included in RETURN and, score and language fields.
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
       int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
+      int requiredFlags = 0; // (hreq->hybridParams->aggregationParams.common.reqflags & QEXEC_F_EXPLICITRETURN) ? RLOOKUP_F_EXPLICITRETURN : 0;
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
@@ -432,37 +442,48 @@ static void destroyResults(SearchResult **results) {
   }
 }
 
-static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
+static bool ShouldReplyWithError(ResultProcessor *rp, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
   return QueryError_HasError(rp->parent->err)
       && (rp->parent->err->code != QUERY_ETIMEDOUT
           || (rp->parent->err->code == QUERY_ETIMEDOUT
-              && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
-              && !IsProfile(req)));
+              && timeoutPolicy == TimeoutPolicy_Fail
+              && !isProfile));
 }
 
-static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
+static bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
   return rc == RS_RESULT_TIMEDOUT
-         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
-         && !IsProfile(req);
+         && timeoutPolicy == TimeoutPolicy_Fail
+         && !isProfile;
 }
 
 static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
   RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
 }
 
-void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
-      // Aggregate all results before populating the response
-      *results = AggregateResults(rp, rc);
-      // Check timeout after aggregation
-      if (TimedOut(&req->sctx->time.timeout) == TIMED_OUT) {
-        *rc = RS_RESULT_TIMEDOUT;
-      }
-    } else {
-      // Send the results received from the pipeline as they come (no need to aggregate)
-      // TODO: For FT.SEARCH this updates req.pipeline.qctx.totalResults, but for FT.HYBRID it does not.
-      *rc = rp->Next(rp, r);
+static void startPipelineCommon(RSTimeoutPolicy timeoutPolicy, struct timespec *timeout,
+                               ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+  if (timeoutPolicy == TimeoutPolicy_Fail) {
+    // Aggregate all results before populating the response
+    *results = AggregateResults(rp, rc);
+    // Check timeout after aggregation
+    if (TimedOut(timeout) == TIMED_OUT) {
+      *rc = RS_RESULT_TIMEDOUT;
     }
+  } else {
+    // Send the results received from the pipeline as they come
+    *rc = rp->Next(rp, r);
+  }
+}
+
+static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+  startPipelineCommon(req->reqConfig.timeoutPolicy, &req->sctx->time.timeout,
+                      rp, results, r, rc);
+}
+
+static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+  startPipelineCommon(hreq->reqConfig.timeoutPolicy,
+          &hreq->hybridParams->aggregationParams.common.sctx->time.timeout,
+          rp, results, r, rc);
 }
 
 static int populateReplyWithResults(RedisModule_Reply *reply,
@@ -471,6 +492,19 @@ static int populateReplyWithResults(RedisModule_Reply *reply,
     int len = array_len(results);
     array_foreach(results, res, {
       serializeResult(req, reply, res, cv);
+      SearchResult_Destroy(res);
+      rm_free(res);
+    });
+    array_free(results);
+    return len;
+}
+
+static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
+  SearchResult **results, HybridRequest *hreq, cachedVars *cv) {
+    // populate the reply with an array containing the serialized results
+    int len = array_len(results);
+    array_foreach(results, res, {
+      serializeResult_hybrid(hreq, reply, res, cv);
       SearchResult_Destroy(res);
       rm_free(res);
     });
@@ -514,7 +548,24 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
 
   // Reset the total results length:
   qctx->totalResults = 0;
+  QueryError_ClearError(qctx->err);
+}
 
+static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {
+  if (results) {
+    destroyResults(results);
+  } else {
+    SearchResult_Destroy(r);
+  }
+
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
+    uint32_t reqflags = HREQ_RequestFlags(hreq);
+    TotalGlobalStats_CountQuery(reqflags, duration);
+  }
+
+  // Reset the total results length
+  qctx->totalResults = 0;
   QueryError_ClearError(qctx->err);
 }
 
@@ -526,24 +577,23 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
  * not support cursors and profiling, thus this function does not handle
  * those cases. Support should be added as these features are added.
  */
-void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
-  cachedVars cv) {
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
     ResultProcessor *rp = qctx->endProc;
     SearchResult **results = NULL;
 
     // Set the chunk size limit for the query
     rp->parent->resultLimit = limit;
 
-    startPipeline(req, rp, &results, &r, &rc);
+    startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp, req)) {
+    if (ShouldReplyWithError(rp, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       goto done_err;
-    } else if (ShouldReplyWithTimeoutError(rc, req)) {
+    } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
       ReplyWithTimeoutError(reply);
       goto done_err;
     }
@@ -552,7 +602,7 @@ void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // TODO: Needed?
     // <format>
-    QEFlags reqFlags = AREQ_RequestFlags(req);
+    QEFlags reqFlags = HREQ_RequestFlags(hreq);
     if (reqFlags & QEXEC_FORMAT_EXPAND) {
       RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
     } else {
@@ -567,11 +617,11 @@ void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
     }
 
     if (results != NULL) {
-      populateReplyWithResults(reply, results, req, &cv);
+      HREQ_populateReplyWithResults(reply, results, hreq, &cv);
       results = NULL;
     } else {
       if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-        serializeResult_hybrid(req, reply, &r, &cv);
+        serializeResult_hybrid(hreq, reply, &r, &cv);
       }
 
       SearchResult_Clear(&r);
@@ -580,7 +630,7 @@ void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit,
       }
 
       while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-        serializeResult_hybrid(req, reply, &r, &cv);
+        serializeResult_hybrid(hreq, reply, &r, &cv);
         // Serialize it as a search result
         SearchResult_Clear(&r);
       }
@@ -594,7 +644,7 @@ done:
 
     // warnings
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
@@ -609,14 +659,14 @@ done:
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     // execution_time
-    clock_t duration = clock() - req->initClock;
+    clock_t duration = clock() - hreq->initClock;
     double executionTime = (double)duration / CLOCKS_PER_MILLISEC;
     RedisModule_ReplyKV_Double(reply, "execution_time", executionTime);
 
     RedisModule_Reply_MapEnd(reply);
 
 done_err:
-    finishSendChunk(req, results, &r, false, duration);
+    finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
 }
 
 /**
@@ -635,11 +685,11 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp, req)) {
+    if (ShouldReplyWithError(rp, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_2_err;
-    } else if (ShouldReplyWithTimeoutError(rc, req)) {
+    } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_2_err;
@@ -753,11 +803,11 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &results, &r, &rc);
 
-    if (ShouldReplyWithError(rp, req)) {
+    if (ShouldReplyWithError(rp, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_3_err;
-    } else if (ShouldReplyWithTimeoutError(rc, req)) {
+    } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_3_err;

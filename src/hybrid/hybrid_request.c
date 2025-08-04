@@ -126,50 +126,25 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
 /**
  * Execute the hybrid search pipeline and send results to the client.
- * This function creates a temporary AREQ wrapper around the tail pipeline
- * and uses the hybrid-specific result serialization functions.
+ * This function uses the hybrid-specific result serialization functions.
  *
  * @param req The HybridRequest with built pipeline
  * @param ctx Redis module context for sending the reply
  */
 void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
                             RedisSearchCtx *sctx, const char *indexname) {
+    // Set the chunk size limit for the query
+    hreq->tailPipeline->qctx.resultLimit = UINT64_MAX;
 
-    // Create temporary AREQ wrapper
-    AREQ *tailAREQ = AREQ_New();
-
-    // Store the original empty pipeline
-    Pipeline originalPipeline = tailAREQ->pipeline;
-
-    // Temporarily assign the tail pipeline (shallow copy)
-    tailAREQ->pipeline = *hreq->tailPipeline;
-
-    // Clear the processor chain in the original to prevent double-free
-    hreq->tailPipeline->qctx.rootProc = NULL;
-    hreq->tailPipeline->qctx.endProc = NULL;
-
-    tailAREQ->sctx = NewSearchCtxC(ctx, indexname, true);
-
-    if (hreq->nrequests > 0) {
-        tailAREQ->reqConfig = hreq->reqConfig;
-        tailAREQ->reqflags = hreq->requests[0]->reqflags;
-        tailAREQ->maxAggregateResults = hreq->requests[0]->maxAggregateResults;
-        tailAREQ->maxSearchResults = hreq->requests[0]->maxSearchResults;
-    }
-
-    AGGPlan *plan = AREQ_AGGPlan(tailAREQ);
+    AGGPlan *plan = &hreq->tailPipeline->ap;
     cachedVars cv = {
         .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
         .lastAstp = AGPLN_GetArrangeStep(plan)
     };
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    sendChunk_hybrid(tailAREQ, reply, UINT64_MAX, cv);
+    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
     RedisModule_EndReply(reply);
-
-    // Restore original empty pipeline
-    tailAREQ->pipeline = originalPipeline;
-    AREQ_Free(tailAREQ);
 }
 
 /**
@@ -261,12 +236,12 @@ void HybridRequest_Free(HybridRequest *req) {
       rm_free(req->hybridParams);
     }
 
-    // Free the tail pipeline
-    if (req->tailPipeline) {
-      Pipeline_Clean(req->tailPipeline);
-      rm_free(req->tailPipeline);
-      req->tailPipeline = NULL;
-    }
+    // // Free the tail pipeline
+    // if (req->tailPipeline) {
+    //   Pipeline_Clean(req->tailPipeline);
+    //   rm_free(req->tailPipeline);
+    //   req->tailPipeline = NULL;
+    // }
 
     rm_free(req);
 }

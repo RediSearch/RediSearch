@@ -39,6 +39,10 @@ typedef struct {
 typedef struct Grouper Grouper;
 struct QOptimizer;
 
+// Forward declarations
+struct HybridRequest;
+typedef struct HybridRequest HybridRequest;
+
 // A query can be either a search, an aggregate or a hybrid. So QEXEC_F_IS_AGGREGATE,
 // QEXEC_F_IS_SEARCH and QEXEC_F_IS_HYBRID are mutually exclusive (Only one can be set).
 typedef enum {
@@ -388,7 +392,7 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
-void sendChunk_hybrid(AREQ *req, RedisModule_Reply *reply, size_t limit, cachedVars cv);
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv);
 void AREQ_Free(AREQ *req);
 
 /**
