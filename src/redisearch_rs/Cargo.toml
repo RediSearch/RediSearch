@@ -5,7 +5,6 @@ members = [
     "c_entrypoint/*",
     "ffi",
     "inverted_index",
-    "inverted_index_bencher",
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
