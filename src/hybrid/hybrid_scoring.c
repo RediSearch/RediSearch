@@ -1,4 +1,5 @@
 #include "hybrid/hybrid_scoring.h"
+#include "score_explain.h"
 #include "rmutil/rm_assert.h"
 
  /* Get scoring function based on scoring type */
@@ -8,6 +9,38 @@
        return HybridLinearScore;
      case HYBRID_SCORING_RRF:
        return HybridRRFScore;
+     default:
+       RS_ASSERT(0); // Shouldn't get here
+   }
+ }
+
+ /* Explanation functions for different scoring types */
+ static void ExplainRRF(RSScoreExplain *scrExp, HybridScoringContext *scoringCtx, const double *values, double hybridScore, int numValidSources) {
+   if (numValidSources == 2) {
+     EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f) + 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0], scoringCtx->rrfCtx.k, values[1]);
+   } else if (numValidSources == 1) {
+     EXPLAIN(scrExp, "RRF: %.2f: 1/(%zu+%.0f)", hybridScore, scoringCtx->rrfCtx.k, values[0]);
+   }
+ }
+
+ static void ExplainLinear(RSScoreExplain *scrExp, HybridScoringContext *scoringCtx, const double *values, double hybridScore, int numValidSources) {
+   if (numValidSources == 2) {
+     EXPLAIN(scrExp, "Linear: %.2f: %.2f*%.2f + %.2f*%.2f", hybridScore,
+             scoringCtx->linearCtx.linearWeights[0], values[0],
+             scoringCtx->linearCtx.linearWeights[1], values[1]);
+   } else if (numValidSources == 1) {
+     EXPLAIN(scrExp, "Linear: %.2f: %.2f*%.2f", hybridScore,
+             scoringCtx->linearCtx.linearWeights[0], values[0]);
+   }
+ }
+
+ /* Get explanation function based on scoring type */
+ HybridExplainFunction GetExplainFunction(HybridScoringType scoringType) {
+   switch (scoringType) {
+     case HYBRID_SCORING_LINEAR:
+       return ExplainLinear;
+     case HYBRID_SCORING_RRF:
+       return ExplainRRF;
      default:
        RS_ASSERT(0); // Shouldn't get here
    }

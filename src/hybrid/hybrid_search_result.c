@@ -76,7 +76,9 @@ void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResu
 
 
 /**
- * Apply hybrid scoring to compute combined score from multiple sources.
+ * Apply hybrid scoring to merge search results and generate explanations.
+ * Computes hybrid score and populates explanation in target SearchResult.
+ * Merges score explanations from source SearchResults into target.
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  */
 double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, double *values, HybridScoringContext *scoringCtx) {
@@ -85,9 +87,53 @@ double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
   }
   RS_ASSERT(hybridResult->hasResults[targetIndex]);
 
+  SearchResult *target = hybridResult->searchResults[targetIndex];
+
+  // Count valid sources using hasResults flags
+  int numValidSources = 0;
+  for (size_t i = 0; i < hybridResult->numSources; i++) {
+    if (hybridResult->hasResults[i]) {
+      numValidSources++;
+    }
+  }
+
+  if (numValidSources == 0) return 0.0;
+
+  RSScoreExplain *scrExp = rm_calloc(1, sizeof(RSScoreExplain));
+  scrExp->children = rm_calloc(numValidSources, sizeof(RSScoreExplain));
+  scrExp->numChildren = numValidSources;
+
+  // Copy children explanations from all valid sources
+  int childIdx = 0;
+  for (size_t i = 0; i < hybridResult->numSources; i++) {
+    if (hybridResult->hasResults[i] && hybridResult->searchResults[i] &&
+        hybridResult->searchResults[i]->scoreExplain) {
+      // Copy all data from source to child
+      SECopy(&scrExp->children[childIdx], hybridResult->searchResults[i]->scoreExplain);
+
+      // Clean up source explanation
+      SEDestroy(hybridResult->searchResults[i]->scoreExplain);
+      hybridResult->searchResults[i]->scoreExplain = NULL;
+
+      childIdx++;
+    }
+  }
+
   // Calculate hybrid score using generic scoring function
+  // Use the existing hasResults flags directly instead of allocating new array
   HybridScoringFunction scoringFunc = GetScoringFunction(scoringCtx->scoringType);
-  return scoringFunc(scoringCtx, values, hybridResult->hasResults, hybridResult->numSources);
+  double hybridScore = scoringFunc(scoringCtx, values, hybridResult->hasResults, hybridResult->numSources);
+
+  // Create explanation string using function pointer
+  HybridExplainFunction explainFunc = GetExplainFunction(scoringCtx->scoringType);
+  explainFunc(scrExp, scoringCtx, values, hybridScore, numValidSources);
+
+  // Target's old explanation was already copied to children and destroyed above
+  // Just need to assign the new merged explanation
+
+  // Populate the target SearchResult's scoreExplain (in-place)
+  target->scoreExplain = scrExp;
+  return hybridScore;
 }
 
 /**

@@ -13,6 +13,7 @@
 #include "result_processor.h"
 #include "hybrid_scoring.h"
 #include "util/arr/arr.h"
+#include "score_explain.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,7 +47,9 @@ void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResu
 
 
 /**
- * Apply hybrid scoring to compute combined score from multiple sources.
+ * Apply hybrid scoring to merge search results and generate explanations.
+ * Computes hybrid score and populates explanation in target SearchResult.
+ * Merges score explanations from source SearchResults into target.
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  */
 double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, double *values, HybridScoringContext *scoringCtx);
