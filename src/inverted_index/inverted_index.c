@@ -148,7 +148,7 @@ void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask) {
 }
 
 uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx) {
-  return (idx->flags & Index_StoreNumeric) ? idx->numEntries : 0;
+  return idx->numEntries;
 }
 
 void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries) {
