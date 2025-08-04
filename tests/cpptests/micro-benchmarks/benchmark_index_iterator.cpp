@@ -9,6 +9,7 @@
 
 #include "benchmark/benchmark.h"
 #include "iterator_util.h"
+#include "index_utils.h"
 #include "redismock/util.h"
 
 #include <random>
@@ -16,6 +17,7 @@
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/inverted_index_iterator.h"
+#include "src/numeric_filter.h"
 
 #include "deprecated_iterator_util.h"
 #include "src/index.h"
@@ -29,12 +31,16 @@ public:
     InvertedIndex *index;
     QueryIterator *iterator;
     IndexIterator *iterator_old;
+    std::unique_ptr<MockQueryEvalCtx> q_mock;
+    NumericFilter *numericFilter;
 
     void SetUp(::benchmark::State &state) {
         if (!initialized) {
             RMCK::init();
             initialized = true;
         }
+        q_mock = std::make_unique<MockQueryEvalCtx>();
+        numericFilter = nullptr;
 
         std::mt19937 rng(46);
         std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
@@ -49,7 +55,15 @@ public:
         // Remove duplicates
         ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
 
-        IndexFlags flags = static_cast<IndexFlags>(state.range(0));
+        auto flags = static_cast<IndexFlags>(state.range(0));
+        auto withExpiration = static_cast<bool>(state.range(1));
+
+        if (withExpiration) {
+            for (auto id : ids) {
+                q_mock->TTL_Add(id, t_fieldMask{RS_FIELDMASK_ALL}); // Add expiration for all fields
+            }
+        }
+
         // Create an index with the specified flags
         createIndex(flags);
         // Create an iterator based on the flags. Expect only one of the iterators to be created (iterator or iterator_old)
@@ -67,6 +81,10 @@ public:
         if (index) {
             InvertedIndex_Free(index);
             index = nullptr;
+        }
+        if (numericFilter) {
+            NumericFilter_Free(numericFilter);
+            numericFilter = nullptr;
         }
         ids.clear();
         RSGlobalConfig.invertedIndexRawDocidEncoding = false;
@@ -86,7 +104,8 @@ public:
         } else if (flags == Index_DocIdsOnly) {
             // Populate the index with document IDs only
             for (size_t i = 0; i < ids.size(); ++i) {
-                InvertedIndex_WriteEntryGeneric(index, encoder, ids[i], nullptr);
+                RSIndexResult rec = {.docId = ids[i], .type = RSResultType_Virtual};
+                InvertedIndex_WriteEntryGeneric(index, encoder, &rec);
             }
         } else if (flags == (Index_DocIdsOnly | Index_Temporary)) {
             // Special case reserved for `Index_DocIdsOnly` with raw doc IDs
@@ -94,7 +113,8 @@ public:
             RS_ASSERT_ALWAYS(encoder != InvertedIndex_GetEncoder(Index_DocIdsOnly)); // Ensure we are using the raw doc ID encoder
             encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
             for (size_t i = 0; i < ids.size(); ++i) {
-                InvertedIndex_WriteEntryGeneric(index, encoder, ids[i], nullptr);
+                RSIndexResult rec = {.docId = ids[i], .type = RSResultType_Virtual};
+                InvertedIndex_WriteEntryGeneric(index, encoder, &rec);
             }
         } else {
             // Populate the index with term data
@@ -121,34 +141,39 @@ public:
 };
 bool BM_IndexIterator_Base::initialized = false;
 
-#define INDEX_SCENARIOS() ArgName("Index Flags") \
-    ->Arg(Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags) \
-    ->Arg(Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema) \
-    ->Arg(Index_StoreFreqs | Index_StoreFieldFlags) \
-    ->Arg(Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema) \
-    ->Arg(Index_StoreFreqs) \
-    ->Arg(Index_StoreFieldFlags) \
-    ->Arg(Index_StoreFieldFlags | Index_WideSchema) \
-    ->Arg(Index_StoreFieldFlags | Index_StoreTermOffsets) \
-    ->Arg(Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema) \
-    ->Arg(Index_StoreTermOffsets) \
-    ->Arg(Index_StoreFreqs | Index_StoreTermOffsets) \
-    ->Arg(Index_DocIdsOnly) \
-    ->Arg(Index_DocIdsOnly | Index_Temporary) \
-    ->Arg(Index_StoreNumeric)
+#define INDEX_SCENARIOS() ArgNames({"Index Flags", "With expiration data"})                         \
+    ->ArgsProduct({{                                                                                \
+        Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags,                          \
+        Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema,       \
+        Index_StoreFreqs | Index_StoreFieldFlags,                                                   \
+        Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema,                                \
+        Index_StoreFreqs,                                                                           \
+        Index_StoreFieldFlags,                                                                      \
+        Index_StoreFieldFlags | Index_WideSchema,                                                   \
+        Index_StoreFieldFlags | Index_StoreTermOffsets,                                             \
+        Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema,                          \
+        Index_StoreTermOffsets,                                                                     \
+        Index_StoreFreqs | Index_StoreTermOffsets,                                                  \
+        Index_DocIdsOnly,                                                                           \
+        Index_DocIdsOnly | Index_Temporary,                                                         \
+        Index_StoreNumeric,                                                                         \
+    }, {                                                                                            \
+        false,                                                                                      \
+        true                                                                                        \
+    }});
 
 class BM_IndexIterator : public BM_IndexIterator_Base {
 protected:
     void createIterator(IndexFlags flags) override {
         // Create an iterator based on the flags
         if (flags == Index_StoreNumeric) {
-            FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
-            FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-            iterator = NewInvIndIterator_NumericQuery(index, nullptr, &fieldCtx, nullptr, -INFINITY, INFINITY);
+            FieldFilterContext fieldCtx = {.field = {false, 0}, .predicate = FIELD_EXPIRATION_DEFAULT};
+            numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
+            iterator = NewInvIndIterator_NumericQuery(index, &q_mock->sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
         } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
-            iterator = NewInvIndIterator_GenericQuery(index, nullptr, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
+            iterator = NewInvIndIterator_GenericQuery(index, &q_mock->sctx, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
         } else {
-            iterator = NewInvIndIterator_TermQuery(index, nullptr, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
+            iterator = NewInvIndIterator_TermQuery(index, &q_mock->sctx, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
         }
     }
 };
@@ -180,13 +205,12 @@ protected:
         // Create an old iterator based on the flags
         IndexReader *reader;
         if (flags == Index_StoreNumeric) {
-            FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
-            FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-            reader = NewNumericReader(nullptr, index, nullptr, -INFINITY, INFINITY, true, &fieldCtx);
+            FieldFilterContext fieldCtx = {.field = {false, 0}, .predicate = FIELD_EXPIRATION_DEFAULT};
+            reader = NewNumericReader(&q_mock->sctx, index, nullptr, -INFINITY, INFINITY, true, &fieldCtx);
         } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
-            reader = NewGenericIndexReader(index, nullptr, 1, 1, 1, FIELD_EXPIRATION_DEFAULT);
+            reader = NewGenericIndexReader(index, &q_mock->sctx, 1, 1, 0, FIELD_EXPIRATION_DEFAULT);
         } else {
-            reader = NewTermIndexReaderEx(index, nullptr, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
+            reader = NewTermIndexReaderEx(index, &q_mock->sctx, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
         }
         iterator_old = NewReadIterator(reader);
     }

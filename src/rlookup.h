@@ -124,6 +124,9 @@ typedef struct {
   size_t ndyn;
 } RLookupRow;
 
+static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
+static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
+
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
   RLOOKUP_M_WRITE,  // Get key for writing
@@ -263,16 +266,6 @@ void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
 
 /**
- * Move data from the source row to the destination row. The source row is cleared.
- * The destination row should be pre-cleared (though its cache may still
- * exist).
- * @param lk lookup common to both rows
- * @param src the source row
- * @param dst the destination row
- */
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
-
-/**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
@@ -297,14 +290,16 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
  * @return the value if found, NULL otherwise.
  */
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+  
   RSValue *ret = NULL;
   if (row->dyn && array_len(row->dyn) > key->dstidx) {
     ret = row->dyn[key->dstidx];
   }
   if (!ret) {
     if (key->flags & RLOOKUP_F_SVSRC) {
-      if (row->sv && RSSortingVector_Length(row->sv) > key->svidx) {
-        ret = RSSortingVector_Get(row->sv, key->svidx);
+      const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
+      if (sv && RSSortingVector_Length(sv) > key->svidx) {
+        ret = RSSortingVector_Get(sv, key->svidx);
         if (ret != NULL && ret == RS_NullVal()) {
           ret = NULL;
         }
@@ -326,8 +321,6 @@ void RLookupRow_Wipe(RLookupRow *row);
  * when the row object will no longer be used.
  */
 void RLookupRow_Cleanup(RLookupRow *row);
-
-sds RLookupRow_DumpSds(const RLookupRow *row, bool obfuscate);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */

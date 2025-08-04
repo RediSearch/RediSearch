@@ -23,6 +23,7 @@ extern "C" {
 #include "src/metric_iterator.h"
 #include "src/util/arr.h"
 #include "src/util/references.h"
+#include "types_rs.h"
 
 #include "rmutil/alloc.h"
 
@@ -46,8 +47,9 @@ class IndexTest : public ::testing::Test {};
 
 static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
   RSOffsetVector ret = {0};
-  ret.data = (char *) VVW_GetByteData(vvw);
-  ret.len = VVW_GetByteLength(vvw);
+  char *data = (char *) VVW_GetByteData(vvw);
+  uint32_t len = VVW_GetByteLength(vvw);
+  RSOffsetVector_SetData(&ret, data, len);
   return ret;
 }
 
@@ -202,7 +204,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   for (size_t i = 0; i < 200; i++) {
 
     ForwardIndexEntry h;
-    h.docId = i;
+    h.docId = i + 1; // docId starts from 1
     h.fieldMask = 1;
     h.freq = (1 + i % 100) / (float)101;
 
@@ -224,13 +226,13 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   } else {
     ASSERT_EQ(1, idx->size);
   }
-  ASSERT_EQ(199, idx->lastId);
+  ASSERT_EQ(200, idx->lastId);
 
   for (int xx = 0; xx < 1; xx++) {
     IndexReader *ir = NewTermIndexReader(idx);
     RSIndexResult *h = NULL;
 
-    int n = 0;
+    int n = 1;
     int rc;
     while (!ir->atEnd_) {
       if ((rc = IR_Read(ir, &h)) == INDEXREAD_EOF) {
@@ -420,14 +422,14 @@ TEST_F(IndexTest, testWeight) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
-    if (h->data.agg.numChildren == 2) {
-      ASSERT_EQ(h->data.agg.children[0]->weight, 0.5);
-      ASSERT_EQ(h->data.agg.children[1]->weight, 1);
+    if (AggregateResult_NumChildren(&h->data.agg) == 2) {
+      ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 0.5);
+      ASSERT_EQ(AggregateResult_Get(&h->data.agg, 1)->weight, 1);
     } else {
       if (i <= 10) {
-        ASSERT_EQ(h->data.agg.children[0]->weight, 0.5);
+        ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 0.5);
       } else {
-        ASSERT_EQ(h->data.agg.children[0]->weight, 1);
+        ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 1);
       }
     }
   }
@@ -579,8 +581,8 @@ TEST_F(IndexTest, testNumericVaried) {
 
   for (size_t i = 0; i < numCount; i++) {
     size_t min_data_len;
-    size_t cap = idx->blocks[idx->size-1].buf.cap;
-    size_t offset = idx->blocks[idx->size-1].buf.offset;
+    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
+    size_t offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
 
     if(i == 0 || i == 4 || i == 5) {
@@ -658,8 +660,8 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t cap = idx->blocks[idx->size-1].buf.cap;
-    size_t offset = idx->blocks[idx->size-1].buf.offset;
+    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
+    size_t offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
     // if there was not enough space to store the entry, sz will be greater than zero
@@ -670,8 +672,8 @@ void testNumericEncodingHelper(bool isMulti) {
     }
 
     if (isMulti) {
-      cap = idx->blocks[idx->size-1].buf.cap;
-      offset = idx->blocks[idx->size-1].buf.offset;
+      cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
+      offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
 
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
@@ -751,7 +753,7 @@ TEST_F(IndexTest, testIntersection) {
   uint32_t topFreq = 0;
   while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Intersection);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
+    ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_TRUE(RSIndexResult_HasOffsets(h));
     topFreq = topFreq > h->freq ? topFreq : h->freq;
 
@@ -933,9 +935,9 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->data.agg.numChildren, 2);
-    ASSERT_EQ(h->data.agg.children[0]->type, RSResultType_Metric);
+    ASSERT_TRUE(IndexResult_IsAggregate(h));
+    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
+    ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -949,9 +951,9 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
-    ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->data.agg.numChildren, 2);
-    ASSERT_EQ(h->data.agg.children[0]->type, RSResultType_Metric);
+    ASSERT_TRUE(IndexResult_IsAggregate(h));
+    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
+    ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -1607,7 +1609,8 @@ TEST_F(IndexTest, testRawDocId) {
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    InvertedIndex_WriteEntryGeneric(idx, enc, id, NULL);
+    RSIndexResult rec = {.docId = id, .type = RSResultType_Virtual};
+    InvertedIndex_WriteEntryGeneric(idx, enc, &rec);
   }
 
   // Test that we can read them back

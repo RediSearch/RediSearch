@@ -123,7 +123,7 @@ extern size_t NumShards;
 void UpdateTopology(RedisModuleCtx *ctx) {
   MRClusterTopology *topo = RedisCluster_GetTopology(ctx);
   if (topo) { // if we didn't get a topology, do nothing. Log was already printed
-    RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+    RedisModule_Log(ctx, "debug", "UpdateTopology: Setting number of partitions to %ld", topo->numShards);
     NumShards = topo->numShards;
     MR_UpdateTopology(topo);
   }

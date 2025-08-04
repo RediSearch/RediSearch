@@ -10,7 +10,7 @@
 #define __INVERTED_INDEX_H__
 
 #include "redisearch.h"
-#include "buffer.h"
+#include "buffer/buffer.h"
 #include "doc_table.h"
 #include "index_iterator.h"
 #include "spec.h"
@@ -107,9 +107,18 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 
-#define IndexBlock_DataBuf(b) (b)->buf.data
-#define IndexBlock_DataLen(b) (b)->buf.offset
-#define IndexBlock_DataCap(b) (b)->buf.cap
+t_docId IndexBlock_FirstId(const IndexBlock *b);
+t_docId IndexBlock_LastId(const IndexBlock *b);
+uint16_t IndexBlock_NumEntries(const IndexBlock *b);
+char *IndexBlock_Data(const IndexBlock *b);
+char **IndexBlock_DataPtr(IndexBlock *b);
+void IndexBlock_DataFree(const IndexBlock *b);
+size_t IndexBlock_Cap(const IndexBlock *b);
+void IndexBlock_SetCap(IndexBlock *b, size_t cap);
+size_t IndexBlock_Len(const IndexBlock *b);
+size_t *IndexBlock_LenPtr(IndexBlock *b);
+Buffer *IndexBlock_Buffer(IndexBlock *b);
+void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf);
 
 /**
  * Decode a single record from the buffer reader. This function is responsible for:
@@ -209,23 +218,56 @@ IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId);
 // Create a new IndexDecoderCtx with a default numeric filter. Used only benchmarks
 IndexDecoderCtx NewIndexDecoderCtx_NumericFilter();
 
+// Create a new IndexDecoderCtx with a mask filter. Used only in benchmarks.
+IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask);
+
 /* Wrapper around the static encodeFreqsOnly to be able to access it in the Rust benchmarks. */
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFreqsFields to be able to access it in the Rust benchmarks. */
+size_t encode_freqs_fields(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFreqsFieldsWide to be able to access it in the Rust benchmarks. */
+size_t encode_freqs_fields_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFieldsOnly to be able to access it in the Rust benchmarks. */
+size_t encode_fields_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFieldsOnlyWide to be able to access it in the Rust benchmarks. */
+size_t encode_fields_only_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
 /* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
+/* Wrapper around the static encodeDocIdsOnly to be able to access it in the Rust benchmarks */
+size_t encode_docs_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
 /* Wrapper around the static readFreqs to be able to access it in the Rust benchmarks */
 bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
+/* Wrapper around the static readFreqsFlags to be able to access it in the Rust benchmarks */
+bool read_freqs_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFreqsFlagsWide to be able to access it in the Rust benchmarks */
+bool read_freqs_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFlags to be able to access it in the Rust benchmarks */
+bool read_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFlagsWide to be able to access it in the Rust benchmarks */
+bool read_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readDocIdsOnly to be able to access it in the Rust benchmarks */
+bool read_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
 
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
                                        RSIndexResult *entry);
 /* Create a new index reader for numeric records, optionally using a given filter. If the filter
  * is

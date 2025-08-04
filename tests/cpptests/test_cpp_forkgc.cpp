@@ -314,12 +314,12 @@ TEST_F(FGCTestTag, testModifyLastBlockWhileAddingNewBlocks) {
   ASSERT_EQ(3, TotalIIBlocks - startValue);
 
   // Save the pointer to the original block data.
-  const char *originalData = iv->blocks[0].buf.data;
+  const char *originalData = IndexBlock_Data(&iv->blocks[0]);
   // The fork will return an array of one block with one entry, but we will ignore it.
   size_t invertedSizeBeforeApply = (get_spec(ism))->stats.invertedSize;
   FGC_Apply(fgc);
 
-  const char *afterGcData = iv->blocks[0].buf.data;
+  const char *afterGcData = IndexBlock_Data(&iv->blocks[0]);
   ASSERT_EQ(afterGcData, originalData);
 
   // gc stats
@@ -380,7 +380,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
 
   // Save the pointer to the original last block data.
-  const char *originalData = iv->blocks[iv->size - 1].buf.data;
+  const char *originalData = IndexBlock_Data(&iv->blocks[iv->size - 1]);
 
   /** Apply the child changes. All the entries the child has seen are marked as deleted,
    * but since the last block was modified by the main the process, we keep it, assuming it
@@ -390,7 +390,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   FGC_Apply(fgc);
 
   // gc stats - make sure we skipped the last block
-  const char *afterGcData = iv->blocks[iv->size - 1].buf.data;
+  const char *afterGcData = IndexBlock_Data(&iv->blocks[iv->size - 1]);
   ASSERT_EQ(afterGcData, originalData);
   ASSERT_EQ(1, fgc->stats.gcBlocksDenied);
 
@@ -460,7 +460,7 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   size_t valid_docs = curId - 1 - total_deletions;
   ASSERT_EQ(valid_docs, sctx.spec->stats.numDocuments);
 
-  size_t lastBlockEntries = iv->blocks[2].numEntries;
+  size_t lastBlockEntries = IndexBlock_NumEntries(&iv->blocks[2]);
   FGC_ForkAndWaitBeforeApply(fgc);
 
   // Add a document -- this one is to keep
@@ -478,10 +478,10 @@ TEST_F(FGCTestTag, testRepairLastBlockWhileRemovingMiddle) {
   // We are left with the first + last block.
   ASSERT_EQ(2, iv->size);
   // The first entry was deleted. first block starts from docId = 2.
-  ASSERT_EQ(2, iv->blocks[0].firstId);
+  ASSERT_EQ(2, IndexBlock_FirstId(&iv->blocks[0]));
   // Last block was moved.
-  ASSERT_EQ(lastBlockFirstId, iv->blocks[1].firstId);
-  ASSERT_EQ(3, iv->blocks[1].numEntries);
+  ASSERT_EQ(lastBlockFirstId, IndexBlock_FirstId(&iv->blocks[1]));
+  ASSERT_EQ(3, IndexBlock_NumEntries(&iv->blocks[1]));
 }
 
 /**
@@ -609,7 +609,7 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   // Get the previous pointer, i.e. the one we expect to have the updated
   // info. We do -2 and not -1 because we have one new document in the
   // fourth block (as a sentinel)
-  const char *pp = iv->blocks[iv->size - 2].buf.data;
+  const char *pp = IndexBlock_Data(&iv->blocks[iv->size - 2]);
   FGC_Apply(fgc);
 
   // We hadn't performed any changes to the last block prior to the fork.
@@ -617,7 +617,7 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   ASSERT_EQ(3, iv->size);
 
   // The pointer to the last gc-block, received from the fork
-  const char *gcpp = iv->blocks[iv->size - 2].buf.data;
+  const char *gcpp = IndexBlock_Data(&iv->blocks[iv->size - 2]);
   ASSERT_EQ(pp, gcpp);
 
   // Now search for the ID- let's be sure it exists
@@ -747,7 +747,10 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   FGC_WaitBeforeFork(fgc);
 
   // Delete the entire second block
-  for (size_t i = rt->root->range->entries->blocks[1].firstId; i <= rt->root->range->entries->blocks[1].lastId; i++) {
+  IndexBlock *block = &rt->root->range->entries->blocks[1];
+  t_docId firstId = IndexBlock_FirstId(block);
+  t_docId lastId = IndexBlock_LastId(block);
+  for (size_t i = firstId; i <= lastId; i++) {
     RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
   }
   EXPECT_EQ(TotalIIBlocks - startValue, expected_total_blocks);

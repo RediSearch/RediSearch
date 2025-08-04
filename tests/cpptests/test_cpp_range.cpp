@@ -146,7 +146,7 @@ void testRangeIteratorHelper(bool isMulti) {
       }
       ASSERT_NE(found_mult, -1);
       if (res->type == RSResultType_Union) {
-        res = res->data.agg.children[0];
+        res = (RSIndexResult*)AggregateResult_Get(&res->data.agg, 0);
       }
 
       // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,
@@ -162,9 +162,8 @@ void testRangeIteratorHelper(bool isMulti) {
       ASSERT_NE(found_mult, -1);
 
       ASSERT_EQ(res->type, RSResultType_Numeric);
-      // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
-      ASSERT_TRUE(!RSIndexResult_IsAggregate(res));
+      ASSERT_TRUE(!IndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);
       ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
     }

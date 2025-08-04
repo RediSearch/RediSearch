@@ -1,6 +1,6 @@
 /// The header of a LowMemoryThinVec.
 #[repr(C)]
-pub(crate) struct Header {
+pub struct Header {
     len: SizeType,
     cap: SizeType,
 }

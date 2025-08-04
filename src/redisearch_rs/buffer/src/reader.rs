@@ -57,6 +57,13 @@ impl<'a> BufferReader<'a> {
     pub fn buffer(&self) -> &Buffer {
         self.buffer
     }
+
+    /// Cast to a raw pointer on [`ffi::BufferReader`].
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::BufferReader {
+        // Safety: `BufferReader` has the same memory layout as [`ffi::BufferReader`]
+        // so we can safely cast one into the other.
+        self as *const _ as *mut _
+    }
 }
 
 impl<'a> std::io::Read for BufferReader<'a> {

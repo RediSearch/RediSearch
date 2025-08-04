@@ -17,11 +17,19 @@
 struct RLookupKey; // Forward declaration
 
 typedef enum IteratorStatus {
-   ITERATOR_OK,
-   ITERATOR_NOTFOUND,
-   ITERATOR_EOF,
-   ITERATOR_TIMEOUT,
+  ITERATOR_OK,
+  ITERATOR_NOTFOUND,
+  ITERATOR_EOF,
+  ITERATOR_TIMEOUT,
 } IteratorStatus;
+
+typedef enum ValidateStatus {
+  VALIDATE_OK,      // The iterator is still valid and at the same position - if wasn't at EOF,
+                    // the `current` result is still valid
+  VALIDATE_MOVED,   // The iterator is still valid but lastDocID changed, and `current` is a new valid result or
+                    // at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
+  VALIDATE_ABORTED, // The iterator is no longer valid, and should not be used or rewound. Should be freed.
+} ValidateStatus;
 
 enum IteratorType {
   READ_ITERATOR,
@@ -78,12 +86,27 @@ typedef struct QueryIterator {
    */
   IteratorStatus (*SkipTo)(struct QueryIterator *self, t_docId docId);
 
+  /**
+   * Called when the iterator is being revalidated after a concurrent index change.
+   * The iterator should check if it is still valid.
+   *
+   * @return VALIDATE_OK if the iterator is still valid
+   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
+   * @return VALIDATE_ABORTED if the iterator is no longer valid
+   */
+  ValidateStatus (*Revalidate)(struct QueryIterator *self);
+
   /* release the iterator's context and free everything needed */
   void (*Free)(struct QueryIterator *self);
 
   /* Rewind the iterator to the beginning and reset its state (including `atEOF` and `lastDocId`) */
   void (*Rewind)(struct QueryIterator *self);
 } QueryIterator;
+
+static inline ValidateStatus Default_Revalidate(struct QueryIterator *base) {
+  // Default implementation does nothing.
+  return VALIDATE_OK;
+}
 
 // Scaffold for the iterator API. TODO: Remove this when the old API is removed
 #define IT_V2(api_name) api_name##_V2

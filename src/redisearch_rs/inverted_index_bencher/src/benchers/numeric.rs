@@ -14,7 +14,10 @@ use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{Decoder, Delta, Encoder, numeric::Numeric};
+use inverted_index::{
+    Decoder, Encoder, IdDelta,
+    numeric::{Numeric, NumericDelta},
+};
 use itertools::Itertools;
 
 use crate::ffi::{TestBuffer, encode_numeric, read_numeric};
@@ -87,7 +90,7 @@ struct BenchGroup {
 
 struct BenchInput {
     /// Stores the value, delta and the encoded buffer for this benchmark run
-    values: Vec<(f64, usize, Vec<u8>)>,
+    values: Vec<(f64, u64, Vec<u8>)>,
     delta_size: usize,
     value_size: usize,
 }
@@ -194,10 +197,10 @@ fn generate_test_values() -> Vec<BenchGroup> {
                     .into_iter()
                     // We need to find the actual resulting output for the decoding benchmarks
                     .map(|value| {
-                        let record = inverted_index::RSIndexResult::numeric(0, value);
+                        let record = inverted_index::RSIndexResult::numeric(value);
                         let mut buffer = Cursor::new(Vec::new());
                         let _grew_size = Numeric::new()
-                            .encode(&mut buffer, Delta::new(delta), &record)
+                            .encode(&mut buffer, NumericDelta::from_u64(delta).unwrap(), &record)
                             .unwrap();
                         let buffer = buffer.into_inner();
 
@@ -259,7 +262,7 @@ fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &B
                 || TestBuffer::with_capacity((1 + delta_size + value_size) * values.len()),
                 |mut buffer| {
                     for (value, delta, _) in values {
-                        let mut record = inverted_index::RSIndexResult::numeric(0, *value);
+                        let mut record = inverted_index::RSIndexResult::numeric(*value);
                         let grew_size = encode_numeric(&mut buffer, &mut record, *delta as _);
 
                         black_box(grew_size);
@@ -323,10 +326,14 @@ fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
                 },
                 |mut buffer| {
                     for (value, delta, _) in values {
-                        let record = inverted_index::RSIndexResult::numeric(0, *value);
+                        let record = inverted_index::RSIndexResult::numeric(*value);
 
                         let grew_size = Numeric::new()
-                            .encode(&mut buffer, Delta::new(*delta), &record)
+                            .encode(
+                                &mut buffer,
+                                NumericDelta::from_u64(*delta).unwrap(),
+                                &record,
+                            )
                             .unwrap();
 
                         black_box(grew_size);
@@ -353,7 +360,7 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
         |b| {
             for (_, _, buffer) in values {
                 b.iter_batched_ref(
-                    || Cursor::new(buffer),
+                    || Cursor::new(buffer.as_ref()),
                     |buffer| {
                         let result = Numeric::new().decode(buffer, 100);
 
