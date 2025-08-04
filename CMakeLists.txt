@@ -33,21 +33,7 @@ endif()
 
 # Set variables needed by RediSearch
 set(MODULE_NAME "search")
-set(COORD_TYPE "rlec")  # Use OSS coordinator to avoid cluster/coordinator memory allocation issues
-
-# Disable tests and benchmarks for dependencies
-set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
-set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
-set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
-set(VECSIM_BUILD_TESTS OFF CACHE BOOL "Build vecsim tests" FORCE)
-
-# # Add compile definitions needed by RediSearch
-# add_compile_definitions(
-#     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
-#     REDISMODULE_SDK_RLEC
-#     _GNU_SOURCE
-#     REDIS_MODULE_TARGET
-# )
+set(COORD_TYPE "rlec")
 
 # Configure RediSearch to build as static library when included as subdirectory
 set(REDISEARCH_BUILD_SHARED OFF)

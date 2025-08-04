@@ -47,9 +47,9 @@ Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, Docu
   std::vector<rocksdb::ColumnFamilyDescriptor> columnFamilies;
 
   const size_t docTableColumnIndex = 0;
-  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("doc_table"), CreateDocTableOptions(DocTableCacheSize)));
+  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("doc-table"), CreateDocTableOptions(DocTableCacheSize)));
   const size_t invertedIndexColumnIndex = 1;
-  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("inverted_indices"), CreateInvertedIndexOptions(deletedIds, InvertedIndexCacheSize)));
+  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("inverted-indices"), CreateInvertedIndexOptions(deletedIds, InvertedIndexCacheSize)));
 
   std::vector<rocksdb::ColumnFamilyHandle*> handles;
   const rocksdb::Status status = db.CreateColumnFamilies(columnFamilies, &handles);
@@ -101,8 +101,9 @@ Database* Database::Create(RedisModuleCtx* ctx, const std::string& db_path) {
         std::string_view docType = view.substr(pos + 1);
         std::string_view indexName = view.substr(0, pos);
         if (indexes.find(std::string(indexName)) != indexes.end()) {
-            RedisModule_Log(ctx, "error", "Duplicate column family name: %s", columnName.c_str());
-            return nullptr;
+            // Already added this index. This is now ok since we have a separate
+            // column-family for the doc-table and inverted index.
+            continue;
         }
         if (docType == "hash") {
             indexes.emplace(std::string(indexName), DocumentType_Hash);

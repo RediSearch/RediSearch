@@ -62,7 +62,7 @@ target_include_directories(redisearch-disk PRIVATE
     ${CMAKE_SOURCE_DIR}/deps/RediSearch/deps  # For rmutil/ prefix includes
     ${CMAKE_SOURCE_DIR}/deps/RediSearch/deps/VectorSimilarity/src  # For VecSim/ prefix includes
     ${CMAKE_SOURCE_DIR}/deps/RediSearch/deps/RedisModulesSDK
-    ${CMAKE_BINARY_DIR}/_deps/boost-src      # Boost from RediSearch
+    ${CMAKE_SOURCE_DIR}/deps/RediSearch/.install/boost  # Boost from RediSearch
 )
 
 # Add dependencies

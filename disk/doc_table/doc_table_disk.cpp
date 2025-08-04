@@ -274,7 +274,7 @@ DocTableColumn::Iterator* DocTableColumn::Iterator::Create(rocksdb::Iterator* it
 
     // Seek to last element which matches the given prefix
     std::stringstream stream;
-    stream << "d" << (':' + 1);
+    stream << "d" << char(':' + 1);  // ';' is the next char after ':'
     const auto end = stream.str();
     iter->Seek(end);
     if (!iter->Valid()) {
