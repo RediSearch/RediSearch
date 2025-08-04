@@ -340,8 +340,8 @@ impl RSAggregateResult {
     /// # Safety
     /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
     /// the child with [`Self::get()`] will cause undefined behavior.
-    pub fn push(&mut self, child: &RSIndexResult) {
-        self.records.push(child as *const _ as *mut _);
+    pub fn push(&mut self, child: &mut RSIndexResult) {
+        self.records.push(child);
 
         self.type_mask |= child.result_type;
     }
@@ -637,7 +637,7 @@ impl RSIndexResult {
     ///
     /// The given `result` has to stay valid for the lifetime of this index result. Else reading
     /// from this result will cause undefined behaviour.
-    pub fn push(&mut self, child: &RSIndexResult) {
+    pub fn push(&mut self, child: &mut RSIndexResult) {
         if self.is_aggregate() {
             // SAFETY: we know the data will be an aggregate because we just checked the type
             let agg = unsafe { &mut self.data.agg };
