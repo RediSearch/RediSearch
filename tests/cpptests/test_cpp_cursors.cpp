@@ -148,11 +148,11 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_EQ(Cursors_GetInfoStats().total_user, numCursors - numIdle) << "Half of the cursors should be alive";
 
   // Verify the Ids of the cursors alive
-  for (khiter_t ii = 0; ii != kh_end(g_CursorsList->lookup); ++ii) {
-    if (!kh_exist(g_CursorsList->lookup, ii)) {
+  for (khiter_t ii = 0; ii != kh_end(g_CursorsList.lookup); ++ii) {
+    if (!kh_exist(g_CursorsList.lookup, ii)) {
       continue;
     }
-    Cursor *cur = kh_val(cl->lookup, ii);
+    Cursor *cur = kh_val(g_CursorsList.lookup, ii);
     // Assert mark delete
 
     ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
