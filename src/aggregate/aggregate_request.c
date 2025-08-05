@@ -47,14 +47,14 @@ static bool ensureSimpleMode(AREQ *req) {
  * found in the document - was not requested.
  * name argument must not contain any user data, as it is used for error formatting
  */
-static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
-  if (*reqflags & QEXEC_F_IS_SEARCH) {
+static int ensureExtendedMode(uint32_t reqflags, const char *name, QueryError *status) {
+  if (reqflags & QEXEC_F_IS_SEARCH) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
                            "option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
   }
-  REQFLAGS_AddFlags(reqflags, QEXEC_F_IS_AGGREGATE);
+  REQFLAGS_AddFlags(&reqflags, QEXEC_F_IS_AGGREGATE);
   return 1;
 }
 
@@ -269,17 +269,15 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
 
     if (arng->isLimited && arng->limit == 0) {
       // LIMIT 0 0 - only count
-      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_NOROWS);
-      REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
+      REQFLAGS_AddFlags(&papCtx->reqflags, QEXEC_F_NOROWS);
+      REQFLAGS_AddFlags(&papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
-    } else if ((arng->limit > *papCtx->maxSearchResults) &&
-               (*papCtx->reqflags & QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID)) {
+    } else if ((arng->limit > *papCtx->maxSearchResults) && (IsSearch(papCtx) || IsHybrid(papCtx))) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
-    } else if ((arng->limit > *papCtx->maxAggregateResults) &&
-               !(*papCtx->reqflags & QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID)) {
+    } else if ((arng->limit > *papCtx->maxAggregateResults) && !(IsSearch(papCtx) || IsHybrid(papCtx))) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxAggregateResults);
       return ARG_ERROR;
@@ -303,13 +301,13 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
-    if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
+    if (parseCursorSettings(&papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "_NUM_SSTRING")) {
-    REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_TYPED);
+    REQFLAGS_AddFlags(&papCtx->reqflags, QEXEC_F_TYPED);
   } else if (AC_AdvanceIfMatch(ac, "WITHRAWIDS")) {
-    REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SENDRAWIDS);
+    REQFLAGS_AddFlags(&papCtx->reqflags, QEXEC_F_SENDRAWIDS);
   } else if (AC_AdvanceIfMatch(ac, "PARAMS")) {
     if (parseParams(&(papCtx->searchopts->params), ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
@@ -318,14 +316,14 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     if (parseRequiredFields(papCtx->requiredFields, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_REQUIRED_FIELDS);
+    REQFLAGS_AddFlags(&papCtx->reqflags, QEXEC_F_REQUIRED_FIELDS);
   } else if(AC_AdvanceIfMatch(ac, "DIALECT")) {
     dialect_specified = true;
     if (parseDialect(&papCtx->reqConfig->dialectVersion, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if(AC_AdvanceIfMatch(ac, "FORMAT")) {
-    if (parseValueFormat(papCtx->reqflags, ac, status) != REDISMODULE_OK) {
+    if (parseValueFormat(&papCtx->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES") && papCtx->prefixesOffset) {
@@ -350,7 +348,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     return ARG_UNKNOWN;
   }
 
-  if (dialect_specified && papCtx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && *papCtx->reqflags & QEXEC_FORMAT_EXPAND) {
+  if (dialect_specified && papCtx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && papCtx->reqflags & QEXEC_FORMAT_EXPAND) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
@@ -359,7 +357,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
 }
 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, ParseAggPlanContext *papCtx) {
-  bool isLegacy = *papCtx->reqflags & QEXEC_F_IS_SEARCH;
+  bool isLegacy = IsSearch(papCtx);
   // Prevent multiple SORTBY steps
   if (arng->sortKeys != NULL) {
     if (isLegacy) {
@@ -397,7 +395,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (*papCtx->reqflags & QEXEC_F_IS_HYBRID && isSortby0) {
+    if (papCtx->reqflags & QEXEC_F_IS_HYBRID && isSortby0) {
       // SORTBY 0 means disable all sorting in Hybrid requests
       AC_Advance(ac); // Consume the "0" argument
       arng->noSort = true;
@@ -584,7 +582,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     } else {
       ParseAggPlanContext papCtx = {
         .plan = AREQ_AGGPlan(req),
-        .reqflags = &req->reqflags,
+        .reqflags = req->reqflags,
         .reqConfig = &req->reqConfig,
         .searchopts = &req->searchopts,
         .prefixesOffset = &req->prefixesOffset,
@@ -957,7 +955,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, &papCtx->reqflags, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
@@ -970,7 +968,9 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
     }
   }
 
-  if (!(*papCtx->reqflags & QEXEC_F_SEND_HIGHLIGHT) && !(*papCtx->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) && (!(*papCtx->reqflags & QEXEC_F_IS_SEARCH) || hasQuerySortby(papCtx->plan))) {
+  if (!(papCtx->reqflags & QEXEC_F_SEND_HIGHLIGHT) &&
+      !(papCtx->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) &&
+      (!IsSearch(papCtx) || hasQuerySortby(papCtx->plan))) {
     // We can skip collecting full results structure and metadata from the iterators if:
     // 1. We don't have a highlight/summarize step,
     // 2. We are not required to return scores explicitly,
@@ -1013,7 +1013,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 
   ParseAggPlanContext papCtx = {
     .plan = AREQ_AGGPlan(req),
-    .reqflags = &req->reqflags,
+    .reqflags = req->reqflags,
     .reqConfig = &req->reqConfig,
     .searchopts = &req->searchopts,
     .prefixesOffset = &req->prefixesOffset,

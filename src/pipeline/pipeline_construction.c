@@ -283,7 +283,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
    *  * there is no subsequent sorter within this grouping */
   const int reqflags = params->common.reqflags;
   if ((reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
-      ((reqflags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID)) && !(reqflags & QEXEC_F_NOROWS) &&
+      ((IsSearch(&params->common) || IsHybrid(&params->common)) && !(reqflags & QEXEC_F_NOROWS) &&
        ((reqflags & QEXEC_OPTIMIZE) ? (params->common.optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(&pipeline->ap)))) {
     rp = getScorerRP(pipeline, first, params);
     PUSH_RP();
@@ -495,7 +495,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (requestFlags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID))) {
+  if (!hasArrange && (IsSearch(&params->common) || IsHybrid(&params->common))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     if (!rp) {
       goto error;
