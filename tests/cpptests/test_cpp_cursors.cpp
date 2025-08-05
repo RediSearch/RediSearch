@@ -15,6 +15,15 @@
 
 class CursorsTest : public ::testing::Test {};
 
+bool IdInArray(uint64_t id, const uint64_t *arr, int size) {
+  for (int i = 0; i < size; ++i) {
+    if (arr[i] == id) return true;
+  }
+  return false;
+}
+
+
+
 TEST_F(CursorsTest, BasicAPI) {
   StrongRef dummy = {0};
   Cursor *cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
@@ -111,4 +120,48 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // When cursor is explicitly freed, it should be deleted
   ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Cursor should be deleted";
   ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "Cursor should be deleted";
+
+  // Case 5: CursorList_Empty on multiple cursors, some idle, some active
+  // Verify that the idle cursors are freed immediately, and the active ones are marked for deletion
+  constexpr int numCursors = 5;
+  constexpr int numIdle = numCursors / 2 + numCursors % 2;
+  uint64_t ids[numIdle] = {0};
+
+  for (int i = 0; i < numCursors; ++i) {
+    cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
+    ASSERT_TRUE(cur != NULL);
+    ASSERT_FALSE(cur->delete_mark);
+    ASSERT_FALSE(is_Idle(cur));
+    if (i % 2 == 0) {
+      ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Cursor should be paused";
+      ids[i % 2] = cur->id;
+    }
+  }
+
+
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, numCursors) << "All cursors should be alive";
+
+  // Call CursorList_Empty
+  CursorList_Empty(&g_CursorsList);
+
+  // The Idle cursors should be freed immediately, the active ones should be marked for deletion
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, numCursors - numIdle) << "Half of the cursors should be alive";
+
+  // Verify the Ids of the cursors alive
+  for (khiter_t ii = 0; ii != kh_end(g_CursorsList->lookup); ++ii) {
+    if (!kh_exist(g_CursorsList->lookup, ii)) {
+      continue;
+    }
+    Cursor *cur = kh_val(cl->lookup, ii);
+    // Assert mark delete
+
+    ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
+    ASSERT_FALSE(IdInArray(cur->id, ids, numIdle)) << "Cursor should not be in the deleted array";
+    // Pause the cursor
+    ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Cursor should be paused";
+  }
+
+  // After the cursors are paused, they should be freed
+  ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "All cursors should be deleted";
+
 }
