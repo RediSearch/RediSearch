@@ -26,7 +26,10 @@ pub mod doc_ids_only;
 pub mod fields_only;
 pub mod freqs_fields;
 pub mod freqs_only;
+pub mod full;
 pub mod numeric;
+#[doc(hidden)]
+pub mod test_utils;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
@@ -585,6 +588,18 @@ impl<'a> RSIndexResult<'a> {
             // SAFETY: We are guaranteed the record data is numeric because of the check we just
             // did on the `result_type`.
             Some(unsafe { &self.data.num })
+        } else {
+            None
+        }
+    }
+
+    /// Get this record as a term record if possible. If the record is not term, returns
+    /// `None`.
+    pub fn as_term(&self) -> Option<&RSTermRecord<'_>> {
+        if matches!(self.result_type, RSResultType::Term) {
+            // SAFETY: We are guaranteed the record data is term because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &self.data.term })
         } else {
             None
         }
