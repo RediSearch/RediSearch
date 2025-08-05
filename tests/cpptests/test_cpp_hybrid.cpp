@@ -267,7 +267,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -341,7 +341,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -404,7 +404,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -466,7 +466,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -531,7 +531,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -627,7 +627,7 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -697,7 +697,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitSort) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -762,7 +762,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -829,7 +829,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -905,7 +905,7 @@ TEST_F(HybridRequestTest, testHybridRequestSortBy0DisablesImplicitSort) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,

@@ -395,7 +395,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (IsHybrid(papCtx) && isSortby0) {
+    if (IsHybridTail(papCtx) && isSortby0) {
       // SORTBY 0 means disable all sorting in Hybrid requests
       AC_Advance(ac); // Consume the "0" argument
       arng->noSort = true;

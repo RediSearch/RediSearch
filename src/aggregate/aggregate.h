@@ -34,7 +34,7 @@ typedef struct Grouper Grouper;
 struct QOptimizer;
 
 /*
- * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH and QEXEC_F_IS_HYBRID
+ * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH and QEXEC_F_IS_HYBRID_TAIL
  * and QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY are mutually exclusive (Only one can be set).
  */
 typedef enum {
@@ -100,7 +100,7 @@ typedef enum {
   QEXEC_F_INTERNAL = 0x400000,
 
   // The query is a Hybrid Request
-  QEXEC_F_IS_HYBRID = 0x800000,
+  QEXEC_F_IS_HYBRID_TAIL = 0x800000,
 
   // The query is a Search Subquery of a Hybrid Request
   QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY = 0x1000000,
@@ -131,7 +131,7 @@ typedef struct {
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
-#define IsHybrid(r) ((r)->reqflags & QEXEC_F_IS_HYBRID)
+#define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)

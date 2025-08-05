@@ -505,7 +505,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Individual variables used for parsing the tail of the command
   Pipeline *mergePipeline = NULL;
-  uint32_t mergeReqflags = QEXEC_F_IS_HYBRID;
+  uint32_t mergeReqflags = QEXEC_F_IS_HYBRID_TAIL;
   RequestConfig mergeReqConfig = RSGlobalConfig.requestConfigParams;
   RSSearchOptions mergeSearchopts = {0};
   CursorConfig mergeCursorConfig = {0};

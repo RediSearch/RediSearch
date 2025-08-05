@@ -191,7 +191,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsHybrid(&params->common) || IsHybridSearchSubquery(&params->common) ||
+    } else if (IsHybridTail(&params->common) || IsHybridSearchSubquery(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
                HasScorer(params->common.optimizer)) {
       // No sort? then it must be sort by score, which is the default.

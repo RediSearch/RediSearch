@@ -420,7 +420,7 @@ TEST_F(ParseHybridTest, ParseSortby0_SetsNoSortFlagAndClearsSortKeys) {
   RMCK::ArgvList args(ctx, "hello", "SORTBY", "0");
 
   AREQ *req = AREQ_New();
-  req->reqflags = QEXEC_F_IS_HYBRID;
+  req->reqflags = QEXEC_F_IS_HYBRID_TAIL;
 
   int rc = AREQ_Compile(req, args, args.size(), &qerr);
   EXPECT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&qerr);
