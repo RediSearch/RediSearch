@@ -70,7 +70,7 @@ pub extern "C" fn NewTokenRecord(term: *mut RSQueryTerm, weight: f64) -> *mut RS
     Box::into_raw(Box::new(result))
 }
 
-/// Free an index result's internal allocations and also free the result itself
+/// Free an index result's internal allocations and also free the result itself.
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
