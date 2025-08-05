@@ -33,8 +33,10 @@ extern "C" {
 typedef struct Grouper Grouper;
 struct QOptimizer;
 
-// A query can be either a search, an aggregate or a hybrid. So QEXEC_F_IS_AGGREGATE,
-// QEXEC_F_IS_SEARCH and QEXEC_F_IS_HYBRID are mutually exclusive (Only one can be set).
+/*
+ * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH and QEXEC_F_IS_HYBRID
+ * and QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY are mutually exclusive (Only one can be set).
+ */
 typedef enum {
   QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
   QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
@@ -100,6 +102,9 @@ typedef enum {
   // The query is a Hybrid Request
   QEXEC_F_IS_HYBRID = 0x800000,
 
+  // The query is a Search Subquery of a Hybrid Request
+  QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY = 0x1000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
@@ -127,6 +132,7 @@ typedef struct {
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsHybrid(r) ((r)->reqflags & QEXEC_F_IS_HYBRID)
+#define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)

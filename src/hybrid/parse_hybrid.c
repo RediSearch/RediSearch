@@ -513,7 +513,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
 
   AREQ **requests = NULL;
-  searchRequest->reqflags |= QEXEC_F_IS_HYBRID;
+  searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
 
   ArgsCursor ac;
