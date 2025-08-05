@@ -749,7 +749,7 @@ DECODER(readFlagsWide) {
   return res->fieldMask & ctx->wideMask;
 }
 
-DECODER(readFlagsOffsets) {
+DECODER(readFieldsOffsets) {
   uint32_t delta, mask;
   qint_decode3(&blockReader->buffReader, &delta, &mask, &res->offsetsSz);
   res->fieldMask = mask;
@@ -759,7 +759,7 @@ DECODER(readFlagsOffsets) {
   return mask & ctx->mask;
 }
 
-DECODER(readFlagsOffsetsWide) {
+DECODER(readFieldsOffsetsWide) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
@@ -875,13 +875,13 @@ bool read_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, 
 }
 
 // Wrapper around the private static `readFlagsOffsets` function to expose it to benchmarking.
-bool read_flags_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
-  return readFlagsOffsets(blockReader, ctx, res);
+bool read_fields_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFieldsOffsets(blockReader, ctx, res);
 }
 
 // Wrapper around the private static `readFlagsOffsetsWide` function to expose it to benchmarking.
-bool read_flags_offsets_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
-  return readFlagsOffsetsWide(blockReader, ctx, res);
+bool read_fields_offsets_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFieldsOffsetsWide(blockReader, ctx, res);
 }
 
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
@@ -956,10 +956,10 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 
     // (fields, offsets)
     case Index_StoreFieldFlags | Index_StoreTermOffsets:
-      RETURN_DECODERS(readFlagsOffsets, NULL);
+      RETURN_DECODERS(readFieldsOffsets, NULL);
 
     case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-      RETURN_DECODERS(readFlagsOffsetsWide, NULL);
+      RETURN_DECODERS(readFieldsOffsetsWide, NULL);
 
     case Index_StoreNumeric:
       RETURN_DECODERS(readNumeric, NULL);

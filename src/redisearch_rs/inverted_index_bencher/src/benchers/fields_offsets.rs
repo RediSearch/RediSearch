@@ -22,7 +22,7 @@ use inverted_index::{
 };
 use itertools::Itertools;
 
-use crate::ffi::{TestBuffer, encode_fields_offsets, read_flags_offsets};
+use crate::ffi::{TestBuffer, encode_fields_offsets, read_fields_offsets};
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -195,7 +195,7 @@ impl Bencher {
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
                     |mut buffer| {
-                        let (_filtered, result) = read_flags_offsets(&mut buffer, 100, self.wide);
+                        let (_filtered, result) = read_fields_offsets(&mut buffer, 100, self.wide);
 
                         black_box(result);
                     },

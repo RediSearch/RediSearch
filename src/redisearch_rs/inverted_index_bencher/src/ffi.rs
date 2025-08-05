@@ -250,7 +250,7 @@ pub fn encode_fields_offsets(
     }
 }
 
-pub fn read_flags_offsets(
+pub fn read_fields_offsets(
     buffer: &mut Buffer,
     base_id: u64,
     wide: bool,
@@ -262,9 +262,9 @@ pub fn read_flags_offsets(
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
     let returned = if wide {
-        unsafe { bindings::read_flags_offsets_wide(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_fields_offsets_wide(&mut block_reader, &mut ctx, &mut result) }
     } else {
-        unsafe { bindings::read_flags_offsets(&mut block_reader, &mut ctx, &mut result) }
+        unsafe { bindings::read_fields_offsets(&mut block_reader, &mut ctx, &mut result) }
     };
 
     (returned, result)
@@ -954,7 +954,7 @@ mod tests {
             assert_eq!(buffer.0.as_slice(), expected_encoding);
 
             let base_id = doc_id - delta;
-            let (returned, decoded_result) = read_flags_offsets(&mut buffer.0, base_id, false);
+            let (returned, decoded_result) = read_fields_offsets(&mut buffer.0, base_id, false);
             assert!(returned);
             assert_eq!(
                 TermRecordCompare(&decoded_result),
@@ -1048,7 +1048,7 @@ mod tests {
             assert_eq!(buffer.0.as_slice(), expected_encoding);
 
             let base_id = doc_id - delta;
-            let (returned, decoded_result) = read_flags_offsets(&mut buffer.0, base_id, true);
+            let (returned, decoded_result) = read_fields_offsets(&mut buffer.0, base_id, true);
             assert!(returned);
             assert_eq!(
                 TermRecordCompare(&decoded_result),
