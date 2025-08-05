@@ -1730,6 +1730,10 @@ class TestTimeoutReached(object):
                    'TIMEOUT', 1).error().contains('Timeout limit was reached')
 
         # HYBRID MODES
+        # Add some dummy documents so `-dummy` won't be empty and optimized away.
+        with self.env.getClusterConnectionIfNeeded() as conn:
+            for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
+                conn.execute_command('HSET', i, 't', 'dummy')
         for mode in self.hybrid_modes:
             res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec, 'vec_param',
@@ -1746,7 +1750,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['FLAT']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', self.type,
                     'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
@@ -1756,7 +1760,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['HNSW']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', self.type,
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
@@ -1766,7 +1770,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['SVS-VAMANA']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', self.type,
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2').ok()
         waitForIndex(self.env, 'idx')
 
@@ -2114,7 +2118,7 @@ def test_range_query_complex_queries():
         env.assertEqual(con.execute_command('HSET', str(index_size), 't', 'unique'), 0)
 
         radius = dim * 10**2
-        expected_res = [11, str(index_size), '8' if env.isCluster() and env.shardsCount > 1 else '9']  # Todo: fix this inconsistency
+        expected_res = [11, str(index_size), '16' if env.isCluster() and env.shardsCount > 1 else '18']  # Todo: fix this inconsistency
         for i in range(index_size-10, index_size, 5):
             expected_res.extend([str(i), '2'])
         for i in sorted(set(range(index_size-10, index_size))-set(range(index_size-10, index_size+1, 5))):

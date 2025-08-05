@@ -44,7 +44,7 @@ static inline void UI_RemoveExhausted(UnionIterator *it, int idx) {
   it->its[idx] = it->its[--it->num]; // Also decrement the number of iterators
 }
 
-static inline void UI_SyncIterList(UnionIterator *ui) {
+void UI_SyncIterList(UnionIterator *ui) {
   ui->num = ui->num_orig;
   memcpy(ui->its, ui->its_orig, sizeof(*ui->its) * ui->num_orig);
   if (ui->heap_min_id) {
@@ -423,7 +423,7 @@ static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool q
   if (write_idx == 1) {
     ret = its[0];
   } else if (write_idx == 0) {
-    ret = IT_V2(NewEmptyIterator)();
+    ret = NewEmptyIterator();
   }
   if (ret != NULL) {
     rm_free(its);
@@ -471,7 +471,7 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
   // Update current result - reset and rebuild if we have active children
   IndexResult_ResetAggregate(ui->base.current);
   // Find the minimum docId among active children to update current result
-  t_docId minId = UINT64_MAX;
+  t_docId minId = DOCID_MAX;
   for (int i = 0; i < ui->num; i++) {
     if (ui->its[i]->lastDocId < minId) {
       minId = ui->its[i]->lastDocId;
@@ -485,8 +485,8 @@ static ValidateStatus UI_Revalidate(QueryIterator *base) {
   return (base->lastDocId != original_lastDocId) ? VALIDATE_MOVED : VALIDATE_OK;
 }
 
-QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit,
-                                      double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
+                                double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
 
   QueryIterator* ret = UnionIteratorReducer(its, &num, quickExit, weight, type, q_str, config);
   if (ret != NULL) {
