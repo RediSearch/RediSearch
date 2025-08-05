@@ -131,11 +131,6 @@ static inline CursorList *GetGlobalCursor(uint64_t cid) {
 void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
- * Clear the cursor list
- */
-void CursorList_Destroy(CursorList *cl);
-
-/**
  * Empty the cursor list.
  * It is assumed that this function is called from the main thread, and that
  * are are no cursors that run in the background.
