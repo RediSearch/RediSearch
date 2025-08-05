@@ -46,6 +46,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), &areq->conc, areq->reqflags, &req->errors[i]);
+
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
         // Worth noting that in the current syntax we expect the AGGPlan to be empty
@@ -110,13 +112,39 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    if (rc != REDISMODULE_OK) {
+        return rc;
+    };
 
     // Restore the LOAD step to the tail pipeline for proper cleanup
     if (loadStep) {
         AGPLN_AddStep(&req->tailPipeline->ap, &loadStep->base);
     }
     return REDISMODULE_OK;
+}
+
+/**
+ * Execute the hybrid search pipeline and send results to the client.
+ * This function uses the hybrid-specific result serialization functions.
+ *
+ * @param req The HybridRequest with built pipeline
+ * @param ctx Redis module context for sending the reply
+ */
+void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
+                            RedisSearchCtx *sctx, const char *indexname) {
+    // Set the chunk size limit for the query
+    hreq->tailPipeline->qctx.resultLimit = UINT64_MAX;
+
+    AGGPlan *plan = &hreq->tailPipeline->ap;
+    cachedVars cv = {
+        .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+        .lastAstp = AGPLN_GetArrangeStep(plan)
+    };
+
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+    RedisModule_EndReply(reply);
 }
 
 /**
@@ -162,6 +190,12 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
+      // Clear the pipeline's result processor chain to prevent double-free
+      // The processors (including depleters) will be freed by the tail pipeline
+      QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req->requests[i]);
+      qctx->rootProc = NULL;
+      qctx->endProc = NULL;
+
       // Check if we need to manually free the thread-safe context
       if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
         RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
@@ -196,17 +230,18 @@ void HybridRequest_Free(HybridRequest *req) {
       // Free the aggregationParams search context
       if(req->hybridParams->aggregationParams.common.sctx) {
         SearchCtx_Free(req->hybridParams->aggregationParams.common.sctx);
+        req->hybridParams->aggregationParams.common.sctx = NULL;
       }
       // Free the hybrid parameters
       rm_free(req->hybridParams);
     }
 
-    // Free the tail pipeline
-    if (req->tailPipeline) {
-      Pipeline_Clean(req->tailPipeline);
-      rm_free(req->tailPipeline);
-      req->tailPipeline = NULL;
-    }
+    // // Free the tail pipeline
+    // if (req->tailPipeline) {
+    //   Pipeline_Clean(req->tailPipeline);
+    //   rm_free(req->tailPipeline);
+    //   req->tailPipeline = NULL;
+    // }
 
     rm_free(req);
 }

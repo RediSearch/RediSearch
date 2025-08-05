@@ -1833,6 +1833,10 @@ dictType dictTypeHybridSearchResult = {
 
   // Initialize iterator for yield phase
   self->iterator = dictGetIterator(self->hybridResults);
+
+  // Update total results to reflect the number of unique documents we'll yield
+  rp->parent->totalResults = dictSize(self->hybridResults);
+
   // Switch to yield phase
   rp->Next = RPHybridMerger_Yield;
   return rp->Next(rp, r);
