@@ -279,7 +279,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
     } else if ((arng->limit > *papCtx->maxAggregateResults) &&
-               !(*papCtx->reqflags & QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID)) {
+               !(*papCtx->reqflags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID))) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxAggregateResults);
       return ARG_ERROR;
