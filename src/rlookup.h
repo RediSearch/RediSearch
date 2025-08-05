@@ -399,6 +399,23 @@ void RLookup_Init(RLookup *l, IndexSpecCache *cache);
 void RLookup_Cleanup(RLookup *l);
 
 /**
+ * Creates a clone of an RLookupKey with complete independence.
+ * IMPORTANT: Cloned keys ALWAYS allocate their own strings, regardless of
+ * whether the source had allocated strings (RLOOKUP_F_NAMEALLOC flag).
+ */
+RLookupKey *RLookupKey_Clone(const RLookupKey *src);
+
+/**
+ * Frees an individual RLookupKey, cleaning up its allocated strings
+ */
+void RLookupKey_Free(RLookupKey *k);
+
+/**
+ * Creates a clone of an RLookup, copying all keys and incrementing reference counts
+ */
+RLookup *RLookup_Clone(const RLookup *src);
+
+/**
  * Initialize the lookup with fields from hash.
  */
 int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, IndexSpec *sp, const char *keyptr);
