@@ -38,7 +38,7 @@ class TestIteratorsRevalidate:
         """Clean up the index and documents"""
         self.env.flush()
 
-    def initiate_cursor(self, query) -> tuple[str, int]:
+    def initiate_cursor(self, query):
         """Helper to initiate a cursor for a given query"""
         res, cursor = self.env.cmd('FT.AGGREGATE', 'idx', query, 'LOAD', '1', '@__key', 'WITHCURSOR', 'COUNT', '1')
         return to_dict(res[1])['__key'], cursor
