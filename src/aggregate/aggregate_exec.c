@@ -470,7 +470,7 @@ static void startPipelineCommon(RSTimeoutPolicy timeoutPolicy, struct timespec *
       *rc = RS_RESULT_TIMEDOUT;
     }
   } else {
-    // Send the results received from the pipeline as they come
+    // Send the results received from the pipeline as they come (no need to aggregate)
     *rc = rp->Next(rp, r);
   }
 }
