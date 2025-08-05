@@ -132,8 +132,9 @@ void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
  * Empty the cursor list.
- * It is assumed that this function is called from the main thread, and that
- * are are no cursors that run in the background.
+ * This function is thread-safe and handles both idle and active cursors.
+ * Idle cursors are freed immediately, while active cursors are marked for
+ * deletion and will be freed when they are next accessed.
  */
 void CursorList_Empty(CursorList *cl);
 
