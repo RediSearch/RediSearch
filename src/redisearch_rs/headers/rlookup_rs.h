@@ -98,20 +98,18 @@ enum RLookupOption
 typedef uint32_t RLookupOption;
 #endif // __cplusplus
 
-typedef struct Option_CBCow_CStr Option_CBCow_CStr;
-
 /**
- * This type is introduced for CBindgen
+ * This type acts like a [std::borrow::Cow] but it has a C-compatible representation.
  *
- * It can support niche optimization, so it can be exposed as Option<T> to C too.
+ * This is useful for the types exposed to C via CBindgen.
  */
 enum CBCow_CStr_Tag
 #ifdef __cplusplus
   : uint8_t
 #endif // __cplusplus
  {
-  Borrowed_CStr = 1,
-  Owned_CStr = 3,
+  Borrowed_CStr,
+  Owned_CStr,
 };
 #ifndef __cplusplus
 typedef uint8_t CBCow_CStr_Tag;
@@ -128,6 +126,31 @@ typedef union CBCow_CStr {
     const char* owned;
   };
 } CBCow_CStr;
+
+/**
+ * This type acts like a [std::option::Option] but it has a C-compatible representation.
+ *
+ * This is useful for the types exposed to C via CBindgen.
+ */
+enum CBOption_CBCow_CStr_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  None_CBCow_CStr,
+  Some_CBCow_CStr,
+};
+#ifndef __cplusplus
+typedef uint8_t CBOption_CBCow_CStr_Tag;
+#endif // __cplusplus
+
+typedef union CBOption_CBCow_CStr {
+  CBOption_CBCow_CStr_Tag tag;
+  struct {
+    CBOption_CBCow_CStr_Tag some_tag;
+    union CBCow_CStr some;
+  };
+} CBOption_CBCow_CStr;
 
 /**
  * RLookup key
@@ -213,5 +236,5 @@ typedef struct RLookupKey {
    * YOU WANT TO POTENTIALLY RISK UB
    */
   union CBCow_CStr _name;
-  struct Option_CBCow_CStr _path;
+  union CBOption_CBCow_CStr _path;
 } RLookupKey;
