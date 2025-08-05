@@ -46,15 +46,15 @@ static bool ensureSimpleMode(AREQ *req) {
  * 'simple' options - i.e. ones which rely on the field to be the exact same as
  * found in the document - was not requested.
  * name argument must not contain any user data, as it is used for error formatting
- */
-static int ensureExtendedMode(uint32_t reqflags, const char *name, QueryError *status) {
-  if (reqflags & QEXEC_F_IS_SEARCH) {
+*/
+static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
+  if (*reqflags & QEXEC_F_IS_SEARCH) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
                            "option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
   }
-  REQFLAGS_AddFlags(&reqflags, QEXEC_F_IS_AGGREGATE);
+  REQFLAGS_AddFlags(reqflags, QEXEC_F_IS_AGGREGATE);
   return 1;
 }
 
@@ -944,7 +944,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
     }
 
     if (AC_AdvanceIfMatch(ac, "GROUPBY")) {
-      if (!ensureExtendedMode(papCtx->reqflags, "GROUPBY", status)) {
+      if (!ensureExtendedMode(&papCtx->reqflags, "GROUPBY", status)) {
         return REDISMODULE_ERR;
       }
       if (parseGroupby(papCtx->plan, ac, status) != REDISMODULE_OK) {
