@@ -603,8 +603,6 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   HybridRequest *hybridRequest = HybridRequest_New(requests, HYBRID_REQUEST_NUM_SUBQUERIES);
   hybridRequest->hybridParams = hybridParams;
 
-  Pipeline_Initialize(mergePipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridRequest->tailPipelineError);
-
   // thread safe context
   const AggregationPipelineParams params = {
       .common =
@@ -622,6 +620,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
+    Pipeline_Initialize(mergePipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridRequest->tailPipelineError);
+
     // Create and transfer the pipeline
     if (hybridRequest->tailPipeline) {
       Pipeline_Clean(hybridRequest->tailPipeline);
