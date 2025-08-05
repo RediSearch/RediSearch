@@ -896,19 +896,11 @@ impl<'a> RLookup<'a> {
     ) -> Option<&RLookupKey<'a>> {
         flags &= GET_KEY_FLAGS;
 
-        // Safety: The non-lexical lifetime analysis of current Rust, incorrectly handles borrows in early
-        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
-        // obviously not correct as `key` is either found and borrowed in which case we never reach the code after
-        // the if let branch, which it's early return.
-        // If the key is *not* found then key is *not* borrowed which means the code below is fine to
-        // borrow it again. The current compiler is not smart enough to get this though, so we create a disjoint
-        // borrow below.
-        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
-        let me = unsafe { &*(self as *const Self) };
-        if let Some(c) = me.keys.find_by_name(name) {
-            // A cursor returned from `KeyList::find_by_name()` will always always points to a valid RLookupKey
-            // therefore `into_current()` is not None here.
-            return c.into_current();
+        let available = self.keys.find_by_name(name).is_some();
+        if available {
+            // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
+            // See <https://github.com/rust-lang/rust/issues/54663>
+            return self.keys.find_by_name(name).unwrap().into_current();
         }
 
         // If we didn't find the key at the lookup table, check if it exists in
@@ -970,22 +962,12 @@ impl<'a> RLookup<'a> {
         // remove all flags that are not relevant to getting a key
         flags &= GET_KEY_FLAGS;
 
-        // Safety: The non-lexical lifetime analysis of Rust, incorrectly handles borrows in early
-        // return statements, expanding the borrow of `self` to the scope of the entire method. This is
-        // not correct here as `key` is either found and borrowed in which case we never reach the code in
-        // the outer else branch. If we reach the outer else branch then `self` is *not* found and *not*
-        // borrowed which means the last line of code is fine to borrow self again.
-        //
-        // The current compiler is not smart enough to get this though, so we create a disjoint borrow below.
-        // TODO remove once <https://github.com/rust-lang/rust/issues/54663> is fixed.
-        let me = unsafe { &mut *(self as *mut Self) };
-
-        let key = if let Some(c) = me.keys.find_by_name_mut(name) {
+        if let Some(c) = self.keys.find_by_name_mut(name) {
             // A. we found the key at the lookup table:
             if flags.contains(RLookupKeyFlag::Override) {
                 // We are in create mode, overwrite the key (remove schema related data, mark with new flags)
                 c.override_current(flags | RLookupKeyFlag::QuerySrc)
-                    .unwrap()
+                    .unwrap();
             } else {
                 // 1. if we are in exclusive mode, return None
                 return None;
@@ -994,11 +976,16 @@ impl<'a> RLookup<'a> {
             // B. we didn't find the key at the lookup table:
             // create a new key with the name and flags
             self.keys
-                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc));
         };
 
-        // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
-        Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) })
+        // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
+        // See <https://github.com/rust-lang/rust/issues/54663>
+        let cursor = self
+            .keys
+            .find_by_name(name)
+            .expect("key should have been created above");
+        Some(cursor.into_current().unwrap())
     }
 
     // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
