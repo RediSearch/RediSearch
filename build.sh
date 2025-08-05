@@ -698,7 +698,9 @@ run_micro_benchmarks() {
     return 0
   fi
 
-  echo "Running micro-benchmarks..."
+  echo "Running micro-benchmarks (build.sh)..."
+  clang --version
+  gcc -v
   # Check if micro-benchmarks directory exists
   MICRO_BENCH_DIR="$BINDIR/micro-benchmarks"
 

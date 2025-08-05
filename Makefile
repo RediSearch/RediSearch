@@ -340,7 +340,9 @@ benchmark:
 	@cd tests/benchmarks && redisbench-admin run-local
 
 micro-benchmarks: $(BUILD_SCRIPT)
-	@echo "Running micro-benchmarks..."
+	@echo "Running micro-benchmarks (Makefile)..."
+	clang --version
+	gcc -v
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_MICRO_BENCHMARKS
 
 vecsim-bench: $(BUILD_SCRIPT)
