@@ -164,7 +164,7 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = FreqsOnly.decode(buffer, 100);
+                        let result = FreqsOnly.decode(buffer, 100).unwrap();
                         let _ = black_box(result);
                     },
                     BatchSize::SmallInput,
