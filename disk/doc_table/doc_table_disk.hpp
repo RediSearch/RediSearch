@@ -57,28 +57,12 @@ public:
     DocumentID put(const ::std::string& key, double score, uint32_t flags, uint32_t maxFreq);
 
     /**
-     * @brief Checks if a document ID exists in the disk table
-     *
-     * @param docId Document ID to check
-     * @return true if exists, false otherwise
-     */
-    bool docIdExists(DocumentID docId);
-
-    /**
      * @brief Checks if a document ID is in the deleted set
      *
      * @param docId Document ID to check
      * @return true if deleted, false otherwise
      */
     bool docIdDeleted(DocumentID docId);
-
-    /**
-     * @brief Checks if a document key exists
-     *
-     * @param key Document key to check
-     * @return true if exists, false otherwise
-     */
-    bool keyExists(const ::std::string& key);
 
     /**
      * @brief Deletes a document by key
@@ -118,7 +102,16 @@ public:
     DocumentType getDocumentType() const { return docType_; }
 
     struct Iterator {
-        std::optional<Document> Next();
+        struct Entry {
+            DocumentID id;
+            DocumentMetadata dmd;
+
+            DocumentID GetID() const { return id; }
+            DocumentMetadata GetDMD() const {return dmd; }
+            t_fieldMask GetFieldMask() const { return RS_FIELDMASK_ALL; }
+        };
+
+        std::optional<Entry> Next();
 
         bool HasNext() const;
 
@@ -126,7 +119,7 @@ public:
 
         size_t EstimateNumResults();
 
-        std::optional<Document> SkipTo(DocumentID docId);
+        std::optional<Entry> SkipTo(DocumentID docId);
 
         void Abort();
 
@@ -173,7 +166,7 @@ private:
      * @param docId Document ID
      * @return Database key with "d:" prefix
      */
-    static std::string makeDocIdKey(DocumentID docId);
+    static std::string makeDocIdToDMDKey(DocumentID docId);
 
     /**
      * @brief Creates a database key for storing key-to-docId mapping

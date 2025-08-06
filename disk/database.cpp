@@ -10,7 +10,6 @@ namespace search::disk {
 
 static rocksdb::ColumnFamilyOptions CreateInvertedIndexOptions(std::shared_ptr<DeletedIds> deletedIds, size_t cacheSize) {
   rocksdb::ColumnFamilyOptions options;
-  options.doc_id_support = true;
   options.merge_values = true;
   options.merge_operator.reset(new InvertedIndexMergeOperator(deletedIds));
   rocksdb::BlockBasedTableOptions blockBasedOptions;
@@ -32,11 +31,13 @@ Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, Docu
     std::ostringstream ss;
     ss << name;
     if (docType == DocumentType_Hash) {
-      ss << "_hash";
+      ss << ":hash";
     } else if (docType == DocumentType_Json) {
-      ss << "_json";
+      ss << ":json";
     }
-    ss << "_" << columnName;
+    // we want to be able to extract the type so we need constant delimiters and don't want column name to have them
+    assert(columnName.find(':') == std::string::npos);
+    ss << ":" << columnName;
     return ss.str();
   };
 
@@ -47,9 +48,9 @@ Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, Docu
   std::vector<rocksdb::ColumnFamilyDescriptor> columnFamilies;
 
   const size_t docTableColumnIndex = 0;
-  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("doc-table"), CreateDocTableOptions(DocTableCacheSize)));
+  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("doc_table"), CreateDocTableOptions(DocTableCacheSize)));
   const size_t invertedIndexColumnIndex = 1;
-  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("inverted-indices"), CreateInvertedIndexOptions(deletedIds, InvertedIndexCacheSize)));
+  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("inverted_indices"), CreateInvertedIndexOptions(deletedIds, InvertedIndexCacheSize)));
 
   std::vector<rocksdb::ColumnFamilyHandle*> handles;
   const rocksdb::Status status = db.CreateColumnFamilies(columnFamilies, &handles);
@@ -85,14 +86,14 @@ Database* Database::Create(RedisModuleCtx* ctx, const std::string& db_path) {
             continue;
         }
         std::string_view view = columnName;
-        auto pos = view.find_last_of('_');
+        auto pos = view.find_last_of(':');
         if (pos == std::string::npos) {
             RedisModule_Log(ctx, "error", "Invalid column family name: %s", columnName.c_str());
             return nullptr;
         }
 
         view.remove_suffix(view.size() - pos);
-        pos = view.find_last_of('_');
+        pos = view.find_last_of(':');
         if (pos == std::string::npos) {
             RedisModule_Log(ctx, "error", "Invalid column family name: %s", columnName.c_str());
             return nullptr;

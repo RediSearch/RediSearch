@@ -49,29 +49,30 @@ struct IndexIteratorAdapter {
 
     int Next(RSIndexResult** result) {
         do {
-            std::optional<search::disk::Document> doc = iter->Next();
-            if (!doc) {
+            auto entry = iter->Next();
+            if (!entry) {
                 return INDEXREAD_EOF;
             }
 
-            if ((doc->metadata.fieldMask & fieldMask) == 0) {
+            t_fieldMask mask = entry->GetFieldMask();
+            if ((mask & fieldMask) == 0) {
                 continue;
             }
             *result = base.current;
-            (*result)->docId = doc->docId.id;
-            (*result)->fieldMask = doc->metadata.fieldMask;
+            (*result)->docId = entry->GetID().id;
+            (*result)->fieldMask = mask;
             return INDEXREAD_OK;
         } while (true);
     }
 
     int SkipTo(t_docId docId, RSIndexResult** result) {
-        std::optional<search::disk::Document> doc = iter->SkipTo(search::disk::DocumentID{docId});
-        if (!doc) {
+        auto entry = iter->SkipTo(search::disk::DocumentID{docId});
+        if (!entry) {
             return INDEXREAD_EOF;
         }
-        (*result)->docId = doc->docId.id;
-        (*result)->fieldMask = doc->metadata.fieldMask;
-        return doc->docId.id == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+        (*result)->docId = entry->GetID().id;
+        (*result)->fieldMask = entry->GetFieldMask();
+        return (*result)->docId == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
     }
 
     void Abort() {

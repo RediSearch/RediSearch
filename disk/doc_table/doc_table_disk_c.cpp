@@ -89,32 +89,6 @@ bool DocTableDisk_DocIdDeleted(DiskIndex* handle, t_docId docId) {
 }
 
 /**
- * @brief Checks if a document ID exists
- *
- * @param handle Handle to the document table
- * @param docId Document ID to check
- * @return 1 if exists, 0 if not exists or on error
- */
-int DocTableDisk_Exists(DiskIndex* handle, t_docId docId) {
-    search::disk::Database::Index* index = reinterpret_cast<search::disk::Database::Index*>(handle);
-    if (!index) return 0;
-    return index->GetDocTable().docIdExists(search::disk::DocumentID{docId}) ? 1 : 0;
-}
-
-/**
- * @brief Checks if a document key exists
- *
- * @param handle Handle to the document table
- * @param key Document key to check
- * @return 1 if exists, 0 if not exists or on error
- */
-int DocTableDisk_ExistsKey(DiskIndex* handle, const char* key) {
-    search::disk::Database::Index* index = reinterpret_cast<search::disk::Database::Index*>(handle);
-    if (!index) return 0;
-  return index->GetDocTable().keyExists(key) ? 1 : 0;
-}
-
-/**
  * @brief Deletes a document by key. Both the key->docId and docId->dmd entries
  * are deleted.
  *
@@ -164,9 +138,7 @@ int DocTableDisk_GetDmd(DiskIndex* handle, t_docId docId, RSDocumentMetadata* dm
     dmd->keyPtr = allocateKey(dmdDisk.keyPtr.c_str(), dmdDisk.keyPtr.size());
     dmd->id = docId;
     dmd->score = dmdDisk.score;
-    dmd->maxFreq = dmdDisk.maxFreq;
     dmd->type = index->GetDocTable().getDocumentType();
-    // dmd->flags = dmdDisk.flags;
     return 1;
 }
 

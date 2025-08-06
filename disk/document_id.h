@@ -34,6 +34,13 @@ struct DocumentID {
     };
 
     /**
+     * @brief Returns the doc-id
+     */
+    t_docId get() const {
+        return id;
+    }
+
+    /**
      * @brief Serializes the document ID to a binary stream
      *
      * Converts the ID to big-endian format for consistent cross-platform storage

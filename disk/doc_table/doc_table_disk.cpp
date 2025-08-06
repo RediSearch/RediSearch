@@ -69,14 +69,14 @@ DocumentID DocTableColumn::put(const std::string& key, double score, uint32_t fl
     docId.SerializeAsValue(keyToDocIdValueStream);
     const std::string keyToDocIdValue = keyToDocIdValueStream.str();
 
-    const std::string docIdToDmdKey = makeDocIdKey(docId);
+    const std::string docIdToDmdKey = makeDocIdToDMDKey(docId);
     const std::string docIdToDmdValue = dmd.serialize();
 
     // Execute the batch operation using WriteBatchT to avoid heap allocations
     bool success = column_.WriteBatchT([&](rocksdb::WriteBatch& batch, rocksdb::ColumnFamilyHandle& handle) {
         // If replacing an existing document, delete its metadata entry
         if (existingDocId) {
-            batch.Delete(&handle, makeDocIdKey(*existingDocId));
+            batch.Delete(&handle, makeDocIdToDMDKey(*existingDocId));
         }
 
         // Add the new document metadata entry
@@ -95,33 +95,13 @@ DocumentID DocTableColumn::put(const std::string& key, double score, uint32_t fl
 }
 
 /**
- * @brief Checks if a document ID exists in the disk table
- *
- * @param docId Document ID to check
- * @return true if exists, false otherwise
- */
-bool DocTableColumn::docIdExists(DocumentID docId) {
-    return getDmd(docId).has_value();
-}
-
-/**
  * @brief Checks if a document ID is in the deleted set
  *
  * @param docId Document ID to check
  * @return true if deleted, false otherwise
  */
 bool DocTableColumn::docIdDeleted(DocumentID docId) {
-    return deletedIds_->contains(docId.id);
-}
-
-/**
- * @brief Checks if a document key exists
- *
- * @param key Document key to check
- * @return true if exists, false otherwise
- */
-bool DocTableColumn::keyExists(const std::string& key) {
-    return getDocId(key).has_value();
+    return deletedIds_->contains(docId.get());
 }
 
 /**
@@ -144,7 +124,7 @@ bool DocTableColumn::del(const std::string& key) {
         batch.Delete(&handle, makeKeyToDocIdKey(key));
 
         // Delete the docId->metadata mapping
-        batch.Delete(&handle, makeDocIdKey(docId));
+        batch.Delete(&handle, makeDocIdToDMDKey(docId));
     });
 
     // If the operation was successful, add the docId to the deleted set
@@ -185,7 +165,7 @@ std::optional<DocumentID> DocTableColumn::getDocId(const std::string& key) {
  */
 std::optional<DocumentMetadata> DocTableColumn::getDmd(DocumentID docId) {
     // Use the doc_table column family
-    std::optional<std::string> value = column_.Read(makeDocIdKey(docId));
+    std::optional<std::string> value = column_.Read(makeDocIdToDMDKey(docId));
     if (!value) return std::nullopt;
 
     return DocumentMetadata::deserialize(*value);
@@ -203,20 +183,22 @@ std::optional<std::string> DocTableColumn::getKey(DocumentID docId) {
     return dmdOpt->keyPtr;
 }
 
-std::optional<Document> DocTableColumn::Iterator::Next() {
+std::optional<DocTableColumn::Iterator::Entry> DocTableColumn::Iterator::Next() {
     if (!iter_->Valid()) {
         return std::nullopt;
     }
 
-    static constexpr std::array<char, 2> prefixArray = {'d', ':'};
-    std::string_view prefix{prefixArray.data(), prefixArray.size()};
+    // static constexpr std::array<char, 2> prefixArray = {'d', ':'};
+    // std::string_view prefix{prefixArray.data(), prefixArray.size()};
+    constexpr std::string_view prefix = "d:";
     auto id = DocumentID::DeserializeFromKey(iter_->GetCurrentKey().value(), prefix);
-    if (!id) {
+    auto metadata = DocumentMetadata::deserialize(iter_->GetCurrentValue().value());
+    if (!id || !metadata) {
         return std::nullopt;
     }
     lastDocId_ = *id;
     iter_->Next();
-    return Document{lastDocId_, RS_FIELDMASK_ALL};
+    return Entry{lastDocId_, metadata.value()};
 }
 
 bool DocTableColumn::Iterator::HasNext() const {
@@ -229,7 +211,7 @@ std::optional<DocumentID> DocTableColumn::Iterator::LastDocId() {
 size_t DocTableColumn::Iterator::EstimateNumResults() {
     return countEstimation_;
 }
-std::optional<Document> DocTableColumn::Iterator::SkipTo(DocumentID docId) {
+std::optional<DocTableColumn::Iterator::Entry> DocTableColumn::Iterator::SkipTo(DocumentID docId) {
     if (!iter_->Valid()) {
         return std::nullopt;
     }
@@ -283,6 +265,10 @@ DocTableColumn::Iterator* DocTableColumn::Iterator::Create(rocksdb::Iterator* it
         iter->Prev();
     }
 
+    if (!iter->Valid()) {
+        return nullptr;
+    }
+
     // get the last id
     std::string_view endKeyView = iter->key().ToStringView();
     std::optional<DocumentID> endId = DocumentID::DeserializeFromKey(endKeyView, "d:");
@@ -326,7 +312,7 @@ bool DocTableColumn::putKeyToDocId(const std::string& key, DocumentID docId) {
 bool DocTableColumn::putDocIdToDmd(DocumentID docId, const DocumentMetadata& dmd) {
     // Use the doc_table column family
     std::string value = dmd.serialize();
-    return column_.Write(makeDocIdKey(docId), value);
+    return column_.Write(makeDocIdToDMDKey(docId), value);
 }
 
 /**
@@ -335,7 +321,7 @@ bool DocTableColumn::putDocIdToDmd(DocumentID docId, const DocumentMetadata& dmd
  * @param docId Document ID
  * @return Database key with "d:" prefix
  */
-std::string DocTableColumn::makeDocIdKey(DocumentID docId) {
+std::string DocTableColumn::makeDocIdToDMDKey(DocumentID docId) {
     std::stringstream stream;
     stream << "d:";
     docId.SerializeAsKey(stream);

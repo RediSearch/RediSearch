@@ -24,6 +24,9 @@ struct Document {
     /** Metadata associated with the document (e.g., field mask) */
     EntryMetadata metadata;
 
+    DocumentID GetID() const { return docId; }
+    t_fieldMask GetFieldMask() const { return metadata.fieldMask; }
+
     /**
      * @brief Serializes the document to a binary stream
      *
