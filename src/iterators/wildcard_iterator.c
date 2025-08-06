@@ -89,23 +89,17 @@ QueryIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs, d
 
 QueryIterator *NewWildcardIterator_Optimized(const RedisSearchCtx *sctx, double weight) {
   RS_ASSERT(sctx->spec->rule->index_all);
-  QueryIterator *ret = NULL;
   if (sctx->spec->existingDocs) {
-    ret = NewInvIndIterator_GenericQuery(sctx->spec->existingDocs, sctx,
-                                          RS_INVALID_FIELD_INDEX, FIELD_EXPIRATION_DEFAULT, weight);
-    InvIndIterator *it = (InvIndIterator *)ret;
-    it->isWildcard = true;
+    return NewInvIndIterator_WildcardQuery(sctx->spec->existingDocs, sctx, weight);
   } else {
-    ret = NewEmptyIterator(); // Index all and no index, means the spec is currently empty.
+    return NewEmptyIterator(); // Index all and no index, means the spec is currently empty.
   }
-  return ret;
 }
 
 // Returns a new wildcard iterator.
 // If the spec tracks all existing documents, it will return an iterator over those documents.
 // Otherwise, it will return a non-optimized wildcard iterator
 QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight) {
-  QueryIterator *ret = NULL;
   if (q->sctx->spec->rule && q->sctx->spec->rule->index_all == true) { // LLAPI spec may not have a rule
     return NewWildcardIterator_Optimized(q->sctx, weight);
   } else {
