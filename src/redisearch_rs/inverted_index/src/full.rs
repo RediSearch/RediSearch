@@ -16,7 +16,9 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultType, RSTermRecord};
+use crate::{
+    Decoder, Encoder, RSIndexResult, RSIndexResultData, RSOffsetVector, RSResultType, RSTermRecord,
+};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -90,12 +92,6 @@ pub fn decode_term_record_offsets<'a>(
     freq: u32,
     offsets_sz: u32,
 ) -> std::io::Result<RSIndexResult<'a>> {
-    let mut record = RSIndexResult::term()
-        .doc_id(base + delta as t_docId)
-        .field_mask(field_mask)
-        .frequency(freq);
-    record.offsets_sz = offsets_sz;
-
     // borrow the offsets vector from the cursor
     let start = cursor.position() as usize;
     let end = start + offsets_sz as usize;
@@ -114,10 +110,25 @@ pub fn decode_term_record_offsets<'a>(
 
     cursor.set_position(end as u64);
 
-    record.data.term = ManuallyDrop::new(RSTermRecord {
+    let term_record = RSTermRecord {
         term: std::ptr::null_mut(),
         offsets: RSOffsetVector::with_data(data, offsets_sz),
-    });
+    };
+
+    let record = RSIndexResult {
+        data: RSIndexResultData {
+            term: ManuallyDrop::new(term_record),
+        },
+        result_type: RSResultType::Term,
+        doc_id: base + delta as t_docId,
+        field_mask,
+        freq,
+        offsets_sz,
+        is_copy: false,
+        dmd: std::ptr::null(),
+        metrics: std::ptr::null_mut(),
+        weight: 0.0,
+    };
 
     Ok(record)
 }
