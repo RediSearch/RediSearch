@@ -13,12 +13,6 @@
 #include "vector_index.h"
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
-#include "spec.h"
-#include "tag_index.h"
-#include "numeric_index.h"
-#include "module.h"  // For RSDummyContext, RedisModule_Log, REDISMODULE_OK/ERR
-#include "config.h"
-#include "redis_index.h"  // For DONT_CREATE_INDEX constant
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
@@ -91,7 +85,7 @@ char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate) {
 // FieldSpec Replication Functions
 //---------------------------------------------------------------------------------------------
 
-int FieldSpec_Freeze(FieldSpec *field, IndexSpec *parent_spec) {
+int FieldSpec_Freeze(FieldSpec *field) {
   if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
     //TODO: Call specific API to stop/pause/handle potential background indexing
     return REDISMODULE_OK;
@@ -100,7 +94,7 @@ int FieldSpec_Freeze(FieldSpec *field, IndexSpec *parent_spec) {
   return REDISMODULE_OK;
 }
 
-int FieldSpec_Unfreeze(FieldSpec *field, IndexSpec *parent_spec) {
+int FieldSpec_Unfreeze(FieldSpec *field) {
   if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
     //TODO: Call specific API to stop/pause/handle potential background indexing
     return REDISMODULE_OK;

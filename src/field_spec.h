@@ -172,25 +172,20 @@ size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 // FieldSpec Replication Functions
 //---------------------------------------------------------------------------------------------
 
-// Forward declaration to avoid circular dependency
-struct IndexSpec;
-
 // Field iteration is handled within IndexSpec-level functions
 
 /**
  * Freeze a specific field
  * @param field The FieldSpec to freeze
- * @param parent_spec The parent IndexSpec
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int FieldSpec_Freeze(FieldSpec *field, struct IndexSpec *parent_spec);
+int FieldSpec_Freeze(FieldSpec *field);
 
 /**
  * Unfreeze a field
  * @param field The FieldSpec to unfreeze
- * @param parent_spec The parent IndexSpec
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int FieldSpec_Unfreeze(FieldSpec *field, struct IndexSpec *parent_spec);
+int FieldSpec_Unfreeze(FieldSpec *field);
 
 #endif /* SRC_FIELD_SPEC_H_ */

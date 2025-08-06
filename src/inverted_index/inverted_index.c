@@ -19,7 +19,6 @@
 #include "numeric_filter.h"
 #include "rmutil/rm_assert.h"
 #include "geo_index.h"
-#include "redismodule.h"  // For REDISMODULE_OK/ERR constants
 
 uint64_t TotalIIBlocks = 0;
 
