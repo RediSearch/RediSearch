@@ -47,7 +47,7 @@ void ResultMetrics_Free(RSIndexResult *r) {
 }
 
 void Term_Offset_Data_Free(RSTermRecord *tr) {
-  rm_free(tr->offsets.data);
+  RSOffsetVector_FreeData(&tr->offsets);
 }
 
 /* Allocate a new intersection result with a given capacity*/
@@ -166,10 +166,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     // copy term results
     case RSResultType_Term:
       // copy the offset vectors
-      if (src->data.term.offsets.data) {
-        ret->data.term.offsets.data = rm_malloc(ret->data.term.offsets.len);
-        memcpy(ret->data.term.offsets.data, src->data.term.offsets.data, ret->data.term.offsets.len);
-      }
+      RSOffsetVector_CopyData(&ret->data.term.offsets, &src->data.term.offsets);
       break;
 
     // the rest have no dynamic stuff, we can just copy the base result
@@ -199,7 +196,7 @@ void Term_Free(RSQueryTerm *t) {
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
-      return res->data.term.offsets.len > 0;
+      return RSOffsetVector_Len(&res->data.term.offsets) > 0;
     case RSResultType_Intersection:
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
@@ -233,7 +230,7 @@ void IndexResult_Free(RSIndexResult *r) {
     AggregateResult_Free(r->data.agg);
   } else if (r->type == RSResultType_Term) {
     if (r->isCopy) {
-      rm_free(r->data.term.offsets.data);
+      RSOffsetVector_FreeData(&r->data.term.offsets);
 
     } else {  // non copy result...
 

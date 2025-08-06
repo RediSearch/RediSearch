@@ -221,24 +221,12 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
   }
 }
 
-bool DocTable_HasExpiration(DocTable *t, t_docId docId)
-{
-  return t->ttl && TimeToLiveTable_HasExpiration(t->ttl, docId);
-}
-
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
   if (!hasExpirationTimeInformation(dmd->flags)) {
       return false;
   }
   RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
   return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
-}
-
-bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
-  if (!t->ttl || !fieldIndices || fieldCount == 0) {
-    return true;
-  }
-  return TimeToLiveTable_VerifyDocAndFields(t->ttl, docId, fieldIndices, fieldCount, predicate, expirationPoint);
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
@@ -560,46 +548,4 @@ void DocIdMap_Free(DocIdMap *m) {
 
 int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
   return TrieMap_Delete(m->tm, s, n, rm_free);
-}
-
-//---------------------------------------------------------------------------------------------
-// DocTable Replication Functions
-//---------------------------------------------------------------------------------------------
-
-int DocTable_Freeze(DocTable *docs) {
-  if (!docs) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Preparing document table for fork");
-
-  // Prepare document table for consistent snapshot
-  // - Ensure all pending document operations are flushed
-  // - Prepare for read-only access
-
-  return REDISMODULE_OK;
-}
-
-int DocTable_Unfreeze(DocTable *docs) {
-  if (!docs) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Handling fork creation for document table");
-
-  // Handle post-fork state for document table
-
-  return REDISMODULE_OK;
-}
-
-int DocTable_Unfreeze_Expensive_Writes(DocTable *docs) {
-  if (!docs) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Completing fork for document table");
-
-  // Resume normal document table operations
-
-  return REDISMODULE_OK;
 }

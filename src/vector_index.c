@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
-#include "hybrid_reader.h"
-#include "metric_iterator.h"
+#include "iterators/hybrid_reader.h"
+#include "iterators/idlist_iterator.h"
 #include "query_param.h"
 #include "rdb.h"
 #include "util/workers_pool.h"
@@ -78,30 +78,36 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   return kdv->p;
 }
 
-IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, bool yields_metric) {
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric) {
   size_t res_num = VecSimQueryReply_Len(reply);
   if (res_num == 0) {
     VecSimQueryReply_Free(reply);
     return NULL;
   }
-  t_docId *docIdsList = array_new(t_docId, res_num);
-  double *metricList = array_new(double, res_num);
+  t_docId *docIdsList = rm_malloc(sizeof(*docIdsList) * res_num);
+  double *metricList = yields_metric ? rm_malloc(sizeof(*metricList) * res_num) : NULL;
 
   // Collect the results' id and distance and set it in the arrays.
   VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
-  while (VecSimQueryReply_IteratorHasNext(iter)) {
+  for (size_t i = 0; i < res_num; i++) {
     VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
-    array_append(docIdsList, VecSimQueryResult_GetId(res));
-    array_append(metricList, VecSimQueryResult_GetScore(res));
+    docIdsList[i] = VecSimQueryResult_GetId(res);
+    if (yields_metric) {
+      metricList[i] = VecSimQueryResult_GetScore(res);
+    }
   }
   VecSimQueryReply_IteratorFree(iter);
   VecSimQueryReply_Free(reply);
 
-  // Move ownership on the arrays to the MetricIterator.
-  return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
+  // Move ownership on the arrays to the iterator.
+  if (yields_metric) {
+    return NewMetricIterator(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+  } else {
+    return NewIdListIterator(docIdsList, res_num, 1.0);
+  }
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = IndexSpec_GetFormattedKey(ctx->spec, vq->field, INDEXFLD_T_VECTOR);
   VecSimIndex *vecsim = openVectorIndex(ctx->spec, key, DONT_CREATE_INDEX);
@@ -694,21 +700,6 @@ int VecSimIndex_Unfreeze(VecSimIndex *vecsimIndex) {
   // Handle post-fork for VecSim index
   // - Memory snapshot has been taken
   // - Vector index is now read-only in child process
-
-  return REDISMODULE_OK;
-}
-
-int VecSimIndex_Unfreeze_Expensive_Writes(VecSimIndex *vecsimIndex) {
-  if (!vecsimIndex) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Completing fork for VecSim index");
-
-  // Complete fork for VecSim index
-  // - Resume normal write operations
-  // - Release any locks on VecSim structures
 
   return REDISMODULE_OK;
 }

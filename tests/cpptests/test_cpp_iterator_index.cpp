@@ -73,7 +73,7 @@ protected:
                 FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
                 FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
                 numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
-                it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
+                it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
             }
                 break;
             case TYPE_GENERIC:
@@ -251,7 +251,7 @@ public:
         FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
         FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
         flt = NewNumericFilter(min, max, 1, 1, 1, nullptr);
-        iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, flt, min, max);
+        iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, flt, nullptr, min, max);
         ASSERT_TRUE(iterator != nullptr);
     }
 };
@@ -373,7 +373,7 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           if (flags & Index_StoreNumeric) {
               FieldFilterContext fieldCtx = {.field = {false, fieldIndex}, .predicate = FIELD_EXPIRATION_DEFAULT};
               numericFilter = NewNumericFilter(-INFINITY, INFINITY, 1, 1, 1, nullptr);
-              it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
+              it_base = NewInvIndIterator_NumericQuery(idx, &q_mock.sctx, &fieldCtx, numericFilter, nullptr, -INFINITY, INFINITY);
           } else if (flags == Index_DocIdsOnly) {
               it_base = NewInvIndIterator_GenericQuery(idx, &q_mock.sctx, fieldIndex, FIELD_EXPIRATION_DEFAULT, 1.0);
           } else {
@@ -665,7 +665,7 @@ private:
             // Create the iterator with proper sctx so NumericCheckAbort can work
             FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = fs->index}};
             FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-            iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, -INFINITY, INFINITY);
+            iterator = NewInvIndIterator_NumericQuery(numericIdx, sctx, &fieldCtx, numericFilter, fs, -INFINITY, INFINITY);
 
             Vector_Free(ranges);
             RedisModule_FreeString(ctx, numField);

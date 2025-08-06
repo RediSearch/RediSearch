@@ -193,12 +193,4 @@ int FieldSpec_Freeze(FieldSpec *field, struct IndexSpec *parent_spec);
  */
 int FieldSpec_Unfreeze(FieldSpec *field, struct IndexSpec *parent_spec);
 
-/**
- * Unfreeze expensive writes for a field
- * @param field The FieldSpec to fully unfreeze
- * @param parent_spec The parent IndexSpec
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int FieldSpec_Unfreeze_Expensive_Writes(FieldSpec *field, struct IndexSpec *parent_spec);
-
 #endif /* SRC_FIELD_SPEC_H_ */

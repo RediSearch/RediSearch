@@ -26,13 +26,6 @@ uint64_t TotalIIBlocks = 0;
 // The last block of the index
 #define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
 
-// pointer to the current block while reading the index
-#define IR_CURRENT_BLOCK(ir) (ir->idx->blocks[ir->currentBlock])
-
-static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIndex *idx,
-                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, bool skipMulti,
-                                          RSIndexResult *record, const FieldFilterContext* filterCtx);
-
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
   idx->size++;
@@ -132,61 +125,6 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
-static void IR_SetAtEnd(IndexReader *r, bool value) {
-  if (r->isValidP) {
-    *r->isValidP = !value;
-  }
-  r->atEnd_ = value;
-}
-#define IR_IS_AT_END(ir) (ir)->atEnd_
-
-/* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
- * underlying term key. We check for changes in the underlying key, or possible deletion of it */
-void TermReader_OnReopen(void *privdata) {
-  IndexReader *ir = privdata;
-  if (ir->record->type == RSResultType_Term) {
-    // we need to reopen the inverted index to make sure its still valid.
-    // the GC might have deleted it by now.
-    InvertedIndex *idx = Redis_OpenInvertedIndex(ir->sctx, ir->record->data.term.term->str,
-                                                 ir->record->data.term.term->len, 0, NULL);
-    if (!idx || ir->idx != idx) {
-      // The inverted index was collected entirely by GC.
-      // All the documents that were inside were deleted and new ones were added.
-      // We will not continue reading those new results and instead abort reading
-      // for this specific inverted index.
-      IR_Abort(ir);
-      return;
-    }
-  }
-
-  IndexReader_OnReopen(ir);
-}
-
-void IndexReader_OnReopen(IndexReader *ir) {
-  if (IR_IS_AT_END(ir)) {
-    // Save time and state if we are already at the end
-    return;
-  }
-  // the gc marker tells us if there is a chance the keys has undergone GC while we were asleep
-  if (ir->gcMarker == ir->idx->gcMarker) {
-    // no GC - we just go to the same offset we were at
-    size_t offset = ir->br.pos;
-    ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
-    ir->br.pos = offset;
-  } else {
-    // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
-    // anymore. This means that we need to seek to last docId we were at
-
-    // keep the last docId we were at
-    t_docId lastId = ir->lastId;
-    // reset the state of the reader
-    IR_Rewind(ir);
-    // seek to the previous last id
-    RSIndexResult *dummy = NULL;
-    IR_SkipTo(ir, lastId, &dummy);
-  }
-}
-
 /******************************************************************************
  * Index Encoders Implementations.
  *
@@ -199,15 +137,19 @@ void IndexReader_OnReopen(IndexReader *ir) {
 
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
   size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
 }
 
 ENCODER(encodeFullWide) {
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
 }
 
@@ -240,30 +182,37 @@ ENCODER(encodeFieldsOnlyWide) {
 
 // 5. (field, offset)
 ENCODER(encodeFieldsOffsets) {
-  size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->data.term.offsets.len);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, offsets_len);
+  sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
 }
 
 ENCODER(encodeFieldsOffsetsWide) {
-  size_t sz = qint_encode2(bw, delta, res->data.term.offsets.len);
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  size_t sz = qint_encode2(bw, delta, offsets_len);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
 }
 
 // 6. Offsets only
 ENCODER(encodeOffsetsOnly) {
-
-  size_t sz = qint_encode2(bw, delta, res->data.term.offsets.len);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  size_t sz = qint_encode2(bw, delta, offsets_len);
+  sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
 }
 
 // 7. Offsets and freqs
 ENCODER(encodeFreqsOffsets) {
-  size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->data.term.offsets.len);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, offsets_len);
+  sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
 }
 
@@ -422,6 +371,16 @@ ENCODER(encodeNumeric) {
   return sz;
 }
 
+// Wrapper around the private static `encodeFull` function to expose it to benchmarking.
+size_t encode_full(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFull(bw, delta, res);
+}
+
+// Wrapper around the private static `encodeFullWide` function to expose it to benchmarking.
+size_t encode_full_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeFullWide(bw, delta, res);
+}
+
 // Wrapper around the private static `encodeFreqsFields` function to expose it to benchmarking.
 size_t encode_freqs_fields(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeFreqsFields(bw, delta, res);
@@ -450,6 +409,11 @@ size_t encode_fields_only_wide(BufferWriter *bw, t_docId delta, RSIndexResult *r
 // Wrapper around the private static `encodeNumeric` function to expose it to benchmarking
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeNumeric(bw, delta, res);
+}
+
+// Wrapper around the private static `encodeDocIdsOnly` function to expose it to benchmarking.
+size_t encode_docs_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeDocIdsOnly(bw, delta, res);
 }
 
 IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId) {
@@ -612,12 +576,6 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, &rec);
 }
 
-static void IndexReader_AdvanceBlock(IndexReader *ir) {
-  ir->currentBlock++;
-  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
-  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
-}
-
 /******************************************************************************
  * Index Decoder Implementations.
  *
@@ -661,8 +619,7 @@ DECODER(readFreqOffsetsFlags) {
   qint_decode4(&blockReader->buffReader, &delta, &res->freq, &fieldMask, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
-  res->data.term.offsets.data = BufferReader_Current(&blockReader->buffReader);
-  res->data.term.offsets.len = res->offsetsSz;
+  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return fieldMask & ctx->mask;
 }
@@ -689,8 +646,7 @@ SKIPPER(seekFreqOffsetsFlags) {
   res->freq = freq;
   res->fieldMask = fm;
   res->offsetsSz = offsz;
-  res->data.term.offsets.data = BufferReader_Current(&blockReader->buffReader) - offsz;
-  res->data.term.offsets.len = offsz;
+  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader) - offsz, offsz);
 
   return rc;
 }
@@ -700,7 +656,7 @@ DECODER(readFreqOffsetsFlagsWide) {
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return res->fieldMask & ctx->wideMask;
 }
@@ -789,7 +745,7 @@ DECODER(readFlagsOffsets) {
   qint_decode3(&blockReader->buffReader, &delta, &mask, &res->offsetsSz);
   res->fieldMask = mask;
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return mask & ctx->mask;
 }
@@ -799,7 +755,7 @@ DECODER(readFlagsOffsetsWide) {
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
 
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return res->fieldMask & ctx->wideMask;
@@ -809,7 +765,7 @@ DECODER(readOffsets) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
@@ -818,7 +774,7 @@ DECODER(readFreqsOffsets) {
   uint32_t delta;
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
@@ -884,6 +840,16 @@ DECODER(readDocIdsOnly) {
   return 1;  // Don't care about field mask
 }
 
+// Wrapper around the private static `readFreqOffsetsFlags` function to expose it to benchmarking.
+bool read_freq_offsets_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFreqOffsetsFlags(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readFreqOffsetsFlagsWide` function to expose it to benchmarking.
+bool read_freq_offsets_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readFreqOffsetsFlagsWide(blockReader, ctx, res);
+}
+
 // Wrapper around the private static `readFreqs` function to expose it to benchmarking.
 bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   return readFreqs(blockReader, ctx, res);
@@ -912,6 +878,11 @@ bool read_freqs_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx,
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
 bool read_freqs_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   return readFreqsFlagsWide(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readDocIdsOnly` function to expose it to benchmarking
+bool read_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readDocIdsOnly(blockReader, ctx, res);
 }
 
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
@@ -978,435 +949,6 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
       RS_LOG_ASSERT_FMT(0, "Invalid index flags: %d", flags);
       RETURN_DECODERS(NULL, NULL);
   }
-}
-
-IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax, bool skipMulti,
-                              const FieldFilterContext* fieldCtx) {
-  RSIndexResult *res = NewNumericResult();
-  res->freq = 1;
-  res->fieldMask = RS_FIELDMASK_ALL;
-  res->data.num.value = 0;
-
-  IndexDecoderCtx ctx = {.filter = flt};
-  IndexDecoderProcs procs = {.decoder = readNumeric};
-  IndexReader *ir = NewIndexReaderGeneric(sctx, idx, procs, ctx, skipMulti, res, fieldCtx);
-  ir->profileCtx.numeric.rangeMax = rangeMax;
-  ir->profileCtx.numeric.rangeMin = rangeMin;
-  return ir;
-}
-
-IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti) {
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
-  FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-  return NewNumericReader(NULL, idx, NULL, 0, 0, skipMulti, &fieldCtx);
-}
-
-size_t IR_NumEstimated(void *ctx) {
-  IndexReader *ir = ctx;
-  return ir->idx->numDocs;
-}
-
-#define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
-
-// Used to determine if the field mask for the given doc id are valid based on their ttl:
-// ir->filterCtx.predicate
-// returns true if the we don't have expiration information for the document
-// otherwise will return the same as DocTable_VerifyFieldExpirationPredicate
-// if predicate is default then it means at least one of the fields need to not be expired for us to return true
-// if predicate is missing then it means at least one of the fields needs to be expired for us to return true
-static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId docId, t_fieldMask docFieldMask) {
-  // If there isn't a ttl information then the doc fields are valid
-  if (!ir->sctx || !ir->sctx->spec || !DocTable_HasExpiration(&ir->sctx->spec->docs, docId)) {
-    return true;
-  }
-
-  // doc has expiration information, create a field id array to check for expiration predicate
-  size_t numFieldIndices = 0;
-  // Use a stack allocated array for the field indices, if the field mask is not a single field
-  t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
-  t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
-  if (ir->filterCtx.field.isFieldMask) {
-    const t_fieldMask relevantMask = docFieldMask & ir->filterCtx.field.value.mask;
-    numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(ir->sctx->spec,
-                                                            relevantMask,
-                                                            fieldIndicesArray);
-  } else if (ir->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
-    sortedFieldIndices = &ir->filterCtx.field.value.index;
-    numFieldIndices = 1;
-  }
-  return DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, docId,
-                                                 sortedFieldIndices, numFieldIndices,
-                                                 ir->filterCtx.predicate, &ir->sctx->time.current);
-}
-
-int IR_Read(void *ctx, RSIndexResult **e) {
-
-  IndexReader *ir = ctx;
-  if (IR_IS_AT_END(ir)) {
-    goto eof;
-  }
-  do {
-
-    // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
-    while (BufferReader_AtEnd(&ir->br)) {
-      RS_LOG_ASSERT_FMT(ir->currentBlock < ir->idx->size, "Current block %d is out of bounds %d",
-                        ir->currentBlock, ir->idx->size);
-      if (ir->currentBlock + 1 == ir->idx->size) {
-        // We're at the end of the last block...
-        goto eof;
-      }
-      IndexReader_AdvanceBlock(ir);
-    }
-
-    IndexBlockReader reader = (IndexBlockReader){
-      .buffReader = ir->br,
-      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir)),
-    };
-    int rv = ir->decoders.decoder(&reader, &ir->decoderCtx, ir->record);
-    RSIndexResult *record = ir->record;
-    ir->lastId = record->docId;
-    ir->br = reader.buffReader;
-
-    // The decoder also acts as a filter. A zero return value means that the
-    // current record should not be processed.
-    if (!rv) {
-      continue;
-    }
-
-    if (ir->skipMulti) {
-      // Avoid returning the same doc
-      //
-      // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
-      // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
-      if( ir->sameId == ir->lastId) {
-        continue;
-      }
-      ir->sameId = ir->lastId;
-    }
-
-    if (!VerifyFieldMaskExpirationForDocId(ir, record->docId, record->fieldMask)) {
-      continue;
-    }
-
-    ++ir->len;
-    *e = record;
-    return INDEXREAD_OK;
-
-  } while (1);
-eof:
-  IR_SetAtEnd(ir, 1);
-  return INDEXREAD_EOF;
-}
-
-#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(&blk) <= docId && docId <= IndexBlock_LastId(&blk))
-
-// Will use the seeker to reach a valid doc id that is greater or equal to the requested doc id
-// returns true if a valid doc id was found, false if eof was reached
-// The validity of the document relies on the predicate the reader was initialized with.
-// Invariant: We only go forward, never backwards
-static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
-  bool found = false;
-  while (!found) {
-    // try and find docId using seeker
-    IndexBlockReader reader = (IndexBlockReader){
-      .buffReader = ir->br,
-      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir)),
-    };
-    found = ir->decoders.seeker(&reader, &ir->decoderCtx, docId, ir->record);
-    ir->br = reader.buffReader;
-    ir->lastId = ir->record->docId;
-    // ensure the entry is valid
-    if (found && !VerifyFieldMaskExpirationForDocId(ir, ir->record->docId, ir->record->fieldMask)) {
-      // the doc id is not valid, filter out the doc id and continue scanning
-      // we set docId to be the next doc id to search for to avoid infinite loop
-      // we rely on the doc id ordering inside the inverted index
-      // IMPORTANT:
-      // we still perform the AtEnd check to avoid the case the non valid doc id was at the end of the block
-      // block: [1, 4, 7, ..., 564]
-      //                        ^-- we are here, and 564 is not valid
-      found = false;
-      docId = ir->record->docId + 1;
-    }
-
-    // if found is true we found a doc id that is greater or equal to the searched doc id
-    // if found is false we need to continue scanning the inverted index, possibly advancing to the next block
-    if (!found && BufferReader_AtEnd(&ir->br)) {
-      if (ir->currentBlock < ir->idx->size - 1) {
-        // We reached the end of the current block but we have more blocks to advance to
-        // advance to the next block and continue the search using the seeker from there
-      	IndexReader_AdvanceBlock(ir);
-      } else {
-        // we reached the end of the inverted index
-        // we are at the end of the last block
-        // break out of the loop and return found (found = false)
-        break;
-      }
-    }
-  }
-  // if found is true we found a doc id that is greater or equal to the searched doc id
-  // if found is false we are at the end of the inverted index, no more blocks or doc ids
-  // we could not find a valid doc id that is greater or equal to the doc id we were called with
-  return found;
-}
-
-// Assumes there is a valid block to skip to (matching or past the requested docId)
-static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
-  InvertedIndex *idx = ir->idx;
-  uint32_t top = idx->size - 1;
-  uint32_t bottom = ir->currentBlock + 1;
-
-  t_docId lastId = IndexBlock_LastId(&idx->blocks[bottom]);
-  if (docId <= lastId) {
-    // the next block is the one we're looking for, although it might not contain the docId
-    ir->currentBlock = bottom;
-    goto new_block;
-  }
-
-  uint32_t i;
-  while (bottom <= top) {
-    i = (bottom + top) / 2;
-    const IndexBlock *blk = idx->blocks + i;
-    if (BLOCK_MATCHES(*blk, docId)) {
-      ir->currentBlock = i;
-      goto new_block;
-    }
-
-    t_docId firstId = IndexBlock_FirstId(blk);
-    if (docId < firstId) {
-      top = i - 1;
-    } else {
-      bottom = i + 1;
-    }
-  }
-
-  // We didn't find a matching block. According to the assumptions, there must be a block past the
-  // requested docId, and the binary search brought us to it or the one before it.
-  ir->currentBlock = i;
-  t_docId currentLastId = IndexBlock_LastId(&IR_CURRENT_BLOCK(ir));
-  if (currentLastId < docId) {
-    ir->currentBlock++; // It's not the current block. Advance
-  }
-
-new_block:
-  RS_LOG_ASSERT(ir->currentBlock < idx->size, "Invalid block index");
-  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
-  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
-}
-
-int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  IndexReader *ir = ctx;
-  if (!docId) {
-    return IR_Read(ctx, hit);
-  }
-
-  if (IR_IS_AT_END(ir)) {
-    goto eof;
-  }
-
-  if (docId > ir->idx->lastId || ir->idx->size == 0) {
-    goto eof;
-  }
-
-  t_docId lastId = IndexBlock_LastId(&IR_CURRENT_BLOCK(ir));
-  if (lastId < docId) {
-    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
-    // lastId, which either contains the requested docId or higher ids. We can skip to it.
-    IndexReader_SkipToBlock(ir, docId);
-  } else if (BufferReader_AtEnd(&ir->br)) {
-    // Current block, but there's nothing here
-    if (IR_Read(ir, hit) == INDEXREAD_EOF) {
-      goto eof;
-    } else {
-      return INDEXREAD_NOTFOUND;
-    }
-  }
-
-  /**
-   * We need to replicate the effects of IR_Read() without actually calling it
-   * continuously.
-   *
-   * The seeker function saves CPU by avoiding unnecessary function
-   * calls and pointer dereferences/accesses if the requested ID is
-   * not found. Because less checking is required
-   *
-   * We:
-   * 1. Call IR_Read() at least once
-   * 2. IR_Read seeks ahead to the first non-empty block
-   * 3. IR_Read reads the current record
-   * 4. If the current record's flags do not match the fieldmask, it
-   *    continues to step 2
-   * 5. If the current record's flags match, the function exits
-   * 6. The returned ID is examined. If:
-   *    - ID is smaller than requested, continue to step 1
-   *    - ID is larger than requested, return NOTFOUND
-   *    - ID is equal, return OK
-   */
-
-  if (ir->decoders.seeker) {
-    // the seeker will return 1 only when it found a docid which is greater or equals the
-    // searched docid and the field mask matches the searched fields mask. We need to continue
-    // scanning only when we found such an id or we reached the end of the inverted index.
-    if (!IndexReader_ReadWithSeeker(ir, docId)) {
-      goto eof;
-    }
-    // Found a document that match the field mask and greater or equal the searched docid
-    *hit = ir->record;
-    return (ir->record->docId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
-  } else {
-    int rc;
-    t_docId rid;
-    while (INDEXREAD_EOF != (rc = IR_Read(ir, hit))) {
-      rid = ir->lastId;
-      if (rid < docId) continue;
-      if (rid == docId) return INDEXREAD_OK;
-      return INDEXREAD_NOTFOUND;
-    }
-  }
-eof:
-  IR_SetAtEnd(ir, 1);
-  return INDEXREAD_EOF;
-}
-
-size_t IR_NumDocs(void *ctx) {
-  IndexReader *ir = ctx;
-  return ir->len;
-}
-
-static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, InvertedIndex *idx,
-                             IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, bool skipMulti,
-                             RSIndexResult *record, const FieldFilterContext* filterCtx) {
-  // The default ctx is needed because filterCtx can be null in the case of NewOptimizerIterator
-  ret->currentBlock = 0;
-  ret->idx = idx;
-  ret->gcMarker = idx->gcMarker;
-  ret->record = record;
-  ret->len = 0;
-  ret->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ret));
-  ret->sameId = 0;
-  ret->skipMulti = skipMulti;
-  ret->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ret)));
-  ret->decoders = decoder;
-  ret->decoderCtx = decoderCtx;
-  ret->filterCtx = *filterCtx;
-  ret->isValidP = NULL;
-  ret->sctx = sctx;
-  IR_SetAtEnd(ret, 0);
-}
-
-static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIndex *idx,
-                                          IndexDecoderProcs decoder, IndexDecoderCtx decoderCtx, bool skipMulti,
-                                          RSIndexResult *record, const FieldFilterContext* filterCtx) {
-  IndexReader *ret = rm_malloc(sizeof(IndexReader));
-  IndexReader_Init(sctx, ret, idx, decoder, decoderCtx, skipMulti, record, filterCtx);
-  return ret;
-}
-
-static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
-  return logb(1.0F + totalDocs / (double)(termDocs ?: 1));
-}
-
-// IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
-// IDF computation).
-static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
-  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
-}
-
-IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
-                                RSQueryTerm *term, double weight) {
-  if (term && sctx) {
-    // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs);
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
-  }
-
-  // Get the decoder
-  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(idx->flags);
-
-  RSIndexResult *record = NewTokenRecord(term, weight);
-  record->fieldMask = RS_FIELDMASK_ALL;
-  record->freq = 1;
-
-  IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
-    dctx.wideMask = fieldMaskOrIndex.value.mask;
-  else if (fieldMaskOrIndex.isFieldMask)
-    dctx.mask = fieldMaskOrIndex.value.mask;
-  else
-    dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
-
-  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex,
-                                  .predicate = FIELD_EXPIRATION_DEFAULT};
-  return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &filterCtx);
-}
-
-IndexReader *NewTermIndexReader(InvertedIndex *idx) {
-  FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
-  return NewTermIndexReaderEx(idx, NULL, fieldMaskOrIndex, NULL, 1);
-}
-
-IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
-                                   t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate) {
-  IndexDecoderCtx dctx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
-  IndexDecoderProcs decoder = InvertedIndex_GetDecoder(idx->flags);
-  FieldFilterContext fieldFilterCtx = {.field.isFieldMask = false, .field.value.index = fieldIndex, .predicate = predicate };
-  RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  record->freq = freq;
-  return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &fieldFilterCtx);
-}
-
-void IR_Free(IndexReader *ir) {
-
-  IndexResult_Free(ir->record);
-  rm_free(ir);
-}
-
-void IR_Abort(void *ctx) {
-  IndexReader *it = ctx;
-  IR_SetAtEnd(it, 1);
-}
-
-void ReadIterator_Free(IndexIterator *it) {
-  if (it == NULL) {
-    return;
-  }
-
-  IR_Free(it->ctx);
-  rm_free(it);
-}
-
-inline t_docId IR_LastDocId(void *ctx) {
-  return ((IndexReader *)ctx)->lastId;
-}
-
-void IR_Rewind(void *ctx) {
-  IndexReader *ir = ctx;
-  IR_SetAtEnd(ir, 0);
-  ir->currentBlock = 0;
-  ir->gcMarker = ir->idx->gcMarker;
-  ir->br = NewBufferReader(IndexBlock_Buffer(&IR_CURRENT_BLOCK(ir)));
-  ir->lastId = IndexBlock_FirstId(&IR_CURRENT_BLOCK(ir));
-  ir->sameId = 0;
-}
-
-IndexIterator *NewReadIterator(IndexReader *ir) {
-  IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
-  ri->ctx = ir;
-  ri->type = READ_ITERATOR;
-  ri->NumEstimated = IR_NumEstimated;
-  ri->Read = IR_Read;
-  ri->SkipTo = IR_SkipTo;
-  ri->LastDocId = IR_LastDocId;
-  ri->Free = ReadIterator_Free;
-  ri->Len = IR_NumDocs;
-  ri->Abort = IR_Abort;
-  ri->Rewind = IR_Rewind;
-  ri->HasNext = NULL;
-  ri->isValid = !ir->atEnd_;
-  ri->current = ir->record;
-
-  ir->isValidP = &ri->isValid;
-  return ri;
 }
 
 /* Repair an index block by removing garbage - records pointing at deleted documents,
@@ -1505,45 +1047,4 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
 
   IndexResult_Free(res);
   return frags;
-}
-
-//---------------------------------------------------------------------------------------------
-// InvertedIndex Replication Functions
-//---------------------------------------------------------------------------------------------
-
-int InvertedIndex_Freeze(InvertedIndex *idx) {
-  if (!idx) {
-    return REDISMODULE_ERR;
-  }
-
-  // Prepare inverted index for fork
-  // - Ensure index block consistency
-  // - Flush pending write operations
-  // - Acquire read locks if needed
-
-  return REDISMODULE_OK;
-}
-
-int InvertedIndex_Unfreeze(InvertedIndex *idx) {
-  if (!idx) {
-    return REDISMODULE_ERR;
-  }
-
-  // Handle post-fork for inverted index
-  // - Memory snapshot has been taken
-  // - Index blocks are now read-only in child process
-
-  return REDISMODULE_OK;
-}
-
-int InvertedIndex_Unfreeze_Expensive_Writes(InvertedIndex *idx) {
-  if (!idx) {
-    return REDISMODULE_ERR;
-  }
-
-  // Complete fork for inverted index
-  // - Resume normal write operations
-  // - Release any locks on index blocks
-
-  return REDISMODULE_OK;
 }

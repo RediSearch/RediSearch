@@ -21,6 +21,7 @@
 #include "field_spec.h"
 #include "spec.h"
 #include "config.h"
+#include "iterators/inverted_index_iterator.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -186,7 +187,7 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
   return ret;
 }
 
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
+struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
                                           size_t len, int create_if_missing, size_t *sz) {
   *sz = 0;
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
@@ -227,78 +228,24 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
   return ret;
 }
 
-typedef struct {
-  TagIndex *idx;
-  IndexIterator **its;
-} TagConcCtx;
-
-static void TagReader_OnReopen(void *privdata) {
-  TagConcCtx *ctx = privdata;
-  IndexIterator **its = ctx->its;
-  TagIndex *idx = NULL;
-  size_t nits = array_len(its);
-
-  // If the key is valid, we just reset the reader's buffer reader to the current block pointer
-  for (size_t ii = 0; ii < nits; ++ii) {
-    IndexReader *ir = its[ii]->ctx;
-    if (ir->record->type == RSResultType_Term) {
-      size_t sz;
-      // we need to reopen the inverted index to make sure its still valid.
-      // the GC might have deleted it by now.
-      InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->data.term.term->str,
-                                              ir->record->data.term.term->len, DONT_CREATE_INDEX, &sz);
-      if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
-        // The inverted index was collected entirely by GC.
-        // All the documents that were inside were deleted and new ones were added.
-        // We will not continue reading those new results and instead abort reading
-        // for this specific inverted index.
-        IR_Abort(ir);
-        continue; // Deal with the next IndexReader
-      }
-    }
-    // Use generic `OnReopen` callback for all readers
-    IndexReader_OnReopen(ir);
-  }
-}
-
-static void concCtxFree(void *p) {
-  TagConcCtx *tctx = p;
-  if (tctx->its) {
-    array_free(tctx->its);
-  }
-  rm_free(p);
-}
-
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc,
-                                          array_t *iters) {
-  TagConcCtx *tctx = rm_calloc(1, sizeof(*tctx));
-  tctx->idx = idx;
-  tctx->its = (IndexIterator **)iters;
-  ConcurrentSearch_AddKey(conc, TagReader_OnReopen, tctx, concCtxFree);
-}
-
-IndexIterator *TagIndex_GetReader(const RedisSearchCtx *sctx, InvertedIndex *iv, const char *value, size_t len,
-                                   double weight, t_fieldIndex fieldIndex) {
+static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchCtx *sctx, InvertedIndex *iv,
+                                         const char *value, size_t len, double weight, t_fieldIndex fieldIndex) {
   RSToken tok = {.str = (char *)value, .len = len};
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = fieldIndex};
-  IndexReader *r = NewTermIndexReaderEx(iv, sctx, fieldMaskOrIndex, t, weight);
-  if (!r) {
-    return NULL;
-  }
-  return NewReadIterator(r);
+  return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
 }
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
+QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
   if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
     return NULL;
   }
-  return TagIndex_GetReader(sctx, iv, value, len, weight, fieldIndex);
+  return TagIndex_GetReader(idx, sctx, iv, value, len, weight, fieldIndex);
 }
 
 /* Format the key name for a tag index */
@@ -361,54 +308,4 @@ size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs) {
     }
   }
   return overhead;
-}
-
-//---------------------------------------------------------------------------------------------
-// Tag Index Replication Functions
-//---------------------------------------------------------------------------------------------
-
-int TagIndex_Freeze(TagIndex *tagIndex) {
-  if (!tagIndex) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Preparing tag index for fork");
-
-  // Prepare tag index structures
-  // - Ensure tag dictionary consistency
-  // - Flush pending tag operations
-  // - Prepare TrieMap structures
-
-  return REDISMODULE_OK;
-}
-
-int TagIndex_Unfreeze(TagIndex *tagIndex) {
-  if (!tagIndex) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Handling fork creation for tag index");
-
-  // Handle post-fork for tag index
-  // - Memory snapshot has been taken
-  // - Tag dictionaries are now read-only in child process
-
-  return REDISMODULE_OK;
-}
-
-int TagIndex_Unfreeze_Expensive_Writes(TagIndex *tagIndex) {
-  if (!tagIndex) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Completing fork for tag index");
-
-  // Complete fork for tag index
-  // - Resume normal write operations
-  // - Release any locks on TrieMap structures
-
-  return REDISMODULE_OK;
 }

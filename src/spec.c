@@ -1178,11 +1178,6 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     result = parseVectorField_hnsw(fs, params, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
-    // TODO: remove when multi is supported
-    if (multi) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Multi-value index is currently not supported for SVS-VAMANA algorithm", AC_Strerror(rc));
-      return 0;
-    }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
 
@@ -1193,7 +1188,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
     params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
     params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
-    params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
+    params->primaryIndexParams->algoParams.svsParams.multi = multi;
     params->primaryIndexParams->algoParams.svsParams.num_threads = workersThreadPool_NumThreads();
     params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
     params->primaryIndexParams->logCtx = logCtx;
@@ -1494,32 +1489,6 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   }
 
   return rc;
-}
-
-static inline uint64_t HighPart(t_fieldMask mask) { return mask >> 64; }
-static inline uint64_t LowPart(t_fieldMask mask) { return (uint64_t)mask; }
-
-static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translationTable, t_fieldIndex *out, uint16_t n, uint8_t offset) {
-  for (int lsbPos = ffsll(maskPart); lsbPos && (offset + lsbPos - 1) < array_len(translationTable); lsbPos = ffsll(maskPart)) {
-    const t_fieldId ftId = offset + lsbPos - 1;
-    RS_LOG_ASSERT(ftId < array_len(translationTable), "ftId out of bounds");
-    out[n++] = translationTable[ftId];
-    maskPart &= ~(1 << (lsbPos - 1));
-  }
-  return n;
-}
-
-uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out) {
-  uint16_t count = 0;
-  const uint8_t LOW_OFFSET = 0;
-  if (sizeof(mask) == sizeof(uint64_t)) {
-    count = TranslateMask(mask, sp->fieldIdToIndex, out, count, LOW_OFFSET);
-  } else {
-    const uint8_t HIGH_OFFSET = 64;
-    count = TranslateMask(LowPart(mask), sp->fieldIdToIndex, out, count, LOW_OFFSET);
-    count = TranslateMask(HighPart(mask), sp->fieldIdToIndex, out, count, HIGH_OFFSET);
-  }
-  return count;
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
@@ -3844,50 +3813,13 @@ int RediSearch_Unfreeze(void) {
   return REDISMODULE_OK;
 }
 
-int RediSearch_Unfreeze_Expensive_Writes(void) {
-  if (!specDict_g) {
-    return REDISMODULE_OK;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Unfreezing expensive writes for all IndexSpecs");
-
-  dictIterator *iter = dictGetIterator(specDict_g);
-  dictEntry *entry = NULL;
-
-  while ((entry = dictNext(iter))) {
-    StrongRef spec_ref = dictGetRef(entry);
-    IndexSpec *spec = StrongRef_Get(spec_ref);
-
-    if (!spec) {
-      continue;
-    }
-
-    int ret = IndexSpec_Unfreeze_Expensive_Writes(spec);
-    if (ret != REDISMODULE_OK) {
-      RedisModule_Log(RSDummyContext, "warning",
-                    "RediSearch: Failed to unfreeze expensive writes for spec '%s'",
-                    IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-      dictReleaseIterator(iter);
-      return ret;
-    }
-  }
-
-  dictReleaseIterator(iter);
-  return REDISMODULE_OK;
-}
-
 int IndexSpec_Freeze(IndexSpec *spec) {
-  if (!spec) {
-    return REDISMODULE_ERR;
-  }
-
   RedisModule_Log(RSDummyContext, "debug",
                 "RediSearch: Preparing IndexSpec '%s' for fork",
                 IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
 
-  // Step 1: Acquire read lock for consistency
+  // Freeze all fields. No need to take read lock, because Redis will take the GIL
 
-  // Step 2: Prepare all fields
   if (spec->fields) {
     RedisModule_Log(RSDummyContext, "debug",
                   "RediSearch: Preparing %d fields for fork in spec '%s'",
@@ -3895,28 +3827,9 @@ int IndexSpec_Freeze(IndexSpec *spec) {
 
     for (int i = 0; i < spec->numFields; i++) {
       int ret = FieldSpec_Freeze(&spec->fields[i], spec);
-    }
-  }
-
-  // Step 3: Prepare document table
-  int ret = DocTable_Freeze(&spec->docs);
-  if (ret != REDISMODULE_OK) {
-    return ret;
-  }
-
-  // Step 4: Prepare global dictionary
-  if (spec->keysDict) {
-    ret = GlobalDict_Freeze(spec->keysDict);
-    if (ret != REDISMODULE_OK) {
-      return ret;
-    }
-  }
-
-  // Step 5: Prepare synonym map if present
-  if (spec->smap) {
-    ret = SynonymMap_Freeze(spec->smap);
-    if (ret != REDISMODULE_OK) {
-      return ret;
+      if (ret != REDISMODULE_OK) {
+        return ret;
+      }
     }
   }
 
@@ -3928,18 +3841,11 @@ int IndexSpec_Freeze(IndexSpec *spec) {
 }
 
 int IndexSpec_Unfreeze(IndexSpec *spec) {
-  if (!spec) {
-    return REDISMODULE_ERR;
-  }
-
   RedisModule_Log(RSDummyContext, "debug",
                 "RediSearch: Handling fork creation for IndexSpec '%s'",
                 IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
 
-  // Step 1: Release read lock, transition to read-only mode
-
-
-  // Step 2: Handle fork creation for all fields
+  // Unfreeze all fields.
   if (spec->fields) {
     for (int i = 0; i < spec->numFields; i++) {
       int ret = FieldSpec_Unfreeze(&spec->fields[i], spec);
@@ -3948,124 +3854,6 @@ int IndexSpec_Unfreeze(IndexSpec *spec) {
       }
     }
   }
-
-  // Step 3: Handle document table
-  int ret = DocTable_Unfreeze(&spec->docs);
-  if (ret != REDISMODULE_OK) {
-    return ret;
-  }
-
-  // Step 4: Handle global dictionary
-  if (spec->keysDict) {
-    ret = GlobalDict_Unfreeze(spec->keysDict);
-    if (ret != REDISMODULE_OK) {
-      return ret;
-    }
-  }
-
-  // Step 5: Handle synonym map if present
-  if (spec->smap) {
-    ret = SynonymMap_Unfreeze(spec->smap);
-    if (ret != REDISMODULE_OK) {
-      return ret;
-    }
-  }
-
-  return REDISMODULE_OK;
-}
-
-int IndexSpec_Unfreeze_Expensive_Writes(IndexSpec *spec) {
-  if (!spec) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Completing fork for IndexSpec '%s'",
-                IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-
-  // Step 1: Potentially go back to write-heavy operations
-
-
-  // Step 2: Complete fork for all fields
-  if (spec->fields) {
-    for (int i = 0; i < spec->numFields; i++) {
-      int ret = FieldSpec_Unfreeze_Expensive_Writes(&spec->fields[i], spec);
-      if (ret != REDISMODULE_OK) {
-        return ret;
-      }
-    }
-  }
-
-  // Step 3: Complete document table
-  int ret = DocTable_Unfreeze_Expensive_Writes(&spec->docs);
-  if (ret != REDISMODULE_OK) {
-    return ret;
-  }
-
-  // Step 4: Complete global dictionary
-  if (spec->keysDict) {
-    ret = GlobalDict_Unfreeze_Expensive_Writes(spec->keysDict);
-    if (ret != REDISMODULE_OK) {
-      return ret;
-    }
-  }
-
-  // Step 5: Complete synonym map if present
-  if (spec->smap) {
-    ret = SynonymMap_Unfreeze_Expensive_Writes(spec->smap);
-    if (ret != REDISMODULE_OK) {
-      return ret;
-    }
-  }
-
-  return REDISMODULE_OK;
-}
-
-//---------------------------------------------------------------------------------------------
-// Global Dictionary Replication Functions
-//---------------------------------------------------------------------------------------------
-
-int GlobalDict_Freeze(dict *keysDict) {
-  if (!keysDict) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Preparing global dictionary for fork");
-
-  // Prepare global dictionary structures
-  // - Ensure dictionary consistency
-  // - Flush pending dictionary operations
-
-  return REDISMODULE_OK;
-}
-
-int GlobalDict_Unfreeze(dict *keysDict) {
-  if (!keysDict) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Handling fork creation for global dictionary");
-
-  // Handle post-fork for global dictionary
-  // - Memory snapshot has been taken
-  // - Dictionary is now read-only in child process
-
-  return REDISMODULE_OK;
-}
-
-int GlobalDict_Unfreeze_Expensive_Writes(dict *keysDict) {
-  if (!keysDict) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Completing fork for global dictionary");
-
-  // Complete fork for global dictionary
-  // - Resume normal write operations
-  // - Release any locks on dictionary structures
 
   return REDISMODULE_OK;
 }

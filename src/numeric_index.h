@@ -20,6 +20,8 @@
 #include "inverted_index.h"
 #include "numeric_filter.h"
 #include "hll/hll.h"
+#include "config.h"
+#include "iterators/iterator_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -88,13 +90,8 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
-                                              const NumericFilter *f, int skipMulti,
-                                              const FieldFilterContext* filterCtx);
-
-struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType,
-                                               IteratorsConfig *config, const FieldFilterContext* filterCtx);
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt, FieldType forType,
+                                        IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
 /* Recursively trim empty nodes from tree  */
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
@@ -122,31 +119,6 @@ unsigned long NumericIndexType_MemUsage(const NumericRangeTree *tree);
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
-
-//---------------------------------------------------------------------------------------------
-// Numeric Index Replication Functions
-//---------------------------------------------------------------------------------------------
-
-/**
- * Freeze numeric range tree
- * @param tree The NumericRangeTree to freeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int NumericRangeTree_Freeze(NumericRangeTree *tree);
-
-/**
- * Unfreeze numeric range tree
- * @param tree The NumericRangeTree to unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int NumericRangeTree_Unfreeze(NumericRangeTree *tree);
-
-/**
- * Unfreeze expensive writes for numeric range tree
- * @param tree The NumericRangeTree to fully unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int NumericRangeTree_Unfreeze_Expensive_Writes(NumericRangeTree *tree);
 
 #ifdef __cplusplus
 }

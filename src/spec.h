@@ -551,10 +551,6 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
 
-// Translate the field mask to an array of field indices based on the "on" bits
-// Out capacity should be enough to hold 128 fields
-uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out);
-
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)
  */
@@ -745,13 +741,6 @@ int RediSearch_Freeze(void);
  */
 int RediSearch_Unfreeze(void);
 
-/**
- * Unfreeze expensive writes - resume all write operations
- * Fully resumes all write operations and cleans up replication state
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int RediSearch_Unfreeze_Expensive_Writes(void);
-
 //---------------------------------------------------------------------------------------------
 // IndexSpec Replication Functions
 //---------------------------------------------------------------------------------------------
@@ -771,34 +760,6 @@ int IndexSpec_Freeze(IndexSpec *spec);
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
 int IndexSpec_Unfreeze(IndexSpec *spec);
-
-/**
- * Unfreeze expensive writes for a specific IndexSpec
- * @param spec The IndexSpec to fully unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int IndexSpec_Unfreeze_Expensive_Writes(IndexSpec *spec);
-
-/**
- * Freeze global dictionary
- * @param keysDict The global dictionary to freeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int GlobalDict_Freeze(dict *keysDict);
-
-/**
- * Unfreeze global dictionary
- * @param keysDict The global dictionary to unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int GlobalDict_Unfreeze(dict *keysDict);
-
-/**
- * Unfreeze expensive writes for global dictionary
- * @param keysDict The global dictionary to fully unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int GlobalDict_Unfreeze_Expensive_Writes(dict *keysDict);
 
 #ifdef __cplusplus
 }

@@ -134,10 +134,8 @@ size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docI
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index */
-IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
+QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
                                    double weight, t_fieldIndex fieldIndex);
-
-void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc, array_t *iters);
 
 /* Open the tag index key in redis */
 TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *formattedKey, bool create_if_missing);
@@ -147,8 +145,8 @@ TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *formattedKey, 
  * If a new index was created, the size of the new index is returned in *sz,
  * otherwise *sz is set to 0
 */
-struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
-                                          size_t len, int create_if_missing, size_t *sz);
+struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
+                                         size_t len, int create_if_missing, size_t *sz);
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
@@ -158,31 +156,6 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx);
 * IndexSpec `sp`.
 */
 size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs);
-
-//---------------------------------------------------------------------------------------------
-// Tag Index Replication Functions
-//---------------------------------------------------------------------------------------------
-
-/**
- * Freeze tag index
- * @param tagIndex The TagIndex to freeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int TagIndex_Freeze(TagIndex *tagIndex);
-
-/**
- * Unfreeze tag index
- * @param tagIndex The TagIndex to unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int TagIndex_Unfreeze(TagIndex *tagIndex);
-
-/**
- * Unfreeze expensive writes for tag index
- * @param tagIndex The TagIndex to fully unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int TagIndex_Unfreeze_Expensive_Writes(TagIndex *tagIndex);
 
 #ifdef __cplusplus
 }

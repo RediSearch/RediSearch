@@ -126,29 +126,4 @@ void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
  */
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);
 
-//---------------------------------------------------------------------------------------------
-// SynonymMap Replication Functions
-//---------------------------------------------------------------------------------------------
-
-/**
- * Freeze synonym map
- * @param smap The SynonymMap to freeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int SynonymMap_Freeze(SynonymMap *smap);
-
-/**
- * Unfreeze synonym map
- * @param smap The SynonymMap to unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int SynonymMap_Unfreeze(SynonymMap *smap);
-
-/**
- * Unfreeze expensive writes for synonym map
- * @param smap The SynonymMap to fully unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int SynonymMap_Unfreeze_Expensive_Writes(SynonymMap *smap);
-
 #endif /* SRC_SYNONYM_MAP_H_ */
