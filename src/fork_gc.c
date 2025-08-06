@@ -722,8 +722,11 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
 
     idxData->newBlocklist =
         rm_realloc(idxData->newBlocklist, totalLen * sizeof(*idxData->newBlocklist));
-    memcpy(idxData->newBlocklist + idxData->newBlocklistSize, InvertedIndex_BlockRef(idx, info->nblocksOrig),
-           newAddedLen * sizeof(*idxData->newBlocklist));
+
+    if (newAddedLen > 0) {
+      memcpy(idxData->newBlocklist + idxData->newBlocklistSize, InvertedIndex_BlockRef(idx, info->nblocksOrig),
+            newAddedLen * sizeof(*idxData->newBlocklist));
+    }
 
     InvertedIndex_SetBlocks(idx, idxData->newBlocklist, totalLen); // Consume new blocks array
     idxData->newBlocklist = NULL;
