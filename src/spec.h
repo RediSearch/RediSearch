@@ -752,19 +752,6 @@ int RediSearch_Unfreeze(void);
  */
 int RediSearch_Unfreeze_Expensive_Writes(void);
 
-/**
- * Main orchestrator functions that call the hierarchy
- */
-int RediSearch_ExecutePreForkSequence(void);
-int RediSearch_ExecutePostForkSequence(void);
-int RediSearch_ExecuteForkCompleteSequence(void);
-
-/**
- * Error handling and rollback
- */
-int RediSearch_RollbackForkPreparation(void);
-int RediSearch_HandleForkError(int error_code);
-
 //---------------------------------------------------------------------------------------------
 // IndexSpec Replication Functions
 //---------------------------------------------------------------------------------------------
