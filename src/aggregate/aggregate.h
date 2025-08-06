@@ -119,7 +119,7 @@ typedef struct {
 // Context structure for parseAggPlan to reduce parameter count
 typedef struct {
   AGGPlan *plan;                    // Aggregation plan
-  uint32_t reqflags;               // Request flags
+  uint32_t *reqflags;               // Request flags
   RequestConfig *reqConfig;         // Request configuration
   RSSearchOptions *searchopts;      // Search options
   size_t *prefixesOffset;           // Prefixes offset

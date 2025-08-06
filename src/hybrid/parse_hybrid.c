@@ -553,7 +553,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
     ParseAggPlanContext papCtx = {
       .plan = &mergePipeline->ap,
-      .reqflags = mergeReqflags,
+      .reqflags = &mergeReqflags,
       .reqConfig = &mergeReqConfig,
       .searchopts = &mergeSearchopts,
       .prefixesOffset = NULL,               // Invalid in FT.HYBRID
