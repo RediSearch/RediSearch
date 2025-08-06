@@ -25,23 +25,6 @@ typedef uint64_t t_fieldMask;
 #endif
 
 
-enum RSResultType
-#ifdef __cplusplus
-  : uint32_t
-#endif // __cplusplus
- {
-  RSResultType_Union = 1,
-  RSResultType_Intersection = 2,
-  RSResultType_Term = 4,
-  RSResultType_Virtual = 8,
-  RSResultType_Numeric = 16,
-  RSResultType_Metric = 32,
-  RSResultType_HybridMetric = 64,
-};
-#ifndef __cplusplus
-typedef uint32_t RSResultType;
-#endif // __cplusplus
-
 /**
  * An iterator over the results in an [`RSAggregateResult`].
  */
@@ -167,9 +150,9 @@ typedef struct LowMemoryThinVecRSIndexResult {
  * `BitFlags` value where that isn't the case is only possible with
  * incorrect unsafe code.
  */
-typedef uint32_t BitFlags_RSResultType__u32;
+typedef uint32_t BitFlags_RSResultKind__u32;
 
-typedef BitFlags_RSResultType__u32 RSResultTypeMask;
+typedef BitFlags_RSResultKind__u32 RSResultTypeMask;
 
 /**
  * Represents an aggregate array of values in an index record.
@@ -221,13 +204,6 @@ typedef struct RSTermRecord {
 } RSTermRecord;
 
 /**
- * Represents a numeric value in an index record.
- */
-typedef struct RSNumericRecord {
-  double value;
-} RSNumericRecord;
-
-/**
  * Represents a virtual result in an index record.
  */
 typedef struct RSVirtualResult {
@@ -235,14 +211,66 @@ typedef struct RSVirtualResult {
 } RSVirtualResult;
 
 /**
- * Holds the actual data of an ['IndexResult']
+ * Represents a numeric value in an index record.
  */
-typedef union RSIndexResultData {
-  struct RSAggregateResult agg;
-  struct RSTermRecord term;
-  struct RSNumericRecord num;
-  struct RSVirtualResult virt;
-} RSIndexResultData;
+typedef struct RSNumericRecord {
+  double value;
+} RSNumericRecord;
+
+/**
+ * Holds the actual data of an ['IndexResult']
+ *
+ * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
+ * the bitflags on [`RSResultTypeMask`]
+ */
+enum RSResultData_Tag
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  RSResultData_Union = 1,
+  RSResultData_Intersection = 2,
+  RSResultData_Term = 4,
+  RSResultData_Virtual = 8,
+  RSResultData_Numeric = 16,
+  RSResultData_Metric = 32,
+  RSResultData_HybridMetric = 64,
+};
+#ifndef __cplusplus
+typedef uint32_t RSResultData_Tag;
+#endif // __cplusplus
+
+typedef union RSResultData {
+  RSResultData_Tag tag;
+  struct {
+    RSResultData_Tag union_tag;
+    struct RSAggregateResult union_;
+  };
+  struct {
+    RSResultData_Tag intersection_tag;
+    struct RSAggregateResult intersection;
+  };
+  struct {
+    RSResultData_Tag term_tag;
+    struct RSTermRecord term;
+  };
+  struct {
+    RSResultData_Tag virtual_tag;
+    struct RSVirtualResult virtual_;
+  };
+  struct {
+    RSResultData_Tag numeric_tag;
+    struct RSNumericRecord numeric;
+  };
+  struct {
+    RSResultData_Tag metric_tag;
+    struct RSNumericRecord metric;
+  };
+  struct {
+    RSResultData_Tag hybrid_metric_tag;
+    struct RSAggregateResult hybrid_metric;
+  };
+} RSResultData;
 
 /**
  * The result of an inverted index
@@ -269,11 +297,10 @@ typedef struct RSIndexResult {
    * directly into memory
    */
   uint32_t offsetsSz;
-  union RSIndexResultData data;
   /**
-   * The type of data stored at ['Self::data']
+   * The actual data of the result
    */
-  RSResultType type;
+  union RSResultData data;
   /**
    * We mark copied results so we can treat them a bit differently on deletion, and pool them if
    * we want

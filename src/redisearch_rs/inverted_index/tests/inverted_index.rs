@@ -8,7 +8,7 @@
 */
 
 use ffi::RS_FIELDMASK_ALL;
-use inverted_index::{RSAggregateResult, RSIndexResult, RSResultType, RSResultTypeMask};
+use inverted_index::{RSAggregateResult, RSIndexResult, RSResultKind, RSResultTypeMask};
 
 mod c_mocks;
 
@@ -23,7 +23,7 @@ fn pushing_to_aggregate_result() {
 
     assert_eq!(
         agg.type_mask(),
-        RSResultType::Numeric,
+        RSResultKind::Numeric,
         "type mask should be ORed"
     );
 
@@ -33,7 +33,7 @@ fn pushing_to_aggregate_result() {
     let num_second = RSIndexResult::numeric(100.0).doc_id(3);
     agg.push(&num_second);
 
-    assert_eq!(agg.type_mask(), RSResultType::Numeric);
+    assert_eq!(agg.type_mask(), RSResultKind::Numeric);
 
     assert_eq!(agg.get(0), Some(&RSIndexResult::numeric(10.0).doc_id(2)));
     assert_eq!(agg.get(1), Some(&RSIndexResult::numeric(100.0).doc_id(3)));
@@ -44,7 +44,7 @@ fn pushing_to_aggregate_result() {
 
     assert_eq!(
         agg.type_mask(),
-        RSResultType::Numeric | RSResultType::Virtual,
+        RSResultKind::Numeric | RSResultKind::Virtual,
         "types should be combined"
     );
 
@@ -59,7 +59,7 @@ fn pushing_to_index_result() {
     let mut ir = RSIndexResult::union(1).doc_id(1).weight(1.0);
 
     assert_eq!(ir.doc_id, 1);
-    assert_eq!(ir.result_type, RSResultType::Union);
+    assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 1);
     assert_eq!(ir.field_mask, 0);
@@ -67,7 +67,7 @@ fn pushing_to_index_result() {
     let result_virt = RSIndexResult::virt().doc_id(2).frequency(3).field_mask(4);
     ir.push(&result_virt);
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
-    assert_eq!(ir.result_type, RSResultType::Union);
+    assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 4, "frequency should accumulate");
     assert_eq!(ir.field_mask, 4, "field mask should be ORed");
@@ -80,7 +80,7 @@ fn pushing_to_index_result() {
 
     ir.push(&result_with_frequency);
     assert_eq!(ir.doc_id, 2);
-    assert_eq!(ir.result_type, RSResultType::Union);
+    assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 11, "frequency should accumulate");
     assert_eq!(ir.field_mask, RS_FIELDMASK_ALL);
