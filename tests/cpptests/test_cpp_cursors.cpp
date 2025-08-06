@@ -84,14 +84,14 @@ TEST_F(CursorsTest, OwnershipAPI) {
   CursorList_Empty(&g_CursorsList);
 
   // Cursor should be marked for deletion, not immediately freed
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should still be alive";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 1) << "Cursor should still be alive";
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
   ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
 
   // When cursor is paused, it should actually be freed due to delete_mark
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should be alive";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 1) << "Cursor should be alive";
   ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Pausing the cursor should actually free it";
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "Cursor should be deleted";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 0) << "Cursor should be deleted";
 
   // Case 4: CursorList_Empty with explicit cursor free
   cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
@@ -105,11 +105,11 @@ TEST_F(CursorsTest, OwnershipAPI) {
 
   // Cursor should be marked for deletion, not immediately freed
   ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should still be alive";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 1) << "Cursor should still be alive";
 
   // When cursor is explicitly freed, it should be deleted
   ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Cursor should be deleted";
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "Cursor should be deleted";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 0) << "Cursor should be deleted";
 
   // Case 5: CursorList_Empty on multiple cursors, some idle, some active
   // Verify that the idle cursors are freed immediately, and the active ones are marked for deletion
@@ -130,13 +130,13 @@ TEST_F(CursorsTest, OwnershipAPI) {
 
 
 
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, numCursors) << "All cursors should be alive";
+  ASSERT_EQ(Cursors_GetInfoStats().total, numCursors) << "All cursors should be alive";
 
   // Call CursorList_Empty
   CursorList_Empty(&g_CursorsList);
 
   // The Idle cursors should be freed immediately, the active ones should be marked for deletion
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, numCursors - numIdle) << "Half of the cursors should be alive";
+  ASSERT_EQ(Cursors_GetInfoStats().total, numCursors - numIdle) << "Half of the cursors should be alive";
 
   // Verify the Ids of the cursors alive
   for (khiter_t ii = 0; ii != kh_end(g_CursorsList.lookup); ++ii) {
@@ -153,6 +153,6 @@ TEST_F(CursorsTest, OwnershipAPI) {
   }
 
   // After the cursors are paused, they should be freed
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "All cursors should be deleted";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 0) << "All cursors should be deleted";
 
 }
