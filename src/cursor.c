@@ -389,33 +389,22 @@ void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
   Cursors_ForEach(cl, purgeCb, info);
 }
 
-void CursorList_Empty(CursorList *cl, bool coord) {
-  CursorList_Destroy(cl);
-  Array_Free(&cl->idle);
-  CursorList_Init(cl, coord);
-}
-
-void CursorList_Destroy(CursorList *cl) {
-  Cursors_GCInternal(cl, 1);
+void CursorList_Empty(CursorList *cl) {
+  CursorList_Lock(cl);
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
     if (!kh_exist(cl->lookup, ii)) {
       continue;
     }
-    Cursor *c = kh_val(cl->lookup, ii);
-    Cursor_FreeInternal(c);
+    Cursor *cur = kh_val(cl->lookup, ii);
+    if (Cursor_IsIdle(cur)) {
+      // Since the cursor is idle, we can free it.
+      Cursor_RemoveFromIdle(cur);
+      Cursor_FreeInternal(cur);
+    } else {
+      // Since the cursor is not idle, we mark it for deletion.
+      // The next time the cursor is accessed, it will be freed.
+      cur->delete_mark = true;
+    }
   }
-  kh_destroy(cursors, cl->lookup);
-
-  // free the dictionary
-  dictIterator *iter = dictGetIterator(cl->specsDict);
-  dictEntry *entry;
-  while ((entry = dictNext(iter))) {
-    CursorSpecInfo *sp = dictGetVal(entry);
-    rm_free(sp->keyName);
-    rm_free(sp);
-  }
-  dictReleaseIterator(iter);
-  dictRelease(cl->specsDict);
-
-  pthread_mutex_destroy(&cl->lock);
+  CursorList_Unlock(cl);
 }
