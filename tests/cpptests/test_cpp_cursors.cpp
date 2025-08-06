@@ -1,7 +1,8 @@
 
 #include "gtest/gtest.h"
 #include "cursor.h"
-
+#include <algorithm>
+#include <vector>
 #define is_Idle(cur) ((cur)->pos != -1)
 
 bool IdInArray(uint64_t id, const uint64_t *arr, int size) {
