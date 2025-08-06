@@ -1640,6 +1640,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   }
 
   spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
+  RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
 
   return spec_ref;
 

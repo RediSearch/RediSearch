@@ -513,6 +513,7 @@ IndexIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
   if (q->sctx->spec->diskSpec) {
+    RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
     return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, EFFECTIVE_FIELDMASK(q, qn));
   } else {
     IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable,
