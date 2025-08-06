@@ -39,7 +39,7 @@ protected:
     double *scores_array = (double*)rm_malloc(sortedScores.size() * sizeof(double));
     std::copy(sortedDocIds.begin(), sortedDocIds.end(), ids_array);
     std::copy(sortedScores.begin(), sortedScores.end(), scores_array);
-    iterator_base = IT_V2(NewMetricIterator)(ids_array, scores_array, indices.size(), metric_type);
+    iterator_base = NewMetricIterator(ids_array, scores_array, indices.size(), metric_type);
   }
   void TearDown() override {
     iterator_base->Free(iterator_base);

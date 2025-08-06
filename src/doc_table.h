@@ -139,15 +139,11 @@ typedef struct {
   enum FieldExpirationPredicate predicate;
 } FieldFilterContext;
 
-bool DocTable_HasExpiration(DocTable *t, t_docId docId);
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint);
 
 // Will return true if the document passed the predicate
 // default predicate - one of the fields did not yet expire -> entry is still valid
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
-bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
-
-// Same as above, but for a single field
 static inline bool DocTable_CheckFieldExpirationPredicate(const DocTable *t, t_docId docId, t_fieldIndex field, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
   if (!t->ttl) return true;
   return TimeToLiveTable_VerifyDocAndField(t->ttl, docId, field, predicate, expirationPoint);

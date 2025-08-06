@@ -552,10 +552,6 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
 
-// Translate the field mask to an array of field indices based on the "on" bits
-// Out capacity should be enough to hold 128 fields
-uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out);
-
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)
  */

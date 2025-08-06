@@ -12,7 +12,6 @@
 #include "inverted_index.h"
 #include "geo_index.h"
 #include "vector_index.h"
-#include "index.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "config.h"

@@ -12,7 +12,6 @@
 #include "redisearch.h"
 #include "buffer/buffer.h"
 #include "doc_table.h"
-#include "index_iterator.h"
 #include "spec.h"
 #include "numeric_filter.h"
 #include <stdint.h>
@@ -133,7 +132,6 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf);
  */
 typedef bool (*IndexDecoder)(IndexBlockReader *, const IndexDecoderCtx *, RSIndexResult *out);
 
-struct IndexReader;
 /**
  * Custom implementation of a seeking function. Seek to the specific ID within
  * the index, or at one position after it.
@@ -152,61 +150,6 @@ typedef struct {
  * endoder/decoder when reading and writing */
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags);
 
-/* An IndexReader wraps an inverted index record for reading and iteration */
-typedef struct IndexReader {
-  const RedisSearchCtx *sctx;
-
-  // the underlying data buffer
-  BufferReader br;
-
-  InvertedIndex *idx;
-  // last docId, used for delta encoding/decoding
-  t_docId lastId;
-  // same docId, used for detecting same doc (with multi values)
-  t_docId sameId;
-
-  union {
-    struct {
-      double rangeMin;
-      double rangeMax;
-    } numeric;
-  } profileCtx;
-
-  /* The decoder's filtering context. It may be a number or a pointer. The number is used for
-   * filtering field masks, the pointer for numeric filtering */
-  IndexDecoderCtx decoderCtx;
-  /* The decoding function for reading the index */
-  IndexDecoderProcs decoders;
-
-  /* The number of records read */
-  size_t len;
-
-  /* The record we are decoding into */
-  RSIndexResult *record;
-
-  // If present, this pointer is updated when the end has been reached. This is
-  // an optimization to avoid calling IR_HasNext() each time
-  bool *isValidP;
-
-  bool atEnd_;
-  // Whether to skip multi values from the same doc
-  bool skipMulti;
-  uint32_t currentBlock;
-
-  /* This marker lets us know whether the garbage collector has visited this index while the reading
-   * thread was asleep, and reset the state in a deeper way
-   */
-  uint32_t gcMarker;
-
-  FieldFilterContext filterCtx;
-} IndexReader;
-
-// On Reopen callback for term index
-void TermReader_OnReopen(void *privdata);
-
-// On Reopen callback for common use
-void IndexReader_OnReopen(IndexReader *ir);
-
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
 typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
@@ -224,6 +167,12 @@ IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask);
 /* Wrapper around the static encodeFreqsOnly to be able to access it in the Rust benchmarks. */
 size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
+/* Wrapper around the static encodeFull to be able to access it in the Rust benchmarks. */
+size_t encode_full(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFullWide to be able to access it in the Rust benchmarks. */
+size_t encode_full_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
 /* Wrapper around the static encodeFreqsFields to be able to access it in the Rust benchmarks. */
 size_t encode_freqs_fields(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
@@ -238,6 +187,9 @@ size_t encode_fields_only_wide(BufferWriter *bw, t_docId delta, RSIndexResult *r
 
 /* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeDocIdsOnly to be able to access it in the Rust benchmarks */
+size_t encode_docs_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
 /* Wrapper around the static readFreqs to be able to access it in the Rust benchmarks */
 bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
@@ -254,8 +206,17 @@ bool read_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSInd
 /* Wrapper around the static readFlagsWide to be able to access it in the Rust benchmarks */
 bool read_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
+/* Wrapper around the static readFreqOffsetsFlags to be able to access it in the Rust benchmarks */
+bool read_freq_offsets_flags(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFreqOffsetsFlagsWide to be able to access it in the Rust benchmarks */
+bool read_freq_offsets_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readDocIdsOnly to be able to access it in the Rust benchmarks */
+bool read_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
@@ -263,61 +224,10 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
 
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
                                        RSIndexResult *entry);
-/* Create a new index reader for numeric records, optionally using a given filter. If the filter
- * is
- * NULL we will return all the records in the index */
-IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, const NumericFilter *flt,
-                              double rangeMin, double rangeMax, bool skipMulti,
-                              const FieldFilterContext* filterCtx);
-
-IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
-
-/* Create a new index reader on an inverted index buffer,
- * optionally with a skip index, docTable and scoreIndex.
- * If singleWordMode is set to 1, we ignore the skip index and use the score
- * index.
- */
-IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
-                                RSQueryTerm *term, double weight);
-
-IndexReader *NewTermIndexReader(InvertedIndex *idx);
-
-/* Create a new index reader on an inverted index of "missing values". */
-IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
-                                   t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate);
-
-void IR_Abort(void *ctx);
-
-/* free an index reader */
-void IR_Free(IndexReader *ir);
-
-/* Read an entry from an inverted index into RSIndexResult */
-int IR_Read(void *ctx, RSIndexResult **e);
-
-/**
- * Skip to a specific document ID in the index, or one position after it
- * @param ctx the index reader
- * @param docId the document ID to search for
- * @param hit where to store the result pointer
- *
- * @return:
- *  - INDEXREAD_OK if the id was found
- *  - INDEXREAD_NOTFOUND if the reader is at the next position
- *  - INDEXREAD_EOF if the ID is out of the upper range
- */
-int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
-
-void IR_Rewind(void *ctx);
-
-/* LastDocId of an inverted index stateful reader */
-t_docId IR_LastDocId(void *ctx);
-
-/* Create a reader iterator that iterates an inverted index record */
-IndexIterator *NewReadIterator(IndexReader *ir);
 
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 

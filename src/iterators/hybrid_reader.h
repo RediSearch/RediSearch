@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "index_iterator.h"
+#include "iterator_api.h"
 #include "vector_index.h"
 #include "redisearch.h"
 #include "spec.h"
@@ -25,13 +25,13 @@ typedef struct {
   VecSimQueryParams qParams;
   char *vectorScoreField;
   bool canTrimDeepResults; // If true, no need to deep copy the results before adding them to the heap.
-  IndexIterator *childIt;
+  QueryIterator *childIt;
   struct timespec timeout;
   const FieldFilterContext* filterCtx;
 } HybridIteratorParams;
 
 typedef struct {
-  IndexIterator base;
+  QueryIterator base;
   RedisSearchCtx *sctx;
   VecSimIndex *index;
   size_t dimension;                // index dimension
@@ -39,14 +39,13 @@ typedef struct {
   VecSimMetric indexMetric;        // index distance metric
   KNNVectorQuery query;
   VecSimQueryParams runtimeParams; // Evaluated runtime params.
-  IndexIterator *child;
+  QueryIterator *child;
   VecSimSearchMode searchMode;
   bool resultsPrepared;            // Indicates if the results were already processed
                                    // (should occur in the first call to Read)
   VecSimQueryReply *reply;
   VecSimQueryReply_Iterator *iter;
-  t_docId lastDocId;
-  RSIndexResult **returnedResults; // Save the pointers to be freed in clean-up.
+  RLookupKey *ownKey;              // To be used if the iterator has to yield the vector scores
   char *scoreField;                // To use by the sorter, for distinguishing between different vector fields.
   mm_heap_t *topResults;           // Sorted by score (min-max heap).
   size_t numIterations;
@@ -59,7 +58,7 @@ typedef struct {
 extern "C" {
 #endif
 
-IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
+QueryIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status);
 
 #ifdef __cplusplus
 }

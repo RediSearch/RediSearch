@@ -144,16 +144,13 @@ typedef struct AREQ {
   QueryAST ast;
 
   /** Root iterator. This is owned by the request */
-  IndexIterator *rootiter;
+  QueryIterator *rootiter;
 
   /** Context, owned by request */
   RedisSearchCtx *sctx;
 
-  /** Resumable context */
-  ConcurrentSearchCtx conc;
-
   /** Context for iterating over the queries themselves */
-  QueryIterator qiter;
+  QueryProcessingCtx qiter;
 
   /** Flags controlling query output */
   uint32_t reqflags;

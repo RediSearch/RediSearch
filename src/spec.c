@@ -1179,11 +1179,6 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     result = parseVectorField_hnsw(fs, params, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
-    // TODO: remove when multi is supported
-    if (multi) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Multi-value index is currently not supported for SVS-VAMANA algorithm", AC_Strerror(rc));
-      return 0;
-    }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
 
@@ -1194,7 +1189,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
     params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
     params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
-    params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
+    params->primaryIndexParams->algoParams.svsParams.multi = multi;
     params->primaryIndexParams->algoParams.svsParams.num_threads = workersThreadPool_NumThreads();
     params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
     params->primaryIndexParams->logCtx = logCtx;
@@ -1495,32 +1490,6 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   }
 
   return rc;
-}
-
-static inline uint64_t HighPart(t_fieldMask mask) { return mask >> 64; }
-static inline uint64_t LowPart(t_fieldMask mask) { return (uint64_t)mask; }
-
-static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translationTable, t_fieldIndex *out, uint16_t n, uint8_t offset) {
-  for (int lsbPos = ffsll(maskPart); lsbPos && (offset + lsbPos - 1) < array_len(translationTable); lsbPos = ffsll(maskPart)) {
-    const t_fieldId ftId = offset + lsbPos - 1;
-    RS_LOG_ASSERT(ftId < array_len(translationTable), "ftId out of bounds");
-    out[n++] = translationTable[ftId];
-    maskPart &= ~(1 << (lsbPos - 1));
-  }
-  return n;
-}
-
-uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out) {
-  uint16_t count = 0;
-  const uint8_t LOW_OFFSET = 0;
-  if (sizeof(mask) == sizeof(uint64_t)) {
-    count = TranslateMask(mask, sp->fieldIdToIndex, out, count, LOW_OFFSET);
-  } else {
-    const uint8_t HIGH_OFFSET = 64;
-    count = TranslateMask(LowPart(mask), sp->fieldIdToIndex, out, count, LOW_OFFSET);
-    count = TranslateMask(HighPart(mask), sp->fieldIdToIndex, out, count, HIGH_OFFSET);
-  }
-  return count;
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]

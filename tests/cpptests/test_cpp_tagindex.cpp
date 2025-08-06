@@ -57,16 +57,15 @@ TEST_F(TagIndexTest, testCreate) {
                             sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
 
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
-  RSIndexResult *r;
   t_docId n = 1;
 
   // TimeSample ts;
   // TimeSampler_Start(&ts);
-  while (INDEXREAD_EOF != it->Read(it->ctx, &r)) {
+  while (ITERATOR_EOF != it->Read(it)) {
     // printf("DocId: %d\n", r->docId);
-    ASSERT_EQ(n++, r->docId);
+    ASSERT_EQ(n++, it->lastDocId);
     // TimeSampler_Tick(&ts);
   }
 
@@ -84,14 +83,13 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
   TagIndex_Index(idx, &v[0], v.size(), docId);
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
-  RSIndexResult *r;
-  int rc = it->Read(it->ctx, &r);
-  ASSERT_EQ(rc, INDEXREAD_OK);
-  rc = it->SkipTo(it->ctx, docId, &r);
-  ASSERT_EQ(rc, INDEXREAD_EOF);
-  ASSERT_GE(r->docId, docId);
-  ASSERT_GE(it->LastDocId(it->ctx), docId);
+  QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  IteratorStatus rc = it->Read(it);
+  ASSERT_EQ(rc, ITERATOR_OK);
+  ASSERT_EQ(it->lastDocId, docId);
+  rc = it->SkipTo(it, docId + 1);
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_GE(it->lastDocId, docId);
   it->Free(it);
   TagIndex_Free(idx);
 }

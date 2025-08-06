@@ -11,7 +11,6 @@
 #include "gtest/gtest.h"
 
 #include "numeric_index.h"
-#include "index.h"
 #include "rmutil/alloc.h"
 #include "index_utils.h"
 #include "redisearch_api.h"
@@ -23,7 +22,7 @@
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
-IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
+QueryIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTree *t,
                                      const NumericFilter *f, IteratorsConfig *config,
                                      const FieldFilterContext* filterCtx);
 }
@@ -124,17 +123,12 @@ void testRangeIteratorHelper(bool isMulti) {
     // printf("Testing range %f..%f, should have %d docs\n", min, max, count);
     FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
     FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
-    IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
+    QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
 
     int xcount = 0;
-    RSIndexResult *res = NULL;
 
-    while (IITER_HAS_NEXT(it)) {
-
-      int rc = it->Read(it->ctx, &res);
-      if (rc == INDEXREAD_EOF) {
-        break;
-      }
+    while (it->Read(it) == ITERATOR_OK) {
+      RSIndexResult *res = it->current;
 
       size_t found_mult = -1;
       for( size_t mult = 0; mult < mult_count; ++mult) {
@@ -204,12 +198,12 @@ void testRangeIteratorHelper(bool isMulti) {
     for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
-      IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
-      size_t numEstimated = it->NumEstimated(it->ctx);
+      QueryIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
+      size_t numEstimated = it->NumEstimated(it);
       NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
       fltLimited->limit = 50;
-      IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
-      size_t numEstimatedLimited = itLimited->NumEstimated(itLimited->ctx);
+      QueryIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
+      size_t numEstimatedLimited = itLimited->NumEstimated(itLimited);
       // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
       ASSERT_TRUE(numEstimated >= numEstimatedLimited );
       it->Free(it);
