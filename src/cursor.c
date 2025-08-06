@@ -406,5 +406,17 @@ void CursorList_Empty(CursorList *cl) {
       cur->delete_mark = true;
     }
   }
+
+  // free the dictionary
+  dictIterator *iter = dictGetIterator(cl->specsDict);
+  dictEntry *entry;
+  while ((entry = dictNext(iter))) {
+    CursorSpecInfo *sp = dictGetVal(entry);
+    rm_free(sp->keyName);
+    rm_free(sp);
+  }
+  dictReleaseIterator(iter);
+  dictEmpty(cl->specsDict, NULL);
+
   CursorList_Unlock(cl);
 }
