@@ -413,7 +413,7 @@ build_project() {
     NPROC=4  # Default if we can't determine
   fi
   echo "Building RediSearch with $NPROC parallel jobs..."
-  make -j "$NPROC"
+  make -j "$NPROC" VERBOSE=1
 
   # Build test dependencies if needed
   build_test_dependencies
