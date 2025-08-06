@@ -101,6 +101,7 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_EQ(Cursors_GetInfoStats().total, 0) << "Cursor should be deleted";
 
   // Case 4: CursorList_Empty with explicit cursor free
+  CursorList_AddSpec(&RSCursors, idx); // Spec was removed by CursorList_Empty
   cur = Cursors_Reserve(&RSCursors, idx, 1000, NULL);
   ASSERT_TRUE(cur != NULL);
   ASSERT_FALSE(cur->delete_mark);
@@ -116,6 +117,7 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_EQ(Cursors_GetInfoStats().total, 0) << "Cursor should be deleted";
 
   // Case 5: CursorList_Empty on multiple cursors, some idle, some active
+  CursorList_AddSpec(&RSCursors, idx); // Spec was removed by CursorList_Empty
   constexpr int numCursors = 5;
   constexpr int numIdle = numCursors / 2 + numCursors % 2;
   std::vector<uint64_t> ids;
