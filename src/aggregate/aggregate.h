@@ -34,7 +34,7 @@ typedef struct Grouper Grouper;
 struct QOptimizer;
 
 /*
- * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH and QEXEC_F_IS_HYBRID_TAIL
+ * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL
  * and QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY are mutually exclusive (Only one can be set).
  */
 typedef enum {
