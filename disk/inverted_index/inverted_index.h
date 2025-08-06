@@ -26,6 +26,8 @@ namespace search::disk {
  * values for efficient storage and retrieval.
  */
 struct SingleDocument {
+    static constexpr const char* KEY_DELIMITER = "_";
+
     /**
      * @brief Serializes a document ID into a key format
      *
@@ -96,6 +98,17 @@ struct InvertedIndexBlock {
     DocumentID LastId() const;
     std::optional<Document> Next();
     bool SkipTo(DocumentID docId);
+
+    void Reset() {
+        docIds_ = std::string_view();
+        metadata_ = std::string_view();
+    }
+
+    void Advance(size_t count) {
+        docIds_.remove_prefix(count * sizeof(t_docId));
+        metadata_.remove_prefix(count * sizeof(t_fieldMask));
+    }
+
     static std::optional<InvertedIndexBlock> Deserialize(rocksdb::Slice value);
     static std::string Create(std::ostringstream& ids, std::ostringstream& metadata, uint32_t count) {
         std::ostringstream block;
@@ -194,7 +207,6 @@ B iterator (ownership is transferred)
      */
     InvertedIndexIterator(std::unique_ptr<rocksdb::Iterator> iter, std::string prefix, InvertedIndexBlock first, size_t countEstimation);
     std::optional<DocumentID> currentId() const;
-    std::optional<DocumentID> lastIdFromBlockKey() const;
     std::optional<DocumentID> lastIdFromKey() const;
     void advanceToNextBlock();
 

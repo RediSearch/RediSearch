@@ -13,7 +13,7 @@ bool DiskDatabase_IndexDocument(DiskIndex *handle, const char *term,
     search::disk::Database::Index* index = reinterpret_cast<search::disk::Database::Index*>(handle);
 
     std::stringstream prefix;
-    prefix << index->Name() << "_" << term << "_";
+    prefix << index->Name() << search::disk::SingleDocument::KEY_DELIMITER << term << search::disk::SingleDocument::KEY_DELIMITER;
     search::disk::Document doc;
     doc.docId.id = docId;
     doc.metadata.fieldMask = fieldMask;

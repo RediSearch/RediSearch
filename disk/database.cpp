@@ -5,13 +5,34 @@
 #include "rocksdb/table.h"
 #include "disk/database.h"
 #include "disk/inverted_index/merge_operator.h"
+#include "rocksdb/slice_transform.h"
+#include "disk/inverted_index/inverted_index.h"
 
 namespace search::disk {
+
+static rocksdb::SliceTransform* CreateInvertedIndexPrefixExtractor() {
+  class InvertedIndexPrefixExtractor : public rocksdb::SliceTransform {
+  public:
+    const char* Name() const override { return "InvertedIndexPrefixExtractor"; }
+
+    rocksdb::Slice Transform(const rocksdb::Slice& src) const override {
+      auto view = src.ToStringView();
+      const auto pos = view.find_last_of(SingleDocument::KEY_DELIMITER);
+      return rocksdb::Slice(src.data(), pos + 1);
+    }
+
+    bool InDomain(const rocksdb::Slice& src) const override {
+        return src.ToStringView().find_last_of(SingleDocument::KEY_DELIMITER) != std::string::npos;
+    }
+  };
+  return new InvertedIndexPrefixExtractor();
+}
 
 static rocksdb::ColumnFamilyOptions CreateInvertedIndexOptions(std::shared_ptr<DeletedIds> deletedIds, size_t cacheSize) {
   rocksdb::ColumnFamilyOptions options;
   options.merge_values = true;
   options.merge_operator.reset(new InvertedIndexMergeOperator(deletedIds));
+  options.prefix_extractor.reset(CreateInvertedIndexPrefixExtractor());
   rocksdb::BlockBasedTableOptions blockBasedOptions;
   blockBasedOptions.block_cache = rocksdb::NewLRUCache(cacheSize); 
   options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(blockBasedOptions));
