@@ -68,7 +68,10 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cur->parent->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup),
                                                     "Failed to delete cursor");
-  cur->specInfo->used--;
+  if (cur->specInfo) {
+    // The specInfo might be NULL if the cursor was marked for deletion by CursorList_Empty
+    cur->specInfo->used--;
+  }
   if (cur->execState) {
     Cursor_FreeExecState(cur->execState);
     cur->execState = NULL;
@@ -404,6 +407,7 @@ void CursorList_Empty(CursorList *cl) {
       // Since the cursor is not idle, we mark it for deletion.
       // The next time the cursor is accessed, it will be freed.
       cur->delete_mark = true;
+      cur->specInfo = NULL; // specInfo will be freed after the loop, set it as NULL so it won't be accessed
     }
   }
 
