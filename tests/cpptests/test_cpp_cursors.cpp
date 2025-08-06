@@ -10,16 +10,15 @@
 
 #include "gtest/gtest.h"
 #include "cursor.h"
+#include <vector>
+#include <algorithm>
 
 #define is_Idle(cur) ((cur)->pos != -1)
 
 class CursorsTest : public ::testing::Test {};
 
 bool IdInArray(uint64_t id, const uint64_t *arr, int size) {
-  for (int i = 0; i < size; ++i) {
-    if (arr[i] == id) return true;
-  }
-  return false;
+  return std::find(arr, arr + size, id) != arr + size;
 }
 
 
@@ -125,7 +124,7 @@ TEST_F(CursorsTest, OwnershipAPI) {
   // Verify that the idle cursors are freed immediately, and the active ones are marked for deletion
   constexpr int numCursors = 5;
   constexpr int numIdle = numCursors / 2 + numCursors % 2;
-  uint64_t ids[numIdle] = {0};
+  std::vector<uint64_t> ids;
 
   for (int i = 0; i < numCursors; ++i) {
     cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
@@ -134,9 +133,10 @@ TEST_F(CursorsTest, OwnershipAPI) {
     ASSERT_FALSE(is_Idle(cur));
     if (i % 2 == 0) {
       ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Cursor should be paused";
-      ids[i % 2] = cur->id;
+      ids.push_back(cur->id);
     }
   }
+
 
 
   ASSERT_EQ(Cursors_GetInfoStats().total_user, numCursors) << "All cursors should be alive";
@@ -156,7 +156,7 @@ TEST_F(CursorsTest, OwnershipAPI) {
     // Assert mark delete
 
     ASSERT_TRUE(cur->delete_mark) << "Cursor should be marked for deletion";
-    ASSERT_FALSE(IdInArray(cur->id, ids, numIdle)) << "Cursor should not be in the deleted array";
+    ASSERT_FALSE(IdInArray(cur->id, ids.data(), ids.size())) << "Cursor should not be in the deleted array";
     // Pause the cursor
     ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Cursor should be paused";
   }
