@@ -505,7 +505,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Individual variables used for parsing the tail of the command
   Pipeline *mergePipeline = NULL;
-  uint32_t mergeReqflags = QEXEC_F_IS_HYBRID;
+  uint32_t mergeReqflags = QEXEC_F_IS_HYBRID_TAIL;
   RequestConfig mergeReqConfig = RSGlobalConfig.requestConfigParams;
   RSSearchOptions mergeSearchopts = {0};
   CursorConfig mergeCursorConfig = {0};
@@ -513,7 +513,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
 
   AREQ **requests = NULL;
-  searchRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
+  searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
 
   ArgsCursor ac;
