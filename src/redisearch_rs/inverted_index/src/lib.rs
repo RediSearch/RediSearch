@@ -557,6 +557,11 @@ impl<'a> RSIndexResult<'a> {
         self
     }
 
+    /// Get the document ID of this record
+    pub fn get_doc_id(self) -> t_docId {
+        self.doc_id
+    }
+
     /// Set the field mask of this record
     pub fn field_mask(mut self, field_mask: FieldMask) -> Self {
         self.field_mask = field_mask;
@@ -600,6 +605,32 @@ impl<'a> RSIndexResult<'a> {
             // SAFETY: We are guaranteed the record data is term because of the check we just
             // did on the `result_type`.
             Some(unsafe { &self.data.term })
+        } else {
+            None
+        }
+    }
+    
+    pub fn as_union(&self) -> Option<&RSAggregateResult> {
+        if matches!(
+            self.result_type,
+            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+        ) {
+            // SAFETY: We are guaranteed the record data is an aggregate because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &self.data.agg })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_union_mut(&mut self) -> Option<&mut RSAggregateResult> {
+        if matches!(
+            self.result_type,
+            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+        ) {
+            // SAFETY: We are guaranteed the record data is an aggregate because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &mut self.data.agg })
         } else {
             None
         }
