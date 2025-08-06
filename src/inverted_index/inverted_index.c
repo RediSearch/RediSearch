@@ -77,9 +77,8 @@ IndexBlock InvertedIndex_Block(InvertedIndex *idx, size_t blockIndex) {
 }
 
 void InvertedIndex_SetBlock(InvertedIndex *idx, size_t blockIndex, IndexBlock block) {
-  if (blockIndex >= idx->size) {
-    return; // Out of bounds
-  }
+  RS_ASSERT(blockIndex < idx->size);
+
   idx->blocks[blockIndex] = block;
 }
 
