@@ -59,7 +59,7 @@ fn pushing_to_index_result() {
     let mut ir = RSIndexResult::union(1).doc_id(1).weight(1.0);
 
     assert_eq!(ir.doc_id, 1);
-    assert_eq!(ir.result_type, RSResultType::Union);
+    assert_eq!(ir.result_type(), RSResultType::Union);
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 0);
     assert_eq!(ir.field_mask, 0);
@@ -67,7 +67,7 @@ fn pushing_to_index_result() {
     let result_virt = RSIndexResult::virt().doc_id(2).frequency(3).field_mask(4);
     ir.push(&result_virt);
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
-    assert_eq!(ir.result_type, RSResultType::Union);
+    assert_eq!(ir.result_type(), RSResultType::Union);
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 3, "frequency should accumulate");
     assert_eq!(ir.field_mask, 4, "field mask should be ORed");
@@ -80,7 +80,7 @@ fn pushing_to_index_result() {
 
     ir.push(&result_with_frequency);
     assert_eq!(ir.doc_id, 2);
-    assert_eq!(ir.result_type, RSResultType::Union);
+    assert_eq!(ir.result_type(), RSResultType::Union);
     assert_eq!(ir.weight, 1.0);
     assert_eq!(ir.freq, 10, "frequency should accumulate");
     assert_eq!(ir.field_mask, RS_FIELDMASK_ALL);
