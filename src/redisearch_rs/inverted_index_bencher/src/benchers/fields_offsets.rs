@@ -214,7 +214,7 @@ impl Bencher {
                         let result = if self.wide {
                             FieldsOffsetsWide::default().decode(buffer, 100)
                         } else {
-                            FieldsOffsetsWide::default().decode(buffer, 100)
+                            FieldsOffsets::default().decode(buffer, 100)
                         };
 
                         let _ = black_box(result);
