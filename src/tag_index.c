@@ -18,9 +18,6 @@
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
-#include "field_spec.h"
-#include "spec.h"
-#include "config.h"
 #include "iterators/inverted_index_iterator.h"
 
 extern RedisModuleCtx *RSDummyContext;

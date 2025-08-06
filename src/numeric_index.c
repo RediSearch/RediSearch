@@ -18,10 +18,6 @@
 #include "redismodule.h"
 #include "util/misc.h"
 #include "util/heap_doubles.h"
-#include "field_spec.h"
-#include "spec.h"
-#include "module.h"
-#include "config.h"
 
 #define NR_MINRANGE_CARD 16
 #define NR_MAXRANGE_CARD 2500

@@ -185,25 +185,6 @@ extern "C" {
 
 QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
                                                           bool yields_metric);
-
-//---------------------------------------------------------------------------------------------
-// Vector Index Replication Functions
-//---------------------------------------------------------------------------------------------
-
-/**
- * Freeze vector index
- * @param vecsimIndex The VecSimIndex to freeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int VecSimIndex_Freeze(VecSimIndex *vecsimIndex);
-
-/**
- * Unfreeze vector index
- * @param vecsimIndex The VecSimIndex to unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int VecSimIndex_Unfreeze(VecSimIndex *vecsimIndex);
-
 #ifdef __cplusplus
 }
 #endif

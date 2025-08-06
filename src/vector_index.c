@@ -14,9 +14,6 @@
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
 #include "redis_index.h"
-#include "field_spec.h"
-#include "spec.h"
-#include "config.h"
 
 
 #if defined(__x86_64__) && defined(__GLIBC__)
@@ -667,39 +664,4 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   RedisSearchCtx_UnlockSpec(&sctx);
   StrongRef_Release(strong);
   return 1;
-}
-
-//---------------------------------------------------------------------------------------------
-// Vector Index Replication Functions
-//---------------------------------------------------------------------------------------------
-
-int VecSimIndex_Freeze(VecSimIndex *vecsimIndex) {
-  if (!vecsimIndex) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Preparing VecSim index for fork");
-
-  // Prepare VecSim index structures
-  // - Ensure vector index consistency
-  // - Flush pending vector operations
-  // - Prepare internal VecSim structures
-
-  return REDISMODULE_OK;
-}
-
-int VecSimIndex_Unfreeze(VecSimIndex *vecsimIndex) {
-  if (!vecsimIndex) {
-    return REDISMODULE_ERR;
-  }
-
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Handling fork creation for VecSim index");
-
-  // Handle post-fork for VecSim index
-  // - Memory snapshot has been taken
-  // - Vector index is now read-only in child process
-
-  return REDISMODULE_OK;
 }
