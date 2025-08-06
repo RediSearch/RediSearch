@@ -1792,14 +1792,9 @@ def test_create_multi_value_json():
     for algo in VECSIM_ALGOS:
         for path in multi_paths:
             conn.flushall()
-            #TODO: enable when SVS-VAMANA supports multi value
-            if algo == 'SVS-VAMANA':
-                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
-                           '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().contains('Multi-value index is currently not supported for SVS-VAMANA algorithm')
-            else:
-                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
-                           '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
-                env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
+            env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                       '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
+            env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
 
         for path in single_paths:
             conn.flushall()
@@ -1817,9 +1812,14 @@ def test_index_multi_value_json():
 
     for data_t in VECSIM_DATA_TYPES:
         conn.flushall()
-        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-            '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-            '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+        args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+                '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+        if data_t in ('FLOAT32', 'FLOAT16'):
+            args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+
+        env.expect(*args).ok()
 
         for i in range(0, n, 2):
             # Test setting vectors with python list
@@ -1873,6 +1873,15 @@ def test_index_multi_value_json():
             flat_res = conn.execute_command(*cmd_range)
             env.assertEqual(sortedResults(flat_res), expected_res_range)
 
+            if data_t in ('FLOAT32', 'FLOAT16'):
+                cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
+                svs_res = conn.execute_command(*cmd_knn)[1:]
+                env.assertEqual(svs_res, expected_res_knn)
+
+                cmd_range[2] = f'@svs:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+                svs_res = conn.execute_command(*cmd_range)
+                env.assertEqual(sortedResults(svs_res), expected_res_range)
+
 @skip(no_json=True)
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1883,7 +1892,8 @@ def test_bad_index_multi_value_json():
     failures = 0
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$.vecs', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+               '$.vecs', 'AS', 'vecs_hnsv', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               '$.vecs', 'AS', 'vecs_svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
@@ -1898,7 +1908,8 @@ def test_bad_index_multi_value_json():
     conn.flushall()
     failures = 0
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$.vecs[*]', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+               '$.vecs[*]', 'AS', 'vecs_hnsv', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               '$.vecs[*]', 'AS', 'vecs_svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     # dynamic path returns a non array type
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
@@ -1908,7 +1919,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
-    env.assertEqual(index_info(env, 'idx')['num_records'], 2)
+    env.assertEqual(index_info(env, 'idx')['num_records'], 4)
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
