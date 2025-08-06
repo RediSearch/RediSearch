@@ -137,14 +137,12 @@ static inline CursorList *GetGlobalCursor(uint64_t cid) {
 void CursorList_Init(CursorList *cl, bool is_coord);
 
 /**
- * Clear the cursor list
+ * Empty the cursor list.
+ * This function is thread-safe and handles both idle and active cursors.
+ * Idle cursors are freed immediately, while active cursors are marked for
+ * deletion and will be freed when they are next accessed.
  */
-void CursorList_Destroy(CursorList *cl);
-
-/**
- * Empty the cursor list
- */
-void CursorList_Empty(CursorList *cl, bool coord);
+void CursorList_Empty(CursorList *cl);
 
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */

@@ -68,7 +68,10 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cur->parent->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cur->parent->lookup, cur->id) == kh_end(cur->parent->lookup),
                                                     "Failed to delete cursor");
-  cur->specInfo->used--;
+  if (cur->specInfo) {
+    // The specInfo might be NULL if the cursor was marked for deletion by CursorList_Empty
+    cur->specInfo->used--;
+  }
   if (cur->execState) {
     Cursor_FreeExecState(cur->execState);
     cur->execState = NULL;
@@ -389,22 +392,24 @@ void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
   Cursors_ForEach(cl, purgeCb, info);
 }
 
-void CursorList_Empty(CursorList *cl, bool coord) {
-  CursorList_Destroy(cl);
-  Array_Free(&cl->idle);
-  CursorList_Init(cl, coord);
-}
-
-void CursorList_Destroy(CursorList *cl) {
-  Cursors_GCInternal(cl, 1);
+void CursorList_Empty(CursorList *cl) {
+  CursorList_Lock(cl);
   for (khiter_t ii = 0; ii != kh_end(cl->lookup); ++ii) {
     if (!kh_exist(cl->lookup, ii)) {
       continue;
     }
-    Cursor *c = kh_val(cl->lookup, ii);
-    Cursor_FreeInternal(c);
+    Cursor *cur = kh_val(cl->lookup, ii);
+    if (Cursor_IsIdle(cur)) {
+      // Since the cursor is idle, we can free it.
+      Cursor_RemoveFromIdle(cur);
+      Cursor_FreeInternal(cur);
+    } else {
+      // Since the cursor is not idle, we mark it for deletion.
+      // The next time the cursor is accessed, it will be freed.
+      cur->delete_mark = true;
+      cur->specInfo = NULL; // specInfo will be freed after the loop, set it as NULL so it won't be accessed
+    }
   }
-  kh_destroy(cursors, cl->lookup);
 
   // free the dictionary
   dictIterator *iter = dictGetIterator(cl->specsDict);
@@ -415,7 +420,7 @@ void CursorList_Destroy(CursorList *cl) {
     rm_free(sp);
   }
   dictReleaseIterator(iter);
-  dictRelease(cl->specsDict);
+  dictEmpty(cl->specsDict, NULL);
 
-  pthread_mutex_destroy(&cl->lock);
+  CursorList_Unlock(cl);
 }
