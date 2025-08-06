@@ -19,7 +19,8 @@ static inline void SyncWithChild(ProfileIterator *pi) {
 
 static IteratorStatus PI_Read(struct QueryIterator *self) {
   ProfileIterator *pi = (ProfileIterator *)self;
-  clock_t begin = clock();
+  rs_wall_clock begin;
+  rs_wall_clock_init(&begin);
   pi->counters.read++;
 
   IteratorStatus ret = pi->child->Read(pi->child);
@@ -30,13 +31,14 @@ static IteratorStatus PI_Read(struct QueryIterator *self) {
   // Copy the current result from the child
   SyncWithChild(pi);
 
-  pi->cpuTime += clock() - begin;
+  pi->wallTime += rs_wall_clock_elapsed_ns(&begin);
   return ret;
 }
 
 static IteratorStatus PI_SkipTo(struct QueryIterator *self, t_docId docId) {
   ProfileIterator *pi = (ProfileIterator *)self;
-  clock_t begin = clock();
+  rs_wall_clock begin;
+  rs_wall_clock_init(&begin);
   pi->counters.skipTo++;
 
   IteratorStatus ret = pi->child->SkipTo(pi->child, docId);
@@ -47,7 +49,7 @@ static IteratorStatus PI_SkipTo(struct QueryIterator *self, t_docId docId) {
   // Copy the current result from the child
   SyncWithChild(pi);
 
-  pi->cpuTime += clock() - begin;
+  pi->wallTime += rs_wall_clock_elapsed_ns(&begin);
   return ret;
 }
 
@@ -83,7 +85,7 @@ QueryIterator *NewProfileIterator(QueryIterator *child) {
   pc->child = child;
   pc->counters.read = 0;
   pc->counters.skipTo = 0;
-  pc->cpuTime = 0;
+  pc->wallTime = 0;
   pc->counters.eof = 0;
 
   QueryIterator *ret = &pc->base;
