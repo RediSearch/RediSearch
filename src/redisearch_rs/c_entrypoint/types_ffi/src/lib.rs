@@ -30,6 +30,44 @@ pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult) -
     result.is_aggregate()
 }
 
+/// Get the numeric value of the result if it is a numeric result. If the result is not numeric,
+/// this function will return `0.0`.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_NumValue(result: *const RSIndexResult) -> f64 {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.as_numeric().map_or(0.0, |num| num.0)
+}
+
+/// Set the numeric value of the result if it is a numeric result. If the result is not numeric,
+/// this function will do nothing.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, value: f64) {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &mut *result };
+
+    if let Some(num) = result.as_numeric_mut() {
+        num.0 = value;
+    }
+}
+
 /// Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
 /// if the index is out of bounds.
 ///

@@ -14,8 +14,8 @@ int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;
   RSIndexResult *res2 = (RSIndexResult *)v2;
 
-  if (res1->data.num.value > res2->data.num.value) return 1;
-  if (res1->data.num.value < res2->data.num.value) return -1;
+  if (IndexResult_NumValue(res1) > IndexResult_NumValue(res2)) return 1;
+  if (IndexResult_NumValue(res1) < IndexResult_NumValue(res2)) return -1;
   return res1->docId < res2->docId ? -1 : 1;
 }
 
@@ -23,8 +23,8 @@ int cmpDesc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;
   RSIndexResult *res2 = (RSIndexResult *)v2;
 
-  if (res1->data.num.value > res2->data.num.value) return -1;
-  if (res1->data.num.value < res2->data.num.value) return 1;
+  if (IndexResult_NumValue(res1) > IndexResult_NumValue(res2)) return -1;
+  if (IndexResult_NumValue(res1) < IndexResult_NumValue(res2)) return 1;
   return res1->docId < res2->docId ? -1 : 1;
 }
 

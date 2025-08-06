@@ -603,6 +603,21 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
+    /// Get this record as a mutable numeric record if possible. If the record is not numeric,
+    /// returns `None`.
+    pub fn as_numeric_mut(&mut self) -> Option<&mut RSNumericRecord> {
+        if matches!(
+            self.result_type,
+            RSResultType::Numeric | RSResultType::Metric,
+        ) {
+            // SAFETY: We are guaranteed the record data is numeric because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &mut self.data.num })
+        } else {
+            None
+        }
+    }
+
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
     pub fn as_term(&self) -> Option<&RSTermRecord<'_>> {

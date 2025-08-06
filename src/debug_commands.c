@@ -368,7 +368,7 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
   QueryIterator *iter = NewInvIndIterator_NumericFull(idx);
   while (iter->Read(iter) == ITERATOR_OK) {
-    REPLY_WITH_DOUBLE("value", iter->current->data.num.value, ARRAY_LEN_VAR(invertedIndexValues));
+    REPLY_WITH_DOUBLE("value", IndexResult_NumValue(iter->current), ARRAY_LEN_VAR(invertedIndexValues));
     REPLY_WITH_LONG_LONG("docId", iter->current->docId, ARRAY_LEN_VAR(invertedIndexValues));
   }
   iter->Free(iter);

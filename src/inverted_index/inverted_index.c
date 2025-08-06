@@ -389,8 +389,8 @@ typedef union {
 
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
-  const double absVal = fabs(res->data.num.value);
-  const double realVal = res->data.num.value;
+  const double realVal = IndexResult_NumValue(res);
+  const double absVal = fabs(realVal);
   const float f32Num = absVal;
   uint64_t u64Num = (uint64_t)absVal;
   const uint8_t tinyNum = u64Num & NUM_TINYENC_MASK;
@@ -775,25 +775,27 @@ DECODER(readNumeric) {
   Buffer_Read(&blockReader->buffReader, &delta, header.encCommon.deltaEncoding);
   blockReader->curBaseId = res->docId = blockReader->curBaseId + delta;
 
+  double value = 0;
+
   switch (header.encCommon.type) {
     case NUM_ENCODING_COMMON_TYPE_FLOAT:
       if (header.encFloat.isInf) {
-        res->data.num.value = INFINITY;
+        value = INFINITY;
       } else if (header.encFloat.isDouble) {
-        Buffer_Read(&blockReader->buffReader, &res->data.num.value, 8);
+        Buffer_Read(&blockReader->buffReader, &value, 8);
       } else {
         float f;
         Buffer_Read(&blockReader->buffReader, &f, 4);
-        res->data.num.value = f;
+        value = f;
       }
       if (header.encFloat.sign) {
-        res->data.num.value = -res->data.num.value;
+        value = -value;
       }
       break;
 
     case NUM_ENCODING_COMMON_TYPE_TINY:
       // Is embedded into the header
-      res->data.num.value = header.encTiny.tinyValue;
+      value = header.encTiny.tinyValue;
       break;
 
     case NUM_ENCODING_COMMON_TYPE_POSITIVE_INT:
@@ -802,20 +804,22 @@ DECODER(readNumeric) {
         // Is a none-zero integer (zero is represented as tiny)
         uint64_t num = 0;
         Buffer_Read(&blockReader->buffReader, &num, header.encInt.valueByteCount + 1);
-        res->data.num.value = num;
+        value = num;
         if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT) {
-          res->data.num.value = -res->data.num.value;
+          value = -value;
         }
       }
       break;
   }
 
+  IndexResult_SetNumValue(res, value);
+
   const NumericFilter *f = ctx->filter;
   if (f) {
     if (NumericFilter_IsNumeric(f)) {
-      return NumericFilter_Match(f, res->data.num.value);
+      return NumericFilter_Match(f, value);
     } else {
-      return isWithinRadius(f->geoFilter, res->data.num.value, &res->data.num.value);
+      return isWithinRadius(f->geoFilter, value, &value);
     }
   }
 

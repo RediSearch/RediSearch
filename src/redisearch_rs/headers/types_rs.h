@@ -304,6 +304,28 @@ extern "C" {
 bool IndexResult_IsAggregate(const struct RSIndexResult *result);
 
 /**
+ * Get the numeric value of the result if it is a numeric result. If the result is not numeric,
+ * this function will return `0.0`.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+double IndexResult_NumValue(const struct RSIndexResult *result);
+
+/**
+ * Set the numeric value of the result if it is a numeric result. If the result is not numeric,
+ * this function will do nothing.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
+
+/**
  * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
  * if the index is out of bounds.
  *

@@ -148,7 +148,7 @@ void testRangeIteratorHelper(bool isMulti) {
 
       found_mult = -1;
       for( size_t mult = 0; mult < mult_count; ++mult) {
-        if (res->data.num.value == lookup[res->docId].v[mult]) {
+        if (IndexResult_NumValue(res) == lookup[res->docId].v[mult]) {
           ASSERT_TRUE(NumericFilter_Match(flt, lookup[res->docId].v[mult]));
           found_mult = mult;
         }
