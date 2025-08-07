@@ -471,13 +471,9 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
   return REDISMODULE_OK;
 
 error:
-  // Restore original state and clean up any allocated resources
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR && combineCtx->linearCtx.linearWeights) {
     rm_free(combineCtx->linearCtx.linearWeights);
-    combineCtx->linearCtx.linearWeights = originalWeights;
   }
-  combineCtx->scoringType = originalType;
-
   return REDISMODULE_ERR;
 }
 

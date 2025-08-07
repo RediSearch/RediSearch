@@ -13,6 +13,7 @@
 #include "common.h"
 #include "src/hybrid/hybrid_request.h"
 #include "src/hybrid/parse_hybrid.h"
+#include "src/hybrid/hybrid_scoring.h"
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"
@@ -111,7 +112,7 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
@@ -156,7 +157,7 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
@@ -193,7 +194,7 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set correctly
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 240);
@@ -264,7 +265,7 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   ASSERT_EQ(memcmp(vecReq->ast.root->vn.vq->knn.vector, expectedBlob, expectedBlobLen), 0);
 
   // Verify RRF scoring type was set
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Clean up
   HybridRequest_Free(result);
@@ -274,7 +275,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
   QueryError status = {QueryErrorCode(0)};
 
   // Test with RRF combine method with explicit K parameter
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "60", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "6", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -287,7 +288,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify RRF scoring type was set with custom K value
-  assertRRFScoringCtx(60, 20);
+  assertRRFScoringCtx(6, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW not specified)
   ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
@@ -313,7 +314,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify RRF scoring type was set with custom WINDOW value
-  assertRRFScoringCtx(1, 25);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
   ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
@@ -405,6 +406,47 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   HybridRequest_Free(result);
 }
 
+TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with explicit WINDOW and LIMIT but no explicit K
+  // WINDOW should take its explicit value (30), KNN K should follow LIMIT (15)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                            "COMBINE", "RRF", "2", "WINDOW", "30", "LIMIT", "0", "15", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify the structure contains expected number of requests
+  ASSERT_EQ(result->nrequests, 2);
+
+  // Verify RRF scoring type was set with explicit WINDOW value (30), not LIMIT fallback
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 30);
+
+  // Verify hasExplicitWindow flag is true (WINDOW was specified)
+  ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Verify KNN K follows LIMIT value (15) since K was not explicitly set
+  AREQ* vecReq = result->requests[1];
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_EQ(vq->type, VECSIM_QT_KNN);
+  ASSERT_EQ(vq->knn.k, 15);  // Should follow LIMIT value, not default
+
+  // Clean up
+  HybridRequest_Free(result);
+}
+
 TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -429,7 +471,7 @@ TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
   ASSERT_TRUE(arng->sortKeys == NULL);
 
   // Verify default RRF scoring type was set
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Clean up
   HybridRequest_Free(result);
@@ -459,7 +501,7 @@ TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   ASSERT_TRUE(arng->sortKeys != NULL);
 
   // Verify default RRF scoring type was set
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Clean up
   HybridRequest_Free(result);
@@ -486,7 +528,7 @@ TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
   ASSERT_TRUE(arrangeStep == NULL);
 
   // Verify default RRF scoring type was set
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Clean up
   HybridRequest_Free(result);

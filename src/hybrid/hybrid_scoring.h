@@ -10,7 +10,7 @@ extern "C" {
 
 // Default constants for hybrid search parameters
 #define HYBRID_DEFAULT_WINDOW 20
-#define HYBRID_DEFAULT_RRF_K 1
+#define HYBRID_DEFAULT_RRF_K 60
 
 typedef enum {
   HYBRID_SCORING_LINEAR,
