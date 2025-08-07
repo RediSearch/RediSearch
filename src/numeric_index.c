@@ -86,14 +86,15 @@ static double NumericRange_GetMedian(QueryIterator *iter, size_t num_entries) {
   // Read the first half of the values into a heap
   for (size_t i = 0; i < median_idx; i++) {
     iter->Read(iter);
-    double_heap_add_raw(low_half, iter->current->data.num.value);
+    double_heap_add_raw(low_half, IndexResult_NumValue(iter->current));
   }
   double_heap_heapify(low_half);
 
   // Read the rest of the values, replacing the max value in the heap if the current value is smaller
   while (iter->Read(iter) == ITERATOR_OK) {
-    if (iter->current->data.num.value < double_heap_peek(low_half)) {
-      double_heap_replace(low_half, iter->current->data.num.value);
+    double value = IndexResult_NumValue(iter->current);
+    if (value < double_heap_peek(low_half)) {
+      double_heap_replace(low_half, value);
     }
   }
 
@@ -141,9 +142,10 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
     split = nextafter(split, INFINITY);
   }
   while (iter->Read(iter) == ITERATOR_OK) {
-    NumericRange *cur = iter->current->data.num.value < split ? lr : rr;
-    updateCardinality(cur, iter->current->data.num.value);
-    rv->sz += NumericRange_Add(cur, iter->current->docId, iter->current->data.num.value);
+    double value = IndexResult_NumValue(iter->current);
+    NumericRange *cur = value < split ? lr : rr;
+    updateCardinality(cur, value);
+    rv->sz += NumericRange_Add(cur, iter->current->docId, value);
     ++rv->numRecords;
   }
   iter->Free(iter);

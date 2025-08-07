@@ -116,7 +116,7 @@ QueryIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
 
 static void SetYield(QueryIterator *base, double value) {
   MetricIterator *mr = (MetricIterator *)base;
-  base->current->data.num.value = value;
+  IndexResult_SetNumValue(base->current, value);
   ResultMetrics_Reset(base->current);
   ResultMetrics_Add(base->current, mr->ownKey, RS_NumVal(value));
 }

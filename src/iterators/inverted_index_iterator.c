@@ -83,8 +83,8 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
   if (!it->sctx) {
     return VALIDATE_OK;
   }
-  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, base->current->data.term.term->str,
-      base->current->data.term.term->len, false, NULL);
+  const RSTermRecord *term = IndexResult_TermRef(base->current);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->term->str, term->term->len, false, NULL);
   if (!idx || it->idx != idx) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
@@ -101,8 +101,8 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
     return VALIDATE_OK;
   }
   size_t sz;
-  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, base->current->data.term.term->str,
-      base->current->data.term.term->len, false, &sz);
+  const RSTermRecord *term = IndexResult_TermRef(base->current);
+  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, term->term->str, term->term->len, false, &sz);
   if (idx == TRIEMAP_NOTFOUND || it->base.idx != idx) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.

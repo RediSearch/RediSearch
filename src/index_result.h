@@ -48,7 +48,7 @@ static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
   r->docId = 0;
   r->freq = 0;
   r->fieldMask = 0;
-  AggregateResult_Reset(&r->data.agg);
+  IndexResult_AggregateReset(r);
   ResultMetrics_Free(r);
 }
 /* Allocate a new intersection result with a given capacity*/
