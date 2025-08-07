@@ -493,7 +493,7 @@ static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
 
 // Helper function to get LIMIT value from parsed aggregation pipeline
 static size_t getLimitFromPipeline(Pipeline *pipeline) {
-  if (!pipeline) return 0;
+  RS_ASSERT(pipeline);
 
   PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(&pipeline->ap);
   if (arrangeStep && arrangeStep->isLimited && arrangeStep->limit > 0) {
