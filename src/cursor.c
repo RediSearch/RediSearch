@@ -11,13 +11,18 @@
 #include <time.h>
 #include "rmutil/rm_assert.h"
 #include <err.h>
-#include "rs_wall_clock.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
 // coord cursors will have odd ids and regular cursors will have even ids
 CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
+
+static uint64_t curTimeNs() {
+  struct timespec tv;
+  clock_gettime(CLOCK_MONOTONIC, &tv);
+  return tv.tv_nsec + (tv.tv_sec * 1000000000);
+}
 
 static void CursorList_Lock(CursorList *cl) {
   pthread_mutex_lock(&cl->lock);
@@ -135,7 +140,7 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
  *
  */
 static int Cursors_GCInternal(CursorList *cl, int force) {
-  rs_wall_clock_ns_t now = rs_wall_clock_now_ns();
+  uint64_t now = curTimeNs();
   if ((cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) ||
       (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE)) {
     return -1;
@@ -248,7 +253,7 @@ int Cursor_Pause(Cursor *cur) {
     // Cursor is not marked for deletion, we need to pause it.
 
     // Set the next timeout to be the current time + timeout interval
-    cur->nextTimeoutNs = rs_wall_clock_now_ns() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
+    cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
     if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
       cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
     }
