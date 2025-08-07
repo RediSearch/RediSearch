@@ -348,6 +348,7 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           IndexEncoder encoder = InvertedIndex_GetEncoder(flags);
           RSIndexResult res = {
               .fieldMask = fieldMask,
+              .type = RSResultType_Term,
           };
           for (size_t i = 1; i <= n_docs; ++i) {
               res.docId = i;

@@ -326,6 +326,28 @@ double IndexResult_NumValue(const struct RSIndexResult *result);
 void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
 
 /**
+ * Get the term of the result if it is a term result. If the result is not a term, this function
+ * will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+const struct RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *result);
+
+/**
+ * Get the mutable term of the result if it is a term result. If the result is not a term,
+ * this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+struct RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
+
+/**
  * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
  * if the index is out of bounds.
  *

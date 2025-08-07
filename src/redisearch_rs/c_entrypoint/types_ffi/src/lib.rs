@@ -11,7 +11,9 @@
 
 use std::{alloc::Layout, ffi::c_char};
 
-use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector};
+use inverted_index::{
+    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSTermRecord,
+};
 
 /// Check if the result is an aggregate result.
 ///
@@ -66,6 +68,46 @@ pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, val
     if let Some(num) = result.as_numeric_mut() {
         num.0 = value;
     }
+}
+
+/// Get the term of the result if it is a term result. If the result is not a term, this function
+/// will return a `NULL` pointer.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_TermRef(
+    result: *const RSIndexResult<'_>,
+) -> Option<&RSTermRecord<'_>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.as_term()
+}
+
+/// Get the mutable term of the result if it is a term result. If the result is not a term,
+/// this function will return a `NULL` pointer.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_TermRefMut(
+    result: *mut RSIndexResult<'_>,
+) -> Option<&mut RSTermRecord<'_>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &mut *result };
+
+    result.as_term_mut()
 }
 
 /// Get the result at the specified index in the aggregate result. This will return a `NULL` pointer

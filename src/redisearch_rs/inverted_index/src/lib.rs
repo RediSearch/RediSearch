@@ -630,6 +630,18 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
+    /// Get this record as a mutable term record if possible. If the record is not a term,
+    /// returns `None`.
+    pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'a>> {
+        if matches!(self.result_type, RSResultType::Term) {
+            // SAFETY: We are guaranteed the record data is term because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &mut self.data.term })
+        } else {
+            None
+        }
+    }
+
     /// True if this is an aggregate type
     pub fn is_aggregate(&self) -> bool {
         matches!(

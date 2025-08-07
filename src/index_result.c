@@ -166,7 +166,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     // copy term results
     case RSResultType_Term:
       // copy the offset vectors
-      RSOffsetVector_CopyData(&ret->data.term.offsets, &src->data.term.offsets);
+      RSOffsetVector_CopyData(&IndexResult_TermRefMut(ret)->offsets, &IndexResult_TermRef(src)->offsets);
       break;
 
     // the rest have no dynamic stuff, we can just copy the base result
@@ -196,7 +196,7 @@ void Term_Free(RSQueryTerm *t) {
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->type) {
     case RSResultType_Term:
-      return RSOffsetVector_Len(&res->data.term.offsets) > 0;
+      return RSOffsetVector_Len(&IndexResult_TermRef(res)->offsets) > 0;
     case RSResultType_Intersection:
     case RSResultType_Union:
       // the intersection and union aggregates can have offsets if they are not purely made of
@@ -230,13 +230,14 @@ void IndexResult_Free(RSIndexResult *r) {
     AggregateResult_Free(r->data.agg);
   } else if (r->type == RSResultType_Term) {
     if (r->isCopy) {
-      RSOffsetVector_FreeData(&r->data.term.offsets);
+      RSOffsetVector_FreeData(&IndexResult_TermRefMut(r)->offsets);
 
     } else {  // non copy result...
 
       // we only free up terms for non copy results
-      if (r->data.term.term != NULL) {
-        Term_Free(r->data.term.term);
+      const RSTermRecord *term = IndexResult_TermRefMut(r);
+      if (term->term != NULL) {
+        Term_Free(term->term);
       }
     }
   }
@@ -323,13 +324,16 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
       break;
     }
     case RSResultType_Term:
-      if (r->data.term.term) {
-        const char *s = r->data.term.term->str;
+    {
+      const RSTermRecord *term = IndexResult_TermRef(r);
+      if (term->term) {
+        const char *s = term->term->str;
         // make sure we have a term string and it's not an expansion
         if (s) {
-          arr[(*len)++] = r->data.term.term;
+          arr[(*len)++] = term->term;
         }
       }
+    }
     default:
       return;
   }

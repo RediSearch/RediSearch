@@ -159,7 +159,10 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
 
   switch (res->type) {
     case RSResultType_Term:
-      return RSOffsetVector_Iterate(&res->data.term.offsets, res->data.term.term);
+    {
+      const RSTermRecord *term = IndexResult_TermRef(res);
+      return RSOffsetVector_Iterate(&term->offsets, term->term);
+    }
 
     // virtual and numeric entries have no offsets and cannot participate
     case RSResultType_Virtual:
