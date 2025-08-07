@@ -140,7 +140,8 @@ void testRangeIteratorHelper(bool isMulti) {
       }
       ASSERT_NE(found_mult, -1);
       if (res->type == RSResultType_Union) {
-        res = (RSIndexResult*)AggregateResult_Get(&res->data.agg, 0);
+        const RSAggregateResult *agg = IndexResult_AggregateRef(res);
+        res = (RSIndexResult*)AggregateResult_Get(agg, 0);
       }
 
       // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,

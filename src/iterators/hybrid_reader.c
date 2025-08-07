@@ -12,7 +12,7 @@
 #include "VecSim/query_results.h"
 #include "wildcard_iterator.h"
 
-#define VECTOR_VALUE(p) (p->type == RSResultType_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(&p->data.agg, 0)))
+#define VECTOR_VALUE(p) (p->type == RSResultType_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
@@ -102,7 +102,8 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
-  const RSIndexResult *first = AggregateResult_Get(&worst->data.agg, 0);
+  const RSAggregateResult *agg = IndexResult_AggregateRef(worst);
+  const RSIndexResult *first = AggregateResult_Get(agg, 0);
   *upper_bound = IndexResult_NumValue(first);
 }
 

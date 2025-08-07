@@ -147,11 +147,12 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     case RSResultType_HybridMetric:
     {
       // allocate a new child pointer array
-      size_t numChildren = AggregateResult_NumChildren(&src->data.agg);
+      const RSAggregateResult *agg = IndexResult_AggregateRef(src);
+      size_t numChildren = AggregateResult_NumChildren(agg);
       ret->data.agg = AggregateResult_New(numChildren);
 
       // deep copy recursively all children
-      RSAggregateResultIter *iter = AggregateResult_Iter(&src->data.agg);
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
       RSIndexResult *child = NULL;
 
       while (AggregateResultIter_Next(iter, &child)) {
@@ -199,10 +200,13 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
       return RSOffsetVector_Len(&IndexResult_TermRef(res)->offsets) > 0;
     case RSResultType_Intersection:
     case RSResultType_Union:
+    {
+      const RSAggregateResult *agg = IndexResult_AggregateRef(res);
+
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return AggregateResult_TypeMask(&res->data.agg) != RSResultType_Virtual && AggregateResult_TypeMask(&res->data.agg) != RS_RESULT_NUMERIC;
-
+      return AggregateResult_TypeMask(agg) != RSResultType_Virtual && AggregateResult_TypeMask(agg) != RS_RESULT_NUMERIC;
+    }
     // a virtual result doesn't have offsets!
     case RSResultType_Virtual:
     case RSResultType_Numeric:
@@ -218,7 +222,8 @@ void IndexResult_Free(RSIndexResult *r) {
   if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
     // for deep-copy results we also free the children
     if (r->isCopy) {
-      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
       RSIndexResult *child = NULL;
 
       while (AggregateResultIter_Next(iter, &child)) {
@@ -253,11 +258,11 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list
 */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
-  if (!IndexResult_IsAggregate(r) || AggregateResult_NumChildren(&r->data.agg) <= 1) {
+  const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+  if (!agg || AggregateResult_NumChildren(agg) <= 1) {
     return 1;
   }
 
-  const RSAggregateResult *agg = &r->data.agg;
   int dist = 0;
   size_t num = AggregateResult_NumChildren(agg);
 
@@ -312,7 +317,8 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
     case RSResultType_Intersection:
     case RSResultType_Union:
     {
-      RSAggregateResultIter *iter = AggregateResult_Iter(&r->data.agg);
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
       RSIndexResult *child = NULL;
 
       while (AggregateResultIter_Next(iter, &child)) {
@@ -457,21 +463,19 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
  * e.g. for an exact match, the slop allowed is 0.
  */
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
-
+  const RSAggregateResult *agg = IndexResult_AggregateRef(ir);
   // check if calculation is even relevant here...
-  if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RS_RESULT_NUMERIC)) ||
-      AggregateResult_NumChildren(&ir->data.agg) <= 1) {
+  if (!agg || AggregateResult_NumChildren(agg) <= 1) {
     return 1;
   }
-  RSAggregateResult *r = &ir->data.agg;
-  size_t num = AggregateResult_NumChildren(r);
+  size_t num = AggregateResult_NumChildren(agg);
 
   // Fill a list of iterators and the last read positions
   RSOffsetIterator iters[num];
   uint32_t positions[num];
   int n = 0;
 
-  RSAggregateResultIter *iter = AggregateResult_Iter(r);
+  RSAggregateResultIter *iter = AggregateResult_Iter(agg);
   RSIndexResult *child = NULL;
 
   while (AggregateResultIter_Next(iter, &child)) {

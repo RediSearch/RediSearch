@@ -642,6 +642,30 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
+    /// Get this record as an aggregate result if possible. If the record is not an aggregate,
+    /// returns `None`.
+    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'a>> {
+        if self.is_aggregate() {
+            // SAFETY: We are guaranteed the record data is aggregate because of the check we just
+            // did
+            Some(unsafe { &self.data.agg })
+        } else {
+            None
+        }
+    }
+
+    /// Get this record as a mutable aggregate result if possible. If the record is not an
+    /// aggregate, returns `None`.
+    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'a>> {
+        if self.is_aggregate() {
+            // SAFETY: We are guaranteed the record data is aggregate because of the check we just
+            // did
+            Some(unsafe { &mut self.data.agg })
+        } else {
+            None
+        }
+    }
+
     /// True if this is an aggregate type
     pub fn is_aggregate(&self) -> bool {
         matches!(

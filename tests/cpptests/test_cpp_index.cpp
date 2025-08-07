@@ -405,14 +405,15 @@ TEST_F(IndexTest, testWeight) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
-    if (AggregateResult_NumChildren(&h->data.agg) == 2) {
-      ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 0.5);
-      ASSERT_EQ(AggregateResult_Get(&h->data.agg, 1)->weight, 1);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    if (AggregateResult_NumChildren(agg) == 2) {
+      ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 0.5);
+      ASSERT_EQ(AggregateResult_Get(agg, 1)->weight, 1);
     } else {
       if (i <= 10) {
-        ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 0.5);
+        ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 0.5);
       } else {
-        ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 1);
+        ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 1);
       }
     }
   }
@@ -885,8 +886,9 @@ TEST_F(IndexTest, testHybridVector) {
     RSIndexResult *h = hybridIt->current;
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
-    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
-    ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
+    ASSERT_EQ(AggregateResult_Get(agg, 0)->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -902,8 +904,9 @@ TEST_F(IndexTest, testHybridVector) {
     RSIndexResult *h = hybridIt->current;
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
-    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
-    ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
+    ASSERT_EQ(AggregateResult_Get(agg, 0)->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);

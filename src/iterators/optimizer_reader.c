@@ -161,7 +161,8 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         if (numericRes->type == RSResultType_Numeric) {
           *it->pooledResult = *numericRes;
         } else {
-          const RSIndexResult *child = AggregateResult_Get(&numericRes->data.agg, 0);
+          const RSAggregateResult *agg = IndexResult_AggregateRef(numericRes);
+          const RSIndexResult *child = AggregateResult_Get(agg, 0);
           RS_LOG_ASSERT(child->type == RSResultType_Numeric, "???");
           *it->pooledResult = *(child);
         }

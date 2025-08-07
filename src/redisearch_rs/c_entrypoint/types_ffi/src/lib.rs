@@ -110,6 +110,47 @@ pub unsafe extern "C" fn IndexResult_TermRefMut(
     result.as_term_mut()
 }
 
+/// Get the aggregate result reference if the result is an aggregate result. If the result is
+/// not an aggregate, this function will return a `NULL` pointer.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateRef(
+    result: *const RSIndexResult<'_>,
+) -> Option<&RSAggregateResult<'_>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.as_aggregate()
+}
+
+/// Reset the result if it is an aggregate result. This will clear all children and reset the type mask.
+/// This function does not deallocate the children pointers, but rather resets the internal state of the
+/// aggregate result. The owner of the children pointers is responsible for managing their lifetime.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &mut *result };
+
+    if let Some(agg) = result.as_aggregate_mut() {
+        agg.reset();
+    }
+}
+
 /// Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
 /// if the index is out of bounds.
 ///
@@ -185,25 +226,6 @@ pub unsafe extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult)
     let agg = unsafe { &*agg };
 
     agg.type_mask().bits()
-}
-
-/// Reset the aggregate result, clearing all children and resetting the type mask. This function
-/// does not deallocate the children pointers, but rather resets the internal state of the
-/// aggregate result. The owner of the children pointers is responsible for managing their lifetime.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_Reset(agg: *mut RSAggregateResult) {
-    debug_assert!(!agg.is_null(), "agg must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
-    // an `RSAggregateResult`.
-    let agg = unsafe { &mut *agg };
-
-    agg.reset();
 }
 
 /// Create a new aggregate result with the specified capacity. This function will make the result
