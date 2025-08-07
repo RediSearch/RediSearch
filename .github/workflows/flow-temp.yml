@@ -25,4 +25,4 @@ jobs:
       - name: Wait
         run: sleep 100
       - name: Print Hello World
-        run: echo "Hello World from temporary testing workflow"
+        run: echo "Hello World from temporary"
