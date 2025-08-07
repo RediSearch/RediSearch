@@ -34,8 +34,6 @@ typedef struct {
   size_t numVectorFields;
   size_t numVectorFieldsFlat;
   size_t numVectorFieldsHNSW;
-  size_t numVectorFieldsSvsVamana;
-  size_t numVectorFieldsSvsVamanaCompressed;
 } FieldsGlobalStats;
 
 typedef struct {
