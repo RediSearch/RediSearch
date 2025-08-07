@@ -700,7 +700,7 @@ run_micro_benchmarks() {
 
   echo "Running micro-benchmarks (build.sh)..."
   clang --version
-  gcc -v
+  rustc -vV
   # Check if micro-benchmarks directory exists
   MICRO_BENCH_DIR="$BINDIR/micro-benchmarks"
 

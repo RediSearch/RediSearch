@@ -342,7 +342,7 @@ benchmark:
 micro-benchmarks: $(BUILD_SCRIPT)
 	@echo "Running micro-benchmarks (Makefile)..."
 	clang --version
-	gcc -v
+	rustc -vV
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_MICRO_BENCHMARKS
 
 vecsim-bench: $(BUILD_SCRIPT)
