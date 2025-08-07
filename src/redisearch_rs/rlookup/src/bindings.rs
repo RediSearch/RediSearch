@@ -19,9 +19,10 @@
 use core::slice;
 use enumflags2::{BitFlags, bitflags};
 use std::{
-    ffi::{CStr, c_char},
+    ffi::{CStr, c_char, c_void},
     fmt::Display,
-    ptr::{self, NonNull},
+    mem::MaybeUninit,
+    ptr::{self, NonNull, addr_of_mut},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -552,32 +553,56 @@ impl RedisScanCursor {
             key,
         }
     }
+}
 
-    /// This function uses the [RedisScanCursor] to iterate over each element and call a callback function for each element.
-    /// For now the only usage pattern we saw was an extensive while loop as shown in the documentation as an example:
-    /// See https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_scankey
-    ///
-    /// Safety:
-    /// The callback provides by the callee must be safe to call and must not mutate the state of the cursor.
-    #[inline]
-    pub unsafe fn scan_key_loop_unsafe_callback(&mut self, callback: ScanCursorCallbackType) {
-        // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
-        // i.e. after module initialization the function pointers stay valid till the end of the program.
-        let gs = unsafe { RedisModule_ScanKey.unwrap() };
+impl Iterator for RedisScanCursor {
+    type Item = (RedisKey, *mut RedisModuleString, *mut RedisModuleString);
 
-        // Safety: Provides that the callback is safe to call and that the cursor is valid, we
-        // assume that the `RedisModule_ScanKey` function is safe to call.
-        while unsafe {
-            gs(
+    fn next(&mut self) -> Option<Self::Item> {
+        type Data = MaybeUninit<(
+            *mut RedisModuleKey,
+            *mut RedisModuleString,
+            *mut RedisModuleString,
+        )>;
+
+        unsafe extern "C" fn callback(
+            key: *mut RedisModuleKey,
+            field: *mut RedisModuleString,
+            value: *mut RedisModuleString,
+            data: *mut c_void,
+        ) {
+            // SAFETY: this is the responsibility of the caller, see above.
+            unsafe {
+                let data = data.cast::<Data>();
+                let data = &mut (*data);
+
+                data.write((key, field, value));
+            }
+        }
+
+        let mut data: Data = MaybeUninit::uninit();
+        let data_ptr = addr_of_mut!(data).cast::<c_void>();
+
+        let ret = unsafe {
+            RedisModule_ScanKey.unwrap()(
                 self.key.0.as_ptr(),
                 self.cursor.as_ptr(),
                 Some(callback),
-                ptr::null_mut(),
+                data_ptr,
             )
-        } == 1
-        {
-            // The callback will be called for each element in the key.
-            // The loop will continue until there are no more elements to scan.
+        };
+
+        // From the docs:
+        // > The function will return 1 if there are more elements to scan and 0 otherwise,
+        // > possibly setting errno if the call failed.
+        // <https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_scankey>
+        if ret == 1 {
+            let (key, field, value) = unsafe { MaybeUninit::assume_init(data) };
+            let key = RedisKey(NonNull::new(key).unwrap());
+
+            Some((key, field, value))
+        } else {
+            None
         }
     }
 }
