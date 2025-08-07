@@ -8,6 +8,16 @@
 #include <stdlib.h>
 // forwards for bitflags types
 typedef uint32_t RLookupKeyFlags;
+typedef uint32_t RLookupOptions;
+ 
+// forward declarations for types that are only used as a pointer
+typedef struct RLookupRow RLookupRow;
+typedef struct RSValue RSValue;
+
+typedef struct FatPtr {
+  const char* ptr;
+  size_t len;
+} FatPtr;
 
 
 enum RLookupKeyFlag
@@ -119,11 +129,11 @@ typedef union CBCow_CStr {
   CBCow_CStr_Tag tag;
   struct {
     CBCow_CStr_Tag borrowed_tag;
-    const char *borrowed;
+    const FatPtr *borrowed;
   };
   struct {
     CBCow_CStr_Tag owned_tag;
-    const char* owned;
+    FatPtr owned;
   };
 } CBCow_CStr;
 

@@ -5,6 +5,16 @@ pragma_once = true
 after_includes = """
 // forwards for bitflags types
 typedef uint32_t RLookupKeyFlags;
+typedef uint32_t RLookupOptions;
+ 
+// forward declarations for types that are only used as a pointer
+typedef struct RLookupRow RLookupRow;
+typedef struct RSValue RSValue;
+
+typedef struct FatPtr {
+  const char* ptr;
+  size_t len;
+} FatPtr;
 """
 
 [parse]
@@ -15,5 +25,5 @@ include = ["rlookup"]
 include = ["RLookupKeyFlag", "RLookupOption", "RLookupKey"]
 
 [export.rename]
-"CStr" = "char"
-"Owned" = "const char*"
+"CStr" = "FatPtr"
+"Owned" = "FatPtr"
