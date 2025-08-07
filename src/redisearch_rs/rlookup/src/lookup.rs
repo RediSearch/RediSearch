@@ -313,7 +313,7 @@ pub struct RLookupKey<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
-    keys: KeyList<'a>,
+    pub(crate) keys: KeyList<'a>,
 
     // Flags/options
     options: RLookupOptions,
@@ -325,7 +325,7 @@ pub struct RLookup<'a> {
 
 #[derive(Debug)]
 #[repr(C)]
-struct KeyList<'a> {
+pub(crate) struct KeyList<'a> {
     // The head and tail nodes of this linked-list.
     // FIXME [MOD-10314] make this more type-safe when we no longer have direct field access from C
     head: Option<NonNull<RLookupKey<'a>>>,
@@ -369,7 +369,14 @@ impl<'a> RLookupKey<'a> {
         } else {
             CBCow::Borrowed(name)
         };
+        Self::new_with_cow(name, flags)
+    }
 
+    /// Constructs a new `RLookupKey` using the provided `Cow<CStr>` and flags.
+    ///
+    /// This is a lower-level constructor that allows you to pass in a `Cow` directly and thus
+    /// let's you bypass the lifetime restrictions of the `name` parameter in [`RLookupKey::new`].
+    pub(crate) fn new_with_cow(name: CBCow<'a, CStr>, flags: RLookupKeyFlags) -> Self {
         Self {
             dstidx: 0,
             svidx: 0,
@@ -381,6 +388,14 @@ impl<'a> RLookupKey<'a> {
             _path: CBOption::None,
             next: UnsafeCell::new(None),
         }
+    }
+
+    /// Returns the name of this key as a `&CStr`.
+    ///
+    /// This is used internally (load_document code paths) to access a reference with the correct lifetime.
+    pub(crate) fn name_ref(&self) -> &CBCow<'a, CStr> {
+        // Safety: We assume the pointer is valid and points to a null-terminated C string.
+        &self._name
     }
 
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
@@ -608,7 +623,7 @@ impl<'a> KeyList<'a> {
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
     ///
     /// The key will be owned by the list and freed when dropping the list.
-    fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
+    pub(crate) fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push before");
 
@@ -681,7 +696,7 @@ impl<'a> KeyList<'a> {
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`Cursor`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
-    fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
+    pub(crate) fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find_by_name");
 
@@ -698,7 +713,7 @@ impl<'a> KeyList<'a> {
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`CursorMut`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
-    fn find_by_name_mut(&mut self, name: &CStr) -> Option<CursorMut<'_, 'a>> {
+    pub(crate) fn find_by_name_mut(&mut self, name: &CStr) -> Option<CursorMut<'_, 'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find_by_name_mut");
 
