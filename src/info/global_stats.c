@@ -72,10 +72,10 @@ void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration)
 
   INCR(RSGlobalStats.totalStats.queries.total_query_commands);
   // Convert to milliseconds
-  double duration_ms = rs_wall_clock_convert_ns_to_ms(duration);
+  rs_wall_clock_ms_t duration_ms = rs_wall_clock_convert_ns_to_ms(duration);
 
   // Convert to rs_wall_clock_ms_t to avoid breaking changes
-  INCR_BY(RSGlobalStats.totalStats.queries.total_query_execution_time, (rs_wall_clock_ms_t)duration_ms);
+  INCR_BY(RSGlobalStats.totalStats.queries.total_query_execution_time, duration_ms);
 
   if (!(QEXEC_F_IS_CURSOR & reqflags) || (QEXEC_F_IS_AGGREGATE & reqflags)) {
     // Count only unique queries, not iterations of a previous query (FT.CURSOR READ)

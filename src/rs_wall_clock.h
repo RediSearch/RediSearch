@@ -19,6 +19,7 @@ typedef struct {
 #define RS_WALL_CLOCK_PER_SEC 1000000000ULL
 #define RS_WALL_CLOCK_PER_MILLISEC RS_WALL_CLOCK_PER_SEC / 1000
 
+// Using different types for nanoseconds and milliseconds to avoid confusion
 typedef uint64_t rs_wall_clock_ns_t;
 typedef uint64_t rs_wall_clock_ms_t;
 
@@ -54,15 +55,10 @@ static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start, rs_
     return rs_wall_clock_elapsed_ns(end) - rs_wall_clock_elapsed_ns(start);
 }
 
-// Convert rs_wall_clock to clock_t based on the elapsed time in nanoseconds
-static inline clock_t rs_wall_clock_to_clock_t(rs_wall_clock *clk) {
-    rs_wall_clock_ns_t ns_total = rs_wall_clock_elapsed_ns(clk);
-
-    // Convert nanoseconds to seconds, then to clock_t units
-    // CLOCKS_PER_SEC is usually 1,000,000 (µs)
-    return (clock_t)(ns_total * CLOCKS_PER_SEC / RS_WALL_CLOCK_PER_SEC);
+static inline double rs_wall_clock_convert_ns_to_ms_f(rs_wall_clock_ns_t ns) {
+    return (double)ns / RS_WALL_CLOCK_PER_MILLISEC;
 }
 
-static inline double rs_wall_clock_convert_ns_to_ms(rs_wall_clock_ns_t ns) {
-    return (double)ns / RS_WALL_CLOCK_PER_MILLISEC;
+static inline rs_wall_clock_ms_t rs_wall_clock_convert_ns_to_ms(rs_wall_clock_ns_t ns) {
+    return ns / RS_WALL_CLOCK_PER_MILLISEC;
 }

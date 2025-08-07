@@ -113,7 +113,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
 
-  double totalRPTime = rs_wall_clock_convert_ns_to_ms(RPProfile_GetClock(rp));
+  double totalRPTime = rs_wall_clock_convert_ns_to_ms_f(RPProfile_GetClock(rp));
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
@@ -140,26 +140,26 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          rs_wall_clock_convert_ns_to_ms(req->profileTotalTime));
+          rs_wall_clock_convert_ns_to_ms_f(req->profileTotalTime));
 
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          rs_wall_clock_convert_ns_to_ms(req->profileParseTime));
+          rs_wall_clock_convert_ns_to_ms_f(req->profileParseTime));
 
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            rs_wall_clock_convert_ns_to_ms(req->profilePipelineBuildTime));
+            rs_wall_clock_convert_ns_to_ms_f(req->profilePipelineBuildTime));
 
       //Print total GIL time
         if (profile_verbose){
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_wall_clock_convert_ns_to_ms(req->qiter.GILTime));
+            rs_wall_clock_convert_ns_to_ms_f(req->qiter.GILTime));
           } else {
             rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms(rpEndTime));
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_f(rpEndTime));
           }
         }
 
@@ -461,7 +461,7 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
   printIteratorProfile(reply, pi->child, &pi->counters,
-    rs_wall_clock_convert_ns_to_ms(pi->wallTime), depth, limited, config);
+    rs_wall_clock_convert_ns_to_ms_f(pi->wallTime), depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters,
