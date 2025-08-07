@@ -17,16 +17,12 @@ use criterion::{
 use ffi::t_fieldMask;
 use inverted_index::{
     Decoder, Encoder,
-    full::{Full, FullWide},
+    fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     test_utils::TestTermRecord,
 };
 use itertools::Itertools;
 
-use crate::ffi::{TestBuffer, encode_full, read_freq_offsets_flags};
-
-// The encode C implementation relies on this symbol. Re-export it to ensure it is not discarded by the linker.
-#[allow(unused_imports)]
-pub use types_ffi::RSOffsetVector_GetData;
+use crate::ffi::{TestBuffer, encode_fields_offsets, read_fields_offsets};
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -36,7 +32,6 @@ pub struct Bencher {
 #[derive(Debug)]
 struct TestValue {
     delta: u32,
-    freq: u32,
     field_mask: t_fieldMask,
     term_offsets: Vec<i8>,
 
@@ -58,7 +53,6 @@ impl Bencher {
     }
 
     fn new(wide: bool) -> Self {
-        let freq_values = vec![0, u32::MAX];
         let deltas = vec![0, u32::MAX];
         let mut field_masks_values = vec![0, 10, 100, 1_000, 10_000, u32::MAX as t_fieldMask - 1];
         #[cfg(target_pointer_width = "64")]
@@ -74,21 +68,20 @@ impl Bencher {
             vec![1; 10_000],
         ];
 
-        let test_values = freq_values
+        let test_values = deltas
             .into_iter()
-            .cartesian_product(deltas)
             .cartesian_product(field_masks_values)
             .cartesian_product(term_offsets_values)
-            .map(|(((freq, delta), field_mask), term_offsets)| {
-                let record = TestTermRecord::new(100, field_mask, freq, term_offsets.clone());
+            .map(|((delta, field_mask), term_offsets)| {
+                let record = TestTermRecord::new(100, field_mask, 1, term_offsets.clone());
                 let mut buffer = Cursor::new(Vec::new());
 
                 let _grew_size = if wide {
-                    FullWide::default()
+                    FieldsOffsetsWide::default()
                         .encode(&mut buffer, delta, &record.record)
                         .unwrap()
                 } else {
-                    Full::default()
+                    FieldsOffsets::default()
                         .encode(&mut buffer, delta, &record.record)
                         .unwrap()
                 };
@@ -96,7 +89,6 @@ impl Bencher {
                 let encoded = buffer.into_inner();
 
                 TestValue {
-                    freq,
                     delta,
                     encoded,
                     field_mask,
@@ -124,14 +116,14 @@ impl Bencher {
     }
 
     pub fn encoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode - Full");
+        let mut group = self.benchmark_group(c, "Encode - FieldsOffsets");
         self.c_encode(&mut group);
         self.rust_encode(&mut group);
         group.finish();
     }
 
     pub fn decoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode - Full");
+        let mut group = self.benchmark_group(c, "Decode - FieldsOffsets");
         self.c_decode(&mut group);
         self.rust_decode(&mut group);
         group.finish();
@@ -146,14 +138,10 @@ impl Bencher {
                 || TestBuffer::with_capacity(buffer_size),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let mut record = TestTermRecord::new(
-                            100,
-                            test.field_mask,
-                            test.freq,
-                            test.term_offsets.clone(),
-                        );
+                        let mut record =
+                            TestTermRecord::new(100, test.field_mask, 1, test.term_offsets.clone());
 
-                        let grew_size = encode_full(
+                        let grew_size = encode_fields_offsets(
                             &mut buffer,
                             &mut record.record,
                             test.delta as u64,
@@ -177,19 +165,15 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = TestTermRecord::new(
-                            100,
-                            test.field_mask,
-                            test.freq,
-                            test.term_offsets.clone(),
-                        );
+                        let record =
+                            TestTermRecord::new(100, test.field_mask, 1, test.term_offsets.clone());
 
                         let grew_size = if self.wide {
-                            FullWide::default()
+                            FieldsOffsetsWide::default()
                                 .encode(&mut buffer, test.delta, &record.record)
                                 .unwrap()
                         } else {
-                            Full::default()
+                            FieldsOffsets::default()
                                 .encode(&mut buffer, test.delta, &record.record)
                                 .unwrap()
                         };
@@ -211,8 +195,7 @@ impl Bencher {
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
                     |mut buffer| {
-                        let (_filtered, result) =
-                            read_freq_offsets_flags(&mut buffer, 100, self.wide);
+                        let (_filtered, result) = read_fields_offsets(&mut buffer, 100, self.wide);
 
                         black_box(result);
                     },
@@ -229,9 +212,9 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         let result = if self.wide {
-                            FullWide::default().decode(buffer, 100).unwrap()
+                            FieldsOffsetsWide::default().decode(buffer, 100).unwrap()
                         } else {
-                            Full::default().decode(buffer, 100).unwrap()
+                            FieldsOffsets::default().decode(buffer, 100).unwrap()
                         };
 
                         let _ = black_box(result);

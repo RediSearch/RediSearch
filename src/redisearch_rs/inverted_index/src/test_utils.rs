@@ -40,11 +40,9 @@ impl TestTermRecord<'_> {
         let offsets_ptr = offsets.as_ptr() as *mut _;
         let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
-        let record = RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets)
-            .doc_id(doc_id)
-            .field_mask(field_mask)
-            .frequency(freq)
-            .weight(1.0);
+        let record =
+            RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets, doc_id, field_mask, freq)
+                .weight(1.0);
 
         Self {
             record,
