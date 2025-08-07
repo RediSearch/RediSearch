@@ -222,6 +222,9 @@ size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 /* Wrapper around the static encodeDocIdsOnly to be able to access it in the Rust benchmarks */
 size_t encode_docs_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
+/* Wrapper around the static encodeRawDocIdsOnly to be able to access it in the Rust benchmarks */
+size_t encode_raw_doc_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
 /* Wrapper around the static readFreqs to be able to access it in the Rust benchmarks */
 bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
@@ -260,6 +263,9 @@ bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSI
 
 /* Wrapper around the static readDocIdsOnly to be able to access it in the Rust benchmarks */
 bool read_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readRawDocIdsOnly to be able to access it in the Rust benchmarks */
+bool read_raw_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
