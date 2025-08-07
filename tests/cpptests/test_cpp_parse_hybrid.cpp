@@ -86,8 +86,8 @@ class ParseHybridTest : public ::testing::Test {
 
 #define assertRRFScoringCtx(K, Window) { \
   ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, K); \
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, Window); \
+  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->rrfCtx.k, K); \
+  ASSERT_EQ(result->hybridParams->scoringCtx->window, Window); \
 }
 
 
@@ -230,12 +230,6 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
 
   HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
-  // // Debug: Print error details if parsing failed
-  // if (!result) {
-  //   printf("Parsing failed: code=%d, detail='%s'\n", status.code, status.detail ? status.detail : "NULL");
-  //   fflush(stdout);
-  // }
-
   // Verify the request was parsed successfully
   EXPECT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
@@ -286,7 +280,114 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   HybridRequest_Free(result);
 }
 
+TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
+  QueryError status = {QueryErrorCode(0)};
 
+  // Test with RRF combine method with explicit K parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "60", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set with custom K value
+  assertRRFScoringCtx(60, 20);
+
+  // Verify hasExplicitWindow flag is false (WINDOW not specified)
+  ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Clean up
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with RRF combine method with explicit WINDOW parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "WINDOW", "25", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set with custom WINDOW value
+  assertRRFScoringCtx(1, 25);
+
+  // Verify hasExplicitWindow flag is true (WINDOW was specified)
+  ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Clean up
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with RRF combine method with both K and WINDOW parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "4", "K", "160", "WINDOW", "25", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set with both custom K and WINDOW values
+  assertRRFScoringCtx(160, 25);
+
+  // Verify hasExplicitWindow flag is true (WINDOW was specified)
+  ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Clean up
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with RRF combine method with floating-point K parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "1.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set with custom floating-point K value
+  assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
+
+  // Verify hasExplicitWindow flag is false (WINDOW was not specified)
+  ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Clean up
+  // The scoring context is freed by the hybrid merger
+  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
 
 
 TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
@@ -1031,3 +1132,9 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 // The validation happens during query execution in the flow:
 // QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
 // These validation tests should be in execution tests, not parsing tests.
+
+TEST_F(ParseHybridTest, testCombineRRFInvalidKValue) {
+  // Test RRF with invalid K value (non-numeric)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value in RRF");
+}
