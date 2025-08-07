@@ -58,3 +58,23 @@ void explain(RSScoreExplain *scrExp, char *fmt, ...) {
 
   rm_free(tempStr);
 }
+
+void SECopy(RSScoreExplain *destination, const RSScoreExplain *source) {
+  if (!destination || !source) {
+    return;
+  }
+
+  // Copy the explanation string
+  destination->str = source->str ? rm_strdup(source->str) : NULL;
+  destination->numChildren = source->numChildren;
+
+  // Copy children array and contents recursively
+  if (source->numChildren > 0 && source->children) {
+    destination->children = rm_calloc(source->numChildren, sizeof(RSScoreExplain));
+    for (int i = 0; i < source->numChildren; i++) {
+      SECopy(&destination->children[i], &source->children[i]);
+    }
+  } else {
+    destination->children = NULL;
+  }
+}

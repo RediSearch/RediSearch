@@ -33,6 +33,12 @@ void SEReply(RedisModule_Reply *reply, RSScoreExplain *scrExp);
  */
 void SEDestroy(RSScoreExplain *scrExp);
 
+/*
+ * Copy all data from source to destination, including strings and children recursively.
+ * Destination must be zero-initialized. Creates independent copies of all data.
+ */
+void SECopy(RSScoreExplain *destination, const RSScoreExplain *source);
+
 
 #define EXPLAIN(exp, fmt, args...) \
   {                                \
