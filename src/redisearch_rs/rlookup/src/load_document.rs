@@ -24,7 +24,6 @@ use crate::bindings::KeyMode;
 use crate::bindings::KeyTypes;
 use crate::bindings::RLookupCoerceType;
 use crate::bindings::RLookupLoadMode;
-use crate::bindings::RLookupLoadOptions;
 use crate::bindings::RedisKey;
 use crate::bindings::RedisScanCursor;
 use crate::bindings::RedisString;
@@ -33,7 +32,10 @@ use crate::bindings::call_hgetall;
 use crate::lookup::CBCow;
 use crate::row::RLookupRow;
 use enumflags2::make_bitflags;
+use ffi::QueryError;
 use ffi::REDISMODULE_OK;
+use ffi::RSDocumentMetadata;
+use ffi::RedisSearchCtx;
 use ffi::{RSDocumentMetadata_s, RedisModuleKey, RedisModuleString};
 use sorting_vector::RSSortingVector;
 use value::RSValueFFI;
@@ -48,6 +50,39 @@ pub struct GlobalCVariables {
 
     /// The server version, which is used to determine the available features (using Scan API or Call API).
     server_version: u32,
+}
+
+/// The options data structure as used by the `RLookup_Load` function. Needed for interoperability with C code.
+#[repr(C)]
+pub struct RLookupLoadOptions {
+    pub sctx: *mut RedisSearchCtx,
+
+    /** Needed for the key name, and perhaps the sortable */
+    pub dmd: *mut RSDocumentMetadata,
+
+    /// Needed for rule filter where dmd does not exist
+    pub key_ptr: *const std::ffi::c_char,
+
+    /// Type of document to load, either Hash or JSON.
+    pub doc_type: DocumentType,
+
+    /// Keys to load. If present, then loadNonCached and loadAllFields is ignored
+    pub keys: *const *const ffi::RLookupKey,
+
+    /// Number of keys in keys array
+    pub n_keys: libc::size_t,
+
+    /// The following mode controls the loading behavior of fields
+    pub mode: RLookupLoadMode,
+
+    /// Don't use sortables when loading documents. This will enforce the loader to load
+    /// the fields from the document itself, even if they are sortables and un-normalized.
+    pub force_load: bool,
+
+    /// Force string return; don't coerce to native type    
+    pub force_string: bool,
+
+    pub status: *mut QueryError,
 }
 
 /// Extraction of the Options for loading a document from [`RLookupLoadOptions`] and [`GlobalCVariables`].

@@ -455,7 +455,7 @@ RSValue *hvalToValue(const RedisModuleString *src, RLookupCoerceType type);
 // exposed to be called from Rust, was inline before that.
 RSValue *replyElemToValue(RedisModuleCallReply *rep, RLookupCoerceType otype);
 
-// exposed to be called from Rust, is part of dependency and was inline
+// exposed to be called from Rust, is part of a dependency and was inline before that.
 size_t sdslen__(const char* s);
 
 #ifdef __cplusplus

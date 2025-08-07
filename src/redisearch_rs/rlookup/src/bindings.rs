@@ -26,12 +26,12 @@ use std::{
 };
 
 use ffi::{
-    QueryError, REDISMODULE_OK, RSDocumentMetadata, RedisModule_CallReplyArrayElement,
-    RedisModule_CallReplyLength, RedisModule_CallReplyStringPtr, RedisModule_CallReplyType,
-    RedisModule_CreateString, RedisModule_FreeString, RedisModule_KeyType,
-    RedisModule_ScanCursorCreate, RedisModule_ScanCursorDestroy, RedisModule_ScanKey,
-    RedisModule_StringPtrLen, RedisModule_StringToDouble, RedisModule_StringToLongLong,
-    RedisModuleCallReply, RedisModuleCtx, RedisModuleKey, RedisModuleString, RedisSearchCtx,
+    REDISMODULE_OK, RedisModule_CallReplyArrayElement, RedisModule_CallReplyLength,
+    RedisModule_CallReplyStringPtr, RedisModule_CallReplyType, RedisModule_CreateString,
+    RedisModule_FreeString, RedisModule_KeyType, RedisModule_ScanCursorCreate,
+    RedisModule_ScanCursorDestroy, RedisModule_ScanKey, RedisModule_StringPtrLen,
+    RedisModule_StringToDouble, RedisModule_StringToLongLong, RedisModuleCallReply, RedisModuleCtx,
+    RedisModuleKey, RedisModuleString,
 };
 
 // TODO [MOD-10333] remove once FieldSpec is ported to Rust
@@ -94,40 +94,6 @@ pub enum DocumentType {
     Hash = 0,
     Json = 1,
     Unsupported = 2,
-}
-
-/// The options data structure as used by the `RLookup_Load` function. Needed for interoperability with C code.
-/// cbindgen:field-names=[sctx, dmd, keyPtr, type, keys, nkeys, mode, forceLoad, forceString, status]
-#[repr(C)]
-pub struct RLookupLoadOptions {
-    pub sctx: *mut RedisSearchCtx,
-
-    /** Needed for the key name, and perhaps the sortable */
-    pub dmd: *mut RSDocumentMetadata,
-
-    /// Needed for rule filter where dmd does not exist
-    pub key_ptr: *const std::ffi::c_char,
-
-    /// Type of document to load, either Hash or JSON.
-    pub doc_type: DocumentType,
-
-    /// Keys to load. If present, then loadNonCached and loadAllFields is ignored
-    pub keys: *const *const ffi::RLookupKey,
-
-    /// Number of keys in keys array
-    pub n_keys: libc::size_t,
-
-    /// The following mode controls the loading behavior of fields
-    pub mode: RLookupLoadMode,
-
-    /// Don't use sortables when loading documents. This will enforce the loader to load
-    /// the fields from the document itself, even if they are sortables and un-normalized.
-    pub force_load: bool,
-
-    /// Force string return; don't coerce to native type    
-    pub force_string: bool,
-
-    pub status: *mut QueryError,
 }
 
 // TODO [MOD-10342] remove once IndexSpecCache is ported to Rust
