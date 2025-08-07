@@ -89,6 +89,7 @@ jobs:
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
+          llvm-objdump-20 -d $(find bin -name redisearch.so) | grep inline_me
       - name: Collect results
         run: |
           # Determine OS name
