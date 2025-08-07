@@ -9,14 +9,20 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+
+concurrency:
+  group: temporary-testing-flow
+  cancel-in-progress: true
 
 jobs:
-
   basic-test:
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      rejson-branch: master
-      platform: "amazonlinux:2"
-      architecture: 'x86_64'
+    concurrency:
+      group: temporary-testing-basic-test
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait
+        run: sleep 100
+      - name: Print Hello World
+        run: echo "Hello World from temporary testing workflow"

@@ -39,6 +39,10 @@ on:
         type: string
         default: all
 
+concurrency:
+  group: temporary-testing-basic-test
+  cancel-in-progress: false
+
 jobs:
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
