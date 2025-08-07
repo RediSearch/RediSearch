@@ -12,33 +12,6 @@ extern "C" {
 
 // Field names for implicit LOAD step
 #define HYBRID_IMPLICIT_KEY_FIELD "key"
-#define SEARCH_INDEX 0
-
-/**
- * Create implicit LOAD step for document key when no explicit LOAD is specified.
- * Returns a PLN_LoadStep that loads only the HYBRID_IMPLICIT_KEY_FIELD.
- */
-static PLN_LoadStep *createImplicitLoadStep(void) {
-    // Use a static array for the field name - no memory management needed
-    static const char *implicitArgv[] = {HYBRID_IMPLICIT_KEY_FIELD};
-
-    PLN_LoadStep *implicitLoadStep = rm_calloc(1, sizeof(PLN_LoadStep));
-
-    // Set up base step properties - use standard loadDtor
-    implicitLoadStep->base.type = PLN_T_LOAD;
-    implicitLoadStep->base.alias = NULL;
-    implicitLoadStep->base.flags = 0;
-    implicitLoadStep->base.dtor = loadDtor; // Use standard destructor
-
-    // Create ArgsCursor with static array - no memory management needed
-    ArgsCursor_InitCString(&implicitLoadStep->args, implicitArgv, 1);
-
-    // Pre-allocate keys array for 1 key (same as handleLoad)
-    implicitLoadStep->nkeys = 0;
-    implicitLoadStep->keys = rm_calloc(1, sizeof(RLookupKey*));
-
-    return implicitLoadStep;
-}
 
 /**
  * Build the complete hybrid search pipeline for processing multiple search requests.
@@ -73,12 +46,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
-        // Clone explicit LOAD step or create implicit one, then add to AREQ's AGGPlan
-        PLN_LoadStep *stepToAdd = loadStep ? PLNLoadStep_Clone(loadStep) : createImplicitLoadStep();
-        if (stepToAdd) {
-            AGPLN_AddStep(&areq->pipeline.ap, &stepToAdd->base);
-        }
-
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
         int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
@@ -89,6 +56,73 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         }
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+        RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+        const RLookupKey **keys;
+        size_t nkeys;
+        RLookupKey *implicitLoadKeys[1];
+        PLN_LoadStep *loadStepClone = NULL;
+        //TODO: take this logic out of here and into the pipeline_construction.c
+        if (loadStep) {
+          // Create a clone of the loadStep for this AREQ to avoid consuming shared args
+          loadStepClone = PLNLoadStep_Clone(loadStep);
+
+          // Process the loadStep args to populate keys array (similar to pipeline_construction.c)
+          // The loadStep may not have been processed yet, so we need to parse the args
+          if (loadStepClone->nkeys == 0 && loadStepClone->args.argc > 0) {
+            // Process args to populate keys array
+            ArgsCursor tempAC = loadStepClone->args;
+            while (!AC_IsAtEnd(&tempAC)) {
+              size_t name_len;
+              const char *name, *path = AC_GetStringNC(&tempAC, &name_len);
+              if (*path == '@') {
+                path++;
+                name_len--;
+              }
+              if (AC_AdvanceIfMatch(&tempAC, SPEC_AS_STR)) {
+                int rv = AC_GetString(&tempAC, &name, &name_len, 0);
+                if (rv != AC_OK) {
+                  // Error handling - continue with next arg or fail gracefully
+                  continue;
+                }
+                if (!strcasecmp(name, SPEC_AS_STR)) {
+                  // Alias for LOAD cannot be `AS` - skip this invalid entry
+                  continue;
+                }
+              } else {
+                // Set the name to the path. name_len is already the length of the path.
+                name = path;
+              }
+
+              RLookupKey *kk = RLookup_GetKey_LoadEx(lookup, name, name_len, path, RLOOKUP_F_NOFLAGS);
+              // We only get a NULL return if the key already exists, which means
+              // that we don't need to retrieve it again.
+              if (kk && loadStepClone->nkeys < loadStepClone->args.argc) {
+                loadStepClone->keys[loadStepClone->nkeys++] = kk;
+              }
+            }
+          }
+          keys = loadStepClone->keys;
+          nkeys = loadStepClone->nkeys;
+        } else {
+          // If load was not specified, implicitly load doc key
+          RLookupKey *docIdKey = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_KEY_FIELD, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
+          implicitLoadKeys[0] = docIdKey;
+          keys = implicitLoadKeys;
+          nkeys = 1;
+        }
+
+        ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lookup, keys, nkeys, false, &areq->stateflags);
+        QITR_PushRP(qctx, loader);
+
+        // Clean up the cloned loadStep after using its keys
+        if (loadStepClone) {
+          // Use the proper destructor, but need to handle alias separately since loadDtor doesn't free it
+          if (loadStepClone->base.alias) {
+            rm_free(loadStepClone->base.alias);
+          }
+          // Use the standard destructor for the rest
+          loadDtor(&loadStepClone->base);
+        }
 
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
@@ -101,16 +135,16 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
     // Release the sync reference as depleters now hold their own references
     StrongRef_Release(sync_ref);
-
     //Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, NULL);
-    RLookup_CloneInto(lookup, AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST));
-    const RLookupKey *scoreKey = NULL;
+    RLookup_CloneInto(lookup, AGPLN_GetLookup(&req->requests[0]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST));
 
+
+
+    const RLookupKey *scoreKey = NULL;
     if (!loadStep) {
         // implicit load score as well as key
-        RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
         scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);

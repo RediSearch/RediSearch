@@ -1093,7 +1093,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
     }
   }
   ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit 'key' field";
-  EXPECT_STREQ("key", tailKeyField->path) << "Implicit key field should have path 'key'";
+  EXPECT_STREQ("__key", tailKeyField->path) << "Implicit key field should have path 'key'";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
@@ -1113,7 +1113,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
       }
     }
     ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit 'key' field";
-    EXPECT_STREQ("key", upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
+    EXPECT_STREQ("__key", upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
     for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
