@@ -11,5 +11,5 @@ cargo -vV
 # Print where `cargo` is located for debugging purposes
 echo "Cargo binary location: $(which cargo)"
 
-# Update to the latest stable toolchain
-rustup update
+rustup toolchain install beta
+rustup toolchain uninstall stable
