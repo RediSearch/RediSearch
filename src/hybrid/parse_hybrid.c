@@ -398,7 +398,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
 
   // Parse parameters based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    // Store original weights if they exist
+    // Store original weights if they exist (take ownership)
     if (originalType == HYBRID_SCORING_LINEAR && combineCtx->linearCtx.linearWeights) {
       originalWeights = combineCtx->linearCtx.linearWeights;
     }
