@@ -125,8 +125,6 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -172,8 +170,6 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -211,8 +207,6 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -238,8 +232,6 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
   assertLinearScoringCtx(0.7, 0.3);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
   QueryError_ClearError(&status);
 }
@@ -275,8 +267,6 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   assertRRFScoringCtx(1, 20);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -303,7 +293,6 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
   ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
 
   // Clean up
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -330,7 +319,6 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
   ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
 
   // Clean up
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -357,7 +345,6 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
   ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
 
   // Clean up
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -384,8 +371,6 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
   ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -417,8 +402,6 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   assertLinearScoringCtx(0.65, 0.35);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -449,8 +432,6 @@ TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
   assertRRFScoringCtx(1, 20);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -481,8 +462,6 @@ TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   assertRRFScoringCtx(1, 20);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -510,8 +489,6 @@ TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
   assertRRFScoringCtx(1, 20);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -598,8 +575,6 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   ASSERT_STREQ(vn->children[0]->children[1]->tn.str, "+hello");
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -653,8 +628,6 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   ASSERT_TRUE(foundEfRuntime);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -706,8 +679,6 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vn->children[0]->type, QN_WILDCARD);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -749,8 +720,6 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -805,8 +774,6 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -867,8 +834,6 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_TRUE(foundEpsilon);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -910,8 +875,6 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   ASSERT_EQ(vq->knn.vecLen, strlen(TEST_BLOB_DATA));
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
