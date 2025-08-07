@@ -23,7 +23,7 @@ enum UnionIteratorMode {
 }
 
 /// Represents a union iterator that aggregates results from multiple child iterators
-struct UnionIterator {
+pub struct UnionIterator {
     /// The active (not depleted) children iterators that are currently being processed
     active_children: LowMemoryThinVec<Box<dyn RQEIterator>>,
     /// The children iterators that are not currently being processed, but can be used later
@@ -32,7 +32,7 @@ struct UnionIterator {
     /// The last document ID that was read from the iterator
     last_doc_id: t_docId,
     /// The current result of the iterator, which is the union of the results from the active children iterators
-    current_result: RSIndexResult,
+    current_result: RSIndexResult<'static>,
     /// Indicates if the instance of the iterator is a flat union iterator or a heap union iterator, and use enum invocations on specific methods.
     mode: UnionIteratorMode,
     /// Indicates if this iterator uses the quick implementations.
@@ -131,46 +131,64 @@ impl UnionIterator {
         self.has_next = !self.active_children.is_empty();
     }
 
-    fn set_full_flat(&mut self, results: &LowMemoryThinVec<RSIndexResult>) {
+    fn set_full_flat(&mut self, results: &LowMemoryThinVec<RSIndexResult>) -> RSIndexResult<'static>{
         // Reset the current result
         // TODO: should we move `reset` to the RSIndexResult?
-        let current_result = self.current_result.as_union_mut().unwrap();
-        current_result.reset();
-        // Iterate over all results and add them to the current result
-        for result in results.iter() {
+        let mut current_result = RSIndexResult::union(results.len());
+
+        results.iter().for_each(|result| {
+            // Set the current result's doc id to the minimum doc id of the results
             if result.get_doc_id() == self.last_doc_id {
-                // If the result is the minimum ID, we add it to the current result
-                self.current_result.push(result);
+                current_result.push(result);
             }
-        }
+        });
+        current_result
+    
+        // // Iterate over all results and add them to the current result
+        // for result in results.iter() {
+        //     if result.get_doc_id() == self.last_doc_id {
+        //         // If the result is the minimum ID, we add it to the current result
+        //         self.current_result.push(result);
+        //     }
+        // }
     }
 
-    fn read_full_flat(&mut self) -> Result<Option<RSIndexResult>, RQEIteratorError> {
+    fn read_full_flat(&mut self) -> Result<Option<RSIndexResult<'static>>, RQEIteratorError> {
         let last_id: t_docId = self.last_doc_id;
         // TODO: add doc id limits to rust
         let mut min_id: t_docId = u64::MAX as t_docId;
 
         let mut results = LowMemoryThinVec::with_capacity(self.active_children.len());
-        // Iterate over all active children iterators
-        for child in self.active_children.iter_mut() {
+
+        for child in &mut self.active_children {
             assert!(
                 child.last_doc_id() >= last_id,
                 "Child iterator's last doc id is less than the union iterator's last doc id"
             );
-            // Read the next result from the child iterator
-            match child.read() {
-                Ok(Some(result)) => {
-                    min_id = min_id.min(result.get_doc_id());
-                    results.push(result);
-                }
-                Ok(None) => {
-                    // do nothing, the child iterator is exhausted and we will remove it later
-                }
-                Err(e) => {
-                    return Err(e);
+            if child.last_doc_id() == last_id {
+                // If the child iterator's last doc id is equal to what we have now, we already collected it in
+                // a previous iteration, so we progress this child iterator to the next result.
+                match child.read() {
+                    Ok(Some(result)) => {
+                        let id = result.get_doc_id();
+                        min_id = min_id.min(id);
+                        results.push(result);
+                    }
+                    Ok(None) => {
+                        // do nothing, the child iterator is exhausted and we will remove it later
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
             }
+            else {
+                // If the child iterator's last doc id is greater than what we have now, we add it to the results
+                min_id = min_id.min(child.last_doc_id());
+                results.push(child.get_current_result());
+            }
         }
+
         // Remove exhausted children iterators
         self.remove_exhausted_children();
         if results.is_empty() {
@@ -185,14 +203,14 @@ impl UnionIterator {
         }
 
         self.last_doc_id = min_id;
-        self.set_full_flat(&results);
-        return Ok(Some(self.current_result.clone()));
+        let result = self.set_full_flat(&results);
+        return Ok(Some(result));
     }
 
     fn skip_to_full_flat(
         &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'static>>, RQEIteratorError> {
         let mut min_id = u64::MAX as t_docId;
         let mut results = LowMemoryThinVec::with_capacity(self.active_children.len());
         for child in self.active_children.iter_mut() {
@@ -200,21 +218,26 @@ impl UnionIterator {
                 child.last_doc_id() >= doc_id,
                 "Child iterator's last doc id is less than the requested doc id"
             );
-            match child.skip_to(doc_id) {
-                Ok(Some(SkipToOutcome::Found(result))) => {
-                    min_id = min_id.min(result.get_doc_id());
-                    results.push(result);
+            if child.last_doc_id() < doc_id {
+                // If the child's iterator last doc id is less than the requested doc id, we move it forward
+                match child.skip_to(doc_id) {
+                    Ok(Some(SkipToOutcome::Found(result))) => {
+                        results.push(result);
+                    }
+                    Ok(Some(SkipToOutcome::NotFound(_))) => {
+                        // Do nothing, since we passed the requested doc id
+                    }
+                    Ok(None) => {
+                        // do nothing, the child iterator is exhausted and we will remove it later
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
-                Ok(Some(SkipToOutcome::NotFound(result))) => {
-                    min_id = min_id.min(result.get_doc_id());
-                    results.push(result);
-                }
-                Ok(None) => {
-                    // do nothing, the child iterator is exhausted and we will remove it later
-                }
-                Err(e) => {
-                    return Err(e);
-                }
+            } else if child.last_doc_id() == doc_id {
+                // If the child's iterator last doc id is  equal to the requested doc id, we add it to the results
+                results.push(child.get_current_result());
+                min_id = min_id.min(child.last_doc_id());
             }
         }
         // Remove exhausted children iterators
@@ -232,22 +255,21 @@ impl UnionIterator {
 
         // If there are results, we need to find the minimum ID and set the current result
         results.retain(|r| r.get_doc_id() == min_id);
-        self.set_full_flat(&results);
+        self.last_doc_id = min_id;
+        let result = self.set_full_flat(&results);
 
         if min_id == doc_id {
             // If the minimum ID is equal to the requested doc id, we return the current result
-            self.last_doc_id = min_id;
-            Ok(Some(SkipToOutcome::Found(self.current_result.clone())))
+            Ok(Some(SkipToOutcome::Found(result)))
         } else {
             // If the minimum ID is greater than the requested doc id, we return a NotFound outcome
-            self.last_doc_id = min_id;
-            Ok(Some(SkipToOutcome::NotFound(self.current_result.clone())))
+            Ok(Some(SkipToOutcome::NotFound(result)))
         }
     }
 }
 
 impl RQEIterator for UnionIterator {
-    fn read(&mut self) -> Result<Option<RSIndexResult>, RQEIteratorError> {
+    fn read(&mut self) -> Result<Option<RSIndexResult<'static>>, RQEIteratorError> {
         if !self.has_next {
             return Ok(None);
         }
@@ -257,7 +279,7 @@ impl RQEIterator for UnionIterator {
         }
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> Result<Option<SkipToOutcome>, RQEIteratorError> {
+    fn skip_to(&mut self, doc_id: t_docId) -> Result<Option<SkipToOutcome<'static>>, RQEIteratorError> {
         assert!(
             self.last_doc_id < doc_id,
             "Union iterator's last doc id is not less than the requested doc id"
@@ -346,5 +368,10 @@ impl RQEIterator for UnionIterator {
 
     fn has_next(&self) -> bool {
         self.has_next
+    }
+
+    fn get_current_result(&self) -> RSIndexResult<'static> {
+        // Return the current result, which is the union of the results from the active children iterators
+        self.current_result.clone()
     }
 }

@@ -558,7 +558,7 @@ impl<'a> RSIndexResult<'a> {
     }
 
     /// Get the document ID of this record
-    pub fn get_doc_id(self) -> t_docId {
+    pub fn get_doc_id(&self) -> t_docId {
         self.doc_id
     }
 
@@ -609,7 +609,7 @@ impl<'a> RSIndexResult<'a> {
             None
         }
     }
-    
+
     pub fn as_union(&self) -> Option<&RSAggregateResult> {
         if matches!(
             self.result_type,
@@ -623,18 +623,18 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
-    pub fn as_union_mut(&mut self) -> Option<&mut RSAggregateResult> {
-        if matches!(
-            self.result_type,
-            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
-        ) {
-            // SAFETY: We are guaranteed the record data is an aggregate because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &mut self.data.agg })
-        } else {
-            None
-        }
-    }
+    // pub fn as_union_mut(&mut self) -> Option<&mut RSAggregateResult> {
+    //     if matches!(
+    //         self.result_type,
+    //         RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+    //     ) {
+    //         // SAFETY: We are guaranteed the record data is an aggregate because of the check we just
+    //         // did on the `result_type`.
+    //         Some(unsafe { &mut self.data.agg })
+    //     } else {
+    //         None
+    //     }
+    // }
 
     /// True if this is an aggregate type
     pub fn is_aggregate(&self) -> bool {
