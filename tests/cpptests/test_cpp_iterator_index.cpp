@@ -93,8 +93,8 @@ private:
         // This function should populate the InvertedIndex with terms
         size_t memsize;
         idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(idx->flags);
-        ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr); // Expect a seeker with the default flags
+        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
+        ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr); // Expect a seeker with the default flags
         for (size_t i = 0; i < n_docs; ++i) {
             ForwardIndexEntry h = {0};
             h.docId = resultSet[i];
@@ -123,7 +123,7 @@ private:
         // This function should populate the InvertedIndex with generic data
         size_t memsize;
         idx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(idx->flags);
+        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
         for (size_t i = 0; i < n_docs; ++i) {
             RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
             InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
@@ -160,7 +160,7 @@ TEST_P(IndexIteratorTest, Read) {
     ASSERT_EQ(it_base->Read(it_base), ITERATOR_EOF); // Reading after EOF should return EOF
     ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
     ASSERT_EQ(it_base->NumEstimated(it_base), resultSet.size());
-    ASSERT_EQ(it_base->NumEstimated(it_base), idx->numDocs);
+    ASSERT_EQ(it_base->NumEstimated(it_base), InvertedIndex_NumDocs(idx));
 }
 
 TEST_P(IndexIteratorTest, SkipTo) {
@@ -287,7 +287,7 @@ TEST_F(IndexIteratorTestEdges, GetCorrectValue) {
 }
 
 TEST_F(IndexIteratorTestEdges, EOFAfterFiltering) {
-    ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker == nullptr);
+    ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker == nullptr);
     // Fill the index with entries, all with value 1.0
     AddEntries(1, 1234, 1.0);
     // Create an iterator that reads only entries with value 2.0
@@ -301,8 +301,8 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     size_t memsize;
     InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
     ASSERT_TRUE(idx != nullptr);
-    ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
-    auto encoder = InvertedIndex_GetEncoder(idx->flags);
+    ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
+    auto encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
     for (t_docId i = 1; i < 1000; ++i) {
         auto res = (RSIndexResult) {
             .docId = i,
@@ -709,7 +709,7 @@ private:
         bool isNew;
         termIdx = Redis_OpenInvertedIndex(sctx, "term", strlen("term"), 1, &isNew);
         ASSERT_TRUE(termIdx != nullptr);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(termIdx->flags);
+        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(termIdx));
 
         // Populate with term data
         for (size_t i = 0; i < n_docs; ++i) {
@@ -1049,7 +1049,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     InvIndIterator *invIt = (InvIndIterator *)iterator;
     InvertedIndex *idx = const_cast<InvertedIndex *>(invIt->idx);
     uint32_t originalGcMarker = invIt->gcMarker;
-    uint32_t originalIndexGcMarker = idx->gcMarker;
+    uint32_t originalIndexGcMarker = InvertedIndex_GcMarker(idx);
 
     // We need access to the DocTable to mark documents as deleted
     // For this test, we'll create a temporary DocTable and mark thirdDocId as deleted
@@ -1077,16 +1077,18 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     IndexRepairParams repairParams = {0};
     repairParams.limit = SIZE_MAX; // Process all blocks
 
-    for (uint32_t blockIdx = 0; blockIdx < idx->size; ++blockIdx) {
-        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, idx->flags, &repairParams);
+    for (uint32_t blockIdx = 0; blockIdx < InvertedIndex_NumBlocks(idx); ++blockIdx) {
+        IndexBlock *block = InvertedIndex_BlockRef(idx, blockIdx);
+        IndexBlock_Repair(block, &tempDocTable, InvertedIndex_Flags(idx), &repairParams);
     }
 
     // Update index metadata after repair
-    idx->numDocs -= repairParams.entriesCollected;
+    InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - repairParams.entriesCollected);
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
-    idx->gcMarker = originalGcMarker + 1;
-    idx->lastId = idx->blocks[idx->size - 1].lastId;
+    InvertedIndex_SetGcMarker(idx, originalGcMarker + 1);
+    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+    InvertedIndex_SetLastId(idx, IndexBlock_LastId(lastBlock));
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
     // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
@@ -1110,7 +1112,7 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     // Edge case: iterator revalidated after GC and before it was read
     iterator->Rewind(iterator);
     ASSERT_FALSE(iterator->atEOF); // Should not be at EOF yet
-    idx->gcMarker++; // Increment gcMarker to simulate a new GC cycle
+    InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1); // Increment gcMarker to simulate a new GC cycle
     result = iterator->Revalidate(iterator);
     ASSERT_EQ(result, VALIDATE_OK);
     ASSERT_FALSE(iterator->atEOF); // Should not be at EOF after revalidation
@@ -1123,16 +1125,18 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     len = snprintf(thirdDocKey, sizeof(thirdDocKey), "doc%zu", n_docs - 1);
     deletedDoc = DocTable_Pop(&tempDocTable, thirdDocKey, len);
 
-    for (uint32_t blockIdx = 0; blockIdx < idx->size; ++blockIdx) {
-        IndexBlock_Repair(&idx->blocks[blockIdx], &tempDocTable, idx->flags, &repairParams);
+    for (uint32_t blockIdx = 0; blockIdx < InvertedIndex_NumBlocks(idx); ++blockIdx) {
+        IndexBlock *block = InvertedIndex_BlockRef(idx, blockIdx);
+        IndexBlock_Repair(block, &tempDocTable, InvertedIndex_Flags(idx), &repairParams);
     }
 
     // Update index metadata after repair
-    idx->numDocs -= repairParams.entriesCollected;
+    InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - repairParams.entriesCollected);
 
     // Increment gcMarker to trigger the SkipTo path in revalidation
-    idx->gcMarker++;
-    idx->lastId = idx->blocks[idx->size - 1].lastId;
+    InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
+    lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+    InvertedIndex_SetLastId(idx, IndexBlock_LastId(lastBlock));
 
     // Now Revalidate should trigger the SkipTo path because gcMarkers differ
     // With numDocs = 0, SkipTo should return ITERATOR_NOTFOUND or ITERATOR_EOF
@@ -1156,6 +1160,6 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     DocTable_Free(&tempDocTable);
 
     // Restore the original index state
-    idx->numDocs += repairParams.entriesCollected; // Restore original numDocs
-    idx->gcMarker = originalIndexGcMarker;
+    InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) + repairParams.entriesCollected); // Restore original numDocs
+    InvertedIndex_SetGcMarker(idx, originalIndexGcMarker);
 }

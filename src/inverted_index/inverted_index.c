@@ -23,7 +23,7 @@
 uint64_t TotalIIBlocks = 0;
 
 // The last block of the index
-#define INDEX_LAST_BLOCK(idx) (idx->blocks[idx->size - 1])
+#define INDEX_LAST_BLOCK(idx) (InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1))
 
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
   TotalIIBlocks++;
@@ -32,9 +32,9 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
   IndexBlock *last = idx->blocks + (idx->size - 1);
   memset(last, 0, sizeof(*last));  // for msan
   last->firstId = last->lastId = firstId;
-  Buffer_Init(IndexBlock_Buffer(&INDEX_LAST_BLOCK(idx)), INDEX_BLOCK_INITIAL_CAP);
+  Buffer_Init(IndexBlock_Buffer(INDEX_LAST_BLOCK(idx)), INDEX_BLOCK_INITIAL_CAP);
   (*memsize) += sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
-  return &INDEX_LAST_BLOCK(idx);
+  return INDEX_LAST_BLOCK(idx);
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize) {
@@ -60,6 +60,100 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
     InvertedIndex_AddBlock(idx, 0, memsize);
   }
   return idx;
+}
+
+// Get a pointer to the block at the given index.
+IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex) {
+  RS_ASSERT(blockIndex < idx->size);
+  return &idx->blocks[blockIndex];
+}
+
+// Take the block at the given index. This is needed by the fork GC to remove or move blocks
+IndexBlock InvertedIndex_Block(InvertedIndex *idx, size_t blockIndex) {
+  if (blockIndex >= idx->size) {
+    return (IndexBlock){0}; // Return an empty block
+  }
+  return idx->blocks[blockIndex];
+}
+
+void InvertedIndex_SetBlock(InvertedIndex *idx, size_t blockIndex, IndexBlock block) {
+  RS_ASSERT(blockIndex < idx->size);
+
+  idx->blocks[blockIndex] = block;
+}
+
+void InvertedIndex_SetBlocks(InvertedIndex *idx, IndexBlock *blocks, size_t size) {
+  if (idx->blocks) {
+    rm_free(idx->blocks);
+  }
+  idx->blocks = blocks;
+  idx->size = size;
+}
+
+size_t InvertedIndex_BlocksShift(InvertedIndex *idx, size_t shift) {
+  size_t numBlocks = idx->size - shift;
+  memmove(idx->blocks, idx->blocks + shift, numBlocks * sizeof(*idx->blocks));
+  idx->size = numBlocks;
+  return numBlocks;
+}
+
+size_t InvertedIndex_NumBlocks(const InvertedIndex *idx) {
+  return idx->size;
+}
+
+void InvertedIndex_SetNumBlocks(InvertedIndex *idx, size_t numBlocks) {
+  idx->size = numBlocks;
+}
+
+IndexFlags InvertedIndex_Flags(const InvertedIndex *idx) {
+  return idx->flags;
+}
+
+t_docId InvertedIndex_LastId(const InvertedIndex *idx) {
+  return idx->lastId;
+}
+
+void InvertedIndex_SetLastId(InvertedIndex *idx, t_docId lastId) {
+  idx->lastId = lastId;
+}
+
+uint32_t InvertedIndex_NumDocs(const InvertedIndex *idx) {
+  return idx->numDocs;
+}
+
+void InvertedIndex_SetNumDocs(InvertedIndex *idx, uint32_t numDocs) {
+  idx->numDocs = numDocs;
+}
+
+uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx) {
+  return idx->gcMarker;
+}
+
+void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker) {
+  idx->gcMarker = marker;
+}
+
+t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx) {
+  if (idx->flags & Index_StoreFieldFlags) {
+    return idx->fieldMask;
+  }
+  return (t_fieldMask)0; // No field mask stored
+}
+
+void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask) {
+  if (idx->flags & Index_StoreFieldFlags) {
+    idx->fieldMask |= fieldMask;
+  }
+}
+
+uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx) {
+  return idx->numEntries;
+}
+
+void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries) {
+  if (idx->flags & Index_StoreNumeric) {
+    idx->numEntries = numEntries;
+  }
 }
 
 size_t indexBlock_Free(IndexBlock *blk) {
@@ -116,8 +210,9 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
 
 void InvertedIndex_Free(void *ctx) {
   InvertedIndex *idx = ctx;
-  TotalIIBlocks -= idx->size;
-  for (uint32_t i = 0; i < idx->size; i++) {
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  TotalIIBlocks -= numBlocks;
+  for (uint32_t i = 0; i < numBlocks; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
   rm_free(idx->blocks);
@@ -517,7 +612,7 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   }
 
   t_docId delta = 0;
-  IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
+  IndexBlock *blk = INDEX_LAST_BLOCK(idx);
 
   // use proper block size. Index_DocIdsOnly == 0x00
   uint16_t blockSize = (idx->flags & INDEX_STORAGE_MASK) ?
