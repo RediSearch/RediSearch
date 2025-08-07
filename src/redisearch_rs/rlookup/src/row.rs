@@ -118,7 +118,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.
     ///
     /// It does not affect the sorting vector.
-    pub fn reset_dyn(&mut self) {
+    pub fn reset_dyn_values(&mut self) {
         self.wipe();
         self.dyn_values = vec![];
     }

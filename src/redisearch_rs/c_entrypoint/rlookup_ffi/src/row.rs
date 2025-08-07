@@ -81,5 +81,5 @@ unsafe extern "C" fn RLookupRow_Reset<'a>(
 ) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let vec = unsafe { row.expect("row must not be null").as_mut() };
-    vec.reset_dyn();
+    vec.reset_dyn_values();
 }
