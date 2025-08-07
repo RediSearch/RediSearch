@@ -221,6 +221,9 @@ err:
   if (termKey) {
     RedisModule_FreeString(ctx->redisCtx, termKey);
   }
+  if (term) {
+    Term_Free(term);
+  }
   return NULL;
 }
 
