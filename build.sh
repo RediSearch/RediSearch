@@ -272,6 +272,9 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
+  # HACK: force clang
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
   fi
@@ -410,7 +413,7 @@ build_project() {
     NPROC=4  # Default if we can't determine
   fi
   echo "Building RediSearch with $NPROC parallel jobs..."
-  make -j "$NPROC"
+  make -j "$NPROC" VERBOSE=1
 
   # Build test dependencies if needed
   build_test_dependencies
