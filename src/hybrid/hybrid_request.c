@@ -14,8 +14,6 @@ extern "C" {
 #define HYBRID_IMPLICIT_KEY_FIELD "key"
 #define SEARCH_INDEX 0
 
-
-
 /**
  * Create implicit LOAD step for document key when no explicit LOAD is specified.
  * Returns a PLN_LoadStep that loads only the HYBRID_IMPLICIT_KEY_FIELD.
@@ -75,7 +73,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
-        // Clone explicit LOAD step or create implicit one, then add to AREQ's AGGPlan before building pipeline
+        // Clone explicit LOAD step or create implicit one, then add to AREQ's AGGPlan
         PLN_LoadStep *stepToAdd = loadStep ? PLNLoadStep_Clone(loadStep) : createImplicitLoadStep();
         if (stepToAdd) {
             AGPLN_AddStep(&areq->pipeline.ap, &stepToAdd->base);
@@ -93,6 +91,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
 
         // Create a depleter processor to extract results from this pipeline
+        // The depleter will feed results to the hybrid merger
         RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
         RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
