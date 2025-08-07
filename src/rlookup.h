@@ -411,9 +411,11 @@ RLookupKey *RLookupKey_Clone(const RLookupKey *src);
 void RLookupKey_Free(RLookupKey *k);
 
 /**
- * Creates a clone of an RLookup, copying all keys and incrementing reference counts
+ * Clones the contents of src into an already-initialized dst lookup.
+ * This preserves dst's initialization state (like spcache) while copying
+ * src's keys and structure.
  */
-RLookup *RLookup_Clone(const RLookup *src);
+void RLookup_CloneInto(RLookup *dst, const RLookup *src);
 
 /**
  * Initialize the lookup with fields from hash.

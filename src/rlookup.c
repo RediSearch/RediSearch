@@ -1025,24 +1025,26 @@ RLookupKey *RLookupKey_Clone(const RLookupKey *src) {
   return dst;
 }
 
-RLookup *RLookup_Clone(const RLookup *src) {
-  if (!src) {
-    return NULL;
+void RLookup_CloneInto(RLookup *dst, const RLookup *src) {
+  if (!dst || !src) {
+    return;
   }
 
-  RLookup *dst = rm_calloc(1, sizeof(*dst));
+  // dst should be clean after RLookup_Init - only spcache should be set
+  // Assert that dst is in the expected clean state from initialization
+  RS_ASSERT(dst->head == NULL && dst->tail == NULL && dst->rowlen == 0 && dst->options == 0);
 
-  // Copy basic fields
+
+  // Preserve dst's initialization state (spcache from init)
+  dst->spcache = dst->spcache;
+
+  // Reset dst structure but preserve initialization
+  dst->head = NULL;
+  dst->tail = NULL;
   dst->rowlen = src->rowlen;
   dst->options = src->options;
 
-  // Increment reference count for spcache
-  if (src->spcache) {
-    __atomic_fetch_add(&src->spcache->refcount, 1, __ATOMIC_RELAXED);
-    dst->spcache = src->spcache;
-  }
-
-  // Deep copy the linked list of keys
+  // Deep copy the linked list of keys from src
   RLookupKey *src_key = src->head;
   RLookupKey *prev_dst_key = NULL;
 
@@ -1062,6 +1064,4 @@ RLookup *RLookup_Clone(const RLookup *src) {
     prev_dst_key = dst_key;
     src_key = src_key->next;
   }
-
-  return dst;
 }

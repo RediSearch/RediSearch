@@ -127,14 +127,17 @@ TEST_F(RLookupTest, testCloneLookup) {
   ASSERT_TRUE(key1);
   ASSERT_TRUE(key2);
 
-  // Clone the entire lookup
-  RLookup *cloned_lk = RLookup_Clone(&original_lk);
-  ASSERT_TRUE(cloned_lk);
+  // Initialize destination lookup (simulating hybrid_request.c pattern)
+  RLookup cloned_lk = {0};
+  RLookup_Init(&cloned_lk, NULL);
 
-  // Verify basic structure is copied
-  ASSERT_EQ(original_lk.rowlen, cloned_lk->rowlen);
-  ASSERT_EQ(original_lk.options, cloned_lk->options);
-  ASSERT_EQ(original_lk.spcache, cloned_lk->spcache);
+  // Clone into initialized destination
+  RLookup_CloneInto(&cloned_lk, &original_lk);
+
+  // Verify basic structure is copied but initialization state is preserved
+  ASSERT_EQ(original_lk.rowlen, cloned_lk.rowlen);
+  ASSERT_EQ(original_lk.options, cloned_lk.options);  // Should preserve destination's options
+  ASSERT_EQ(NULL, cloned_lk.spcache);   // Should preserve destination's spcache
 
   // Test iterative read using both lookups on same row
   RLookupRow rr = {0};
@@ -146,8 +149,8 @@ TEST_F(RLookupTest, testCloneLookup) {
   RLookup_WriteKey(key2, &rr, value2);
 
   // Read using both original and cloned - should get same results
-  RLookupKey *cloned_key1 = RLookup_GetKey_Read(cloned_lk, "field1", RLOOKUP_F_NOFLAGS);
-  RLookupKey *cloned_key2 = RLookup_GetKey_Read(cloned_lk, "field2", RLOOKUP_F_NOFLAGS);
+  RLookupKey *cloned_key1 = RLookup_GetKey_Read(&cloned_lk, "field1", RLOOKUP_F_NOFLAGS);
+  RLookupKey *cloned_key2 = RLookup_GetKey_Read(&cloned_lk, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(cloned_key1);
   ASSERT_TRUE(cloned_key2);
 
@@ -173,8 +176,7 @@ TEST_F(RLookupTest, testCloneLookup) {
   RSValue_Decref(value2);
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&original_lk);
-  RLookup_Cleanup(cloned_lk);
-  rm_free(cloned_lk);
+  RLookup_Cleanup(&cloned_lk);
 }
 
 TEST_F(RLookupTest, testCloneWithAdditionalFields) {
@@ -185,15 +187,18 @@ TEST_F(RLookupTest, testCloneWithAdditionalFields) {
   RLookupKey *src_key1 = RLookup_GetKey_Write(&source_lk, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *src_key2 = RLookup_GetKey_Write(&source_lk, "field2", RLOOKUP_F_NOFLAGS);
 
-  // Clone and add more fields to target
-  RLookup *target_lk = RLookup_Clone(&source_lk);
-  RLookupKey *tgt_key3 = RLookup_GetKey_Write(target_lk, "field3", RLOOKUP_F_NOFLAGS);
-  RLookupKey *tgt_key4 = RLookup_GetKey_Write(target_lk, "field4", RLOOKUP_F_NOFLAGS);
+  // Initialize target and clone source into it, then add more fields
+  RLookup target_lk = {0};
+  RLookup_Init(&target_lk, NULL);
+  RLookup_CloneInto(&target_lk, &source_lk);
+
+  RLookupKey *tgt_key3 = RLookup_GetKey_Write(&target_lk, "field3", RLOOKUP_F_NOFLAGS);
+  RLookupKey *tgt_key4 = RLookup_GetKey_Write(&target_lk, "field4", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(tgt_key3);
   ASSERT_TRUE(tgt_key4);
 
   // Verify target has more keys than source
-  ASSERT_GT(target_lk->rowlen, source_lk.rowlen);
+  ASSERT_GT(target_lk.rowlen, source_lk.rowlen);
 
   // Create row with source data
   RLookupRow rr = {0};
@@ -204,8 +209,8 @@ TEST_F(RLookupTest, testCloneWithAdditionalFields) {
   RLookup_WriteKey(src_key2, &rr, value2);
 
   // Target should still be able to read from row created by source
-  RLookupKey *tgt_key1 = RLookup_GetKey_Read(target_lk, "field1", RLOOKUP_F_NOFLAGS);
-  RLookupKey *tgt_key2 = RLookup_GetKey_Read(target_lk, "field2", RLOOKUP_F_NOFLAGS);
+  RLookupKey *tgt_key1 = RLookup_GetKey_Read(&target_lk, "field1", RLOOKUP_F_NOFLAGS);
+  RLookupKey *tgt_key2 = RLookup_GetKey_Read(&target_lk, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(tgt_key1);
   ASSERT_TRUE(tgt_key2);
 
@@ -251,14 +256,17 @@ TEST_F(RLookupTest, testCloneWithAdditionalFields) {
   RSValue_Decref(value4);
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&source_lk);
-  RLookup_Cleanup(target_lk);
-  rm_free(target_lk);
+  RLookup_Cleanup(&target_lk);
 }
 
 TEST_F(RLookupTest, testCloneNullHandling) {
   // Test NULL handling
   ASSERT_EQ(NULL, RLookupKey_Clone(NULL));
-  ASSERT_EQ(NULL, RLookup_Clone(NULL));
+
+  // Test RLookup_CloneInto NULL handling - should not crash
+  RLookup dummy = {0};
+  RLookup_CloneInto(NULL, &dummy);  // Should not crash
+  RLookup_CloneInto(&dummy, NULL);  // Should not crash
 
   // Test with allocated strings by manually creating a key with NAMEALLOC flag
   RLookup lk = {0};
@@ -334,21 +342,33 @@ TEST_F(RLookupTest, testCloneAlwaysAllocatesStrings) {
   RLookupKey_Free(cloned);
 }
 
-TEST_F(RLookupTest, testCloneReferenceCountingSpecCache) {
-  // This test would require a mock IndexSpecCache to verify reference counting
-  // For now, we test that spcache is properly copied
-  RLookup lk1 = {0};
-  RLookup lk2 = {0};
-  RLookup_Init(&lk1, NULL);
-  RLookup_Init(&lk2, NULL);
+TEST_F(RLookupTest, testCloneIntoPreservesInitialization) {
+  // Test that RLookup_CloneInto preserves destination's initialization
+  RLookup source = {0};
+  RLookup_Init(&source, NULL);
 
-  // Test copying with NULL spcache
-  RLookup *copy1 = RLookup_Clone(&lk1);
-  ASSERT_TRUE(copy1);
-  ASSERT_EQ(NULL, copy1->spcache);
+  // Add some keys to source
+  RLookupKey *src_key = RLookup_GetKey_Write(&source, "test", RLOOKUP_F_NOFLAGS);
+  ASSERT_TRUE(src_key);
 
-  RLookup_Cleanup(&lk1);
-  RLookup_Cleanup(&lk2);
-  RLookup_Cleanup(copy1);
-  rm_free(copy1);
+  // Initialize destination with different state
+  RLookup dest = {0};
+  RLookup_Init(&dest, NULL);
+
+  // Clone into destination - should preserve dest's initialization
+  RLookup_CloneInto(&dest, &source);
+
+  // Verify dest's initialization is preserved but structure is copied
+  ASSERT_EQ(NULL, dest.spcache);       // Preserved
+  ASSERT_EQ(source.rowlen, dest.rowlen); // Copied
+
+  // Verify options are copied
+  ASSERT_EQ(source.options, dest.options);
+
+  // Verify key was copied
+  RLookupKey *dest_key = RLookup_GetKey_Read(&dest, "test", RLOOKUP_F_NOFLAGS);
+  ASSERT_TRUE(dest_key);
+
+  RLookup_Cleanup(&source);
+  RLookup_Cleanup(&dest);
 }

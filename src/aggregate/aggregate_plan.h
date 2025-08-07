@@ -146,6 +146,16 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
 
 PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
 
+/**
+ * Clone a LOAD step for use in individual AREQ pipelines.
+ * Handles both processed (has keys) and unprocessed (has args) LOAD steps.
+ * This is used to clone and propagate the LOAD step to the individual AREQ pipelines (Hybrid)
+ *
+ * @param original The original PLN_LoadStep to clone
+ * @return New cloned PLN_LoadStep or NULL if original is NULL
+ */
+PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original);
+
 #ifdef __cplusplus
 typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
 #else
