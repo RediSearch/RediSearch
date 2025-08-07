@@ -723,6 +723,44 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
 
+//---------------------------------------------------------------------------------------------
+// Global Replication Functions
+//---------------------------------------------------------------------------------------------
+
+/**
+ * Freeze all structures - acquire locks and ensure consistent state
+ * Makes all structures read-only and consistent for snapshot
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int RediSearch_Freeze(void);
+
+/**
+ * Unfreeze structures - allow basic operations to resume
+ * Releases locks and allows limited operations to resume
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int RediSearch_Unfreeze(void);
+
+//---------------------------------------------------------------------------------------------
+// IndexSpec Replication Functions
+//---------------------------------------------------------------------------------------------
+
+// Note: Global iteration through all IndexSpecs is handled at the Global level
+
+/**
+ * Freeze a specific IndexSpec - ensure consistent state
+ * @param spec The IndexSpec to freeze
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int IndexSpec_Freeze(IndexSpec *spec);
+
+/**
+ * Unfreeze a specific IndexSpec - allow basic operations
+ * @param spec The IndexSpec to unfreeze
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int IndexSpec_Unfreeze(IndexSpec *spec);
+
 #ifdef __cplusplus
 }
 #endif
