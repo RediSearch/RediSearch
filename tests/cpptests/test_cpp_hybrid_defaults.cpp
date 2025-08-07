@@ -78,7 +78,7 @@ protected:
 
 const char* TEST_BLOB_DATA = "\x12\xa9\xf5\x6c";
 
-// T1: All defaults applied
+// All defaults applied
 TEST_F(HybridDefaultsTest, testDefaultValues) {
   QueryError status = {QueryErrorCode(0)};
   
@@ -97,7 +97,7 @@ TEST_F(HybridDefaultsTest, testDefaultValues) {
   HybridRequest_Free(result);
 }
 
-// T2: LIMIT affects both implicit parameters
+// LIMIT affects both implicit parameters
 TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
   QueryError status = {QueryErrorCode(0)};
   
@@ -118,7 +118,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
   HybridRequest_Free(result);
 }
 
-// T3: LIMIT affects only implicit K
+// LIMIT affects only implicit K
 TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -139,7 +139,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
   HybridRequest_Free(result);
 }
 
-// T4: LIMIT affects only implicit WINDOW
+// LIMIT affects only implicit WINDOW
 TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
   QueryError status = {QueryErrorCode(0)};
   
@@ -160,7 +160,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
   HybridRequest_Free(result);
 }
 
-// T5: Explicit parameters override LIMIT
+// Explicit parameters override LIMIT
 TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -181,7 +181,7 @@ TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
   HybridRequest_Free(result);
 }
 
-// T6: LIMIT=0 doesn't affect defaults
+// LIMIT=0 doesn't affect defaults
 TEST_F(HybridDefaultsTest, testZeroLimitIgnored) {
   QueryError status = {QueryErrorCode(0)};
   
@@ -202,7 +202,7 @@ TEST_F(HybridDefaultsTest, testZeroLimitIgnored) {
   HybridRequest_Free(result);
 }
 
-// T7: Large LIMIT values work
+// Large LIMIT values work
 TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
   QueryError status = {QueryErrorCode(0)};
   
@@ -223,7 +223,7 @@ TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
   HybridRequest_Free(result);
 }
 
-// T8: Large LIMIT doesn't override explicit
+// Large LIMIT doesn't override explicit
 TEST_F(HybridDefaultsTest, testLargeLimitWithExplicit) {
   QueryError status = {QueryErrorCode(0)};
 

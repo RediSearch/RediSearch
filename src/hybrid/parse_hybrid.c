@@ -124,7 +124,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attr
       }
       vq->knn.k = (size_t)kValue;
       hasK = true;  // codespell:ignore
-      pvd->hasExplicitK = true;  // Mark as explicitly set
+      pvd->hasExplicitK = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
       if (hasEF) {
@@ -310,9 +310,9 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Set default KNN values before checking for more parameters
   vq->type = VECSIM_QT_KNN;
-  vq->knn.k = HYBRID_DEFAULT_KNN_K;  // Default k value
+  vq->knn.k = HYBRID_DEFAULT_KNN_K;
   vq->knn.order = BY_SCORE;
-  pvd->hasExplicitK = false;  // Initialize flag
+  pvd->hasExplicitK = false;
 
   if (AC_IsAtEnd(ac)) goto final;
 
@@ -478,8 +478,6 @@ error:
   }
   combineCtx->scoringType = originalType;
 
-  // Note: We don't call HybridScoringContext_Free here because the context
-  // is owned by the caller and should remain in a valid state
   return REDISMODULE_ERR;
 }
 
@@ -551,11 +549,6 @@ static void applyLimitParameterFallbacks(Pipeline *mergePipeline,
  *
  * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
  *                  [COMBINE <method> [params]] [aggregation_options]
- *
- * Implements LIMIT → default fallback logic: when LIMIT is explicitly provided but KNN K or
- * WINDOW parameters are not explicitly set, uses LIMIT value as their default instead of
- * the standard defaults (K=10, WINDOW=20). This provides intuitive behavior where a single
- * LIMIT parameter can control both subquery result sizes and final output size.
  *
  * @param ctx Redis module context
  * @param argv Command arguments array (starting with "FT.HYBRID")
