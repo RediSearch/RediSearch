@@ -23,6 +23,7 @@ pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fie
 use low_memory_thin_vec::LowMemoryThinVec;
 
 pub mod doc_ids_only;
+pub mod fields_offsets;
 pub mod fields_only;
 pub mod freqs_fields;
 pub mod freqs_only;
@@ -534,10 +535,13 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
-    /// Create a new `RSIndexResult` with a given `term` and `offsets`.
+    /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub fn term_with_term_ptr(
         term: *mut RSQueryTerm,
         offsets: RSOffsetVector<'a>,
+        doc_id: t_docId,
+        field_mask: t_fieldMask,
+        freq: u32,
     ) -> RSIndexResult<'a> {
         let offsets_sz = offsets.len;
         Self {
@@ -545,8 +549,14 @@ impl<'a> RSIndexResult<'a> {
                 term: ManuallyDrop::new(RSTermRecord::with_term(term, offsets)),
             },
             result_type: RSResultType::Term,
+            doc_id,
+            field_mask,
+            freq,
             offsets_sz,
-            ..Default::default()
+            is_copy: false,
+            dmd: std::ptr::null(),
+            metrics: std::ptr::null_mut(),
+            weight: 0.0,
         }
     }
 

@@ -106,6 +106,25 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 size_t indexBlock_Free(IndexBlock *blk);
 void InvertedIndex_Free(void *idx);
 
+IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex);
+IndexBlock InvertedIndex_Block(InvertedIndex *idx, size_t blockIndex);
+void InvertedIndex_SetBlock(InvertedIndex *idx, size_t blockIndex, IndexBlock block);
+void InvertedIndex_SetBlocks(InvertedIndex *idx, IndexBlock *blocks, size_t size);
+size_t InvertedIndex_BlocksShift(InvertedIndex *idx, size_t shift);
+size_t InvertedIndex_NumBlocks(const InvertedIndex *idx);
+void InvertedIndex_SetNumBlocks(InvertedIndex *idx, size_t numBlocks);
+IndexFlags InvertedIndex_Flags(const InvertedIndex *idx);
+t_docId InvertedIndex_LastId(const InvertedIndex *idx);
+void InvertedIndex_SetLastId(InvertedIndex *idx, t_docId lastId);
+uint32_t InvertedIndex_NumDocs(const InvertedIndex *idx);
+void InvertedIndex_SetNumDocs(InvertedIndex *idx, uint32_t numDocs);
+uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx);
+void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker);
+t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx);
+void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask);
+uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx);
+void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries);
+
 t_docId IndexBlock_FirstId(const IndexBlock *b);
 t_docId IndexBlock_LastId(const IndexBlock *b);
 uint16_t IndexBlock_NumEntries(const IndexBlock *b);
@@ -185,6 +204,12 @@ size_t encode_fields_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 /* Wrapper around the static encodeFieldsOnlyWide to be able to access it in the Rust benchmarks. */
 size_t encode_fields_only_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
+/* Wrapper around the static encodeFieldsOffsets to be able to access it in the Rust benchmarks. */
+size_t encode_fields_offsets(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static  encodeFieldsOffsetsWide to be able to access it in the Rust benchmarks. */
+size_t encode_fields_offsets_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
 /* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
@@ -211,6 +236,12 @@ bool read_freq_offsets_flags(IndexBlockReader *blockReader, const IndexDecoderCt
 
 /* Wrapper around the static readFreqOffsetsFlagsWide to be able to access it in the Rust benchmarks */
 bool read_freq_offsets_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFlagsOffsets to be able to access it in the Rust benchmarks */
+bool read_fields_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFlagsOffsetsWide to be able to access it in the Rust benchmarks */
+bool read_fields_offsets_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);

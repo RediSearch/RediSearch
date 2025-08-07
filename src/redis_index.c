@@ -48,10 +48,12 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
-  unsigned long ret = sizeof_InvertedIndex(idx->flags)
-                      + sizeof(IndexBlock) * idx->size;
-  for (size_t i = 0; i < idx->size; i++) {
-    ret += IndexBlock_Cap(&idx->blocks[i]);
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  unsigned long ret = sizeof_InvertedIndex(InvertedIndex_Flags(idx))
+                      + sizeof(IndexBlock) * numBlocks;
+  for (size_t i = 0; i < numBlocks; i++) {
+    IndexBlock *block = InvertedIndex_BlockRef(idx, i);
+    ret += IndexBlock_Cap(block);
   }
   return ret;
 }
@@ -200,8 +202,8 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, Do
     goto err;
   }
 
-  if (!idx->numDocs ||
-     (Index_StoreFieldMask(ctx->spec) && !(idx->fieldMask & fieldMask))) {
+  if (!InvertedIndex_NumDocs(idx) ||
+     (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
     // empty index! or index does not have results from requested field.
     // pass
     goto err;

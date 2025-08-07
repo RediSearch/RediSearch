@@ -7,16 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{
-    io::{Cursor, Seek, Write},
-    mem::ManuallyDrop,
-};
+use std::io::{Cursor, Seek, Write};
 
 use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultType, RSTermRecord};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultType};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -37,7 +34,7 @@ pub struct Full;
 ///
 /// record must have `result_type` set to `RSResultType::Term`.
 #[inline(always)]
-fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
+pub fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = record.as_term().unwrap();
     if term.offsets.data.is_null() {
@@ -82,7 +79,7 @@ impl Encoder for Full {
 
 /// Create a [`RSIndexResult`] from the given parameters and read its offsets from the reader.
 #[inline(always)]
-fn decode_term_record_offsets<'a>(
+pub fn decode_term_record_offsets<'a>(
     cursor: &mut Cursor<&'a [u8]>,
     base: t_docId,
     delta: u32,
@@ -90,12 +87,6 @@ fn decode_term_record_offsets<'a>(
     freq: u32,
     offsets_sz: u32,
 ) -> std::io::Result<RSIndexResult<'a>> {
-    let mut record = RSIndexResult::term()
-        .doc_id(base + delta as t_docId)
-        .field_mask(field_mask)
-        .frequency(freq);
-    record.offsets_sz = offsets_sz;
-
     // borrow the offsets vector from the cursor
     let start = cursor.position() as usize;
     let end = start + offsets_sz as usize;
@@ -108,16 +99,22 @@ fn decode_term_record_offsets<'a>(
                 "offsets vector is too short",
             ));
         }
-        let offsets = &offsets[start..end];
+        // SAFETY: We just checked that `end` is in bound.
+        let offsets = unsafe { offsets.get_unchecked(start..end) };
         offsets.as_ptr() as *mut _
     };
 
     cursor.set_position(end as u64);
 
-    record.data.term = ManuallyDrop::new(RSTermRecord {
-        term: std::ptr::null_mut(),
-        offsets: RSOffsetVector::with_data(data, offsets_sz),
-    });
+    let offsets = RSOffsetVector::with_data(data, offsets_sz);
+
+    let record = RSIndexResult::term_with_term_ptr(
+        std::ptr::null_mut(),
+        offsets,
+        base + delta as t_docId,
+        field_mask,
+        freq,
+    );
 
     Ok(record)
 }

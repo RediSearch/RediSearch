@@ -132,8 +132,6 @@ public:
         if (flags == Index_StoreNumeric) {
             FieldFilterContext fieldCtx = {.field = {false, 0}, .predicate = FIELD_EXPIRATION_DEFAULT};
             iterator = NewInvIndIterator_NumericQuery(index, &q_mock->sctx, &fieldCtx, nullptr, nullptr, -INFINITY, INFINITY);
-        } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
-            iterator = NewInvIndIterator_GenericQuery(index, &q_mock->sctx, 0, FIELD_EXPIRATION_DEFAULT, 1.0);
         } else {
             iterator = NewInvIndIterator_TermQuery(index, &q_mock->sctx, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
         }

@@ -233,6 +233,43 @@ pub fn read_doc_ids_only(
     (returned, result)
 }
 
+pub fn encode_fields_offsets(
+    buffer: &mut TestBuffer,
+    record: &mut inverted_index::RSIndexResult,
+    delta: u64,
+    wide: bool,
+) -> usize {
+    let mut buffer_writer = BufferWriter::new(&mut buffer.0);
+
+    if wide {
+        unsafe {
+            bindings::encode_fields_offsets_wide(buffer_writer.as_mut_ptr() as _, delta, record)
+        }
+    } else {
+        unsafe { bindings::encode_fields_offsets(buffer_writer.as_mut_ptr() as _, delta, record) }
+    }
+}
+
+pub fn read_fields_offsets(
+    buffer: &mut Buffer,
+    base_id: u64,
+    wide: bool,
+) -> (bool, inverted_index::RSIndexResult) {
+    let mut buffer_reader = BufferReader::new(buffer);
+    let mut block_reader =
+        unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
+    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
+
+    let returned = if wide {
+        unsafe { bindings::read_fields_offsets_wide(&mut block_reader, &mut ctx, &mut result) }
+    } else {
+        unsafe { bindings::read_fields_offsets(&mut block_reader, &mut ctx, &mut result) }
+    };
+
+    (returned, result)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -729,12 +766,10 @@ mod tests {
             let offsets_ptr = offsets.as_ptr() as *mut _;
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
-            let mut record =
-                inverted_index::RSIndexResult::term_with_term_ptr(&mut term, rs_offsets)
-                    .doc_id(doc_id)
-                    .field_mask(field_mask)
-                    .frequency(freq)
-                    .weight(1.0);
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, field_mask, freq,
+            )
+            .weight(1.0);
 
             let _buffer_grew_size = encode_full(&mut buffer, &mut record, delta, false);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
@@ -840,18 +875,174 @@ mod tests {
             let offsets_ptr = offsets.as_ptr() as *mut _;
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
-            let mut record =
-                inverted_index::RSIndexResult::term_with_term_ptr(&mut term, rs_offsets)
-                    .doc_id(doc_id)
-                    .field_mask(field_mask)
-                    .frequency(freq)
-                    .weight(1.0);
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, field_mask, freq,
+            )
+            .weight(1.0);
 
             let _buffer_grew_size = encode_full(&mut buffer, &mut record, delta, true);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
 
             let base_id = doc_id - delta;
             let (returned, decoded_result) = read_freq_offsets_flags(&mut buffer.0, base_id, true);
+            assert!(returned);
+            assert_eq!(
+                TermRecordCompare(&decoded_result),
+                TermRecordCompare(&record)
+            );
+        }
+    }
+
+    #[test]
+    fn test_encode_fields_offsets() {
+        // Test cases for the fields/offsets encoder and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+        let tests = [
+            // (delta, field mask, term offsets vector, expected encoding)
+            (0, 1, vec![1i8, 2, 3], vec![0, 0, 1, 3, 1, 2, 3]),
+            (
+                10,
+                u32::MAX as t_fieldMask,
+                vec![1i8, 2, 3, 4],
+                vec![12, 10, 255, 255, 255, 255, 4, 1, 2, 3, 4],
+            ),
+            (256, 1, vec![1, 2, 3], vec![1, 0, 1, 1, 3, 1, 2, 3]),
+            (65536, 1, vec![1, 2, 3], vec![2, 0, 0, 1, 1, 3, 1, 2, 3]),
+            (
+                u16::MAX as u64,
+                1,
+                vec![1, 2, 3],
+                vec![1, 255, 255, 1, 3, 1, 2, 3],
+            ),
+            (
+                u32::MAX as u64,
+                1,
+                vec![1, 2, 3],
+                vec![3, 255, 255, 255, 255, 1, 3, 1, 2, 3],
+            ),
+        ];
+        let doc_id = 4294967296;
+
+        for (delta, field_mask, offsets, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+
+            const TEST_STR: &str = "test";
+            let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+            let mut term = RSQueryTerm {
+                str_: test_str_ptr,
+                len: TEST_STR.len(),
+                idf: 5.0,
+                id: 1,
+                flags: 0,
+                bm25_idf: 10.0,
+            };
+
+            let offsets_ptr = offsets.as_ptr() as *mut _;
+            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, field_mask, 0,
+            )
+            .weight(1.0);
+
+            let _buffer_grew_size = encode_fields_offsets(&mut buffer, &mut record, delta, false);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_fields_offsets(&mut buffer.0, base_id, false);
+            assert!(returned);
+            assert_eq!(
+                TermRecordCompare(&decoded_result),
+                TermRecordCompare(&record)
+            );
+        }
+    }
+
+    #[test]
+    fn test_encode_fields_offsets_wide() {
+        // Test cases for the fields/offsets wide encoder and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+        let tests = [
+            // (delta, field mask, term offsets vector, expected encoding)
+            (0, 1, vec![1i8, 2, 3], vec![0, 0, 3, 1, 1, 2, 3]),
+            (
+                10,
+                u32::MAX as t_fieldMask,
+                vec![1i8, 2, 3, 4],
+                vec![0, 10, 4, 142, 254, 254, 254, 127, 1, 2, 3, 4],
+            ),
+            (256, 1, vec![1, 2, 3], vec![1, 0, 1, 3, 1, 1, 2, 3]),
+            (65536, 1, vec![1, 2, 3], vec![2, 0, 0, 1, 3, 1, 1, 2, 3]),
+            (
+                u16::MAX as u64,
+                1,
+                vec![1, 2, 3],
+                vec![1, 255, 255, 3, 1, 1, 2, 3],
+            ),
+            (
+                u32::MAX as u64,
+                1,
+                vec![1, 2, 3],
+                vec![3, 255, 255, 255, 255, 3, 1, 1, 2, 3],
+            ),
+            // field mask larger than 32 bits
+            #[cfg(target_pointer_width = "64")]
+            (
+                u32::MAX as u64,
+                u32::MAX as t_fieldMask,
+                vec![1; 100],
+                vec![
+                    3, 255, 255, 255, 255, 100, 142, 254, 254, 254, 127, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                ],
+            ),
+            #[cfg(target_pointer_width = "64")]
+            (
+                u32::MAX as u64,
+                u128::MAX as t_fieldMask,
+                vec![1; 100],
+                vec![
+                    3, 255, 255, 255, 255, 100, 130, 254, 254, 254, 254, 254, 254, 254, 254, 254,
+                    254, 254, 254, 254, 254, 254, 254, 254, 127, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                ],
+            ),
+        ];
+        let doc_id = 4294967296;
+
+        for (delta, field_mask, offsets, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+
+            const TEST_STR: &str = "test";
+            let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+            let mut term = RSQueryTerm {
+                str_: test_str_ptr,
+                len: TEST_STR.len(),
+                idf: 5.0,
+                id: 1,
+                flags: 0,
+                bm25_idf: 10.0,
+            };
+
+            let offsets_ptr = offsets.as_ptr() as *mut _;
+            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, field_mask, 0,
+            )
+            .weight(1.0);
+
+            let _buffer_grew_size = encode_fields_offsets(&mut buffer, &mut record, delta, true);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_fields_offsets(&mut buffer.0, base_id, true);
             assert!(returned);
             assert_eq!(
                 TermRecordCompare(&decoded_result),
