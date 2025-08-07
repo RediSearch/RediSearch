@@ -1,13 +1,5 @@
 from common import *
-
-# Global counter for unique vector generation
-_vector_seed_counter = 0
-
-def get_unique_vector(dim, data_type='FLOAT32'):
-    """Generate a unique random vector by incrementing seed counter"""
-    global _vector_seed_counter
-    _vector_seed_counter += 1
-    return create_random_np_array_typed(dim, data_type, seed=_vector_seed_counter)
+from vecsim_utils import get_unique_vector, set_up_database_with_vectors
 
 def calculate_effective_k(original_k, ratio, num_shards):
     """Calculate effective K using the PRD formula: max(top_k/#shards, ceil(top_k × ratio))"""
@@ -48,22 +40,6 @@ def _validate_individual_shard_results(env, profile_dict, k, ratio, scenario_des
         shard_result_count = index_rp_profile['Counter']
         env.assertEqual(shard_result_count, effective_k,
         message=f"In scenario {scenario_description}: With k={k}, ratio: {ratio}, Shard {i} expected {effective_k} results, got {shard_result_count}", depth=1)
-
-def set_up_database_with_vectors(env, dim, num_docs, index_name='idx', datatype='FLOAT32', additional_schema_args=None):
-    if additional_schema_args is None:
-        additional_schema_args = []
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA',
-               'v', 'VECTOR', 'FLAT', '6', 'TYPE', datatype, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               *additional_schema_args).ok()
-    conn = getConnectionByEnv(env)
-
-    # Add test documents - ensure we have enough for all test scenarios
-    p = conn.pipeline(transaction=False)
-    for i in range(1, num_docs + 1):
-        vector = get_unique_vector(dim, datatype)
-        p.execute_command('HSET', f'doc{i}', 'v', vector.tobytes())
-    p.execute()
 
 @skip(cluster=False) # shard_k_ratio is ignored is SA
 def test_shard_k_ratio_parameter_validation():
