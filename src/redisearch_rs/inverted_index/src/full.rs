@@ -7,18 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{
-    io::{Cursor, Seek, Write},
-    mem::ManuallyDrop,
-};
+use std::io::{Cursor, Seek, Write};
 
 use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{
-    Decoder, Encoder, RSIndexResult, RSIndexResultData, RSOffsetVector, RSResultType, RSTermRecord,
-};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultType};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -111,25 +106,15 @@ pub fn decode_term_record_offsets<'a>(
 
     cursor.set_position(end as u64);
 
-    let term_record = RSTermRecord {
-        term: std::ptr::null_mut(),
-        offsets: RSOffsetVector::with_data(data, offsets_sz),
-    };
+    let offsets = RSOffsetVector::with_data(data, offsets_sz);
 
-    let record = RSIndexResult {
-        data: RSIndexResultData {
-            term: ManuallyDrop::new(term_record),
-        },
-        result_type: RSResultType::Term,
-        doc_id: base + delta as t_docId,
+    let record = RSIndexResult::term_with_term_ptr(
+        std::ptr::null_mut(),
+        offsets,
+        base + delta as t_docId,
         field_mask,
         freq,
-        offsets_sz,
-        is_copy: false,
-        dmd: std::ptr::null(),
-        metrics: std::ptr::null_mut(),
-        weight: 0.0,
-    };
+    );
 
     Ok(record)
 }
