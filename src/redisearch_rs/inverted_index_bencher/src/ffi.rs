@@ -766,12 +766,10 @@ mod tests {
             let offsets_ptr = offsets.as_ptr() as *mut _;
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
-            let mut record =
-                inverted_index::RSIndexResult::term_with_term_ptr(&mut term, rs_offsets)
-                    .doc_id(doc_id)
-                    .field_mask(field_mask)
-                    .frequency(freq)
-                    .weight(1.0);
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, field_mask, freq,
+            )
+            .weight(1.0);
 
             let _buffer_grew_size = encode_full(&mut buffer, &mut record, delta, false);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
@@ -877,12 +875,10 @@ mod tests {
             let offsets_ptr = offsets.as_ptr() as *mut _;
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
-            let mut record =
-                inverted_index::RSIndexResult::term_with_term_ptr(&mut term, rs_offsets)
-                    .doc_id(doc_id)
-                    .field_mask(field_mask)
-                    .frequency(freq)
-                    .weight(1.0);
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, field_mask, freq,
+            )
+            .weight(1.0);
 
             let _buffer_grew_size = encode_full(&mut buffer, &mut record, delta, true);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
@@ -944,11 +940,10 @@ mod tests {
             let offsets_ptr = offsets.as_ptr() as *mut _;
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
-            let mut record =
-                inverted_index::RSIndexResult::term_with_term_ptr(&mut term, rs_offsets)
-                    .doc_id(doc_id)
-                    .field_mask(field_mask)
-                    .weight(1.0);
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, field_mask, 0,
+            )
+            .weight(1.0);
 
             let _buffer_grew_size = encode_fields_offsets(&mut buffer, &mut record, delta, false);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
@@ -1038,11 +1033,10 @@ mod tests {
             let offsets_ptr = offsets.as_ptr() as *mut _;
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
-            let mut record =
-                inverted_index::RSIndexResult::term_with_term_ptr(&mut term, rs_offsets)
-                    .doc_id(doc_id)
-                    .field_mask(field_mask)
-                    .weight(1.0);
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, field_mask, 0,
+            )
+            .weight(1.0);
 
             let _buffer_grew_size = encode_fields_offsets(&mut buffer, &mut record, delta, true);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
