@@ -52,6 +52,12 @@ fn benchmark_doc_ids_only(c: &mut Criterion) {
     bencher.decoding(c);
 }
 
+fn benchmark_raw_doc_ids_only(c: &mut Criterion) {
+    let bencher = benchers::raw_doc_ids_only::Bencher::default();
+    bencher.encoding(c);
+    bencher.decoding(c);
+}
+
 fn benchmark_full(c: &mut Criterion) {
     let bencher = benchers::full::Bencher::default();
     bencher.encoding(c);
@@ -91,6 +97,7 @@ criterion_group!(
     benchmark_freqs_fields,
     benchmark_fields_only,
     benchmark_doc_ids_only,
+    benchmark_raw_doc_ids_only,
     benchmark_full,
     benchmark_fields_offsets,
     benchmark_offsets_only,
