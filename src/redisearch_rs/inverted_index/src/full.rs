@@ -104,7 +104,8 @@ pub fn decode_term_record_offsets<'a>(
                 "offsets vector is too short",
             ));
         }
-        let offsets = &offsets[start..end];
+        // SAFETY: We just checked that `end` is in bound.
+        let offsets = unsafe { offsets.get_unchecked(start..end) };
         offsets.as_ptr() as *mut _
     };
 
