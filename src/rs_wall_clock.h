@@ -20,6 +20,7 @@ typedef struct {
 #define RS_WALL_CLOCK_PER_MILLISEC RS_WALL_CLOCK_PER_SEC / 1000
 
 typedef uint64_t rs_wall_clock_ns_t;
+typedef uint64_t rs_wall_clock_ms_t;
 
 // Initializes the clock with current time
 static inline void rs_wall_clock_init(rs_wall_clock *clk) {
