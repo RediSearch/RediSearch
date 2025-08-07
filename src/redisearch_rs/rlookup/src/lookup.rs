@@ -393,9 +393,9 @@ impl<'a> RLookupKey<'a> {
     /// Returns the name of this key as a `&CStr`.
     ///
     /// This is used internally (load_document code paths) to access a reference with the correct lifetime.
-    pub(crate) fn name_ref(&self) -> &'a CStr {
+    pub(crate) fn name_ref(&self) -> &CBCow<'a, CStr> {
         // Safety: We assume the pointer is valid and points to a null-terminated C string.
-        unsafe { CStr::from_ptr(self.name) }
+        &self._name
     }
 
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
