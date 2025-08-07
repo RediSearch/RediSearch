@@ -15,6 +15,7 @@
 #include <util/heap.h>
 #include "shard_window_ratio.h"
 #include "coord/special_case_ctx.h"
+#include "rs_wall_clock.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -84,7 +85,7 @@ typedef struct {
   long long offset;
   long long limit;
   long long requestedResultsCount;
-  long long initClock;
+  rs_wall_clock initClock;
   long long timeout;
   int withScores;
   int withExplainScores;
@@ -100,7 +101,7 @@ typedef struct {
   // used to signal profile flag and count related args
   int profileArgs;
   int profileLimited;
-  clock_t profileClock;
+  rs_wall_clock profileClock;
   void *reducer;
 } searchRequestCtx;
 
