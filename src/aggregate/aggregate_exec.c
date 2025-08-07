@@ -841,8 +841,8 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   rs_wall_clock parseClock;
   bool is_profile = IsProfile(req);
   if (is_profile) {
+    req->profileParseTime = rs_wall_clock_elapsed_ns(&req->profileInitClock);
     rs_wall_clock_init(&parseClock);
-    req->profileParseTime = rs_wall_clock_diff_ns(&req->profileInitClock, &parseClock);
   }
 
   rc = AREQ_BuildPipeline(req, status);

@@ -28,23 +28,20 @@ static inline void rs_wall_clock_init(rs_wall_clock *clk) {
     clock_gettime(CLOCK_MONOTONIC, &clk->start);
 }
 
-static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start, rs_wall_clock *end) {
-    uint64_t sec_diff = (uint64_t)(end->start.tv_sec - start->start.tv_sec);
-    int64_t nsec_diff = end->start.tv_nsec - start->start.tv_nsec;
+// Returns time elapsed since start, in nanoseconds
+static inline rs_wall_clock_ns_t rs_wall_clock_elapsed_ns(rs_wall_clock *clk) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    uint64_t sec_diff = (uint64_t)(now.tv_sec - clk->start.tv_sec);
+    int64_t nsec_diff = now.tv_nsec - clk->start.tv_nsec;
     if (nsec_diff < 0) {
         sec_diff -= 1;
         nsec_diff += RS_WALL_CLOCK_PER_SEC;
     }
+
     return sec_diff * RS_WALL_CLOCK_PER_SEC + nsec_diff;
 }
-
-// Returns time elapsed since start, in nanoseconds
-static inline rs_wall_clock_ns_t rs_wall_clock_elapsed_ns(rs_wall_clock *clk) {
-    rs_wall_clock now;
-    clock_gettime(CLOCK_MONOTONIC, &now.start);
-    return rs_wall_clock_diff_ns(clk, &now);
-}
-
 
 static inline rs_wall_clock_ns_t rs_wall_clock_now_ns(void) {
     struct timespec ts;
