@@ -13,6 +13,7 @@
 #include "common.h"
 #include "src/hybrid/hybrid_request.h"
 #include "src/hybrid/parse_hybrid.h"
+#include "src/hybrid/hybrid_scoring.h"
 #include "src/hybrid/vector_query_utils.h"
 #include "src/spec.h"
 #include "src/search_ctx.h"
@@ -86,8 +87,8 @@ class ParseHybridTest : public ::testing::Test {
 
 #define assertRRFScoringCtx(K, Window) { \
   ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.k, K); \
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, Window); \
+  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->rrfCtx.k, K); \
+  ASSERT_EQ(result->hybridParams->scoringCtx->window, Window); \
 }
 
 
@@ -111,7 +112,7 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
@@ -125,8 +126,6 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -158,7 +157,7 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
@@ -172,8 +171,6 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -197,7 +194,7 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set correctly
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 240);
@@ -211,8 +208,6 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   // No need to free test_sctx as it's now owned by the result
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -230,12 +225,6 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
 
   HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
-  // // Debug: Print error details if parsing failed
-  // if (!result) {
-  //   printf("Parsing failed: code=%d, detail='%s'\n", status.code, status.detail ? status.detail : "NULL");
-  //   fflush(stdout);
-  // }
-
   // Verify the request was parsed successfully
   EXPECT_TRUE(result != NULL);
   ASSERT_EQ(status.code, QUERY_OK);
@@ -244,8 +233,6 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
   assertLinearScoringCtx(0.7, 0.3);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
   QueryError_ClearError(&status);
 }
@@ -278,15 +265,115 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   ASSERT_EQ(memcmp(vecReq->ast.root->vn.vq->knn.vector, expectedBlob, expectedBlobLen), 0);
 
   // Verify RRF scoring type was set
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
+TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
+  QueryError status = {QueryErrorCode(0)};
 
+  // Test with RRF combine method with explicit K parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "6", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set with custom K value
+  assertRRFScoringCtx(6, HYBRID_DEFAULT_WINDOW);
+
+  // Verify hasExplicitWindow flag is false (WINDOW not specified)
+  ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Clean up
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with RRF combine method with explicit WINDOW parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "WINDOW", "25", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set with custom WINDOW value
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 25);
+
+  // Verify hasExplicitWindow flag is true (WINDOW was specified)
+  ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Clean up
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with RRF combine method with both K and WINDOW parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "4", "K", "160", "WINDOW", "25", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set with both custom K and WINDOW values
+  assertRRFScoringCtx(160, 25);
+
+  // Verify hasExplicitWindow flag is true (WINDOW was specified)
+  ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Clean up
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with RRF combine method with floating-point K parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "1.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify RRF scoring type was set with custom floating-point K value
+  assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
+
+  // Verify hasExplicitWindow flag is false (WINDOW was not specified)
+  ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Clean up
+  HybridRequest_Free(result);
+}
 
 
 TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
@@ -316,8 +403,47 @@ TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   assertLinearScoringCtx(0.65, 0.35);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
+  HybridRequest_Free(result);
+}
+
+TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Test with explicit WINDOW and LIMIT but no explicit K
+  // WINDOW should take its explicit value (30), KNN K should follow LIMIT (15)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                            "COMBINE", "RRF", "2", "WINDOW", "30", "LIMIT", "0", "15", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  // Verify the request was parsed successfully
+  ASSERT_TRUE(result != NULL);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Verify the structure contains expected number of requests
+  ASSERT_EQ(result->nrequests, 2);
+
+  // Verify RRF scoring type was set with explicit WINDOW value (30), not LIMIT fallback
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 30);
+
+  // Verify hasExplicitWindow flag is true (WINDOW was specified)
+  ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
+
+  // Verify KNN K follows LIMIT value (15) since K was not explicitly set
+  AREQ* vecReq = result->requests[1];
+  ASSERT_TRUE(vecReq->ast.root != NULL);
+  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+
+  VectorQuery *vq = vecReq->ast.root->vn.vq;
+  ASSERT_TRUE(vq != NULL);
+  ASSERT_EQ(vq->type, VECSIM_QT_KNN);
+  ASSERT_EQ(vq->knn.k, 15);  // Should follow LIMIT value, not default
+
+  // Clean up
   HybridRequest_Free(result);
 }
 
@@ -345,11 +471,9 @@ TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
   ASSERT_TRUE(arng->sortKeys == NULL);
 
   // Verify default RRF scoring type was set
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -377,11 +501,9 @@ TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   ASSERT_TRUE(arng->sortKeys != NULL);
 
   // Verify default RRF scoring type was set
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -406,11 +528,9 @@ TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
   ASSERT_TRUE(arrangeStep == NULL);
 
   // Verify default RRF scoring type was set
-  assertRRFScoringCtx(1, 20);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -497,8 +617,6 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   ASSERT_STREQ(vn->children[0]->children[1]->tn.str, "+hello");
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -552,8 +670,6 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   ASSERT_TRUE(foundEfRuntime);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -605,8 +721,6 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vn->children[0]->type, QN_WILDCARD);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -648,8 +762,6 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -704,8 +816,6 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   ASSERT_EQ(memcmp(vq->range.vector, expectedBlob, expectedBlobLen), 0);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -766,8 +876,6 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   ASSERT_TRUE(foundEpsilon);
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -809,8 +917,6 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   ASSERT_EQ(vq->knn.vecLen, strlen(TEST_BLOB_DATA));
 
   // Clean up
-  // The scoring context is freed by the hybrid merger
-  HybridScoringContext_Free(result->hybridParams->scoringCtx);
   HybridRequest_Free(result);
 }
 
@@ -1031,3 +1137,9 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 // The validation happens during query execution in the flow:
 // QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
 // These validation tests should be in execution tests, not parsing tests.
+
+TEST_F(ParseHybridTest, testCombineRRFInvalidKValue) {
+  // Test RRF with invalid K value (non-numeric)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value in RRF");
+}

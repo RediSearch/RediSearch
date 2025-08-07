@@ -1802,7 +1802,7 @@ dictType dictTypeHybridSearchResult = {
       if (consumed[i]) {
         continue;
       }
-      size_t window = self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF ? self->hybridScoringCtx->rrfCtx.window : SIZE_MAX;
+      size_t window = self->hybridScoringCtx->window;
       int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
 
       if (rc == RS_RESULT_DEPLETING) {
@@ -1892,7 +1892,7 @@ dictType dictTypeHybridSearchResult = {
 
    // Calculate maximal dictionary size based on scoring type
    RS_ASSERT(hybridScoringCtx);
-   size_t window = (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) ? hybridScoringCtx->rrfCtx.window : 1000; // Default window for linear
+   size_t window = hybridScoringCtx->window;
    size_t maximalSize = window * numUpstreams;
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);
