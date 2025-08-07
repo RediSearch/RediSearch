@@ -17,7 +17,7 @@ typedef struct {
 } rs_wall_clock;
 
 #define RS_WALL_CLOCK_PER_SEC 1000000000ULL
-#define RS_WALL_CLOCK_PER_MILLISEC RS_WALL_CLOCK_PER_SEC / 1000
+#define RS_WALL_CLOCK_PER_MILLISEC (RS_WALL_CLOCK_PER_SEC / 1000)
 
 // Using different types for nanoseconds and milliseconds to avoid confusion
 typedef uint64_t rs_wall_clock_ns_t;

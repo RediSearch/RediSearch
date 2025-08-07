@@ -902,7 +902,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   if (isQueryProfile) {
     // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->GILTime
-    rp->parent->GILTime += rs_wall_clock_elapsed_ns(&rpStartTime) + (rs_timer_ms(&rp->GILTime) * RS_WALL_CLOCK_PER_MILLISEC);
+    rp->parent->GILTime += rs_wall_clock_elapsed_ns(&rpStartTime);
   }
 
   // Move to the yielding phase
