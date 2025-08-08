@@ -705,7 +705,7 @@ TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
       .docId = i,
       .fieldMask = 1,
       .freq = 1,
-      .type = RSResultType::RSResultType_Term,
+      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
     };
     InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
   }

@@ -59,7 +59,7 @@ TEST_P(MetricIteratorCommonTest, Read) {
 
     // Check score value if yields_metric is true
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->type, RSResultType_Metric);
+      ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Metric);
       ASSERT_EQ(IndexResult_NumValue(iterator_base->current), sortedScores[i]);
       ASSERT_EQ(iterator_base->current->metrics[0].key, nullptr);
       ASSERT_EQ(iterator_base->current->metrics[0].value->t, RSValue_Number);

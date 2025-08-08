@@ -104,7 +104,7 @@ void OptimizerIterator_Free(QueryIterator *self) {
     it->numericIter->Free(it->numericIter);
   }
 
-  // we always use the array as RSResultType_Numeric. no need for IndexResult_Free
+  // we always use the array as RSResultData_Numeric. no need for IndexResult_Free
   rm_free(it->resArr);
   heap_free(it->heap);
 
@@ -158,12 +158,12 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         self->lastDocId = childRes->docId;
 
         // copy the numeric result for the sorting heap
-        if (numericRes->type == RSResultType_Numeric) {
+        if (numericRes->data.tag == RSResultData_Numeric) {
           *it->pooledResult = *numericRes;
         } else {
           const RSAggregateResult *agg = IndexResult_AggregateRef(numericRes);
           const RSIndexResult *child = AggregateResult_Get(agg, 0);
-          RS_LOG_ASSERT(child->type == RSResultType_Numeric, "???");
+          RS_LOG_ASSERT(child->type == RSResultData_Numeric, "???");
           *it->pooledResult = *(child);
         }
 

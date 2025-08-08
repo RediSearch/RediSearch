@@ -358,7 +358,7 @@ TEST_F(IndexTest, testUnion) {
       ASSERT_TRUE(copy->isCopy);
 
       ASSERT_EQ(copy->docId, ui->current->docId);
-      ASSERT_EQ(copy->type, ui->current->type);
+      ASSERT_EQ(copy->data.tag, ui->current->data.tag);
 
       IndexResult_Free(copy);
 
@@ -707,7 +707,7 @@ TEST_F(IndexTest, testIntersection) {
   uint32_t topFreq = 0;
   while (ii->Read(ii) != ITERATOR_EOF) {
     RSIndexResult *h = ii->current;
-    ASSERT_EQ(h->type, RSResultType_Intersection);
+    ASSERT_EQ(h->data.tag, RSResultData_Intersection);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_TRUE(RSIndexResult_HasOffsets(h));
     topFreq = std::max(topFreq, h->freq);
@@ -718,7 +718,7 @@ TEST_F(IndexTest, testIntersection) {
     ASSERT_TRUE(copy->isCopy == 1);
 
     ASSERT_TRUE(copy->docId == h->docId);
-    ASSERT_TRUE(copy->type == RSResultType_Intersection);
+    ASSERT_TRUE(copy->data.tag == RSResultData_Intersection);
     ASSERT_EQ((count * 2 + 2) * 2, h->docId);
     ASSERT_EQ(2, h->freq);
     IndexResult_Free(copy);
@@ -809,7 +809,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
   while (vecIt->Read(vecIt) != ITERATOR_EOF) {
-    ASSERT_EQ(vecIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(vecIt->current->data.tag, RSResultData_Metric);
     ASSERT_EQ(vecIt->current->docId, max_id - count);
     count++;
   }
@@ -836,7 +836,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
   count = 0;
   while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
     // since larger ids has lower distance, in every we get lower id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
@@ -852,7 +852,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   for (size_t i = 0; i < k/2; i++) {
     ASSERT_EQ(hybridIt->Read(hybridIt), ITERATOR_OK);
-    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
@@ -864,7 +864,7 @@ TEST_F(IndexTest, testHybridVector) {
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
   while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
@@ -884,11 +884,11 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
     RSIndexResult *h = hybridIt->current;
-    ASSERT_EQ(h->type, RSResultType_HybridMetric);
+    ASSERT_EQ(h->data.tag, RSResultData_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
     const RSAggregateResult *agg = IndexResult_AggregateRef(h);
     ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
-    ASSERT_EQ(AggregateResult_Get(agg, 0)->type, RSResultType_Metric);
+    ASSERT_EQ(AggregateResult_Get(agg, 0)->data.tag, RSResultData_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -902,11 +902,11 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
     RSIndexResult *h = hybridIt->current;
-    ASSERT_EQ(h->type, RSResultType_HybridMetric);
+    ASSERT_EQ(h->data.tag, RSResultData_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
     const RSAggregateResult *agg = IndexResult_AggregateRef(h);
     ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
-    ASSERT_EQ(AggregateResult_Get(agg, 0)->type, RSResultType_Metric);
+    ASSERT_EQ(AggregateResult_Get(agg, 0)->data.tag, RSResultData_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -986,7 +986,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   VecSim_Normalize(query, d, t);
   while (vecIt->Read(vecIt) != ITERATOR_EOF) {
     RSIndexResult *h = vecIt->current;
-    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(h->data.tag, RSResultData_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
     ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
@@ -1034,7 +1034,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   for (size_t i = 0; i < n_expected_res/2; i++) {
     ASSERT_EQ(vecIt->Read(vecIt), ITERATOR_OK);
     RSIndexResult *h = vecIt->current;
-    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(h->data.tag, RSResultData_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     count++;
   }
@@ -1526,7 +1526,7 @@ TEST_F(IndexTest, testRawDocId) {
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    RSIndexResult rec = {.docId = id, .type = RSResultType_Virtual};
+    RSIndexResult rec = {.docId = id, .data = {.virtual_tag = RSResultData_Virtual}};
     InvertedIndex_WriteEntryGeneric(idx, enc, &rec);
   }
 
