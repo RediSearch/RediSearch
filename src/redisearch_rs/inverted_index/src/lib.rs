@@ -12,8 +12,6 @@ use std::{
     fmt::Debug,
     io::{BufRead, Cursor, Seek, Write},
     marker::PhantomData,
-    mem::ManuallyDrop,
-    ops::DerefMut,
     ptr,
 };
 
@@ -213,21 +211,7 @@ impl Default for RSTermRecord<'_> {
     }
 }
 
-#[bitflags]
-#[repr(u32)]
-#[derive(Copy, Clone, Debug, PartialEq)]
-/// cbindgen:prefix-with-name=true
-pub enum RSResultType {
-    Union = 1,
-    Intersection = 2,
-    Term = 4,
-    Virtual = 8,
-    Numeric = 16,
-    Metric = 32,
-    HybridMetric = 64,
-}
-
-pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
+pub type RSResultTypeMask = BitFlags<RSResultType2, u32>;
 
 /// Represents an aggregate array of values in an index record.
 ///
@@ -321,7 +305,7 @@ impl<'a> RSAggregateResult<'a> {
     pub fn push(&mut self, child: &RSIndexResult) {
         self.records.push(child as *const _ as *mut _);
 
-        self.type_mask |= child.result_type;
+        self.type_mask |= child.data.result_type();
     }
 }
 
@@ -393,18 +377,54 @@ impl<'a> IntoIterator for RSAggregateResult<'a> {
 #[derive(Debug, PartialEq)]
 pub struct RSVirtualResult;
 
+#[bitflags]
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RSResultType2 {
+    Union = 1,
+    Intersection = 2,
+    Term = 4,
+    Virtual = 8,
+    Numeric = 16,
+    Metric = 32,
+    HybridMetric = 64,
+}
+
 /// Holds the actual data of an ['IndexResult']
-#[repr(C)]
-pub union RSIndexResultData<'a> {
-    pub agg: ManuallyDrop<RSAggregateResult<'a>>,
-    pub term: ManuallyDrop<RSTermRecord<'a>>,
-    pub num: ManuallyDrop<RSNumericRecord>,
-    pub virt: ManuallyDrop<RSVirtualResult>,
+///
+/// These enum values should stay in sync with [`RSResultType`], so that the C union generated matches
+/// the bitflags on [`RSResultTypeMask`]
+#[repr(u32)]
+#[derive(Debug, PartialEq)]
+/// cbindgen:prefix-with-name=true
+pub enum RSResultType<'a> {
+    Union(RSAggregateResult<'a>) = 1,
+    Intersection(RSAggregateResult<'a>) = 2,
+    Term(RSTermRecord<'a>) = 4,
+    Virtual(RSVirtualResult) = 8,
+    Numeric(RSNumericRecord) = 16,
+    Metric(RSNumericRecord) = 32,
+    HybridMetric(RSAggregateResult<'a>) = 64,
+}
+
+impl RSResultType<'_> {
+    fn result_type(&self) -> RSResultType2 {
+        match self {
+            RSResultType::Union(_) => RSResultType2::Union,
+            RSResultType::Intersection(_) => RSResultType2::Intersection,
+            RSResultType::Term(_) => RSResultType2::Term,
+            RSResultType::Virtual(_) => RSResultType2::Virtual,
+            RSResultType::Numeric(_) => RSResultType2::Numeric,
+            RSResultType::Metric(_) => RSResultType2::Metric,
+            RSResultType::HybridMetric(_) => RSResultType2::HybridMetric,
+        }
+    }
 }
 
 /// The result of an inverted index
-/// cbindgen:field-names=[docId, dmd, fieldMask, freq, offsetsSz, data, type, isCopy, metrics, weight]
+/// cbindgen:rename-all=CamelCase
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSIndexResult<'a> {
     /// The document ID of the result
     pub doc_id: t_docId,
@@ -422,10 +442,8 @@ pub struct RSIndexResult<'a> {
     /// directly into memory
     pub offsets_sz: u32,
 
-    data: RSIndexResultData<'a>,
-
-    /// The type of data stored at ['Self::data']
-    pub result_type: RSResultType,
+    /// The actual data of the result
+    data: RSResultType<'a>,
 
     /// We mark copied results so we can treat them a bit differently on deletion, and pool them if
     /// we want
@@ -453,10 +471,7 @@ impl<'a> RSIndexResult<'a> {
             field_mask: 0,
             freq: 0,
             offsets_sz: 0,
-            data: RSIndexResultData {
-                virt: ManuallyDrop::new(RSVirtualResult),
-            },
-            result_type: RSResultType::Virtual,
+            data: RSResultType::Virtual(RSVirtualResult),
             is_copy: false,
             metrics: ptr::null_mut(),
             weight: 0.0,
@@ -468,10 +483,7 @@ impl<'a> RSIndexResult<'a> {
         Self {
             field_mask: RS_FIELDMASK_ALL,
             freq: 1,
-            data: RSIndexResultData {
-                num: ManuallyDrop::new(RSNumericRecord(num)),
-            },
-            result_type: RSResultType::Numeric,
+            data: RSResultType::Numeric(RSNumericRecord(num)),
             weight: 1.0,
             ..Default::default()
         }
@@ -481,10 +493,7 @@ impl<'a> RSIndexResult<'a> {
     pub fn metric() -> Self {
         Self {
             field_mask: RS_FIELDMASK_ALL,
-            data: RSIndexResultData {
-                num: ManuallyDrop::new(RSNumericRecord(0.0)),
-            },
-            result_type: RSResultType::Metric,
+            data: RSResultType::Metric(RSNumericRecord(0.0)),
             weight: 1.0,
             ..Default::default()
         }
@@ -493,10 +502,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new intersection index result with the given capacity
     pub fn intersect(cap: usize) -> Self {
         Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
-            },
-            result_type: RSResultType::Intersection,
+            data: RSResultType::Intersection(RSAggregateResult::with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -504,10 +510,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new union index result with the given capacity
     pub fn union(cap: usize) -> Self {
         Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
-            },
-            result_type: RSResultType::Union,
+            data: RSResultType::Union(RSAggregateResult::with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -515,10 +518,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new hybrid metric index result
     pub fn hybrid_metric() -> Self {
         Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(2)),
-            },
-            result_type: RSResultType::HybridMetric,
+            data: RSResultType::HybridMetric(RSAggregateResult::with_capacity(2)),
             weight: 1.0,
             ..Default::default()
         }
@@ -527,10 +527,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new term index result.
     pub fn term() -> Self {
         Self {
-            data: RSIndexResultData {
-                term: ManuallyDrop::new(RSTermRecord::new()),
-            },
-            result_type: RSResultType::Term,
+            data: RSResultType::Term(RSTermRecord::new()),
             ..Default::default()
         }
     }
@@ -545,10 +542,7 @@ impl<'a> RSIndexResult<'a> {
     ) -> RSIndexResult<'a> {
         let offsets_sz = offsets.len;
         Self {
-            data: RSIndexResultData {
-                term: ManuallyDrop::new(RSTermRecord::with_term(term, offsets)),
-            },
-            result_type: RSResultType::Term,
+            data: RSResultType::Term(RSTermRecord::with_term(term, offsets)),
             doc_id,
             field_mask,
             freq,
@@ -588,89 +582,98 @@ impl<'a> RSIndexResult<'a> {
         self
     }
 
+    /// Get the type of this index result
+    pub fn result_type(&self) -> RSResultType2 {
+        self.data.result_type()
+    }
+
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
     /// `None`.
     pub fn as_numeric(&self) -> Option<&RSNumericRecord> {
-        if matches!(
-            self.result_type,
-            RSResultType::Numeric | RSResultType::Metric,
-        ) {
-            // SAFETY: We are guaranteed the record data is numeric because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &self.data.num })
-        } else {
-            None
+        match &self.data {
+            RSResultType::Numeric(numeric) | RSResultType::Metric(numeric) => Some(numeric),
+            RSResultType::HybridMetric(_)
+            | RSResultType::Union(_)
+            | RSResultType::Intersection(_)
+            | RSResultType::Term(_)
+            | RSResultType::Virtual(_) => None,
         }
     }
 
     /// Get this record as a mutable numeric record if possible. If the record is not numeric,
     /// returns `None`.
     pub fn as_numeric_mut(&mut self) -> Option<&mut RSNumericRecord> {
-        if matches!(
-            self.result_type,
-            RSResultType::Numeric | RSResultType::Metric,
-        ) {
-            // SAFETY: We are guaranteed the record data is numeric because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &mut self.data.num })
-        } else {
-            None
+        match &mut self.data {
+            RSResultType::Numeric(numeric) | RSResultType::Metric(numeric) => Some(numeric),
+            RSResultType::HybridMetric(_)
+            | RSResultType::Union(_)
+            | RSResultType::Intersection(_)
+            | RSResultType::Term(_)
+            | RSResultType::Virtual(_) => None,
         }
     }
 
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
     pub fn as_term(&self) -> Option<&RSTermRecord<'_>> {
-        if matches!(self.result_type, RSResultType::Term) {
-            // SAFETY: We are guaranteed the record data is term because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &self.data.term })
-        } else {
-            None
+        match &self.data {
+            RSResultType::Term(term) => Some(term),
+            RSResultType::Union(_)
+            | RSResultType::Intersection(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_)
+            | RSResultType::HybridMetric(_) => None,
         }
     }
 
     /// Get this record as a mutable term record if possible. If the record is not a term,
     /// returns `None`.
     pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'a>> {
-        if matches!(self.result_type, RSResultType::Term) {
-            // SAFETY: We are guaranteed the record data is term because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &mut self.data.term })
-        } else {
-            None
+        match &mut self.data {
+            RSResultType::Term(term) => Some(term),
+            RSResultType::Union(_)
+            | RSResultType::Intersection(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_)
+            | RSResultType::HybridMetric(_) => None,
         }
     }
 
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
     pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'a>> {
-        if self.is_aggregate() {
-            // SAFETY: We are guaranteed the record data is aggregate because of the check we just
-            // did
-            Some(unsafe { &self.data.agg })
-        } else {
-            None
+        match &self.data {
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => Some(agg),
+            RSResultType::Term(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_) => None,
         }
     }
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
     pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'a>> {
-        if self.is_aggregate() {
-            // SAFETY: We are guaranteed the record data is aggregate because of the check we just
-            // did
-            Some(unsafe { &mut self.data.agg })
-        } else {
-            None
+        match &mut self.data {
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => Some(agg),
+            RSResultType::Term(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_) => None,
         }
     }
 
     /// True if this is an aggregate type
     pub fn is_aggregate(&self) -> bool {
         matches!(
-            self.result_type,
-            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+            self.data,
+            RSResultType::Intersection(_) | RSResultType::Union(_) | RSResultType::HybridMetric(_)
         )
     }
 
@@ -689,33 +692,39 @@ impl<'a> RSIndexResult<'a> {
     /// The given `result` has to stay valid for the lifetime of this index result. Else reading
     /// from this result will cause undefined behaviour.
     pub fn push(&mut self, child: &RSIndexResult) {
-        if self.is_aggregate() {
-            // SAFETY: we know the data will be an aggregate because we just checked the type
-            let agg = unsafe { &mut self.data.agg };
+        match &mut self.data {
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => {
+                agg.push(child);
 
-            agg.push(child);
+                self.doc_id = child.doc_id;
+                self.freq += child.freq;
+                self.field_mask |= child.field_mask;
 
-            self.doc_id = child.doc_id;
-            self.freq += child.freq;
-            self.field_mask |= child.field_mask;
-
-            // SAFETY: we know both arguments are valid `RSIndexResult` types
-            unsafe {
-                IndexResult_ConcatMetrics(self, child);
+                // SAFETY: we know both arguments are valid `RSIndexResult` types
+                unsafe {
+                    IndexResult_ConcatMetrics(self, child);
+                }
             }
+            RSResultType::Term(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_) => {}
         }
     }
 
     /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
     /// an aggregate record or if the index is out-of-bounds.
     pub fn get(&self, index: usize) -> Option<&RSIndexResult<'_>> {
-        if self.is_aggregate() {
-            // SAFETY: we know the data will be an aggregate because we just checked the type
-            let agg = unsafe { &self.data.agg };
-
-            agg.get(index)
-        } else {
-            None
+        match &self.data {
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => agg.get(index),
+            RSResultType::Term(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_) => None,
         }
     }
 }
@@ -728,28 +737,24 @@ impl Drop for RSIndexResult<'_> {
             ResultMetrics_Free(self);
         }
 
-        match self.result_type {
-            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
-                // SAFETY: we just checked the type to ensure the union has aggregated data
-                let agg = unsafe { &mut self.data.agg };
+        let mut data = RSResultType::Virtual(RSVirtualResult);
+        std::mem::swap(&mut self.data, &mut data);
 
-                // SAFETY: we are in `drop` so nothing else will have access to this union type
-                let agg = unsafe { ManuallyDrop::take(agg) };
-
+        match data {
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => {
                 if self.is_copy {
                     for child in agg.into_iter() {
                         drop(child);
                     }
                 }
             }
-            RSResultType::Term => {
-                // SAFETY: we just checked the type to ensure the unior has term data
-                let term = unsafe { &mut self.data.term };
-
+            RSResultType::Term(mut term) => {
                 if self.is_copy {
                     // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
                     unsafe {
-                        Term_Offset_Data_Free(term.deref_mut() as *mut _);
+                        Term_Offset_Data_Free(&mut term);
                     }
                 } else {
                     // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
@@ -757,124 +762,9 @@ impl Drop for RSIndexResult<'_> {
                         Term_Free(term.term);
                     }
                 }
-
-                // SAFETY: we are in `drop` so nothing else will have access to this union type
-                unsafe {
-                    ManuallyDrop::drop(term);
-                }
             }
-            RSResultType::Numeric | RSResultType::Metric => {
-                // SAFETY: we just checked the type to ensure the union has numeric data
-                let num = unsafe { &mut self.data.num };
-
-                // SAFETY: we are in `drop` so nothing else will have access to this union type
-                unsafe {
-                    ManuallyDrop::drop(num);
-                }
-            }
-            RSResultType::Virtual => {
-                // SAFETY: we just checked the type to ensure the union has virtual data
-                let virt = unsafe { &mut self.data.virt };
-
-                // SAFETY: we are in `drop` so nothing else will have access to this union type
-                unsafe {
-                    ManuallyDrop::drop(virt);
-                }
-            }
-        }
-    }
-}
-
-impl Debug for RSIndexResult<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut d = f.debug_struct("RSIndexResult");
-
-        d.field("doc_id", &self.doc_id)
-            .field("dmd", &self.dmd)
-            .field("field_mask", &self.field_mask)
-            .field("freq", &self.freq)
-            .field("offsets_sz", &self.offsets_sz);
-
-        match self.result_type {
-            RSResultType::Numeric | RSResultType::Metric => {
-                d.field(
-                    "data.num",
-                    // SAFETY: we just checked the type to ensure the data union has numeric data
-                    unsafe { &self.data.num },
-                );
-            }
-            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
-                d.field(
-                    "data.agg",
-                    // SAFETY: we just checked the type to ensure the data union has aggregate data
-                    unsafe { &self.data.agg },
-                );
-            }
-            RSResultType::Term => {
-                d.field(
-                    "data.term",
-                    // SAFETY: we just checked the type to ensure the data union has term data
-                    unsafe { &self.data.term },
-                );
-            }
-            RSResultType::Virtual => {}
-        }
-
-        d.field("result_type", &self.result_type)
-            .field("is_copy", &self.is_copy)
-            .field("metrics", &self.metrics)
-            .field("weight", &self.weight)
-            .finish()
-    }
-}
-
-impl PartialEq for RSIndexResult<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        if !(self.doc_id == other.doc_id
-            && self.dmd == other.dmd
-            && self.field_mask == other.field_mask
-            && self.freq == other.freq
-            && self.offsets_sz == other.offsets_sz
-            && self.result_type == other.result_type
-            && self.is_copy == other.is_copy
-            && self.metrics == other.metrics
-            && self.weight == other.weight)
-        {
-            return false;
-        }
-
-        match self.result_type {
-            RSResultType::Numeric | RSResultType::Metric => {
-                // SAFETY: we just checked the type of self to ensure the data union has numeric data
-                let self_num = unsafe { &self.data.num };
-
-                // SAFETY: from the previous checks we already know `other` has the same result
-                // type as `self`. Therefore `other` also has numeric data in its union.
-                let other_num = unsafe { &other.data.num };
-
-                self_num == other_num
-            }
-            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
-                // SAFETY: we just checked the type of self to ensure the data union has aggregate data
-                let self_agg = unsafe { &self.data.agg };
-
-                // SAFETY: from the previous checks we already know `other` has the same result
-                // type as `self`. Therefore `other` also has aggregate data in its union.
-                let other_agg = unsafe { &other.data.agg };
-
-                self_agg == other_agg
-            }
-            RSResultType::Term => {
-                // SAFETY: we just checked the type of self to ensure the data union has term data
-                let self_term = unsafe { &self.data.term };
-
-                // SAFETY: from the previous checks we already know `other` has the same result
-                // type as `self`. Therefore `other` also has term data in its union.
-                let other_term = unsafe { &other.data.term };
-
-                self_term == other_term
-            }
-            RSResultType::Virtual => true,
+            RSResultType::Numeric(_numeric) | RSResultType::Metric(_numeric) => {}
+            RSResultType::Virtual(_virtual) => {}
         }
     }
 }
