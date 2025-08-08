@@ -649,7 +649,7 @@ mod tests {
         fn eq(&self, other: &Self) -> bool {
             assert!(matches!(
                 self.0.result_type,
-                inverted_index::RSResultType::Term
+                inverted_index::RSResultType2::Term
             ));
 
             if !(self.0.doc_id == other.0.doc_id

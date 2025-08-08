@@ -211,7 +211,7 @@ impl Default for RSTermRecord<'_> {
     }
 }
 
-pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
+pub type RSResultTypeMask = BitFlags<RSResultType2, u32>;
 
 /// Represents an aggregate array of values in an index record.
 ///
@@ -380,8 +380,7 @@ pub struct RSVirtualResult;
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-/// cbindgen:prefix-with-name=true
-pub enum RSResultType {
+pub enum RSResultType2 {
     Union = 1,
     Intersection = 2,
     Term = 4,
@@ -397,7 +396,8 @@ pub enum RSResultType {
 /// the bitflags on [`RSResultTypeMask`]
 #[repr(u32)]
 #[derive(Debug, PartialEq)]
-pub enum RSIndexResultData<'a> {
+/// cbindgen:prefix-with-name=true
+pub enum RSResultType<'a> {
     Union(RSAggregateResult<'a>) = 1,
     Intersection(RSAggregateResult<'a>) = 2,
     Term(RSTermRecord<'a>) = 4,
@@ -407,16 +407,16 @@ pub enum RSIndexResultData<'a> {
     HybridMetric(RSAggregateResult<'a>) = 64,
 }
 
-impl RSIndexResultData<'_> {
-    fn result_type(&self) -> RSResultType {
+impl RSResultType<'_> {
+    fn result_type(&self) -> RSResultType2 {
         match self {
-            RSIndexResultData::Union(_) => RSResultType::Union,
-            RSIndexResultData::Intersection(_) => RSResultType::Intersection,
-            RSIndexResultData::Term(_) => RSResultType::Term,
-            RSIndexResultData::Virtual(_) => RSResultType::Virtual,
-            RSIndexResultData::Numeric(_) => RSResultType::Numeric,
-            RSIndexResultData::Metric(_) => RSResultType::Metric,
-            RSIndexResultData::HybridMetric(_) => RSResultType::HybridMetric,
+            RSResultType::Union(_) => RSResultType2::Union,
+            RSResultType::Intersection(_) => RSResultType2::Intersection,
+            RSResultType::Term(_) => RSResultType2::Term,
+            RSResultType::Virtual(_) => RSResultType2::Virtual,
+            RSResultType::Numeric(_) => RSResultType2::Numeric,
+            RSResultType::Metric(_) => RSResultType2::Metric,
+            RSResultType::HybridMetric(_) => RSResultType2::HybridMetric,
         }
     }
 }
@@ -443,7 +443,7 @@ pub struct RSIndexResult<'a> {
     pub offsets_sz: u32,
 
     /// The actual data of the result
-    data: RSIndexResultData<'a>,
+    data: RSResultType<'a>,
 
     /// We mark copied results so we can treat them a bit differently on deletion, and pool them if
     /// we want
@@ -471,7 +471,7 @@ impl<'a> RSIndexResult<'a> {
             field_mask: 0,
             freq: 0,
             offsets_sz: 0,
-            data: RSIndexResultData::Virtual(RSVirtualResult),
+            data: RSResultType::Virtual(RSVirtualResult),
             is_copy: false,
             metrics: ptr::null_mut(),
             weight: 0.0,
@@ -483,7 +483,7 @@ impl<'a> RSIndexResult<'a> {
         Self {
             field_mask: RS_FIELDMASK_ALL,
             freq: 1,
-            data: RSIndexResultData::Numeric(RSNumericRecord(num)),
+            data: RSResultType::Numeric(RSNumericRecord(num)),
             weight: 1.0,
             ..Default::default()
         }
@@ -493,7 +493,7 @@ impl<'a> RSIndexResult<'a> {
     pub fn metric() -> Self {
         Self {
             field_mask: RS_FIELDMASK_ALL,
-            data: RSIndexResultData::Metric(RSNumericRecord(0.0)),
+            data: RSResultType::Metric(RSNumericRecord(0.0)),
             weight: 1.0,
             ..Default::default()
         }
@@ -502,7 +502,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new intersection index result with the given capacity
     pub fn intersect(cap: usize) -> Self {
         Self {
-            data: RSIndexResultData::Intersection(RSAggregateResult::with_capacity(cap)),
+            data: RSResultType::Intersection(RSAggregateResult::with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -510,7 +510,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new union index result with the given capacity
     pub fn union(cap: usize) -> Self {
         Self {
-            data: RSIndexResultData::Union(RSAggregateResult::with_capacity(cap)),
+            data: RSResultType::Union(RSAggregateResult::with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -518,7 +518,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new hybrid metric index result
     pub fn hybrid_metric() -> Self {
         Self {
-            data: RSIndexResultData::HybridMetric(RSAggregateResult::with_capacity(2)),
+            data: RSResultType::HybridMetric(RSAggregateResult::with_capacity(2)),
             weight: 1.0,
             ..Default::default()
         }
@@ -527,7 +527,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new term index result.
     pub fn term() -> Self {
         Self {
-            data: RSIndexResultData::Term(RSTermRecord::new()),
+            data: RSResultType::Term(RSTermRecord::new()),
             ..Default::default()
         }
     }
@@ -542,7 +542,7 @@ impl<'a> RSIndexResult<'a> {
     ) -> RSIndexResult<'a> {
         let offsets_sz = offsets.len;
         Self {
-            data: RSIndexResultData::Term(RSTermRecord::with_term(term, offsets)),
+            data: RSResultType::Term(RSTermRecord::with_term(term, offsets)),
             doc_id,
             field_mask,
             freq,
@@ -583,7 +583,7 @@ impl<'a> RSIndexResult<'a> {
     }
 
     /// Get the type of this index result
-    pub fn result_type(&self) -> RSResultType {
+    pub fn result_type(&self) -> RSResultType2 {
         self.data.result_type()
     }
 
@@ -591,14 +591,12 @@ impl<'a> RSIndexResult<'a> {
     /// `None`.
     pub fn as_numeric(&self) -> Option<&RSNumericRecord> {
         match &self.data {
-            RSIndexResultData::Numeric(numeric) | RSIndexResultData::Metric(numeric) => {
-                Some(numeric)
-            }
-            RSIndexResultData::HybridMetric(_)
-            | RSIndexResultData::Union(_)
-            | RSIndexResultData::Intersection(_)
-            | RSIndexResultData::Term(_)
-            | RSIndexResultData::Virtual(_) => None,
+            RSResultType::Numeric(numeric) | RSResultType::Metric(numeric) => Some(numeric),
+            RSResultType::HybridMetric(_)
+            | RSResultType::Union(_)
+            | RSResultType::Intersection(_)
+            | RSResultType::Term(_)
+            | RSResultType::Virtual(_) => None,
         }
     }
 
@@ -606,14 +604,12 @@ impl<'a> RSIndexResult<'a> {
     /// returns `None`.
     pub fn as_numeric_mut(&mut self) -> Option<&mut RSNumericRecord> {
         match &mut self.data {
-            RSIndexResultData::Numeric(numeric) | RSIndexResultData::Metric(numeric) => {
-                Some(numeric)
-            }
-            RSIndexResultData::HybridMetric(_)
-            | RSIndexResultData::Union(_)
-            | RSIndexResultData::Intersection(_)
-            | RSIndexResultData::Term(_)
-            | RSIndexResultData::Virtual(_) => None,
+            RSResultType::Numeric(numeric) | RSResultType::Metric(numeric) => Some(numeric),
+            RSResultType::HybridMetric(_)
+            | RSResultType::Union(_)
+            | RSResultType::Intersection(_)
+            | RSResultType::Term(_)
+            | RSResultType::Virtual(_) => None,
         }
     }
 
@@ -621,13 +617,13 @@ impl<'a> RSIndexResult<'a> {
     /// `None`.
     pub fn as_term(&self) -> Option<&RSTermRecord<'_>> {
         match &self.data {
-            RSIndexResultData::Term(term) => Some(term),
-            RSIndexResultData::Union(_)
-            | RSIndexResultData::Intersection(_)
-            | RSIndexResultData::Virtual(_)
-            | RSIndexResultData::Numeric(_)
-            | RSIndexResultData::Metric(_)
-            | RSIndexResultData::HybridMetric(_) => None,
+            RSResultType::Term(term) => Some(term),
+            RSResultType::Union(_)
+            | RSResultType::Intersection(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_)
+            | RSResultType::HybridMetric(_) => None,
         }
     }
 
@@ -635,13 +631,13 @@ impl<'a> RSIndexResult<'a> {
     /// returns `None`.
     pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'a>> {
         match &mut self.data {
-            RSIndexResultData::Term(term) => Some(term),
-            RSIndexResultData::Union(_)
-            | RSIndexResultData::Intersection(_)
-            | RSIndexResultData::Virtual(_)
-            | RSIndexResultData::Numeric(_)
-            | RSIndexResultData::Metric(_)
-            | RSIndexResultData::HybridMetric(_) => None,
+            RSResultType::Term(term) => Some(term),
+            RSResultType::Union(_)
+            | RSResultType::Intersection(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_)
+            | RSResultType::HybridMetric(_) => None,
         }
     }
 
@@ -649,13 +645,13 @@ impl<'a> RSIndexResult<'a> {
     /// returns `None`.
     pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'a>> {
         match &self.data {
-            RSIndexResultData::Union(agg)
-            | RSIndexResultData::Intersection(agg)
-            | RSIndexResultData::HybridMetric(agg) => Some(agg),
-            RSIndexResultData::Term(_)
-            | RSIndexResultData::Virtual(_)
-            | RSIndexResultData::Numeric(_)
-            | RSIndexResultData::Metric(_) => None,
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => Some(agg),
+            RSResultType::Term(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_) => None,
         }
     }
 
@@ -663,13 +659,13 @@ impl<'a> RSIndexResult<'a> {
     /// aggregate, returns `None`.
     pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'a>> {
         match &mut self.data {
-            RSIndexResultData::Union(agg)
-            | RSIndexResultData::Intersection(agg)
-            | RSIndexResultData::HybridMetric(agg) => Some(agg),
-            RSIndexResultData::Term(_)
-            | RSIndexResultData::Virtual(_)
-            | RSIndexResultData::Numeric(_)
-            | RSIndexResultData::Metric(_) => None,
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => Some(agg),
+            RSResultType::Term(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_) => None,
         }
     }
 
@@ -677,9 +673,7 @@ impl<'a> RSIndexResult<'a> {
     pub fn is_aggregate(&self) -> bool {
         matches!(
             self.data,
-            RSIndexResultData::Intersection(_)
-                | RSIndexResultData::Union(_)
-                | RSIndexResultData::HybridMetric(_)
+            RSResultType::Intersection(_) | RSResultType::Union(_) | RSResultType::HybridMetric(_)
         )
     }
 
@@ -699,9 +693,9 @@ impl<'a> RSIndexResult<'a> {
     /// from this result will cause undefined behaviour.
     pub fn push(&mut self, child: &RSIndexResult) {
         match &mut self.data {
-            RSIndexResultData::Union(agg)
-            | RSIndexResultData::Intersection(agg)
-            | RSIndexResultData::HybridMetric(agg) => {
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => {
                 agg.push(child);
 
                 self.doc_id = child.doc_id;
@@ -713,10 +707,10 @@ impl<'a> RSIndexResult<'a> {
                     IndexResult_ConcatMetrics(self, child);
                 }
             }
-            RSIndexResultData::Term(_)
-            | RSIndexResultData::Virtual(_)
-            | RSIndexResultData::Numeric(_)
-            | RSIndexResultData::Metric(_) => {}
+            RSResultType::Term(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_) => {}
         }
     }
 
@@ -724,13 +718,13 @@ impl<'a> RSIndexResult<'a> {
     /// an aggregate record or if the index is out-of-bounds.
     pub fn get(&self, index: usize) -> Option<&RSIndexResult<'_>> {
         match &self.data {
-            RSIndexResultData::Union(agg)
-            | RSIndexResultData::Intersection(agg)
-            | RSIndexResultData::HybridMetric(agg) => agg.get(index),
-            RSIndexResultData::Term(_)
-            | RSIndexResultData::Virtual(_)
-            | RSIndexResultData::Numeric(_)
-            | RSIndexResultData::Metric(_) => None,
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => agg.get(index),
+            RSResultType::Term(_)
+            | RSResultType::Virtual(_)
+            | RSResultType::Numeric(_)
+            | RSResultType::Metric(_) => None,
         }
     }
 }
@@ -743,20 +737,20 @@ impl Drop for RSIndexResult<'_> {
             ResultMetrics_Free(self);
         }
 
-        let mut data = RSIndexResultData::Virtual(RSVirtualResult);
+        let mut data = RSResultType::Virtual(RSVirtualResult);
         std::mem::swap(&mut self.data, &mut data);
 
         match data {
-            RSIndexResultData::Union(agg)
-            | RSIndexResultData::Intersection(agg)
-            | RSIndexResultData::HybridMetric(agg) => {
+            RSResultType::Union(agg)
+            | RSResultType::Intersection(agg)
+            | RSResultType::HybridMetric(agg) => {
                 if self.is_copy {
                     for child in agg.into_iter() {
                         drop(child);
                     }
                 }
             }
-            RSIndexResultData::Term(mut term) => {
+            RSResultType::Term(mut term) => {
                 if self.is_copy {
                     // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
                     unsafe {
@@ -769,8 +763,8 @@ impl Drop for RSIndexResult<'_> {
                     }
                 }
             }
-            RSIndexResultData::Numeric(_numeric) | RSIndexResultData::Metric(_numeric) => {}
-            RSIndexResultData::Virtual(_virtual) => {}
+            RSResultType::Numeric(_numeric) | RSResultType::Metric(_numeric) => {}
+            RSResultType::Virtual(_virtual) => {}
         }
     }
 }

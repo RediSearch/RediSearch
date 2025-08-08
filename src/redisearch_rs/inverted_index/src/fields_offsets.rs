@@ -14,7 +14,7 @@ use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, RSIndexResultData,
+    Decoder, Encoder, RSIndexResult, RSResultType,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -39,7 +39,7 @@ impl Encoder for FieldsOffsets {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.data, RSIndexResultData::Term(_)));
+        assert!(matches!(record.data, RSResultType::Term(_)));
 
         let field_mask = record
                 .field_mask
@@ -97,7 +97,7 @@ impl Encoder for FieldsOffsetsWide {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.data, RSIndexResultData::Term(_)));
+        assert!(matches!(record.data, RSResultType::Term(_)));
 
         let mut bytes_written = qint_encode(&mut writer, [delta, record.offsets_sz])?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;

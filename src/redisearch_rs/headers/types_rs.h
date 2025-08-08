@@ -150,9 +150,9 @@ typedef struct LowMemoryThinVecRSIndexResult {
  * `BitFlags` value where that isn't the case is only possible with
  * incorrect unsafe code.
  */
-typedef uint32_t BitFlags_RSResultType__u32;
+typedef uint32_t BitFlags_RSResultType2__u32;
 
-typedef BitFlags_RSResultType__u32 RSResultTypeMask;
+typedef BitFlags_RSResultType2__u32 RSResultTypeMask;
 
 /**
  * Represents an aggregate array of values in an index record.
@@ -223,54 +223,54 @@ typedef struct RSNumericRecord {
  * These enum values should stay in sync with [`RSResultType`], so that the C union generated matches
  * the bitflags on [`RSResultTypeMask`]
  */
-enum RSIndexResultData_Tag
+enum RSResultType_Tag
 #ifdef __cplusplus
   : uint32_t
 #endif // __cplusplus
  {
-  Union = 1,
-  Intersection = 2,
-  Term = 4,
-  Virtual = 8,
-  Numeric = 16,
-  Metric = 32,
-  HybridMetric = 64,
+  RSResultType_Union = 1,
+  RSResultType_Intersection = 2,
+  RSResultType_Term = 4,
+  RSResultType_Virtual = 8,
+  RSResultType_Numeric = 16,
+  RSResultType_Metric = 32,
+  RSResultType_HybridMetric = 64,
 };
 #ifndef __cplusplus
-typedef uint32_t RSIndexResultData_Tag;
+typedef uint32_t RSResultType_Tag;
 #endif // __cplusplus
 
-typedef union RSIndexResultData {
-  RSIndexResultData_Tag tag;
+typedef union RSResultType {
+  RSResultType_Tag tag;
   struct {
-    RSIndexResultData_Tag union_tag;
+    RSResultType_Tag union_tag;
     struct RSAggregateResult union_;
   };
   struct {
-    RSIndexResultData_Tag intersection_tag;
+    RSResultType_Tag intersection_tag;
     struct RSAggregateResult intersection;
   };
   struct {
-    RSIndexResultData_Tag term_tag;
+    RSResultType_Tag term_tag;
     struct RSTermRecord term;
   };
   struct {
-    RSIndexResultData_Tag virtual_tag;
+    RSResultType_Tag virtual_tag;
     struct RSVirtualResult virtual_;
   };
   struct {
-    RSIndexResultData_Tag numeric_tag;
+    RSResultType_Tag numeric_tag;
     struct RSNumericRecord numeric;
   };
   struct {
-    RSIndexResultData_Tag metric_tag;
+    RSResultType_Tag metric_tag;
     struct RSNumericRecord metric;
   };
   struct {
-    RSIndexResultData_Tag hybrid_metric_tag;
+    RSResultType_Tag hybrid_metric_tag;
     struct RSAggregateResult hybrid_metric;
   };
-} RSIndexResultData;
+} RSResultType;
 
 /**
  * The result of an inverted index
@@ -300,7 +300,7 @@ typedef struct RSIndexResult {
   /**
    * The actual data of the result
    */
-  union RSIndexResultData data;
+  union RSResultType data;
   /**
    * We mark copied results so we can treat them a bit differently on deletion, and pool them if
    * we want
