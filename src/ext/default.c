@@ -51,14 +51,14 @@ static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **
 // recursively calculate tf-idf
 static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd,
                              RSScoreExplain *scrExp) {
-  if (r->type == RSResultType_Term) {
+  if (r->data.tag == RSResultType_Term) {
     const RSTermRecord *term = IndexResult_TermRef(r);
     double idf = term->term ? term->term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
-  if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
+  if (r->data.tag & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     double ret = 0;
     if (!scrExp) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(r);
@@ -158,7 +158,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   static const float k1 = 1.2;
   double f = (double)r->freq;
   double ret = 0;
-  if (r->type == RSResultType_Term) {
+  if (r->data.tag == RSResultType_Term) {
     const RSTermRecord *term = IndexResult_TermRef(r);
     double idf = (term->term ? term->term->idf : 0);
     ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
@@ -166,7 +166,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
             "(%.2f = Weight %.2f * IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
             ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
 
-  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
+  } else if (r->data.tag & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     if (!scrExp) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(r);
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
@@ -255,13 +255,13 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   static const float k1 = 1.2f;
   double f = (double)r->freq;
   double ret = 0;
-  if (r->type == RSResultType_Term) {
+  if (r->data.tag == RSResultType_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
     const RSTermRecord *term = IndexResult_TermRef(r);
     double idf = term->term->bm25_idf;
     ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
                            term->term->str);
-  } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
+  } else if (r->data.tag & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     if (!scrExp) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(r);
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
@@ -292,7 +292,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
     ret *= r->weight;
-  } else if (r->type == RSResultType_Virtual && f && r->weight) {
+  } else if (r->data.tag == RSResultType_Virtual && f && r->weight) {
     // For wildcard, score should be determined only by the weight
     // and the document's length (so we set idf and f to be 1).
     double idf = 1.0;
@@ -385,7 +385,7 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
                               RSScoreExplain *scrExp) {
   // for terms - we return the term frequency
   double ret = 0;
-  switch (r->type) {
+  switch (r->data.tag) {
     case RSResultType_Term:
     case RSResultType_Metric:
     case RSResultType_Numeric:

@@ -157,7 +157,7 @@ RSOffsetIterator _emptyIterator() {
 /* Create the appropriate iterator from a result based on its type */
 RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
 
-  switch (res->type) {
+  switch (res->data.tag) {
     case RSResultType_Term:
     {
       const RSTermRecord *term = IndexResult_TermRef(res);

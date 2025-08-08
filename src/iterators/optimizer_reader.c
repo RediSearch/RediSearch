@@ -158,7 +158,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         self->lastDocId = childRes->docId;
 
         // copy the numeric result for the sorting heap
-        if (numericRes->type == RSResultType_Numeric) {
+        if (numericRes->data.tag == RSResultType_Numeric) {
           *it->pooledResult = *numericRes;
         } else {
           const RSAggregateResult *agg = IndexResult_AggregateRef(numericRes);

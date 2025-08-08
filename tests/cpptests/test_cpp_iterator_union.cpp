@@ -343,7 +343,7 @@ TEST_F(UnionIteratorReducerTest, TestUnionQuickWithReaderWildcard) {
       .docId = i,
       .fieldMask = 1,
       .freq = 1,
-      .type = RSResultType::RSResultType_Term,
+      .data = {.term_tag = RSResultType_Tag::RSResultType_Term},
     };
     InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
   }
