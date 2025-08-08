@@ -203,7 +203,7 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
   size_t sz;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-  RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
+  RSIndexResult rec = {.data.virtual_tag = RSResultData_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   return InvertedIndex_WriteEntryGeneric(iv, enc, &rec) + sz;
 }
