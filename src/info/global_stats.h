@@ -79,7 +79,7 @@ size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type);
 /**
  * Increase all relevant counters in the global stats object.
  */
-void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration);
+void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ms_t duration);
 
 /**
  * Safely reads and returns a copy of the global queries stats.

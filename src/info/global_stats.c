@@ -67,15 +67,12 @@ size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type) {
   return FieldIndexErrorCounter[INDEXTYPE_TO_POS(field_type)];
 }
 
-void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration) {
+void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ms_t duration) {
   if (reqflags & QEXEC_F_INTERNAL) return; // internal queries are not counted
 
   INCR(RSGlobalStats.totalStats.queries.total_query_commands);
 
-  // Convert nanoseconds to milliseconds
-  rs_wall_clock_ms_t duration_ms = rs_wall_clock_convert_ns_to_ms(duration);
-
-  INCR_BY(RSGlobalStats.totalStats.queries.total_query_execution_time, duration_ms);
+  INCR_BY(RSGlobalStats.totalStats.queries.total_query_execution_time, duration);
 
   if (!(QEXEC_F_IS_CURSOR & reqflags) || (QEXEC_F_IS_AGGREGATE & reqflags)) {
     // Count only unique queries, not iterations of a previous query (FT.CURSOR READ)
