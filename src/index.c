@@ -23,6 +23,7 @@
 #include "metric_iterator.h"
 #include "optimizer_reader.h"
 #include "util/units.h"
+#include "search_disk.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
