@@ -155,7 +155,7 @@ Database* Database::Create(RedisModuleCtx* ctx, const std::string& db_path) {
 
 Database::Database(RedisModuleCtx* ctx, std::unique_ptr<rocksdb::DB> db)
     : ctx_(ctx), db_(std::move(db)) {
-    RedisModule_Log(ctx_, "notice", "Database opened successfully");
+    RedisModule_Log(ctx_, "warning", "RediSearch Disk Database opened successfully");
 }
 
 Database::~Database() {

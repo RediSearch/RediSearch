@@ -277,8 +277,15 @@ DocTableColumn::Iterator* DocTableColumn::Iterator::Create(rocksdb::Iterator* it
     }
 
     iter->Seek("d:");
+
+    // Create the disk iterator and check if it's valid
+    auto diskIter = ::search::disk::Iterator::Create(iterPtr.release());
+    if (!diskIter) {
+        return nullptr;
+    }
+
     const size_t countEstimation = endId->id - startId->id + 1;
-    return new Iterator(std::unique_ptr<::search::disk::Iterator>(::search::disk::Iterator::Create(iterPtr.release())), countEstimation);
+    return new Iterator(std::unique_ptr<::search::disk::Iterator>(diskIter), countEstimation);
 }
 
 DocTableColumn::Iterator::Iterator(std::unique_ptr<search::disk::Iterator> it, size_t countEstimation)

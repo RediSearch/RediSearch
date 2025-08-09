@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-RedisSearchDiskAPI *SearchDisk_GetAPI(RedisModuleCtx *ctx);
+RedisSearchDiskAPI *SearchDisk_GetAPI();
 
 #ifdef __cplusplus
 }

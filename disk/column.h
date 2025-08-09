@@ -1,6 +1,7 @@
 #pragma once
 #include <rocksdb/db.h>
 #include <optional>
+#include "rmutil/rm_assert.h"
 
 namespace search::disk {
 /**
@@ -53,6 +54,7 @@ public:
      * @return true if the iterator is valid, false otherwise
      */
     bool Valid() const {
+        RS_ASSERT(iter_);
         return iter_->Valid();
     }
 
@@ -71,9 +73,10 @@ public:
     /**
      * @brief Factory method to create a new Iterator
      * @param iter Pointer to a RocksDB iterator (ownership is transferred)
-     * @return A new Iterator instance
+     * @return A new Iterator instance, or nullptr if iter is null
      */
     static Iterator* Create(rocksdb::Iterator* iter) {
+        RS_ASSERT(iter);
         return new Iterator(iter);
     }
 private:

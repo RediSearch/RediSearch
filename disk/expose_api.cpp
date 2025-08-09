@@ -10,11 +10,11 @@ extern "C" {
 static void DoNothing(RedisSearchDiskIndexSpec *index) {
 }
 
-bool SearchDisk_HasAPI(RedisModuleCtx *ctx) {
+bool SearchDisk_HasAPI() {
     return true;
 }
 
-RedisSearchDiskAPI *SearchDisk_GetAPI(RedisModuleCtx *ctx) {
+RedisSearchDiskAPI *SearchDisk_GetAPI() {
     static RedisSearchDiskAPI api = {
         .basic = {
             .open = reinterpret_cast<RedisSearchDisk *(*)(RedisModuleCtx *, const char *)>(DiskDatabase_Create),
