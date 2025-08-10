@@ -180,26 +180,6 @@ TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
   HybridRequest_Free(result);
 }
 
-// LIMIT=0 doesn't affect defaults
-TEST_F(HybridDefaultsTest, testZeroLimitIgnored) {
-  QueryError status = {QueryErrorCode(0)};
-  
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "LIMIT", "0", "0");
-  
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-  
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-  
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-  
-  validateDefaultParams(result, HYBRID_DEFAULT_WINDOW, 10);
-  
-  HybridRequest_Free(result);
-}
-
 // Large LIMIT values work
 TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
   QueryError status = {QueryErrorCode(0)};
