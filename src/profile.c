@@ -314,7 +314,6 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   char *unionTypeStr;
   switch (ui->type) {
   case QN_GEO : unionTypeStr = "GEO"; break;
-  case QN_GEOMETRY : unionTypeStr = "GEOSHAPE"; break;
   case QN_TAG : unionTypeStr = "TAG"; break;
   case QN_UNION : unionTypeStr = "UNION"; break;
   case QN_FUZZY : unionTypeStr = "FUZZY"; break;
@@ -371,11 +370,7 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 
   RedisModule_ReplyKV_Array(reply, "Child iterators");
     for (int i = 0; i < ii->num_its; i++) {
-      if (ii->its[i]) {
-        printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
-      } else {
-        RedisModule_Reply_Null(reply);
-      }
+      printIteratorProfile(reply, ii->its[i], 0, 0, depth + 1, limited, config);
     }
   RedisModule_Reply_ArrayEnd(reply);
 
