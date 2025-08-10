@@ -8,13 +8,24 @@
 */
 
 #include "hybrid_search_result.h"
-#include "merge_utils.h"
 #include "rmutil/alloc.h"
 #include "query_error.h"
 #include "score_explain.h"
 #include "hybrid_scoring.h"
 #include <string.h>
 #include <assert.h>
+
+/**
+ * Merge flags from source into target (in-place).
+ * Modifies target by ORing it with source flags.
+ */
+void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags) {
+  if (!target_flags || !source_flags) {
+    return;
+  }
+
+  *target_flags |= *source_flags;
+}
 
 /**
  * Constructor for HybridSearchResult.
@@ -140,6 +151,8 @@ SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
     }
   }
 
+  // RLookup rows – use the primary result's RLookupRow. Assumes that in FT.HYBRID, all RLookups are synchronized
+  // (required keys exist in all of them and reference the same row indices).
 
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;

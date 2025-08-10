@@ -43,7 +43,11 @@ void HybridSearchResult_Free(HybridSearchResult* result);
  */
 void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResult* searchResult, int sourceIndex);
 
-
+/**
+ * Merge flags from source flags into target flags (in-place).
+ * Modifies target_flags by ORing it with source_flags.
+ */
+void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags);
 
 /**
  * Apply hybrid scoring to compute combined score from multiple sources.
