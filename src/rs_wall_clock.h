@@ -20,8 +20,8 @@ typedef struct {
     struct timespec start;
 } rs_wall_clock;
 
-#define NANOSEC_PER_SECONDS 1000000000ULL
-#define MILLISEC_PER_SECOND (NANOSEC_PER_SECONDS / 1000)
+#define NANOSEC_PER_SECOND 1000000000ULL
+#define MILLISEC_PER_SECOND (NANOSEC_PER_SECOND / 1000)
 
 // Using different types for nanoseconds and milliseconds to avoid confusion
 typedef uint64_t rs_wall_clock_ns_t;
@@ -40,10 +40,10 @@ static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start,
     int64_t nsec_diff = end->start.tv_nsec - start->start.tv_nsec;
     if (nsec_diff < 0) {
         sec_diff -= 1;
-        nsec_diff += NANOSEC_PER_SECONDS;
+        nsec_diff += NANOSEC_PER_SECOND;
     }
 
-    return sec_diff * NANOSEC_PER_SECONDS + nsec_diff;
+    return sec_diff * NANOSEC_PER_SECOND + nsec_diff;
 }
 
 
@@ -57,7 +57,7 @@ static inline rs_wall_clock_ns_t rs_wall_clock_elapsed_ns(rs_wall_clock *clk) {
 static inline rs_wall_clock_ns_t rs_wall_clock_now_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (rs_wall_clock_ns_t)ts.tv_sec * NANOSEC_PER_SECONDS + ts.tv_nsec;
+    return (rs_wall_clock_ns_t)ts.tv_sec * NANOSEC_PER_SECOND + ts.tv_nsec;
 }
 
 static inline double rs_wall_clock_convert_ns_to_ms_f(rs_wall_clock_ns_t ns) {
@@ -69,7 +69,7 @@ static inline rs_wall_clock_ms_t rs_wall_clock_convert_ns_to_ms(rs_wall_clock_ns
 }
 
 // Undefine macros to avoid conflicts
-#undef NANOSEC_PER_SECONDS
+#undef NANOSEC_PER_SECOND
 #undef MILLISEC_PER_SECOND
 
 #ifdef __cplusplus
