@@ -22,9 +22,7 @@ bool hasQuerySortby(const AGGPlan *pln);
 
 /**
  * Process a complete LOAD step: parse arguments, create RPLoader, and handle JSON specs.
- * This function handles the complete LOAD step processing workflow including argument parsing,
- * RPLoader creation, and JSON spec handling. It's essentially the PLN_T_LOAD case logic
- * extracted into a reusable function.
+
  *
  * @param loadStep The LOAD step to process
  * @param lookup The RLookup context to use for creating keys
@@ -36,7 +34,7 @@ bool hasQuerySortby(const AGGPlan *pln);
  * @param status Error status object for reporting failures
  * @return ResultProcessor* on success, NULL on failure
  */
-ResultProcessor *ProcessLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
+ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
                                 RedisSearchCtx *sctx, uint32_t reqflags, uint32_t loadFlags,
                                 bool forceLoad, uint32_t *outStateFlags, QueryError *status);
 

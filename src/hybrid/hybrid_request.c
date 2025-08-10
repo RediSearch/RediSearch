@@ -34,7 +34,7 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     // Create ArgsCursor with static array - no memory management needed
     ArgsCursor_InitCString(&implicitLoadStep->args, implicitArgv, 1);
 
-    // Pre-allocate keys array for 1 key (same as handleLoad)
+    // Pre-allocate keys array for the number of fields to load
     implicitLoadStep->nkeys = 0;
     implicitLoadStep->keys = rm_calloc(implicitLoadStep->args.argc, sizeof(RLookupKey*));
 
@@ -85,15 +85,16 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+        PLN_LoadStep *subqueryLoadStep = NULL;
 
         // Determine which load step to use (explicit or implicit)
-        PLN_LoadStep *subqueryLoadStep = loadStep ? PLNLoadStep_Clone(loadStep) : createImplicitLoadStep();
+        subqueryLoadStep = loadStep ? PLNLoadStep_Clone(loadStep) : createImplicitLoadStep();
 
         // Add the load step to the aggplan for proper cleanup
         AGPLN_AddStep(&areq->pipeline.ap, &subqueryLoadStep->base);
 
         // Process the LOAD step (explicit or implicit) using the unified function
-        ResultProcessor *loader = ProcessLoadStep(subqueryLoadStep, lookup, AREQ_SearchCtx(areq), AREQ_RequestFlags(areq),
+        ResultProcessor *loader = processLoadStep(subqueryLoadStep, lookup, AREQ_SearchCtx(areq), AREQ_RequestFlags(areq),
                                                  RLOOKUP_F_NOFLAGS, false, &areq->stateflags, NULL);
         if (loader) {
           QITR_PushRP(qctx, loader);

@@ -247,7 +247,7 @@ bool hasQuerySortby(const AGGPlan *pln) {
   return arng && arng->sortKeys;
 }
 
-static int ProcessLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags,
+static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags,
                                QueryError *status) {
   if (!loadStep || !lookup) {
     return REDISMODULE_ERR;
@@ -298,7 +298,7 @@ static int ProcessLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
   return REDISMODULE_OK;
 }
 
-ResultProcessor *ProcessLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
+ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
                                 RedisSearchCtx *sctx, uint32_t reqflags, uint32_t loadFlags,
                                 bool forceLoad, uint32_t *outStateFlags, QueryError *status) {
   if (!loadStep || !lookup || !sctx) {
@@ -306,7 +306,7 @@ ResultProcessor *ProcessLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
   }
 
   // Process the LOAD step arguments to populate keys array
-  if (ProcessLoadStepArgs(loadStep, lookup, loadFlags, status) != REDISMODULE_OK) {
+  if (processLoadStepArgs(loadStep, lookup, loadFlags, status) != REDISMODULE_OK) {
     return NULL;
   }
 
@@ -521,7 +521,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         }
 
         // Process the complete LOAD step
-        rp = ProcessLoadStep(lstp, curLookup, params->common.sctx, params->common.reqflags,
+        rp = processLoadStep(lstp, curLookup, params->common.sctx, params->common.reqflags,
                             loadFlags, forceLoad, outStateFlags, status);
         if (!rp && (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL)) {
           // ProcessLoadStep failed when it should have created a processor
