@@ -414,8 +414,8 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
 
     // Initialize with defaults
     combineCtx->rrfCtx.k = HYBRID_DEFAULT_RRF_K;
-    combineCtx->window = HYBRID_DEFAULT_WINDOW;
-    combineCtx->hasExplicitWindow = false;
+    combineCtx->rrfCtx.window = HYBRID_DEFAULT_WINDOW;
+    combineCtx->rrfCtx.hasExplicitWindow = false;
 
     if (rv == AC_OK) {
       // Parameters were provided
@@ -445,8 +445,8 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
             QueryError_SetError(status, QUERY_ESYNTAX, "Invalid WINDOW value in RRF");
             goto error;
           }
-          combineCtx->window = window;
-          combineCtx->hasExplicitWindow = true;
+          combineCtx->rrfCtx.window = window;
+          combineCtx->rrfCtx.hasExplicitWindow = true;
         } else {
           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RRF", paramName);
           goto error;
@@ -521,9 +521,10 @@ static void applyLimitParameterFallbacks(Pipeline *mergePipeline,
   }
 
   // Apply LIMIT → WINDOW fallback ONLY if WINDOW was not explicitly set AND LIMIT was explicitly provided
-  if (!hybridParams->scoringCtx->hasExplicitWindow &&
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF &&
+      !hybridParams->scoringCtx->rrfCtx.hasExplicitWindow &&
       hasExplicitLimit && limitValue > 0) {
-    hybridParams->scoringCtx->window = limitValue;
+    hybridParams->scoringCtx->rrfCtx.window = limitValue;
   }
 }
 

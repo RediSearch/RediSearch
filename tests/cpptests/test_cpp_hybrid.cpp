@@ -731,7 +731,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
   double weights[] = {0.7, 0.3};
-  HybridScoringContext *scoringCtx = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW, false);
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewLinear(weights, 2);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -794,7 +794,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
   double weights[] = {0.6, 0.4};
-  HybridScoringContext *scoringCtx = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW, false);
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewLinear(weights, 2);
 
   HybridPipelineParams params = {
       .aggregationParams = {

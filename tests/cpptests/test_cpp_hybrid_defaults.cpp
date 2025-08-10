@@ -57,13 +57,15 @@ static void validateDefaultParams(HybridRequest* result, size_t expectedWindow, 
     ASSERT_TRUE(result->hybridParams != NULL);
     ASSERT_TRUE(result->hybridParams->scoringCtx != NULL);
 
-    // Verify window value
-    ASSERT_EQ(expectedWindow, result->hybridParams->scoringCtx->window)
-        << "Expected window=" << expectedWindow << ", got " << result->hybridParams->scoringCtx->window;
+    // Verify RRF-specific parameters (only for RRF)
+    if (result->hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+        ASSERT_EQ(expectedWindow, result->hybridParams->scoringCtx->rrfCtx.window)
+            << "Expected window=" << expectedWindow << ", got " << result->hybridParams->scoringCtx->rrfCtx.window;
 
-    // Verify RRF k default
-    ASSERT_DOUBLE_EQ(HYBRID_DEFAULT_RRF_K, result->hybridParams->scoringCtx->rrfCtx.k)
-        << "Expected RRF k=" << HYBRID_DEFAULT_RRF_K;
+        // Verify RRF k default
+        ASSERT_DOUBLE_EQ(HYBRID_DEFAULT_RRF_K, result->hybridParams->scoringCtx->rrfCtx.k)
+            << "Expected RRF k=" << HYBRID_DEFAULT_RRF_K;
+    }
 
     // Verify KNN K value
     ASSERT_TRUE(result->requests != NULL);
@@ -216,7 +218,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
 
   // Both flags should be false
-  ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
+  ASSERT_FALSE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
   ASSERT_FALSE(result->requests[1]->parsedVectorData->hasExplicitK);
 
   HybridRequest_Free(result);
@@ -238,7 +240,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitK) {
 
   // K explicit, WINDOW implicit
   ASSERT_TRUE(result->requests[1]->parsedVectorData->hasExplicitK);
-  ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
+  ASSERT_FALSE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 
   HybridRequest_Free(result);
 }
@@ -258,7 +260,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitWindow) {
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
 
   // WINDOW explicit, K implicit
-  ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
+  ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
   ASSERT_FALSE(result->requests[1]->parsedVectorData->hasExplicitK);
 
   HybridRequest_Free(result);
@@ -280,13 +282,12 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitBoth) {
 
   // Both flags should be true
   ASSERT_TRUE(result->requests[1]->parsedVectorData->hasExplicitK);
-  ASSERT_TRUE(result->hybridParams->scoringCtx->hasExplicitWindow);
+  ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 
   HybridRequest_Free(result);
 }
 
-// Test LINEAR combine uses same window behavior
-TEST_F(HybridDefaultsTest, testLinearWindowDefault) {
+TEST_F(HybridDefaultsTest, testLinearDefaults) {
   QueryError status = {QueryErrorCode(0)};
 
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
@@ -300,9 +301,12 @@ TEST_F(HybridDefaultsTest, testLinearWindowDefault) {
 
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
 
-  // LINEAR should use same default window as RRF
-  ASSERT_EQ(HYBRID_DEFAULT_WINDOW, result->hybridParams->scoringCtx->window);
-  ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);
+  // LINEAR should not have window parameter (uses regular limit instead)
+  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
+
+  VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
+  ASSERT_EQ(HYBRID_DEFAULT_KNN_K, vq->knn.k)
+      << "Expected KNN k=" << HYBRID_DEFAULT_KNN_K << ", got " << vq->knn.k;
 
   HybridRequest_Free(result);
 }

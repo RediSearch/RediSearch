@@ -19,7 +19,7 @@
 #include <pthread.h>
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
-#include "src/util/likely.h"
+#include "config.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -1802,7 +1802,14 @@ dictType dictTypeHybridSearchResult = {
       if (consumed[i]) {
         continue;
       }
-      size_t window = self->hybridScoringCtx->window;
+      size_t window;
+      if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+        window = self->hybridScoringCtx->rrfCtx.window;
+      } else {
+        // For LINEAR scoring, use the aggregation pipeline limit or default max aggregate results
+        window = (self->base.parent && self->base.parent->resultLimit > 0) ?
+                 self->base.parent->resultLimit : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS;
+      }
       int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
 
       if (rc == RS_RESULT_DEPLETING) {
@@ -1892,8 +1899,13 @@ dictType dictTypeHybridSearchResult = {
 
    // Calculate maximal dictionary size based on scoring type
    RS_ASSERT(hybridScoringCtx);
-   size_t window = hybridScoringCtx->window;
-   size_t maximalSize = window * numUpstreams;
+   size_t maximalSize;
+   if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
+   } else {
+     // For LINEAR scoring, use a reasonable default for dictionary pre-sizing
+     maximalSize = 1000; // Conservative estimate for dictionary sizing
+   }
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);
 

@@ -94,8 +94,8 @@ HybridScoringContext* HybridScoringContext_NewRRF(double k, size_t window, bool 
 
     ctx->scoringType = HYBRID_SCORING_RRF;
     ctx->rrfCtx.k = k;
-    ctx->window = window;
-    ctx->hasExplicitWindow = hasExplicitWindow;
+    ctx->rrfCtx.window = window;
+    ctx->rrfCtx.hasExplicitWindow = hasExplicitWindow;
 
     return ctx;
 }
@@ -106,11 +106,9 @@ HybridScoringContext* HybridScoringContext_NewRRF(double k, size_t window, bool 
  *
  * @param weights Array of weight values to copy
  * @param numWeights Number of weights in the array
- * @param window Window size for result processing
- * @param hasExplicitWindow Whether window was explicitly set by user
  * @return Allocated HybridScoringContext or NULL on failure
  */
-HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size_t numWeights, size_t window, bool hasExplicitWindow) {
+HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size_t numWeights) {
     if (!weights || numWeights == 0) return NULL;
 
     HybridScoringContext *ctx = rm_calloc(1, sizeof(HybridScoringContext));
@@ -125,8 +123,6 @@ HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size
     ctx->scoringType = HYBRID_SCORING_LINEAR;
     memcpy(ctx->linearCtx.linearWeights, weights, numWeights * sizeof(double));
     ctx->linearCtx.numWeights = numWeights;
-    ctx->window = window;
-    ctx->hasExplicitWindow = hasExplicitWindow;
 
     return ctx;
 }

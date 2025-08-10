@@ -129,7 +129,7 @@ struct MockUpstream : public ResultProcessor {
 // Helper function to create hybrid merger with linear scoring
 ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double *weights) {
   // Create HybridScoringContext using constructor
-  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams, 100, false);
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams);
 
   return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
 }
