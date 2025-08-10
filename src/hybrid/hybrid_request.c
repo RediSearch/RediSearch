@@ -13,6 +13,7 @@ extern "C" {
 
 // Field names for implicit LOAD step
 #define HYBRID_IMPLICIT_KEY_FIELD "key"
+#define SEARCH_INDEX 0
 
 /**
  * Create implicit LOAD step for document key when no explicit LOAD is specified.
@@ -35,7 +36,7 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
 
     // Pre-allocate keys array for 1 key (same as handleLoad)
     implicitLoadStep->nkeys = 0;
-    implicitLoadStep->keys = rm_calloc(1, sizeof(RLookupKey*));
+    implicitLoadStep->keys = rm_calloc(implicitLoadStep->args.argc, sizeof(RLookupKey*));
 
     return implicitLoadStep;
 }
@@ -84,16 +85,15 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
-        PLN_LoadStep *loadStepClone = NULL;
 
         // Determine which load step to use (explicit or implicit)
-        loadStepClone = loadStep ? PLNLoadStep_Clone(loadStep) : createImplicitLoadStep();
+        PLN_LoadStep *subqueryLoadStep = loadStep ? PLNLoadStep_Clone(loadStep) : createImplicitLoadStep();
 
         // Add the load step to the aggplan for proper cleanup
-        AGPLN_AddStep(&areq->pipeline.ap, &loadStepClone->base);
+        AGPLN_AddStep(&areq->pipeline.ap, &subqueryLoadStep->base);
 
         // Process the LOAD step (explicit or implicit) using the unified function
-        ResultProcessor *loader = ProcessLoadStep(loadStepClone, lookup, AREQ_SearchCtx(areq), AREQ_RequestFlags(areq),
+        ResultProcessor *loader = ProcessLoadStep(subqueryLoadStep, lookup, AREQ_SearchCtx(areq), AREQ_RequestFlags(areq),
                                                  RLOOKUP_F_NOFLAGS, false, &areq->stateflags, NULL);
         if (loader) {
           QITR_PushRP(qctx, loader);
@@ -113,7 +113,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     //Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, NULL);
-    RLookup_CloneInto(lookup, AGPLN_GetLookup(&req->requests[0]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST));
+    RLookup_CloneInto(lookup, AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST));
 
 
 
