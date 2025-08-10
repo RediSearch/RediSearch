@@ -40,7 +40,7 @@ typedef struct {
 typedef struct {
   size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
   size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
-  rs_wall_clock_ms_t total_query_execution_time;   // Total time spent on queries (in ms)
+  rs_wall_clock_ns_t total_query_execution_time;   // Total time spent on queries, aggregated in ns and reported in ms
 } QueriesGlobalStats;
 
 typedef struct {
@@ -78,8 +78,9 @@ size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type);
 
 /**
  * Increase all relevant counters in the global stats object.
+ * Note that duration is aggregated in nanoseconds but later converted to milliseconds.
  */
-void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ms_t duration);
+void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration);
 
 /**
  * Safely reads and returns a copy of the global queries stats.

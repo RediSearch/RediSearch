@@ -428,8 +428,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
 
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
     rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->profileInitClock);
-    rs_wall_clock_ms_t duration_ms = rs_wall_clock_convert_ns_to_ms(duration);
-    TotalGlobalStats_CountQuery(req->reqflags, duration_ms);
+    TotalGlobalStats_CountQuery(req->reqflags, duration);
   }
 
   // Reset the total results length:
