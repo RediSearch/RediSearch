@@ -11,6 +11,7 @@
 *.DS_Store
 *.dSYM
 /bin/
+/build/
 /site/
 /venv*/
 /srcutil/lemon
@@ -27,3 +28,27 @@ callgrind.out.*
 /deps/RedisJSON/
 /1/
 /.install/boost*
+
+# CMake generated files
+cmake_install.cmake
+compile_commands.json
+Makefile
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+!CMakeLists.txt
+
+# Build artifacts that might be generated in source directories
+*.so.*
+*.dylib
+*.dll
+
+# Additional CMake and build artifacts in subdirectories
+**/CMakeFiles/
+**/cmake_install.cmake
+**/Makefile
+!**/CMakeLists.txt
+
+# Dependency directories that might be generated
+deps/readies/
+hiredis/
