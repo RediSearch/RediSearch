@@ -9,6 +9,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <time.h>
 #include <stdint.h>
 
@@ -56,3 +60,7 @@ static inline double rs_wall_clock_convert_ns_to_ms_f(rs_wall_clock_ns_t ns) {
 static inline rs_wall_clock_ms_t rs_wall_clock_convert_ns_to_ms(rs_wall_clock_ns_t ns) {
     return ns / RS_WALL_CLOCK_PER_MILLISEC;
 }
+
+#ifdef __cplusplus
+}
+#endif
