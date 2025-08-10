@@ -275,7 +275,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
   QueryError status = {QueryErrorCode(0)};
 
   // Test with RRF combine method with explicit K parameter
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "6", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "1.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   // Create a fresh sctx for this test
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -288,7 +288,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Verify RRF scoring type was set with custom K value
-  assertRRFScoringCtx(6, HYBRID_DEFAULT_WINDOW);
+  assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW not specified)
   ASSERT_FALSE(result->hybridParams->scoringCtx->hasExplicitWindow);

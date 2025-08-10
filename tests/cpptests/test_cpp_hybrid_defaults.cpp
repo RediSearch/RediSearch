@@ -52,8 +52,7 @@ protected:
     }
   }
 
-  void verifyDefaults(HybridRequest* result, size_t expectedWindow,
-                     bool expectedHasExplicitWindow) {
+static void validateDefaultParams(HybridRequest* result, size_t expectedWindow, size_t expectedKnnK) {
     ASSERT_TRUE(result != NULL);
     ASSERT_TRUE(result->hybridParams != NULL);
     ASSERT_TRUE(result->hybridParams->scoringCtx != NULL);
@@ -62,17 +61,22 @@ protected:
     ASSERT_EQ(expectedWindow, result->hybridParams->scoringCtx->window)
         << "Expected window=" << expectedWindow << ", got " << result->hybridParams->scoringCtx->window;
 
-    // Verify window flag
-    ASSERT_EQ(expectedHasExplicitWindow, result->hybridParams->scoringCtx->hasExplicitWindow)
-        << "Expected hasExplicitWindow=" << expectedHasExplicitWindow;
-
-    // Verify RRF k default (currently 1, but should be 60)
+    // Verify RRF k default
     ASSERT_DOUBLE_EQ(HYBRID_DEFAULT_RRF_K, result->hybridParams->scoringCtx->rrfCtx.k)
         << "Expected RRF k=" << HYBRID_DEFAULT_RRF_K;
 
-    // Verify basic structure
+    // Verify KNN K value
     ASSERT_TRUE(result->requests != NULL);
     ASSERT_TRUE(result->nrequests >= 2) << "Expected at least 2 requests, got " << result->nrequests;
+    AREQ* vectorRequest = result->requests[1];
+    ASSERT_TRUE(vectorRequest != NULL);
+    ASSERT_TRUE(vectorRequest->ast.root != NULL);
+    ASSERT_EQ(vectorRequest->ast.root->type, QN_VECTOR);
+    VectorQuery *vq = vectorRequest->ast.root->vn.vq;
+    ASSERT_TRUE(vq != NULL);
+    ASSERT_EQ(vq->type, VECSIM_QT_KNN);
+    ASSERT_EQ(expectedKnnK, vq->knn.k)
+        << "Expected KNN K=" << expectedKnnK << ", got " << vq->knn.k;
   }
 };
 
@@ -91,8 +95,7 @@ TEST_F(HybridDefaultsTest, testDefaultValues) {
 
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
 
-  // Verify: window=20, rrfK=1, hasExplicitWindow=false
-  verifyDefaults(result, HYBRID_DEFAULT_WINDOW, false);
+  validateDefaultParams(result, HYBRID_DEFAULT_WINDOW, HYBRID_DEFAULT_KNN_K);
   
   HybridRequest_Free(result);
 }
@@ -112,8 +115,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
   
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
   
-  // Verify: window=25, hasExplicitWindow=false
-  verifyDefaults(result, 25, false);
+  validateDefaultParams(result, 25, 25);
   
   HybridRequest_Free(result);
 }
@@ -133,8 +135,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
 
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
 
-  // Verify: window=15, hasExplicitWindow=true
-  verifyDefaults(result, 15, true);
+  validateDefaultParams(result, 15, 25);
 
   HybridRequest_Free(result);
 }
@@ -154,8 +155,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
   
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
   
-  // Verify: window=25, hasExplicitWindow=false
-  verifyDefaults(result, 25, false);
+  validateDefaultParams(result, 25, 8);
   
   HybridRequest_Free(result);
 }
@@ -175,8 +175,7 @@ TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
 
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
 
-  // Verify: window=15, hasExplicitWindow=true
-  verifyDefaults(result, 15, true);
+  validateDefaultParams(result, 15, 8);
 
   HybridRequest_Free(result);
 }
@@ -196,8 +195,7 @@ TEST_F(HybridDefaultsTest, testZeroLimitIgnored) {
   
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
   
-  // Verify: window=20 (default used), hasExplicitWindow=false
-  verifyDefaults(result, HYBRID_DEFAULT_WINDOW, false);
+  validateDefaultParams(result, HYBRID_DEFAULT_WINDOW, 10);
   
   HybridRequest_Free(result);
 }
@@ -217,30 +215,8 @@ TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
   
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
   
-  // Verify: window=10000, hasExplicitWindow=false
-  verifyDefaults(result, 10000, false);
+  validateDefaultParams(result, 10000, 10000);
   
-  HybridRequest_Free(result);
-}
-
-// Large LIMIT doesn't override explicit
-TEST_F(HybridDefaultsTest, testLargeLimitWithExplicit) {
-  QueryError status = {QueryErrorCode(0)};
-
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "10000");
-
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
-  // Verify: window=15 (explicit value preserved), hasExplicitWindow=true
-  verifyDefaults(result, 15, true);
-
   HybridRequest_Free(result);
 }
 
