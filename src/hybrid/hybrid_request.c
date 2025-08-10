@@ -93,9 +93,13 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         // Add the load step to the aggplan for proper cleanup
         AGPLN_AddStep(&areq->pipeline.ap, &subqueryLoadStep->base);
 
+        QueryError status = {0};
         // Process the LOAD step (explicit or implicit) using the unified function
         ResultProcessor *loader = processLoadStep(subqueryLoadStep, lookup, AREQ_SearchCtx(areq), AREQ_RequestFlags(areq),
-                                                 RLOOKUP_F_NOFLAGS, false, &areq->stateflags, NULL);
+                                                 RLOOKUP_F_NOFLAGS, false, &areq->stateflags, &status);
+        if (status.code != QUERY_OK) {
+            return REDISMODULE_ERR;
+        }
         if (loader) {
           QITR_PushRP(qctx, loader);
         }
