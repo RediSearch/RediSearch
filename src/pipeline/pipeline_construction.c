@@ -523,9 +523,8 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         // Process the complete LOAD step
         rp = processLoadStep(lstp, curLookup, params->common.sctx, params->common.reqflags,
                             loadFlags, forceLoad, outStateFlags, status);
-        if (!rp && (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL)) {
-          // ProcessLoadStep failed when it should have created a processor
-          goto error;
+        if (status->code != QUERY_OK) {
+          return REDISMODULE_ERR;
         }
         if (rp) {
           PUSH_RP();
