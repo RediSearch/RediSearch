@@ -72,6 +72,11 @@ TEST_F(RLookupTest, testRow) {
   RLookup_Cleanup(&lk);
 }
 
+/*
+ * Test RLookupKey_Clone functionality:
+ * Verifies that a cloned key can access the same data as the original key
+ * by writing with the original and reading with the clone.
+ */
 TEST_F(RLookupTest, testCloneKey) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
@@ -117,6 +122,12 @@ TEST_F(RLookupTest, testCloneKey) {
   RLookupKey_Free(cloned);  // Properly free the cloned key
 }
 
+/*
+ * Test RLookup_CloneInto basic functionality:
+ * Verifies that cloning preserves lookup structure and enables cross-lookup data access.
+ * Creates a source lookup with fields, clones it into a destination, then validates
+ * that data written using original keys can be read using cloned keys.
+ */
 TEST_F(RLookupTest, testCloneLookup) {
   RLookup original_lk = {0};
   RLookup_Init(&original_lk, NULL);
@@ -179,6 +190,12 @@ TEST_F(RLookupTest, testCloneLookup) {
   RLookup_Cleanup(&cloned_lk);
 }
 
+/*
+ * Test cloned RLookup independence and extensibility:
+ * Verifies that a cloned lookup remains functional even when the source is extended
+ * with additional fields.
+ * Create an RLookup, add some keys to it, clone it, add more keys to the source, and verify that the clone can read the original keys.
+ */
 TEST_F(RLookupTest, testCloneWithAdditionalFields) {
   RLookup source_lk = {0};
   RLookup_Init(&source_lk, NULL);
@@ -259,54 +276,11 @@ TEST_F(RLookupTest, testCloneWithAdditionalFields) {
   RLookup_Cleanup(&target_lk);
 }
 
-TEST_F(RLookupTest, testCloneNullHandling) {
-  // Test NULL handling
-  ASSERT_EQ(NULL, RLookupKey_Clone(NULL));
-
-  // Test RLookup_CloneInto NULL handling - should not crash
-  RLookup dummy = {0};
-  RLookup_CloneInto(NULL, &dummy);  // Should not crash
-  RLookup_CloneInto(&dummy, NULL);  // Should not crash
-
-  // Test with allocated strings by manually creating a key with NAMEALLOC flag
-  RLookup lk = {0};
-  RLookup_Init(&lk, NULL);
-
-  // Create key normally first
-  RLookupKey *key = RLookup_GetKey_Write(&lk, "test_field", RLOOKUP_F_NOFLAGS);
-  ASSERT_TRUE(key);
-
-  // Save original values before modifying
-  const char *orig_name = key->name;
-  const char *orig_path = key->path;
-  uint32_t orig_flags = key->flags;
-
-  // Manually set up allocated strings to test the deep copy behavior
-  key->flags |= RLOOKUP_F_NAMEALLOC;
-  key->name = rm_strdup("allocated_field");
-  key->path = key->name;  // Use same string for both
-  key->name_len = strlen(key->name);
-
-  // Clone should also have allocated strings
-  RLookupKey *cloned = RLookupKey_Clone(key);
-  ASSERT_TRUE(cloned);
-  ASSERT_TRUE(cloned->flags & RLOOKUP_F_NAMEALLOC);
-  ASSERT_STREQ(key->name, cloned->name);
-  ASSERT_NE(key->name, cloned->name);  // Different pointers
-
-        // Cleanup cloned key properly
-  RLookupKey_Free(cloned);
-
-  // Restore original values before cleanup to avoid double-free
-  rm_free((void*)key->name);
-  key->name = orig_name;
-  key->path = orig_path;
-  key->flags = orig_flags;
-
-  // Cleanup
-  RLookup_Cleanup(&lk);
-}
-
+/*
+ * Test RLookupKey_Clone string allocation behavior:
+ * Verifies that cloned keys always allocate their own string copies, even when
+ * the source key references const strings without the NAMEALLOC flag.
+ */
 TEST_F(RLookupTest, testCloneAlwaysAllocatesStrings) {
   // CRITICAL TEST: Verify that cloned keys ALWAYS allocate their own strings,
   // even when the source key just points to const strings (no RLOOKUP_F_NAMEALLOC)
@@ -342,6 +316,12 @@ TEST_F(RLookupTest, testCloneAlwaysAllocatesStrings) {
   RLookupKey_Free(cloned);
 }
 
+/*
+ * Test RLookup_CloneInto initialization preservation:
+ * Verifies that cloning preserves the destination's initialization state (like spcache)
+ * while copying the source's structure. Creates a destination with specific initialization,
+ * clones a source into it, and validates that initialization state is maintained.
+ */
 TEST_F(RLookupTest, testCloneIntoPreservesInitialization) {
   // Test that RLookup_CloneInto preserves destination's initialization
   RLookup source = {0};
@@ -352,14 +332,15 @@ TEST_F(RLookupTest, testCloneIntoPreservesInitialization) {
   ASSERT_TRUE(src_key);
 
   // Initialize destination with different state
+  IndexSpecCache spcache = {0};
   RLookup dest = {0};
-  RLookup_Init(&dest, NULL);
+  RLookup_Init(&dest, &spcache);
 
   // Clone into destination - should preserve dest's initialization
   RLookup_CloneInto(&dest, &source);
 
   // Verify dest's initialization is preserved but structure is copied
-  ASSERT_EQ(NULL, dest.spcache);       // Preserved
+  ASSERT_EQ(&spcache, dest.spcache);   // Preserved
   ASSERT_EQ(source.rowlen, dest.rowlen); // Copied
 
   // Verify options are copied
@@ -369,6 +350,66 @@ TEST_F(RLookupTest, testCloneIntoPreservesInitialization) {
   RLookupKey *dest_key = RLookup_GetKey_Read(&dest, "test", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_key);
 
+  RLookup_Cleanup(&source);
+  RLookup_Cleanup(&dest);
+}
+
+/*
+ * Test RLookup_CloneInto with field override functionality:
+ * Ensures the destination RLookup behaves correctly after a key in the source is overridden.
+ * Creates a lookup, clones it, then overrides an existing field with the
+ * RLOOKUP_F_OVERRIDE flag. Verifies that data is written using the override key
+ * and read using the original key.
+ */
+TEST_F(RLookupTest, testCloneWithOverride) {
+  // Create source lookup with initial field
+  RLookup source = {0};
+  RLookup_Init(&source, NULL);
+
+  RLookupKey *src_key = RLookup_GetKey_Write(&source, "test_field", RLOOKUP_F_NOFLAGS);
+  ASSERT_TRUE(src_key);
+
+  // Initialize destination with spcache
+  IndexSpecCache spcache = {0};
+  RLookup dest = {0};
+  RLookup_Init(&dest, &spcache);
+
+  // Clone source into destination BEFORE override
+  RLookup_CloneInto(&dest, &source);
+
+  // Now override the same field in source with override flag
+  RLookupKey *override_src_key = RLookup_GetKey_Write(&source, "test_field", RLOOKUP_F_OVERRIDE);
+  ASSERT_TRUE(override_src_key);
+  ASSERT_NE(src_key, override_src_key);  // Should be different keys
+
+  // Verify the overridden field structure is cloned properly
+  RLookupKey *dest_key = RLookup_GetKey_Read(&dest, "test_field", RLOOKUP_F_NOFLAGS);
+  ASSERT_TRUE(dest_key);
+
+  // Test functionality: write to cloned key and read back
+  RLookupRow row = {0};
+  RSValue *test_value = RS_Int64Val(42);
+
+  RLookup_WriteKey(dest_key, &row, test_value);
+  RSValue *read_value = RLookup_GetItem(dest_key, &row);
+  ASSERT_TRUE(read_value);
+
+  double num_val = 0;
+  int result = RSValue_ToNumber(read_value, &num_val);
+  ASSERT_EQ(1, result);
+  ASSERT_EQ(42.0, num_val);
+
+  // Verify spcache is preserved
+  ASSERT_EQ(&spcache, dest.spcache);
+
+  // Verify that we can still override in the destination after cloning
+  RLookupKey *dest_override_key = RLookup_GetKey_Write(&dest, "test_field", RLOOKUP_F_OVERRIDE);
+  ASSERT_TRUE(dest_override_key);
+  ASSERT_NE(dest_key, dest_override_key);
+
+  // Cleanup
+  RSValue_Decref(test_value);
+  RLookupRow_Cleanup(&row);
   RLookup_Cleanup(&source);
   RLookup_Cleanup(&dest);
 }

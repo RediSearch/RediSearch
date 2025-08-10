@@ -1019,28 +1019,17 @@ RLookupKey *RLookupKey_Clone(const RLookupKey *src) {
     dst->flags = src->flags;  // Don't set NAMEALLOC if no strings
   }
 
-  // Don't copy the next pointer - caller will handle linking
-  dst->next = NULL;
-
   return dst;
 }
 
 void RLookup_CloneInto(RLookup *dst, const RLookup *src) {
-  if (!dst || !src) {
-    return;
-  }
+  RS_ASSERT(dst != NULL && src != NULL);
 
   // dst should be clean after RLookup_Init - only spcache should be set
   // Assert that dst is in the expected clean state from initialization
   RS_ASSERT(dst->head == NULL && dst->tail == NULL && dst->rowlen == 0 && dst->options == 0);
 
-
-  // Preserve dst's initialization state (spcache from init)
-  dst->spcache = dst->spcache;
-
   // Reset dst structure but preserve initialization
-  dst->head = NULL;
-  dst->tail = NULL;
   dst->rowlen = src->rowlen;
   dst->options = src->options;
 

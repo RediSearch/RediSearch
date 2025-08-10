@@ -148,7 +148,7 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
 
 /**
  * Clone a LOAD step for use in individual AREQ pipelines.
- * Handles both processed (has keys) and unprocessed (has args) LOAD steps.
+ * Handles only unprocessed (has args) LOAD steps.
  * This is used to clone and propagate the LOAD step to the individual AREQ pipelines (Hybrid)
  *
  * @param original The original PLN_LoadStep to clone

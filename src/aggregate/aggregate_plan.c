@@ -175,9 +175,7 @@ PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
 }
 
 PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
-  if (!original) {
-    return NULL;
-  }
+  RS_ASSERT(original);
 
   PLN_LoadStep *cloned = rm_calloc(1, sizeof(PLN_LoadStep));
 
@@ -188,28 +186,16 @@ PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
   cloned->base.dtor = original->base.dtor;
   cloned->base.getLookup = original->base.getLookup;
 
-  // Check if the LOAD step has been processed (has keys) or not (has args)
-  if (original->nkeys > 0) {
-    RS_LOG_ASSERT(original->keys, "original->keys is NULL");
-    // Processed: Clone the keys array
-    cloned->nkeys = original->nkeys;
-    cloned->keys = rm_calloc(original->nkeys, sizeof(RLookupKey*));
-    for (size_t i = 0; i < original->nkeys; i++) {
-      cloned->keys[i] = RLookupKey_Clone(original->keys[i]);
-    }
-    // Args might be invalid at this point, so don't copy them
-    memset(&cloned->args, 0, sizeof(ArgsCursor));
+
+  cloned->args = original->args; // Shallow copy of ArgsCursor
+  cloned->nkeys = 0;
+  // Pre-allocate keys array based on the number of arguments
+  if (original->args.argc > 0) {
+    cloned->keys = rm_calloc(original->args.argc, sizeof(RLookupKey*));
   } else {
-    // Unprocessed: Clone the ArgsCursor and pre-allocate keys array
-    cloned->args = original->args; // Shallow copy of ArgsCursor
-    cloned->nkeys = 0;
-    // Pre-allocate keys array based on the number of arguments
-    if (original->args.argc > 0) {
-      cloned->keys = rm_calloc(original->args.argc, sizeof(RLookupKey*));
-    } else {
-      cloned->keys = NULL;
-    }
+    cloned->keys = NULL;
   }
+
 
   return cloned;
 }
