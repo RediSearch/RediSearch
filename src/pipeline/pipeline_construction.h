@@ -12,11 +12,33 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
 
 /** Build the result processing and output formatting part of the pipeline.
  *  This creates pipeline components that process search results through operations
- *  like filtering, sorting, grouping, field loading, and output formatting. 
+ *  like filtering, sorting, grouping, field loading, and output formatting.
  *  There is a hidden assumption that the pipeline already contains at least one result processor to be used as an upstream */
 int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags);
 
 bool hasQuerySortby(const AGGPlan *pln);
+
+
+
+/**
+ * Process a complete LOAD step: parse arguments, create RPLoader, and handle JSON specs.
+ * This function handles the complete LOAD step processing workflow including argument parsing,
+ * RPLoader creation, and JSON spec handling. It's essentially the PLN_T_LOAD case logic
+ * extracted into a reusable function.
+ *
+ * @param loadStep The LOAD step to process
+ * @param lookup The RLookup context to use for creating keys
+ * @param sctx The search context
+ * @param reqflags Request flags
+ * @param loadFlags Flags to pass to RLookup_GetKey_LoadEx
+ * @param forceLoad Force loading flag for RPLoader_New
+ * @param outStateFlags Output state flags pointer
+ * @param status Error status object for reporting failures
+ * @return ResultProcessor* on success, NULL on failure
+ */
+ResultProcessor *ProcessLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
+                                RedisSearchCtx *sctx, uint32_t reqflags, uint32_t loadFlags,
+                                bool forceLoad, uint32_t *outStateFlags, QueryError *status);
 
 #ifdef __cplusplus
 }

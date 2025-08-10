@@ -285,7 +285,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   // Verify individual request pipeline structures
   // First request should have implicit scorer and sorter added
   // Actual order: DEPLETER -> LOADER -> SORTER -> SCORER -> INDEX
-  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER,RP_SORTER, RP_LOADER, RP_SCORER, RP_INDEX};
+  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX};
   VerifyPipelineChain(hybridReq->requests[0]->pipeline.qctx.endProc, expectedFirstRequestPipeline, "First request pipeline");
 
   // Second request should have the original structure (no implicit sorting)
@@ -358,7 +358,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
 
   // Verify individual request pipeline structures
   // First request should have implicit scorer and sorter added
-  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER, RP_SORTER, RP_LOADER, RP_SCORER, RP_INDEX};
+  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX};
   VerifyPipelineChain(hybridReq->requests[0]->pipeline.qctx.endProc, expectedFirstRequestPipeline, "First request pipeline");
 
   // Other requests should have the original structure
@@ -483,7 +483,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
 
   // Verify individual request pipeline structures (should include filter for field queries)
   // First request should have implicit scorer and sorter added
-  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER, RP_SORTER, RP_LOADER, RP_SCORER, RP_INDEX};
+  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX};
   VerifyPipelineChain(hybridReq->requests[0]->pipeline.qctx.endProc, expectedFirstRequestPipeline, "First request pipeline");
 
   // Second request should have the original structure
@@ -551,7 +551,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
 
   // Define expected pipelines for each request
   std::vector<std::vector<ResultProcessorType>> expectedPipelines = {
-    {RP_DEPLETER, RP_SORTER, RP_LOADER, RP_SCORER, RP_INDEX},  // First request pipeline
+    {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
     {RP_DEPLETER, RP_LOADER, RP_INDEX}                         // Other requests pipeline
   };
 
@@ -1093,7 +1093,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
     }
   }
   ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit 'key' field";
-  EXPECT_STREQ("__key", tailKeyField->path) << "Implicit key field should have path 'key'";
+  EXPECT_STREQ("key", tailKeyField->path) << "Implicit key field should have path 'key'";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
@@ -1113,7 +1113,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
       }
     }
     ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit 'key' field";
-    EXPECT_STREQ("__key", upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
+    EXPECT_STREQ("key", upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
     for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
