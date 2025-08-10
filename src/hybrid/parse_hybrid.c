@@ -372,21 +372,18 @@ error:
 /**
  * Parse COMBINE clause parameters for hybrid scoring configuration.
  *
- * Supports LINEAR (requires HYBRID_REQUEST_NUM_SUBQUERIES weight values) and RRF (optional K and WINDOW parameters).
+ * Supports LINEAR (requires numWeights weight values) and RRF (optional K and WINDOW parameters).
  * Defaults to RRF if no method specified. Uses hybrid-specific defaults: RRF K=60, WINDOW=20.
  * WINDOW parameter controls the number of results consumed from each subquery before fusion.
  * When WINDOW is not explicitly set, it can be overridden by LIMIT parameter in fallback logic.
  *
  * @param ac Arguments cursor positioned after "COMBINE"
  * @param combineCtx Hybrid scoring context to populate (window field and hasExplicitWindow flag are set)
+ * @param numWeights Number of weight values required for LINEAR scoring
  * @param status Output parameter for error reporting
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
-  // Store original state for cleanup on error
-  HybridScoringType originalType = combineCtx->scoringType;
-  double *originalWeights = NULL;
-
+static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t numWeights, QueryError *status) {
   // Check if a specific method is provided
   if (AC_AdvanceIfMatch(ac, "LINEAR")) {
     combineCtx->scoringType = HYBRID_SCORING_LINEAR;
@@ -398,27 +395,17 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
 
   // Parse parameters based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    // Store original weights if they exist (take ownership)
-    if (originalType == HYBRID_SCORING_LINEAR && combineCtx->linearCtx.linearWeights) {
-      originalWeights = combineCtx->linearCtx.linearWeights;
-    }
-
-    combineCtx->linearCtx.linearWeights = rm_calloc(HYBRID_REQUEST_NUM_SUBQUERIES, sizeof(double));
-    combineCtx->linearCtx.numWeights = HYBRID_REQUEST_NUM_SUBQUERIES;
+    combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
+    combineCtx->linearCtx.numWeights = numWeights;
 
     // Parse the weight values directly
-    for (size_t i = 0; i < HYBRID_REQUEST_NUM_SUBQUERIES; i++) {
+    for (size_t i = 0; i < numWeights; i++) {
       double weight;
       if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
         goto error;
       }
       combineCtx->linearCtx.linearWeights[i] = weight;
-    }
-
-    // Free original weights if they were replaced
-    if (originalWeights) {
-      rm_free(originalWeights);
     }
   } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
     // For RRF, we need k and window parameters
@@ -602,7 +589,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Look for optional COMBINE parameter
   if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
-    if (parseCombine(&ac, hybridParams->scoringCtx, status) != REDISMODULE_OK) {
+    if (parseCombine(&ac, hybridParams->scoringCtx, HYBRID_REQUEST_NUM_SUBQUERIES, status) != REDISMODULE_OK) {
       goto error;
     }
   }
