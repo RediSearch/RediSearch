@@ -46,7 +46,7 @@ static bool ensureSimpleMode(AREQ *req) {
  * 'simple' options - i.e. ones which rely on the field to be the exact same as
  * found in the document - was not requested.
  * name argument must not contain any user data, as it is used for error formatting
- */
+*/
 static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
   if (*reqflags & QEXEC_F_IS_SEARCH) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
@@ -273,13 +273,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
-    } else if ((arng->limit > *papCtx->maxSearchResults) &&
-               (*papCtx->reqflags & QEXEC_F_IS_SEARCH)) {
+    } else if ((arng->limit > *papCtx->maxSearchResults) && (*papCtx->reqflags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY))) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
-    } else if ((arng->limit > *papCtx->maxAggregateResults) &&
-               !(*papCtx->reqflags & QEXEC_F_IS_SEARCH)) {
+    } else if ((arng->limit > *papCtx->maxAggregateResults) && !(*papCtx->reqflags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY))) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxAggregateResults);
       return ARG_ERROR;
@@ -397,7 +395,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (*papCtx->reqflags & QEXEC_F_IS_HYBRID && isSortby0) {
+    if ((*papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) && isSortby0) {
       // SORTBY 0 means disable all sorting in Hybrid requests
       AC_Advance(ac); // Consume the "0" argument
       arng->noSort = true;
@@ -970,7 +968,9 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
     }
   }
 
-  if (!(*papCtx->reqflags & QEXEC_F_SEND_HIGHLIGHT) && !(*papCtx->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) && (!(*papCtx->reqflags & QEXEC_F_IS_SEARCH) || hasQuerySortby(papCtx->plan))) {
+  if (!(*papCtx->reqflags & QEXEC_F_SEND_HIGHLIGHT) &&
+      !(*papCtx->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) &&
+      (!(*papCtx->reqflags & QEXEC_F_IS_SEARCH) || hasQuerySortby(papCtx->plan))) {
     // We can skip collecting full results structure and metadata from the iterators if:
     // 1. We don't have a highlight/summarize step,
     // 2. We are not required to return scores explicitly,

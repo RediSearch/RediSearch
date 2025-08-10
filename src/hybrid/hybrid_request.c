@@ -50,7 +50,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
-        // Worth noting that in the current syntax we expect the AGGPlan to be empty
         int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
         if (rc != REDISMODULE_OK) {
             StrongRef_Release(sync_ref);
