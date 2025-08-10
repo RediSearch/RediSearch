@@ -132,7 +132,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   bool bgScanOOM = profileCtx->bgScanOOM;
-  req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->profileInitClock);
+  req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
 
   //-------------------------------------------------------------------------------------------
   RedisModule_Reply_Map(reply);
