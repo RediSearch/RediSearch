@@ -843,7 +843,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   bool is_profile = IsProfile(req);
   if (is_profile) {
     rs_wall_clock_init(&parseClock);
-    // Calculate the time elapsed for profileParseTime by using the initilized parseClock
+    // Calculate the time elapsed for profileParseTime by using the initialized parseClock
     req->profileParseTime = rs_wall_clock_diff_ns(&req->profileInitClock, &parseClock);
   }
 
