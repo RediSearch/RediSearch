@@ -32,19 +32,26 @@ static inline void rs_wall_clock_init(rs_wall_clock *clk) {
     clock_gettime(CLOCK_MONOTONIC, &clk->start);
 }
 
-// Returns time elapsed since start, in nanoseconds
-static inline rs_wall_clock_ns_t rs_wall_clock_elapsed_ns(rs_wall_clock *clk) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-
-    uint64_t sec_diff = (uint64_t)(now.tv_sec - clk->start.tv_sec);
-    int64_t nsec_diff = now.tv_nsec - clk->start.tv_nsec;
+// Returns the time difference between two rs_wall_clock in nanoseconds.
+// Assumes 'end' is sampled after 'start'.
+static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start,
+                                                       rs_wall_clock *end) {
+    uint64_t sec_diff = (uint64_t)(end->start.tv_sec - start->start.tv_sec);
+    int64_t nsec_diff = end->start.tv_nsec - start->start.tv_nsec;
     if (nsec_diff < 0) {
         sec_diff -= 1;
         nsec_diff += NANOSEC_PER_SECONDS;
     }
 
     return sec_diff * NANOSEC_PER_SECONDS + nsec_diff;
+}
+
+
+// Returns time elapsed since start, in nanoseconds
+static inline rs_wall_clock_ns_t rs_wall_clock_elapsed_ns(rs_wall_clock *clk) {
+    rs_wall_clock now;
+    rs_wall_clock_init(&now);
+    return rs_wall_clock_diff_ns(clk, &now);
 }
 
 static inline rs_wall_clock_ns_t rs_wall_clock_now_ns(void) {
