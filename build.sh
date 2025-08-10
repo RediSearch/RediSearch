@@ -22,6 +22,7 @@ FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
+SVS_SHARED_LIB=${SVS_SHARED_LIB:-0} # Build SVS as a shared library
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -110,6 +111,9 @@ parse_arguments() {
         ;;
       REDIS_STANDALONE=*)
         REDIS_STANDALONE="${arg#*=}"
+        ;;
+      SVS_SHARED_LIB=*)
+        SVS_SHARED_LIB="${arg#*=}"
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -310,6 +314,10 @@ prepare_cmake_arguments() {
 
   if [[ "$OS_NAME" == "macos" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+  fi
+
+  if [[ "$SVS_SHARED_LIB" == "0" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
   fi
 }
 

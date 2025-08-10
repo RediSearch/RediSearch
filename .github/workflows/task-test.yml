@@ -182,6 +182,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
+          SVS_SHARED_LIB: 1
         run: make build TESTS=1
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
