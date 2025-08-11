@@ -313,7 +313,13 @@ impl<Data> Node<Data> {
     /// # Safety
     ///
     /// The caller must ensure that the offset is within the bounds of the current label.
-    unsafe fn split_unchecked(mut self, offset: usize, extra_child: Option<Node<Data>>) -> Self {
+    unsafe fn split_unchecked(
+        mut self,
+        offset: usize,
+        extra_child: Option<Node<Data>>,
+        total_memory_usage: &mut usize,
+    ) -> Self {
+        let old_node_size = self.mem_usage();
         debug_assert!(
             offset < self.label_len() as usize,
             "The label offset must be fully contained within the current label"
@@ -392,9 +398,11 @@ impl<Data> Node<Data> {
             n_children: 1 + if extra_child.is_some() { 1 } else { 0 },
         };
         // Resize the old allocation
+        let new_root_size: usize;
         let mut new_ptr = {
             let new_metadata: PtrMetadata<Data> = new_header.metadata();
             let (old_ptr, old_metadata) = old_ptr.into_parts();
+            new_root_size = new_metadata.layout().size();
             // SAFETY:
             // - `self.ptr` was allocated via the same global allocator
             //    we are invoking via `realloc`.
@@ -410,7 +418,7 @@ impl<Data> Node<Data> {
                 realloc(
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
-                    new_metadata.layout().size(),
+                    new_root_size,
                 ) as *mut NodeHeader
             };
             let Some(new_ptr) = NonNull::new(new_ptr) else {
@@ -429,6 +437,13 @@ impl<Data> Node<Data> {
         // of the new memory block is guaranteed to have the same values as the original block.
         // Therefore, we don't need to update the label slot: the label must be truncated,
         // but the prefix is in the correct location already.
+
+        // Update the total memory usage
+        *total_memory_usage = *total_memory_usage
+            + new_root_size
+            + child.mem_usage()
+            + extra_child.as_ref().map(|c| c.mem_usage()).unwrap_or(0)
+            - old_node_size;
 
         if let Some(extra_child) = extra_child {
             // Sort the children before writing them to the new memory block.
@@ -610,13 +625,20 @@ impl<Data> Node<Data> {
     /// # Safety
     ///
     /// `i` must be lower or equal than the current number of children.
-    unsafe fn add_child_unchecked(mut self, new_child: Node<Data>, i: usize) -> Self {
+    unsafe fn add_child_unchecked(
+        mut self,
+        new_child: Node<Data>,
+        i: usize,
+        total_memory_usage: &mut usize,
+    ) -> Self {
         debug_assert!(
             i <= self.n_children() as usize,
             "Index out of bounds: {} > {}",
             i,
             self.n_children()
         );
+        let old_root_size = self.mem_usage();
+        let new_root_size: usize;
 
         // First, calculate the new layout size
         let new_header = NodeHeader {
@@ -629,10 +651,11 @@ impl<Data> Node<Data> {
 
         let (mut new_ptr, old_ptr) = {
             let (old_ptr, old_metadata) = self.downgrade().into_parts();
+            new_root_size = new_metadata.layout().size();
 
             // Reallocate the memory block to the new size BEFORE making any changes
             debug_assert!(
-                new_metadata.layout().size() >= old_metadata.layout().size(),
+                new_root_size >= old_metadata.layout().size(),
                 "The layout size after adding a child should not be smaller than the old layout size"
             );
             // SAFETY:
@@ -650,7 +673,7 @@ impl<Data> Node<Data> {
                 realloc(
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
-                    new_metadata.layout().size(),
+                    new_root_size,
                 ) as *mut NodeHeader
             };
 
@@ -667,6 +690,9 @@ impl<Data> Node<Data> {
             let old_ptr = unsafe { PtrWithMetadata::new(raw_ptr, old_metadata) };
             (new_ptr, old_ptr)
         };
+
+        *total_memory_usage =
+            *total_memory_usage + new_root_size + new_child.mem_usage() - old_root_size;
 
         // Since we are _expanding_, we set fields in right-to-left order.
         // This ensures that we don't accidentally overwrite any data that we
@@ -802,7 +828,7 @@ impl<Data> Node<Data> {
     /// # Safety
     ///
     /// `i` must be lower than the current number of children.
-    unsafe fn remove_child_unchecked(mut self, i: usize) -> Self {
+    unsafe fn remove_child_unchecked(mut self, i: usize, total_memory_usage: &mut usize) -> Self {
         debug_assert!(
             i < self.n_children() as usize,
             "Index out of bounds: {} >= {}",
@@ -810,6 +836,9 @@ impl<Data> Node<Data> {
             self.n_children()
         );
 
+        // SAFETY:
+        // - `i` is within bounds, thanks to the safety preconditions of this method.
+        let removed_child_size = unsafe { self.children().get_unchecked(i).mem_usage() };
         let old_n_children = self.n_children() as usize;
         let data = self.data_mut().take();
         let new_header = NodeHeader {
@@ -926,8 +955,10 @@ impl<Data> Node<Data> {
         // Reallocate to the smaller size
         let (old_ptr, old_metadata) = old_ptr.into_parts();
         let (_, new_metadata) = new_ptr.into_parts();
+        let old_size = old_metadata.layout().size();
+        let new_size = new_metadata.layout().size();
         debug_assert!(
-            old_metadata.layout().size() >= new_metadata.layout().size(),
+            old_size >= new_size,
             "When removing a child, the size of the allocation should not increase"
         );
         let new_ptr = {
@@ -943,11 +974,7 @@ impl<Data> Node<Data> {
             //   and `new_metadata.layout()` already includes the required
             //   padding. See 2. in [`PtrMetadata::layout`]
             unsafe {
-                realloc(
-                    old_ptr.as_ptr().cast(),
-                    old_metadata.layout(),
-                    new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                realloc(old_ptr.as_ptr().cast(), old_metadata.layout(), new_size) as *mut NodeHeader
             }
         };
 
@@ -955,6 +982,8 @@ impl<Data> Node<Data> {
             // The reallocation failed!
             handle_alloc_error(new_metadata.layout())
         };
+
+        *total_memory_usage = *total_memory_usage + new_size - old_size - removed_child_size;
 
         // The buffer is already correctly initialized since we performed the shifts
         // before reallocating the buffer.
