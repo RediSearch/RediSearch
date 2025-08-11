@@ -90,7 +90,6 @@ double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores,
  */
 HybridScoringContext* HybridScoringContext_NewRRF(double k, size_t window, bool hasExplicitWindow) {
     HybridScoringContext *ctx = rm_calloc(1, sizeof(HybridScoringContext));
-    if (!ctx) return NULL;
 
     ctx->scoringType = HYBRID_SCORING_RRF;
     ctx->rrfCtx.k = k;

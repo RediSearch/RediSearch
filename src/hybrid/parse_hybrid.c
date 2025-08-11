@@ -89,7 +89,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, ParsedVectorData *pvd, QueryError *status) {
+static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
   // Try to get number of parameters
@@ -157,7 +157,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attr
         .value = rm_strdup(value),
         .vallen = strlen(value)
       };
-      *attributes = array_ensure_append_1(*attributes, attr);
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       hasYieldDistanceAs = true;
 
     } else {
@@ -318,7 +318,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Parse optional KNN or RANGE clause
   if (AC_AdvanceIfMatch(ac, "KNN")) {
-    if (parseKNNClause(ac, vq, &pvd->attributes, pvd, status) != REDISMODULE_OK) {
+    if (parseKNNClause(ac, vq, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
     vq->type = VECSIM_QT_KNN;
@@ -503,21 +503,20 @@ static bool hasExplicitLimitInPipeline(Pipeline *pipeline) {
  * for hybrid search operations.
  *
  * @param mergePipeline The pipeline to extract LIMIT from
- * @param vectorRequest The vector request containing KNN parameters
+ * @param pvd The parsed vector data containing KNN parameters
  * @param hybridParams The hybrid parameters containing WINDOW settings
  */
 static void applyLimitParameterFallbacks(Pipeline *mergePipeline,
-                                       AREQ *vectorRequest,
+                                       ParsedVectorData *pvd,
                                        HybridPipelineParams *hybridParams) {
   size_t limitValue = getLimitFromPipeline(mergePipeline);
   bool hasExplicitLimit = hasExplicitLimitInPipeline(mergePipeline);
 
   // Apply LIMIT → KNN K fallback ONLY if K was not explicitly set AND LIMIT was explicitly provided
-  if (vectorRequest->parsedVectorData &&
-      vectorRequest->parsedVectorData->query->type == VECSIM_QT_KNN &&
-      !vectorRequest->parsedVectorData->hasExplicitK &&
+  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
+      !pvd->hasExplicitK &&
       hasExplicitLimit && limitValue > 0) {
-    vectorRequest->parsedVectorData->query->knn.k = limitValue;
+    pvd->query->knn.k = limitValue;
   }
 
   // Apply LIMIT → WINDOW fallback ONLY if WINDOW was not explicitly set AND LIMIT was explicitly provided
@@ -643,7 +642,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       goto error;
     }
 
-    applyLimitParameterFallbacks(mergePipeline, vectorRequest, hybridParams);
+    applyLimitParameterFallbacks(mergePipeline, vectorRequest->parsedVectorData, hybridParams);
   }
 
   // Create the hybrid request with proper structure
