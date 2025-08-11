@@ -150,9 +150,9 @@ typedef struct LowMemoryThinVecRSIndexResult {
  * `BitFlags` value where that isn't the case is only possible with
  * incorrect unsafe code.
  */
-typedef uint32_t BitFlags_RSResultKind__u32;
+typedef uint8_t BitFlags_RSResultKind__u8;
 
-typedef BitFlags_RSResultKind__u32 RSResultTypeMask;
+typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 
 /**
  * Represents an aggregate array of values in an index record.
@@ -172,9 +172,9 @@ typedef struct RSAggregateResult {
    */
   struct LowMemoryThinVecRSIndexResult records;
   /**
-   * A map of the aggregate type of the underlying records
+   * A map of the aggregate kind of the underlying records
    */
-  RSResultTypeMask typeMask;
+  RSResultKindMask kindMask;
 } RSAggregateResult;
 
 /**
@@ -221,11 +221,11 @@ typedef struct RSNumericRecord {
  * Holds the actual data of an ['IndexResult']
  *
  * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
- * the bitflags on [`RSResultTypeMask`]
+ * the bitflags on [`RSResultKindMask`]
  */
 enum RSResultData_Tag
 #ifdef __cplusplus
-  : uint32_t
+  : uint8_t
 #endif // __cplusplus
  {
   RSResultData_Union = 1,
@@ -237,7 +237,7 @@ enum RSResultData_Tag
   RSResultData_HybridMetric = 64,
 };
 #ifndef __cplusplus
-typedef uint32_t RSResultData_Tag;
+typedef uint8_t RSResultData_Tag;
 #endif // __cplusplus
 
 typedef union RSResultData {
@@ -386,7 +386,7 @@ struct RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
 const struct RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
 
 /**
- * Reset the result if it is an aggregate result. This will clear all children and reset the type mask.
+ * Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
  * This function does not deallocate the children pointers, but rather resets the internal state of the
  * aggregate result. The owner of the children pointers is responsible for managing their lifetime.
  *
@@ -431,14 +431,14 @@ uintptr_t AggregateResult_NumChildren(const struct RSAggregateResult *agg);
 uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
 
 /**
- * Get the type mask of the aggregate result.
+ * Get the kind mask of the aggregate result.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
+uint8_t AggregateResult_KindMask(const struct RSAggregateResult *agg);
 
 /**
  * Create a new aggregate result with the specified capacity. This function will make the result
@@ -462,7 +462,7 @@ void AggregateResult_Free(struct RSAggregateResult agg);
  * the `child` and will therefore not free it. Instead, the caller is responsible for managing
  * the memory of the `child` pointer *after* the `parent` has been freed.
  *
- * If the `parent` is not an aggregate type, then this is a no-op.
+ * If the `parent` is not an aggregate kind, then this is a no-op.
  *
  * # Safety
  *

@@ -8,7 +8,7 @@
 */
 
 use ffi::RS_FIELDMASK_ALL;
-use inverted_index::{RSAggregateResult, RSIndexResult, RSResultKind, RSResultTypeMask};
+use inverted_index::{RSAggregateResult, RSIndexResult, RSResultKind, RSResultKindMask};
 
 mod c_mocks;
 
@@ -16,13 +16,13 @@ mod c_mocks;
 fn pushing_to_aggregate_result() {
     let mut agg = RSAggregateResult::with_capacity(2);
 
-    assert_eq!(agg.type_mask(), RSResultTypeMask::empty());
+    assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
 
     let num_first = RSIndexResult::numeric(10.0).doc_id(2);
     agg.push(&num_first);
 
     assert_eq!(
-        agg.type_mask(),
+        agg.kind_mask(),
         RSResultKind::Numeric,
         "type mask should be ORed"
     );
@@ -33,7 +33,7 @@ fn pushing_to_aggregate_result() {
     let num_second = RSIndexResult::numeric(100.0).doc_id(3);
     agg.push(&num_second);
 
-    assert_eq!(agg.type_mask(), RSResultKind::Numeric);
+    assert_eq!(agg.kind_mask(), RSResultKind::Numeric);
 
     assert_eq!(agg.get(0), Some(&RSIndexResult::numeric(10.0).doc_id(2)));
     assert_eq!(agg.get(1), Some(&RSIndexResult::numeric(100.0).doc_id(3)));
@@ -43,7 +43,7 @@ fn pushing_to_aggregate_result() {
     agg.push(&virt_first);
 
     assert_eq!(
-        agg.type_mask(),
+        agg.kind_mask(),
         RSResultKind::Numeric | RSResultKind::Virtual,
         "types should be combined"
     );

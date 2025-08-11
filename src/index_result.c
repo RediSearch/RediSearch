@@ -216,7 +216,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return AggregateResult_TypeMask(agg) != RSResultData_Virtual && AggregateResult_TypeMask(agg) != RS_RESULT_NUMERIC;
+      return AggregateResult_KindMask(agg) != RSResultData_Virtual && AggregateResult_KindMask(agg) != RS_RESULT_NUMERIC;
     }
     // a virtual result doesn't have offsets!
     case RSResultData_Virtual:
