@@ -11,6 +11,7 @@ protected:
   RedisModuleCtx *ctx;
   std::string index_name;
   RedisSearchCtx *sctx;
+   HybridRequest *result;  // Member to hold current test result
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
@@ -34,9 +35,15 @@ protected:
 
     sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
     ASSERT_TRUE(sctx != NULL);
+    result = nullptr;  // Initialize result pointer
   }
 
   void TearDown() override {
+    // Free the result if it was set during the test
+    if (result) {
+      HybridRequest_Free(result);
+      result = nullptr;
+    }
     if (sctx) {
       SearchCtx_Free(sctx);
       sctx = nullptr;
@@ -50,6 +57,27 @@ protected:
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;
     }
+  }
+
+  /**
+   * Helper function to parse and validate hybrid command with common boilerplate.
+   * Handles initialization, parsing, validation, and stores result in member variable.
+   *
+   * @param args The command arguments to parse
+   * @return Pointer to the parsed HybridRequest (also stored in member variable)
+   */
+  HybridRequest* parseHybridCommand(RMCK::ArgvList& args) {
+    QueryError status = {QueryErrorCode(0)};
+
+    RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+    EXPECT_TRUE(test_sctx != NULL) << "Failed to create search context";
+
+    result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
+    EXPECT_TRUE(result != nullptr) << "parseHybridCommand returned NULL";
+
+    return result;
   }
 
 static void validateDefaultParams(HybridRequest* result, size_t expectedWindow, size_t expectedKnnK) {
@@ -86,320 +114,183 @@ const char* TEST_BLOB_DATA = "\x12\xa9\xf5\x6c";
 
 // All defaults applied
 TEST_F(HybridDefaultsTest, testDefaultValues) {
-  QueryError status = {QueryErrorCode(0)};
-  
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
-  
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-  
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
 
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   validateDefaultParams(result, HYBRID_DEFAULT_WINDOW, HYBRID_DEFAULT_KNN_K);
-  
-  HybridRequest_Free(result);
 }
 
 // LIMIT affects both implicit parameters
 TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
-  QueryError status = {QueryErrorCode(0)};
-  
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "LIMIT", "0", "25");
-  
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-  
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-  
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-  
+
+  parseHybridCommand(args);
   validateDefaultParams(result, 25, 25);
-  
-  HybridRequest_Free(result);
 }
 
 // LIMIT affects only implicit K, but K gets capped at explicit WINDOW
 TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "25");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // K should be capped at WINDOW=15 even though LIMIT fallback would set it to 25
   validateDefaultParams(result, 15, 15);
-
-  HybridRequest_Free(result);
 }
 
 // LIMIT affects only implicit WINDOW
 TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
-  QueryError status = {QueryErrorCode(0)};
-  
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF", "LIMIT", "0", "25");
-  
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-  
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-  
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-  
+
+  parseHybridCommand(args);
   validateDefaultParams(result, 25, 8);
-  
-  HybridRequest_Free(result);
 }
 
 // Explicit parameters override LIMIT
 TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "25");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   validateDefaultParams(result, 15, 8);
-
-  HybridRequest_Free(result);
 }
 
 // Large LIMIT values work
 TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
-  QueryError status = {QueryErrorCode(0)};
-  
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "LIMIT", "0", "10000");
-  
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-  
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-  
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-  
+
+  parseHybridCommand(args);
   validateDefaultParams(result, 10000, 10000);
-  
-  HybridRequest_Free(result);
 }
 
 // Flag verification tests
 TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // Both flags should be false
   ASSERT_FALSE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
   ASSERT_FALSE(result->requests[1]->parsedVectorData->hasExplicitK);
-
-  HybridRequest_Free(result);
 }
 
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitK) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // K explicit, WINDOW implicit
   ASSERT_TRUE(result->requests[1]->parsedVectorData->hasExplicitK);
   ASSERT_FALSE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
-
-  HybridRequest_Free(result);
 }
 
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitWindow) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "2", "WINDOW", "15");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // WINDOW explicit, K implicit
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
   ASSERT_FALSE(result->requests[1]->parsedVectorData->hasExplicitK);
-
-  HybridRequest_Free(result);
 }
 
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitBoth) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "15");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // Both flags should be true
   ASSERT_TRUE(result->requests[1]->parsedVectorData->hasExplicitK);
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
-
-  HybridRequest_Free(result);
 }
 
 TEST_F(HybridDefaultsTest, testLinearDefaults) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "LINEAR", "0.6", "0.4");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // LINEAR should not have window parameter (uses regular limit instead)
   ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
 
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(HYBRID_DEFAULT_KNN_K, vq->knn.k)
       << "Expected KNN k=" << HYBRID_DEFAULT_KNN_K << ", got " << vq->knn.k;
-
-  HybridRequest_Free(result);
 }
 
 // Test K ≤ WINDOW constraint: explicit K > explicit WINDOW should cap K to WINDOW
 TEST_F(HybridDefaultsTest, testKCappedAtExplicitWindow) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "50", "COMBINE", "RRF", "2", "WINDOW", "15");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // Verify K was capped to WINDOW value
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(15, vq->knn.k) << "Expected K to be capped at WINDOW=15, got " << vq->knn.k;
   ASSERT_EQ(15, result->hybridParams->scoringCtx->rrfCtx.window);
-
-  HybridRequest_Free(result);
 }
 
 // Test K ≤ WINDOW constraint: K from LIMIT fallback > explicit WINDOW should cap K to WINDOW
 TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "2", "WINDOW", "12", "LIMIT", "0", "30");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // K should be capped to WINDOW (12) even though LIMIT fallback would set it to 30
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(12, vq->knn.k) << "Expected K to be capped at WINDOW=12, got " << vq->knn.k;
   ASSERT_EQ(12, result->hybridParams->scoringCtx->rrfCtx.window);
-
-  HybridRequest_Free(result);
 }
 
 // Test K ≤ WINDOW constraint: explicit K > WINDOW from LIMIT fallback should cap K to WINDOW
 TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "25", "COMBINE", "RRF", "LIMIT", "0", "18");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // K should be capped to WINDOW (18 from LIMIT fallback) even though K was explicitly set to 25
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(18, vq->knn.k) << "Expected K to be capped at WINDOW=18, got " << vq->knn.k;
   ASSERT_EQ(18, result->hybridParams->scoringCtx->rrfCtx.window);
+}
 
-  HybridRequest_Free(result);
+// Test that Linear scoring is unaffected by K ≤ WINDOW constraint
+TEST_F(HybridDefaultsTest, testLinearScoringUnaffectedByKWindowConstraint) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+                      "KNN", "2", "K", "50", "COMBINE", "LINEAR", "0.7", "0.3");
+
+  parseHybridCommand(args);
+  // Linear scoring should not apply K ≤ WINDOW constraint, K should remain 50
+  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
+  VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
+  ASSERT_EQ(50, vq->knn.k) << "Expected K to remain 50 for Linear scoring, got " << vq->knn.k;
 }
 
 // Test that K ≤ WINDOW constraint doesn't affect cases where K is already ≤ WINDOW
 TEST_F(HybridDefaultsTest, testKAlreadyWithinWindow) {
-  QueryError status = {QueryErrorCode(0)};
-
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "20");
 
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-
+  parseHybridCommand(args);
   // K should remain unchanged since 8 ≤ 20
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(8, vq->knn.k) << "Expected K to remain 8, got " << vq->knn.k;
   ASSERT_EQ(20, result->hybridParams->scoringCtx->rrfCtx.window);
-
-  HybridRequest_Free(result);
 }
