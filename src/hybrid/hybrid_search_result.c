@@ -105,12 +105,9 @@ double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
  * Main function to merge SearchResults from multiple upstreams into a single comprehensive result.
  * Finds the primary result, computes hybrid score, merges flags, and returns the merged result.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
- * After calling this function, the caller is responsible for freeing the returned SearchResult.
  */
 SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx) {
-  if (!hybridResult || !scoringCtx) {
-    return NULL;
-  }
+  RS_ASSERT(hybridResult && scoringCtx);
 
   // Find the primary result (first non-null result)
   SearchResult *primary = NULL;

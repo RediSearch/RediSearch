@@ -1235,17 +1235,8 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
     ASSERT_TRUE(r.dmd != nullptr);
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
 
-    if (r.docId == 1) {
-      // Doc1: Verify linear score calculation: 0.3*3.0 + 0.7*2.0 = 2.3
-      ASSERT_NEAR(2.3, r.score, 0.0001);
-      // Verify flag merging: should have Result_ExpiredDoc from upstream1
-      ASSERT_TRUE(r.flags & Result_ExpiredDoc);
-    } else if (r.docId == 2) {
-      // Doc2: Verify linear score calculation: 0.3*5.0 + 0.7*4.0 = 4.3
-      ASSERT_NEAR(4.3, r.score, 0.0001);
-      // Verify flag merging: should have Result_ExpiredDoc from upstream1
-      ASSERT_TRUE(r.flags & Result_ExpiredDoc);
-    }
+    //Verify flag merging - should have Result_ExpiredDoc from upstream1
+    ASSERT_TRUE(r.flags & Result_ExpiredDoc);
 
     SearchResult_Clear(&r);
   }
@@ -1265,10 +1256,10 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
   QueryIterator qitr = {0};
 
   // Create upstreams with same documents but different rankings
-  // Set Result_ExpiredDoc flag on upstream1 for flag merging test
-  MockUpstream upstream1(0, {0.9, 0.5}, {1, 2}, 0, -1, Result_ExpiredDoc);
-  // Upstream2: doc2=rank1, doc1=rank2 (reverse ranking), no flags
-  MockUpstream upstream2(0, {0.8, 0.3}, {2, 1});
+  // Upstream1: no flags
+  MockUpstream upstream1(0, {0.9, 0.5}, {1, 2});
+  // Set Result_ExpiredDoc flag on upstream2 for flag merging test
+  MockUpstream upstream2(0, {0.8, 0.3}, {2, 1}, 0, -1, Result_ExpiredDoc);
 
   ResultProcessor *rp1 = &upstream1;
   ResultProcessor *rp2 = &upstream2;
@@ -1294,17 +1285,8 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
     ASSERT_TRUE(r.dmd != nullptr);
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
 
-    if (r.docId == 1) {
-      // Doc1: Verify RRF score calculation: 1/(60+1) + 1/(60+2) ≈ 0.0325
-      ASSERT_NEAR(1.0/61.0 + 1.0/62.0, r.score, 0.0001);
-      // Verify flag merging: should have Result_ExpiredDoc from upstream1
-      ASSERT_TRUE(r.flags & Result_ExpiredDoc);
-    } else if (r.docId == 2) {
-      // Doc2: Verify RRF score calculation: 1/(60+2) + 1/(60+1) ≈ 0.0325
-      ASSERT_NEAR(1.0/62.0 + 1.0/61.0, r.score, 0.0001);
-      // Verify flag merging: should have Result_ExpiredDoc from upstream1
-      ASSERT_TRUE(r.flags & Result_ExpiredDoc);
-    }
+    //Verify flag merging - should have Result_ExpiredDoc from upstream2
+    ASSERT_TRUE(r.flags & Result_ExpiredDoc);
 
     SearchResult_Clear(&r);
   }

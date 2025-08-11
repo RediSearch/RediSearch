@@ -59,10 +59,6 @@ double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
  * Main function to merge SearchResults from multiple upstreams into a single comprehensive result.
  * Finds the primary result, computes hybrid score, merges flags, and returns the merged result.
  * This function transfers ownership of the primary result away from the HybridSearchResult.
- * After calling this function, the caller is responsible for freeing the returned SearchResult.
- * Note: Field data union is not performed due to RLookup index collision issues.
- * Different upstreams may have different field index mappings even with same schema.
- * Only the primary upstream's field data is preserved.
  */
 SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx);
 
