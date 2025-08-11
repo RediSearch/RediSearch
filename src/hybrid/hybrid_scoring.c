@@ -111,7 +111,6 @@ HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size
     if (!weights || numWeights == 0) return NULL;
 
     HybridScoringContext *ctx = rm_calloc(1, sizeof(HybridScoringContext));
-    if (!ctx) return NULL;
 
     ctx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     if (!ctx->linearCtx.linearWeights) {

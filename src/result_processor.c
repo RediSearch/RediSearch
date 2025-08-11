@@ -1806,9 +1806,8 @@ dictType dictTypeHybridSearchResult = {
       if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
         window = self->hybridScoringCtx->rrfCtx.window;
       } else {
-        // For LINEAR scoring, use the aggregation pipeline limit or default max aggregate results
-        window = (self->base.parent && self->base.parent->resultLimit > 0) ?
-                 self->base.parent->resultLimit : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS;
+        // For LINEAR scoring, use the tail pipeline limit
+        window = self->base.parent->resultLimit;
       }
       int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
 

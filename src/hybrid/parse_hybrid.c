@@ -486,7 +486,7 @@ static size_t getLimitFromPipeline(Pipeline *pipeline) {
 }
 
 // Helper function to check if LIMIT was explicitly provided
-static bool hasExplicitLimitInPipeline(Pipeline *pipeline) {
+static bool tailHasExplicitLimitInPipeline(Pipeline *pipeline) {
   if (!pipeline) return false;
 
   PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(&pipeline->ap);
@@ -502,15 +502,15 @@ static bool hasExplicitLimitInPipeline(Pipeline *pipeline) {
  * This ensures consistent behavior where LIMIT acts as a unified size hint
  * for hybrid search operations.
  *
- * @param mergePipeline The pipeline to extract LIMIT from
+ * @param tailPipeline The pipeline to extract LIMIT from
  * @param pvd The parsed vector data containing KNN parameters
  * @param hybridParams The hybrid parameters containing WINDOW settings
  */
-static void applyLimitParameterFallbacks(Pipeline *mergePipeline,
+static void applyLimitParameterFallbacks(Pipeline *tailPipeline,
                                        ParsedVectorData *pvd,
                                        HybridPipelineParams *hybridParams) {
-  size_t limitValue = getLimitFromPipeline(mergePipeline);
-  bool hasExplicitLimit = hasExplicitLimitInPipeline(mergePipeline);
+  size_t limitValue = getLimitFromPipeline(tailPipeline);
+  bool hasExplicitLimit = tailHasExplicitLimitInPipeline(tailPipeline);
 
   // Apply LIMIT → KNN K fallback ONLY if K was not explicitly set AND LIMIT was explicitly provided
   if (pvd && pvd->query->type == VECSIM_QT_KNN &&
@@ -560,7 +560,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
 
   // Individual variables used for parsing the tail of the command
-  Pipeline *mergePipeline = NULL;
+  Pipeline *tailPipeline = NULL;
   uint32_t mergeReqflags = QEXEC_F_IS_HYBRID_TAIL;
   RequestConfig mergeReqConfig = RSGlobalConfig.requestConfigParams;
   RSSearchOptions mergeSearchopts = {0};
@@ -603,12 +603,12 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (remainingArgs > 0) {
     hasMerge = true;
 
-    mergePipeline = rm_calloc(1, sizeof(Pipeline));
-    AGPLN_Init(&mergePipeline->ap);
+    tailPipeline = rm_calloc(1, sizeof(Pipeline));
+    AGPLN_Init(&tailPipeline->ap);
     RSSearchOptions_Init(&mergeSearchopts);
 
     ParseAggPlanContext papCtx = {
-      .plan = &mergePipeline->ap,
+      .plan = &tailPipeline->ap,
       .reqflags = &mergeReqflags,
       .reqConfig = &mergeReqConfig,
       .searchopts = &mergeSearchopts,
@@ -642,7 +642,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       goto error;
     }
 
-    applyLimitParameterFallbacks(mergePipeline, vectorRequest->parsedVectorData, hybridParams);
+    applyLimitParameterFallbacks(tailPipeline, vectorRequest->parsedVectorData, hybridParams);
   }
 
   // Create the hybrid request with proper structure
@@ -684,8 +684,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       rm_free(hybridRequest->tailPipeline);
     }
 
-    hybridRequest->tailPipeline = mergePipeline;
-    mergePipeline = NULL;  // Prevent double free
+    hybridRequest->tailPipeline = tailPipeline;
+    tailPipeline = NULL;  // Prevent double free
   }
 
   return hybridRequest;
@@ -724,9 +724,9 @@ error:
     rm_free(hybridParams);
   }
 
-  if (mergePipeline) {
-    Pipeline_Clean(mergePipeline);
-    rm_free(mergePipeline);
+  if (tailPipeline) {
+    Pipeline_Clean(tailPipeline);
+    rm_free(tailPipeline);
   }
 
   return NULL;
