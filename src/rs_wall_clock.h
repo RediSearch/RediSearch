@@ -36,6 +36,7 @@ static inline void rs_wall_clock_init(rs_wall_clock *clk) {
 // Assumes 'end' is sampled after 'start'.
 static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start,
                                                        rs_wall_clock *end) {
+    RS_ASSERT(end->start.tv_sec >= start->start.tv_sec); // Assert the assumption
     uint64_t sec_diff = (uint64_t)(end->start.tv_sec - start->start.tv_sec);
     int64_t nsec_diff = end->start.tv_nsec - start->start.tv_nsec;
     if (nsec_diff < 0) {
