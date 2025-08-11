@@ -30,8 +30,8 @@
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 #define INITIAL_DOC_TABLE_SIZE 1000
-// 2 `uintptr_t` fields
-#define EMPTY_TRIE_SIZE 16
+// 3 `uintptr_t` fields
+#define EMPTY_TRIE_SIZE 24
 
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
