@@ -273,6 +273,31 @@ pub fn read_fields_offsets(
     (returned, result)
 }
 
+pub fn encode_offsets_only(
+    buffer: &mut TestBuffer,
+    record: &mut inverted_index::RSIndexResult,
+    delta: u64,
+) -> usize {
+    let mut buffer_writer = BufferWriter::new(&mut buffer.0);
+
+    unsafe { bindings::encode_offsets_only(buffer_writer.as_mut_ptr() as _, delta, record) }
+}
+
+pub fn read_offsets_only(
+    buffer: &mut Buffer,
+    base_id: u64,
+) -> (bool, inverted_index::RSIndexResult) {
+    let mut buffer_reader = BufferReader::new(buffer);
+    let mut block_reader =
+        unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
+    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
+
+    let returned = unsafe { bindings::read_offsets_only(&mut block_reader, &mut ctx, &mut result) };
+
+    (returned, result)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1046,6 +1071,64 @@ mod tests {
 
             let base_id = doc_id - delta;
             let (returned, decoded_result) = read_fields_offsets(&mut buffer.0, base_id, true);
+            assert!(returned);
+            assert_eq!(
+                TermRecordCompare(&decoded_result),
+                TermRecordCompare(&record)
+            );
+        }
+    }
+
+    #[test]
+    fn test_encode_offsets_only() {
+        // Test cases for the offsets only encoder and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+        let tests = [
+            // (delta, term offsets vector, expected encoding)
+            (0, vec![1i8, 2, 3], vec![0, 0, 3, 1, 2, 3]),
+            (10, vec![1i8, 2, 3, 4], vec![0, 10, 4, 1, 2, 3, 4]),
+            (256, vec![1, 2, 3], vec![1, 0, 1, 3, 1, 2, 3]),
+            (65536, vec![1, 2, 3], vec![2, 0, 0, 1, 3, 1, 2, 3]),
+            (
+                u16::MAX as u64,
+                vec![1, 2, 3],
+                vec![1, 255, 255, 3, 1, 2, 3],
+            ),
+            (
+                u32::MAX as u64,
+                vec![1, 2, 3],
+                vec![3, 255, 255, 255, 255, 3, 1, 2, 3],
+            ),
+        ];
+        let doc_id = 4294967296;
+
+        for (delta, offsets, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+
+            const TEST_STR: &str = "test";
+            let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+            let mut term = RSQueryTerm {
+                str_: test_str_ptr,
+                len: TEST_STR.len(),
+                idf: 5.0,
+                id: 1,
+                flags: 0,
+                bm25_idf: 10.0,
+            };
+
+            let offsets_ptr = offsets.as_ptr() as *mut _;
+            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+
+            let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
+                &mut term, rs_offsets, doc_id, 0, 0,
+            )
+            .weight(1.0);
+
+            let _buffer_grew_size = encode_offsets_only(&mut buffer, &mut record, delta);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_offsets_only(&mut buffer.0, base_id);
             assert!(returned);
             assert_eq!(
                 TermRecordCompare(&decoded_result),

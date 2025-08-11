@@ -510,6 +510,11 @@ size_t encode_fields_offsets_wide(BufferWriter *bw, t_docId delta, RSIndexResult
   return encodeFieldsOffsetsWide(bw, delta, res);
 }
 
+// Wrapper around the private static `encodeOffsetsOnly` function to expose it to benchmarking.
+size_t encode_offsets_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeOffsetsOnly(bw, delta, res);
+}
+
 // Wrapper around the private static `encodeNumeric` function to expose it to benchmarking
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   return encodeNumeric(bw, delta, res);
@@ -865,7 +870,7 @@ DECODER(readFieldsOffsetsWide) {
   return res->fieldMask & ctx->wideMask;
 }
 
-DECODER(readOffsets) {
+DECODER(readOffsetsOnly) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
@@ -979,6 +984,11 @@ bool read_fields_offsets_wide(IndexBlockReader *blockReader, const IndexDecoderC
   return readFieldsOffsetsWide(blockReader, ctx, res);
 }
 
+// Wrapper around the private static `readOffsetsOnly` function to expose it to benchmarking.
+bool read_offsets_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readOffsetsOnly(blockReader, ctx, res);
+}
+
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   return readNumeric(blockReader, ctx, res);
@@ -1021,7 +1031,7 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
 
     // (offsets)
     case Index_StoreTermOffsets:
-      RETURN_DECODERS(readOffsets, NULL);
+      RETURN_DECODERS(readOffsetsOnly, NULL);
 
     // (fields)
     case Index_StoreFieldFlags:
