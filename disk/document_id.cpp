@@ -1,6 +1,7 @@
 #include "disk/document_id.h"
 #include <charconv>
 #include <iomanip>
+#include "rmutil/rm_assert.h"
 
 
 namespace search::disk {
@@ -47,8 +48,8 @@ size_t DocumentID::EstimateCount(rocksdb::Iterator& iter, const rocksdb::Slice& 
         return 0;
     }
 
-
     std::stringstream ss;
+    RS_ASSERT(prefix.size() > 0);
     std::string_view prefixOfPrefix = prefix.ToStringView().substr(0, prefix.size() - 1);
     const char nextChar = prefix[prefix.size() - 1] + 1;
     ss << prefixOfPrefix << nextChar;

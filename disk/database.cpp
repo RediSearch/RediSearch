@@ -1,12 +1,13 @@
 #include <unordered_set>
 #include <filesystem>
 #include <sstream>
-#include "rocksdb/db.h"
-#include "rocksdb/table.h"
 #include "disk/database.h"
 #include "disk/inverted_index/merge_operator.h"
-#include "rocksdb/slice_transform.h"
 #include "disk/inverted_index/inverted_index.h"
+#include "rocksdb/db.h"
+#include "rocksdb/table.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/filter_policy.h"
 
 namespace search::disk {
 
@@ -28,13 +29,12 @@ static rocksdb::SliceTransform* CreateInvertedIndexPrefixExtractor() {
   return new InvertedIndexPrefixExtractor();
 }
 
-static rocksdb::ColumnFamilyOptions CreateInvertedIndexOptions(std::shared_ptr<DeletedIds> deletedIds, size_t cacheSize) {
+static rocksdb::ColumnFamilyOptions CreateInvertedIndexOptions(std::shared_ptr<DeletedIds> deletedIds) {
   rocksdb::ColumnFamilyOptions options;
   options.merge_values = true;
   options.merge_operator.reset(new InvertedIndexMergeOperator(deletedIds));
   options.prefix_extractor.reset(CreateInvertedIndexPrefixExtractor());
   rocksdb::BlockBasedTableOptions blockBasedOptions;
-  blockBasedOptions.block_cache = rocksdb::NewLRUCache(cacheSize); 
   options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(blockBasedOptions));
   return options;
 }
@@ -43,7 +43,12 @@ static rocksdb::ColumnFamilyOptions CreateDocTableOptions(size_t cacheSize) {
   rocksdb::ColumnFamilyOptions options;
   rocksdb::BlockBasedTableOptions blockBasedOptions;
   blockBasedOptions.block_cache = rocksdb::NewLRUCache(cacheSize);
-  options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(blockBasedOptions));
+
+  blockBasedOptions.block_align = true;
+  blockBasedOptions.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
+  blockBasedOptions.cache_index_and_filter_blocks = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(blockBasedOptions));
+
   return options;
 }
 
@@ -57,21 +62,30 @@ Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, Docu
       ss << ":json";
     }
     // we want to be able to extract the type so we need constant delimiters and don't want column name to have them
-    assert(columnName.find(':') == std::string::npos);
+    RS_ASSERT(columnName.find(':') == std::string::npos);
     ss << ":" << columnName;
     return ss.str();
   };
 
-  static constexpr size_t InvertedIndexCacheSize = 10 * 1024 * 1024; // 10MB
+  // We currently enable the block-cache for the doc-table only, since we use
+  // the iterator pre-fetch for the inverted index.
   static constexpr size_t DocTableCacheSize = 30 * 1024 * 1024; // 30MB
 
   auto deletedIds = std::make_shared<DeletedIds>();
   std::vector<rocksdb::ColumnFamilyDescriptor> columnFamilies;
 
   const size_t docTableColumnIndex = 0;
-  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("doc_table"), CreateDocTableOptions(DocTableCacheSize)));
+  columnFamilies.push_back(
+    rocksdb::ColumnFamilyDescriptor(
+      createColumnName("doc_table"), CreateDocTableOptions(DocTableCacheSize)
+    )
+  );
   const size_t invertedIndexColumnIndex = 1;
-  columnFamilies.push_back(rocksdb::ColumnFamilyDescriptor(createColumnName("inverted_indices"), CreateInvertedIndexOptions(deletedIds, InvertedIndexCacheSize)));
+  columnFamilies.push_back(
+    rocksdb::ColumnFamilyDescriptor(
+      createColumnName("inverted_indices"), CreateInvertedIndexOptions(deletedIds)
+    )
+  );
 
   std::vector<rocksdb::ColumnFamilyHandle*> handles;
   const rocksdb::Status status = db.CreateColumnFamilies(columnFamilies, &handles);

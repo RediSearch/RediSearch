@@ -200,10 +200,11 @@ public:
     size_t EstimateNumResults();
 private:
     /**
-     * @brief Constructs an inverted index iter     *
-     * @param iter RocksDator
-B iterator (ownership is transferred)
+     * @brief Constructs an inverted index iterator
+     * @param iter RocksDB iterator (ownership is transferred)
      * @param prefix Prefix for the keys to iterate (index_term)
+     * @param first First block of data from the iterator
+     * @param countEstimation Estimated number of documents in the iterator
      */
     InvertedIndexIterator(std::unique_ptr<rocksdb::Iterator> iter, std::string prefix, InvertedIndexBlock first, size_t countEstimation);
     std::optional<DocumentID> currentId() const;

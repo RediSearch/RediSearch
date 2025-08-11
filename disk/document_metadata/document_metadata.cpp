@@ -9,6 +9,7 @@
 #include <sstream>
 #include <cstring>
 #include <stdexcept>
+#include "rmutil/rm_assert.h"
 
 namespace search::disk {
 
@@ -38,7 +39,7 @@ void DocumentMetadata::serialize(std::ostream& stream) const {
 
     // Write score (double as uint64)
     uint64_t beScore;
-    static_assert(sizeof(double) == sizeof(uint64_t), "Unexpected double size");
+    RS_LOG_ASSERT(sizeof(double) == sizeof(uint64_t), "Unexpected double size");
     std::memcpy(&beScore, &score, sizeof(double));
     beScore = boost::endian::native_to_big(beScore);
     stream.write(reinterpret_cast<const char*>(&beScore), sizeof(beScore));

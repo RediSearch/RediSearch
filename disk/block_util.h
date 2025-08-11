@@ -94,7 +94,7 @@ struct DynamicDataView {
         }
         const size_t elementCount = index + 1;
         const size_t byteCount = elementCount * sizeof(uint32_t);
-        RS_ASSERT(byteCount < indexes.size());
+        RS_ASSERT(byteCount <= indexes.size());
         if (byteCount >= indexes.size()) {
             return;
         }
