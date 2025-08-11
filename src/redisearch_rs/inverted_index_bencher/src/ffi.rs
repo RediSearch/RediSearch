@@ -675,8 +675,7 @@ mod tests {
 
             let mut record = inverted_index::RSIndexResult::term()
                 .doc_id(doc_id)
-                .field_mask(field_mask)
-                .frequency(1);
+                .field_mask(field_mask);
 
             let _buffer_grew_size = encode_fields_only(&mut buffer, &mut record, delta, true);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
@@ -707,9 +706,7 @@ mod tests {
         for (delta, expected_encoding) in tests {
             let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
 
-            let mut record = inverted_index::RSIndexResult::term()
-                .doc_id(doc_id)
-                .frequency(1);
+            let mut record = inverted_index::RSIndexResult::term().doc_id(doc_id);
 
             let _buffer_grew_size = encode_doc_ids_only(&mut buffer, &mut record, delta);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
@@ -1021,7 +1018,7 @@ mod tests {
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
-                &mut term, rs_offsets, doc_id, field_mask, 0,
+                &mut term, rs_offsets, doc_id, field_mask, 1,
             )
             .weight(1.0);
 
@@ -1114,7 +1111,7 @@ mod tests {
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
-                &mut term, rs_offsets, doc_id, field_mask, 0,
+                &mut term, rs_offsets, doc_id, field_mask, 1,
             )
             .weight(1.0);
 
@@ -1172,7 +1169,7 @@ mod tests {
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
-                &mut term, rs_offsets, doc_id, 0, 0,
+                &mut term, rs_offsets, doc_id, 0, 1,
             )
             .weight(1.0);
 
@@ -1268,9 +1265,7 @@ mod tests {
         for (delta, expected_encoding) in tests {
             let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
 
-            let mut record = inverted_index::RSIndexResult::term()
-                .doc_id(doc_id)
-                .frequency(1);
+            let mut record = inverted_index::RSIndexResult::term().doc_id(doc_id);
 
             let _buffer_grew_size = encode_raw_doc_ids_only(&mut buffer, &mut record, delta);
             assert_eq!(buffer.0.as_slice(), expected_encoding);

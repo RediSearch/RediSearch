@@ -101,7 +101,7 @@ fn test_encode_freqs_offsets_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::term().frequency(1);
+    let record = inverted_index::RSIndexResult::term();
 
     let res = FreqsOffsets::default().encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);

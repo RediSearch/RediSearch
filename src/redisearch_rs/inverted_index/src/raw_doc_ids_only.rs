@@ -45,9 +45,7 @@ impl Decoder for RawDocIdsOnly {
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .frequency(1);
+        let record = RSIndexResult::term().doc_id(base + delta as t_docId);
         Ok(record)
     }
 }

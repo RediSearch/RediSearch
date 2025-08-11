@@ -45,7 +45,7 @@ impl Bencher {
         let test_values = deltas
             .into_iter()
             .map(|delta| {
-                let record = RSIndexResult::term().doc_id(100).frequency(1);
+                let record = RSIndexResult::term().doc_id(100);
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = DocIdsOnly::default()
@@ -95,7 +95,7 @@ impl Bencher {
                 || TestBuffer::with_capacity(buffer_size),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let mut record = RSIndexResult::term().doc_id(100).frequency(1);
+                        let mut record = RSIndexResult::term().doc_id(100);
 
                         let grew_size =
                             encode_doc_ids_only(&mut buffer, &mut record, test.delta as u64);
@@ -117,7 +117,7 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = RSIndexResult::term().doc_id(100).frequency(1);
+                        let record = RSIndexResult::term().doc_id(100);
 
                         let grew_size = DocIdsOnly::default()
                             .encode(&mut buffer, test.delta, &record)

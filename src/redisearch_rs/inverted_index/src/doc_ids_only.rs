@@ -41,9 +41,7 @@ impl Decoder for DocIdsOnly {
     ) -> std::io::Result<RSIndexResult<'a>> {
         let delta = u32::read_as_varint(cursor)?;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .frequency(1);
+        let record = RSIndexResult::term().doc_id(base + delta as t_docId);
         Ok(record)
     }
 }
