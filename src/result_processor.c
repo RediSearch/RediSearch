@@ -1661,8 +1661,6 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
   return &ret->base;
 }
 
-// Note: HybridSearchResult is now defined in hybrid/hybrid_search_result.h
-
 // Wrapper for HybridSearchResult destructor to match dictionary value destructor signature
 static void hybridSearchResultValueDestructor(void *privdata, void *obj) {
   HybridSearchResult_Free((HybridSearchResult*)obj);
@@ -1696,7 +1694,13 @@ dictType dictTypeHybridSearchResult = {
    const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
  } RPHybridMerger;
 
- /* Helper function to store a result from an upstream into the hybrid merger's dictionary */
+ /* Helper function to store a result from an upstream into the hybrid merger's dictionary
+  * @param r - the result to store
+  * @param hybridResults - the dictionary to store the result in
+  * @param upstreamIndex - the index of the upstream that provided the result
+  * @param numUpstreams - the number of upstreams
+  * @param score - used to override the result's score
+ */
  static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex, size_t numUpstreams, double score) {
    const char *keyPtr = r->dmd->keyPtr;
 
@@ -1710,7 +1714,6 @@ dictType dictTypeHybridSearchResult = {
    }
 
    r->score = score;
-   // Store the SearchResult using the encapsulated function
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
  }
 
