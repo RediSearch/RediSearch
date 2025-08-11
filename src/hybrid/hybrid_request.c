@@ -230,8 +230,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Free the scoring context resources
     if (req->hybridParams) {
-      HybridScoringContext_Free(req->hybridParams->scoringCtx);
-
       // Free the aggregationParams search context
       if(req->hybridParams->aggregationParams.common.sctx) {
         SearchCtx_Free(req->hybridParams->aggregationParams.common.sctx);

@@ -1807,7 +1807,12 @@ dictType dictTypeHybridSearchResult = {
         window = self->hybridScoringCtx->rrfCtx.window;
       } else {
         // For LINEAR scoring, use the tail pipeline limit
-        window = self->base.parent->resultLimit;
+        // If parent is NULL or resultLimit is 0 (e.g., in tests), use a reasonable default
+        if (self->base.parent && self->base.parent->resultLimit > 0) {
+          window = self->base.parent->resultLimit;
+        } else {
+          window = 1000; // Default window size for LINEAR scoring
+        }
       }
       int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
 
