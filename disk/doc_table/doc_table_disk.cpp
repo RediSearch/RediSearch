@@ -13,7 +13,6 @@
 #include <boost/endian/conversion.hpp>
 #include <cstring>
 #include <cstdint>
-#include <cassert>
 #include <sstream>
 
 namespace search::disk {
@@ -188,8 +187,6 @@ std::optional<DocTableColumn::Iterator::Entry> DocTableColumn::Iterator::Next() 
         return std::nullopt;
     }
 
-    // static constexpr std::array<char, 2> prefixArray = {'d', ':'};
-    // std::string_view prefix{prefixArray.data(), prefixArray.size()};
     constexpr std::string_view prefix = "d:";
     auto id = DocumentID::DeserializeFromKey(iter_->GetCurrentKey().value(), prefix);
     auto metadata = DocumentMetadata::deserialize(iter_->GetCurrentValue().value());

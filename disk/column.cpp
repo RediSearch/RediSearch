@@ -57,7 +57,9 @@ Column::~Column() {
 }
 
 bool Column::Write(const std::string& key, const std::string& value) {
-    rocksdb::Status status = db_->Put(rocksdb::WriteOptions(), handle_, key, value);
+    auto write_options = rocksdb::WriteOptions();
+    write_options.disableWAL = true;
+    rocksdb::Status status = db_->Put(write_options, handle_, key, value);
     return status.ok();
 }
 
