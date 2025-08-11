@@ -90,15 +90,30 @@ void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResu
  * Apply hybrid scoring to compute combined score from multiple sources.
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  */
-double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, double *values, HybridScoringContext *scoringCtx) {
-  if (!hybridResult || !values || !scoringCtx) {
+double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, HybridScoringContext *scoringCtx) {
+  if (!hybridResult || !scoringCtx) {
     return 0.0;
   }
   RS_ASSERT(hybridResult->hasResults[targetIndex]);
 
+  // Extract values from SearchResults
+  arrayof(double) values = array_newlen(double, hybridResult->numSources);
+  for (size_t i = 0; i < hybridResult->numSources; i++) {
+    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
+      // Note: SearchResult->score contains ranks for RRF, scores for Linear
+      // This is set correctly by upstream processors based on scoring type
+      values[i] = hybridResult->searchResults[i]->score;
+    } else {
+      values[i] = 0.0;  // Default value for missing results
+    }
+  }
+
   // Calculate hybrid score using generic scoring function
   HybridScoringFunction scoringFunc = GetScoringFunction(scoringCtx->scoringType);
-  return scoringFunc(scoringCtx, values, hybridResult->hasResults, hybridResult->numSources);
+  double result = scoringFunc(scoringCtx, values, hybridResult->hasResults, hybridResult->numSources);
+
+  array_free(values);
+  return result;
 }
 
 /**
@@ -124,19 +139,8 @@ SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
     return NULL;
   }
 
-  // Prepare scores array for hybrid scoring using array.h
-  arrayof(double) scores = array_newlen(double, hybridResult->numSources);
-  for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
-      scores[i] = hybridResult->searchResults[i]->score;
-    } else {
-      scores[i] = 0.0;  // Default score for missing results
-    }
-  }
-
   // Apply hybrid scoring to compute hybrid score and merge explanations
-  double hybridScore = ApplyHybridScoring(hybridResult, targetIndex, scores, scoringCtx);
-  array_free(scores);
+  double hybridScore = ApplyHybridScoring(hybridResult, targetIndex, scoringCtx);
 
   // Update primary result's score
   primary->score = hybridScore;
