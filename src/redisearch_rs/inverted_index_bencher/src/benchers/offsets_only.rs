@@ -17,7 +17,7 @@ use criterion::{
 use inverted_index::{Decoder, Encoder, offsets_only::OffsetsOnly, test_utils::TestTermRecord};
 use itertools::Itertools;
 
-use crate::ffi::{TestBuffer, encode_offsets_only, read_offsets};
+use crate::ffi::{TestBuffer, encode_offsets_only, read_offsets_only};
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -155,7 +155,7 @@ impl Bencher {
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
                     |mut buffer| {
-                        let (_filtered, result) = read_offsets(&mut buffer, 100);
+                        let (_filtered, result) = read_offsets_only(&mut buffer, 100);
 
                         black_box(result);
                     },

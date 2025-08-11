@@ -246,8 +246,8 @@ bool read_fields_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *c
 /* Wrapper around the static readFlagsOffsetsWide to be able to access it in the Rust benchmarks */
 bool read_fields_offsets_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
-/* Wrapper around the static readOffsets to be able to access it in the Rust benchmarks */
-bool read_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+/* Wrapper around the static readOffsetsOnly to be able to access it in the Rust benchmarks */
+bool read_offsets_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);

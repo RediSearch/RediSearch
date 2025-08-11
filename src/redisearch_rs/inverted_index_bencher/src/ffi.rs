@@ -280,14 +280,17 @@ pub fn encode_offsets_only(
     unsafe { bindings::encode_offsets_only(buffer_writer.as_mut_ptr() as _, delta, record) }
 }
 
-pub fn read_offsets(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::RSIndexResult) {
+pub fn read_offsets_only(
+    buffer: &mut Buffer,
+    base_id: u64,
+) -> (bool, inverted_index::RSIndexResult) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
     let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
 
-    let returned = unsafe { bindings::read_offsets(&mut block_reader, &mut ctx, &mut result) };
+    let returned = unsafe { bindings::read_offsets_only(&mut block_reader, &mut ctx, &mut result) };
 
     (returned, result)
 }
@@ -1122,7 +1125,7 @@ mod tests {
             assert_eq!(buffer.0.as_slice(), expected_encoding);
 
             let base_id = doc_id - delta;
-            let (returned, decoded_result) = read_offsets(&mut buffer.0, base_id);
+            let (returned, decoded_result) = read_offsets_only(&mut buffer.0, base_id);
             assert!(returned);
             assert_eq!(
                 TermRecordCompare(&decoded_result),
