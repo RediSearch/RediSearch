@@ -19,8 +19,8 @@ extern "C" {
 
 typedef struct timespec rs_wall_clock;
 
-#define NANOSEC_PER_SECOND 1000000000ULL
-#define MILLISEC_PER_SECOND (NANOSEC_PER_SECOND / 1000)
+#define NANOSEC_PER_SECOND     1000000000ULL // 10^9
+#define NANOSEC_PER_MILLISEC   (NANOSEC_PER_SECOND / 1000) // 10^6
 
 // Using different types for nanoseconds and milliseconds to avoid confusion
 typedef uint64_t rs_wall_clock_ns_t;
@@ -53,23 +53,28 @@ static inline rs_wall_clock_ns_t rs_wall_clock_elapsed_ns(rs_wall_clock *clk) {
     return rs_wall_clock_diff_ns(clk, &now);
 }
 
+// Returns current time of the monotonic clock in nanoseconds
 static inline rs_wall_clock_ns_t rs_wall_clock_now_ns() {
     rs_wall_clock now;
     rs_wall_clock_init(&now);
     return (rs_wall_clock_ns_t)now.tv_sec * NANOSEC_PER_SECOND + now.tv_nsec;
 }
 
-static inline double rs_wall_clock_convert_ns_to_ms_f(rs_wall_clock_ns_t ns) {
-    return (double)ns / MILLISEC_PER_SECOND;
+// Converts a duration from nanoseconds to milliseconds (floating-point result).
+// Returns: elapsed time in milliseconds as a double, preserving fractional ms.
+static inline double rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_ns_t ns) {
+    return (double)ns / NANOSEC_PER_MILLISEC;
 }
 
+// Converts a duration from nanoseconds to milliseconds (integer result).
+// Returns: elapsed time in whole milliseconds as rs_wall_clock_ms_t (uint64_t).
 static inline rs_wall_clock_ms_t rs_wall_clock_convert_ns_to_ms(rs_wall_clock_ns_t ns) {
-    return ns / MILLISEC_PER_SECOND;
+    return ns / NANOSEC_PER_MILLISEC;
 }
 
 // Undefine macros to avoid conflicts
 #undef NANOSEC_PER_SECOND
-#undef MILLISEC_PER_SECOND
+#undef NANOSEC_PER_MILLISEC
 
 #ifdef __cplusplus
 }
