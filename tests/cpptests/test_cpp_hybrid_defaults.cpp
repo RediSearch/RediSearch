@@ -66,7 +66,7 @@ protected:
    * @param args The command arguments to parse
    * @return Pointer to the parsed HybridRequest (also stored in member variable)
    */
-  HybridRequest* parseHybridCommand(RMCK::ArgvList& args) {
+  HybridRequest* parseCommand(RMCK::ArgvList& args) {
     QueryError status = {QueryErrorCode(0)};
 
     RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
@@ -116,7 +116,7 @@ const char* TEST_BLOB_DATA = "\x12\xa9\xf5\x6c";
 TEST_F(HybridDefaultsTest, testDefaultValues) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
 
-  parseHybridCommand(args);
+  parseCommand(args);
   validateDefaultParams(result, HYBRID_DEFAULT_WINDOW, HYBRID_DEFAULT_KNN_K);
 }
 
@@ -126,7 +126,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "LIMIT", "0", "25");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   validateDefaultParams(result, 25, 25);
 }
 
@@ -136,7 +136,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "25");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // K should be capped at WINDOW=15 even though LIMIT fallback would set it to 25
   validateDefaultParams(result, 15, 15);
 }
@@ -147,7 +147,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF", "LIMIT", "0", "25");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   validateDefaultParams(result, 25, 8);
 }
 
@@ -157,7 +157,7 @@ TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "15", "LIMIT", "0", "25");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   validateDefaultParams(result, 15, 8);
 }
 
@@ -167,7 +167,7 @@ TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "LIMIT", "0", "10000");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   validateDefaultParams(result, 10000, 10000);
 }
 
@@ -177,7 +177,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // Both flags should be false
   ASSERT_FALSE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
   ASSERT_FALSE(result->requests[1]->parsedVectorData->hasExplicitK);
@@ -188,7 +188,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitK) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // K explicit, WINDOW implicit
   ASSERT_TRUE(result->requests[1]->parsedVectorData->hasExplicitK);
   ASSERT_FALSE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
@@ -199,7 +199,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitWindow) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "2", "WINDOW", "15");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // WINDOW explicit, K implicit
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
   ASSERT_FALSE(result->requests[1]->parsedVectorData->hasExplicitK);
@@ -210,7 +210,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitBoth) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "15");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // Both flags should be true
   ASSERT_TRUE(result->requests[1]->parsedVectorData->hasExplicitK);
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
@@ -221,7 +221,7 @@ TEST_F(HybridDefaultsTest, testLinearDefaults) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "LINEAR", "0.6", "0.4");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // LINEAR should not have window parameter (uses regular limit instead)
   ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
 
@@ -236,7 +236,7 @@ TEST_F(HybridDefaultsTest, testKCappedAtExplicitWindow) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "50", "COMBINE", "RRF", "2", "WINDOW", "15");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // Verify K was capped to WINDOW value
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(15, vq->knn.k) << "Expected K to be capped at WINDOW=15, got " << vq->knn.k;
@@ -249,7 +249,7 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "COMBINE", "RRF", "2", "WINDOW", "12", "LIMIT", "0", "30");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // K should be capped to WINDOW (12) even though LIMIT fallback would set it to 30
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(12, vq->knn.k) << "Expected K to be capped at WINDOW=12, got " << vq->knn.k;
@@ -262,7 +262,7 @@ TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "25", "COMBINE", "RRF", "LIMIT", "0", "18");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // K should be capped to WINDOW (18 from LIMIT fallback) even though K was explicitly set to 25
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(18, vq->knn.k) << "Expected K to be capped at WINDOW=18, got " << vq->knn.k;
@@ -275,7 +275,7 @@ TEST_F(HybridDefaultsTest, testLinearScoringUnaffectedByKWindowConstraint) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "50", "COMBINE", "LINEAR", "0.7", "0.3");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // Linear scoring should not apply K ≤ WINDOW constraint, K should remain 50
   ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
@@ -288,7 +288,7 @@ TEST_F(HybridDefaultsTest, testKAlreadyWithinWindow) {
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
                       "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "20");
 
-  parseHybridCommand(args);
+  parseCommand(args);
   // K should remain unchanged since 8 ≤ 20
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(8, vq->knn.k) << "Expected K to remain 8, got " << vq->knn.k;
