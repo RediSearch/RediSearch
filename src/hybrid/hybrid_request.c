@@ -93,11 +93,13 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         // Add the load step to the aggplan for proper cleanup
         AGPLN_AddStep(&areq->pipeline.ap, &subqueryLoadStep->base);
 
-        QueryError status = {0};
         // Process the LOAD step (explicit or implicit) using the unified function
         ResultProcessor *loader = processLoadStep(subqueryLoadStep, lookup, AREQ_SearchCtx(areq), AREQ_RequestFlags(areq),
-                                                 RLOOKUP_F_NOFLAGS, false, &areq->stateflags, &status);
-        if (status.code != QUERY_OK) {
+                                                 RLOOKUP_F_NOFLAGS, false, &areq->stateflags, &req->errors[i]);
+        if (req->errors[i].code != QUERY_OK) {
+            StrongRef_Release(sync_ref);
+            array_free(depleters);
+            // Note: HybridRequest_Free is called by the caller on failure
             return REDISMODULE_ERR;
         }
         if (loader) {
@@ -120,7 +122,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // and contain only keys from the loading step
     //Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    RLookup_Init(lookup, NULL);
+    RLookup_Init(lookup, IndexSpec_GetSpecCache(params->aggregationParams.common.sctx->spec));
     RLookup_CloneInto(lookup, AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST));
 
 

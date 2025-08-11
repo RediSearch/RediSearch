@@ -192,9 +192,8 @@ PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
   // Pre-allocate keys array based on the number of arguments
   if (original->args.argc > 0) {
     cloned->keys = rm_calloc(original->args.argc, sizeof(RLookupKey*));
-  } else {
-    cloned->keys = NULL;
   }
+  // else - cloned->keys is already NULL
 
 
   return cloned;

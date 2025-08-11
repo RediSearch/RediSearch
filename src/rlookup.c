@@ -1005,17 +1005,17 @@ RLookupKey *RLookupKey_Clone(const RLookupKey *src) {
     dst->name = rm_strndup(src->name, src->name_len);
     dst->flags = src->flags | RLOOKUP_F_NAMEALLOC;  // Always set allocation flag
 
-    if (src->path && src->path != src->name) {
-      dst->path = rm_strdup(src->path);
-    } else if (src->path == src->name) {
-      dst->path = dst->name;  // Point to our allocated name
-    } else {
-      dst->path = NULL;
-    }
+    if (src->path) {
+      if (src->path == src->name) {
+        dst->path = dst->name;  // Point to our allocated name
+      } else {
+        dst->path = rm_strdup(src->path);
+      }
+    } //else - dst->path is already NULL
   } else {
     //source has no name
-    dst->name = NULL;
-    dst->path = NULL;
+    //dst->name = NULL;
+    //dst->path = NULL;
     dst->flags = src->flags;  // Don't set NAMEALLOC if no strings
   }
 
