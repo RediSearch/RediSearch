@@ -122,7 +122,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
   HybridRequest_Free(result);
 }
 
-// LIMIT affects only implicit K
+// LIMIT affects only implicit K, but K gets capped at explicit WINDOW
 TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -137,7 +137,8 @@ TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
 
   ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
 
-  validateDefaultParams(result, 15, 25);
+  // K should be capped at WINDOW=15 even though LIMIT fallback would set it to 25
+  validateDefaultParams(result, 15, 15);
 
   HybridRequest_Free(result);
 }
@@ -307,6 +308,98 @@ TEST_F(HybridDefaultsTest, testLinearDefaults) {
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(HYBRID_DEFAULT_KNN_K, vq->knn.k)
       << "Expected KNN k=" << HYBRID_DEFAULT_KNN_K << ", got " << vq->knn.k;
+
+  HybridRequest_Free(result);
+}
+
+// Test K ≤ WINDOW constraint: explicit K > explicit WINDOW should cap K to WINDOW
+TEST_F(HybridDefaultsTest, testKCappedAtExplicitWindow) {
+  QueryError status = {QueryErrorCode(0)};
+
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+                      "KNN", "2", "K", "50", "COMBINE", "RRF", "2", "WINDOW", "15");
+
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
+
+  // Verify K was capped to WINDOW value
+  VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
+  ASSERT_EQ(15, vq->knn.k) << "Expected K to be capped at WINDOW=15, got " << vq->knn.k;
+  ASSERT_EQ(15, result->hybridParams->scoringCtx->rrfCtx.window);
+
+  HybridRequest_Free(result);
+}
+
+// Test K ≤ WINDOW constraint: K from LIMIT fallback > explicit WINDOW should cap K to WINDOW
+TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
+  QueryError status = {QueryErrorCode(0)};
+
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+                      "COMBINE", "RRF", "2", "WINDOW", "12", "LIMIT", "0", "30");
+
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
+
+  // K should be capped to WINDOW (12) even though LIMIT fallback would set it to 30
+  VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
+  ASSERT_EQ(12, vq->knn.k) << "Expected K to be capped at WINDOW=12, got " << vq->knn.k;
+  ASSERT_EQ(12, result->hybridParams->scoringCtx->rrfCtx.window);
+
+  HybridRequest_Free(result);
+}
+
+// Test K ≤ WINDOW constraint: explicit K > WINDOW from LIMIT fallback should cap K to WINDOW
+TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
+  QueryError status = {QueryErrorCode(0)};
+
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+                      "KNN", "2", "K", "25", "COMBINE", "RRF", "LIMIT", "0", "18");
+
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
+
+  // K should be capped to WINDOW (18 from LIMIT fallback) even though K was explicitly set to 25
+  VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
+  ASSERT_EQ(18, vq->knn.k) << "Expected K to be capped at WINDOW=18, got " << vq->knn.k;
+  ASSERT_EQ(18, result->hybridParams->scoringCtx->rrfCtx.window);
+
+  HybridRequest_Free(result);
+}
+
+// Test that K ≤ WINDOW constraint doesn't affect cases where K is already ≤ WINDOW
+TEST_F(HybridDefaultsTest, testKAlreadyWithinWindow) {
+  QueryError status = {QueryErrorCode(0)};
+
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
+                      "KNN", "2", "K", "8", "COMBINE", "RRF", "2", "WINDOW", "20");
+
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+
+  ASSERT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
+
+  // K should remain unchanged since 8 ≤ 20
+  VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
+  ASSERT_EQ(8, vq->knn.k) << "Expected K to remain 8, got " << vq->knn.k;
+  ASSERT_EQ(20, result->hybridParams->scoringCtx->rrfCtx.window);
 
   HybridRequest_Free(result);
 }

@@ -528,6 +528,29 @@ static void applyLimitParameterFallbacks(Pipeline *tailPipeline,
 }
 
 /**
+ * Apply KNN K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation.
+ *
+ * The RRF merger only considers the top WINDOW results from each component,
+ * so having KNN K > WINDOW would fetch unnecessary results that won't be used.
+ * This constraint is applied after all parameter resolution (defaults, explicit values,
+ * and LIMIT fallbacks) is complete.
+ *
+ * @param pvd The parsed vector data containing KNN parameters
+ * @param hybridParams The hybrid parameters containing WINDOW settings
+ */
+static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
+                                 HybridPipelineParams *hybridParams) {
+  // Apply K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation
+  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
+      hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    size_t windowValue = hybridParams->scoringCtx->rrfCtx.window;
+    if (pvd->query->knn.k > windowValue) {
+      pvd->query->knn.k = windowValue;
+    }
+  }
+}
+
+/**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
  * Expected format: FT.HYBRID <index> SEARCH <query> [SCORER <scorer>] VSIM <vector_args>
@@ -644,6 +667,9 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
     applyLimitParameterFallbacks(tailPipeline, vectorRequest->parsedVectorData, hybridParams);
   }
+
+  // Apply KNN K ≤ WINDOW constraint after all parameter resolution is complete
+  applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
   // Create the hybrid request with proper structure
   requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
