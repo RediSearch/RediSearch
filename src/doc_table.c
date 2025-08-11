@@ -104,6 +104,12 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
 
     // We clear new extra allocation to Null all list pointers
     size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
+
+    // Log DocTable capacity growth to help diagnose cases where a small number of documents
+    // combined with frequent updates cause disproportionate memory usage.
+    // This allows us to confirm if unexpected memory spikes are due to capacity increases.
+    RedisModule_Log(RSDummyContext, "notice", "DocTable capacity increase from %zu to %zu", oldcap, t->cap);
+
     memset(&t->buckets[oldcap], 0, memsetSize);
   }
 
