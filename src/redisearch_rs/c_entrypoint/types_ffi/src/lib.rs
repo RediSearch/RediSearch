@@ -130,7 +130,7 @@ pub unsafe extern "C" fn IndexResult_AggregateRef(
     result.as_aggregate()
 }
 
-/// Reset the result if it is an aggregate result. This will clear all children and reset the type mask.
+/// Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
 /// This function does not deallocate the children pointers, but rather resets the internal state of the
 /// aggregate result. The owner of the children pointers is responsible for managing their lifetime.
 ///
@@ -211,21 +211,21 @@ pub unsafe extern "C" fn AggregateResult_Capacity(agg: *const RSAggregateResult)
     agg.capacity()
 }
 
-/// Get the type mask of the aggregate result.
+/// Get the kind mask of the aggregate result.
 ///
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult) -> u32 {
+pub unsafe extern "C" fn AggregateResult_KindMask(agg: *const RSAggregateResult) -> u8 {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
     // an `RSAggregateResult`.
     let agg = unsafe { &*agg };
 
-    agg.type_mask().bits()
+    agg.kind_mask().bits()
 }
 
 /// Create a new aggregate result with the specified capacity. This function will make the result
@@ -251,7 +251,7 @@ pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
 /// the `child` and will therefore not free it. Instead, the caller is responsible for managing
 /// the memory of the `child` pointer *after* the `parent` has been freed.
 ///
-/// If the `parent` is not an aggregate type, then this is a no-op.
+/// If the `parent` is not an aggregate kind, then this is a no-op.
 ///
 /// # Safety
 ///

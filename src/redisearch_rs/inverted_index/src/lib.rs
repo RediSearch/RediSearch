@@ -214,7 +214,7 @@ impl Default for RSTermRecord<'_> {
     }
 }
 
-pub type RSResultTypeMask = BitFlags<RSResultKind, u32>;
+pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 
 /// Represents an aggregate array of values in an index record.
 ///
@@ -233,8 +233,8 @@ pub struct RSAggregateResult<'a> {
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
     records: LowMemoryThinVec<*const RSIndexResult<'a>>,
 
-    /// A map of the aggregate type of the underlying records
-    type_mask: RSResultTypeMask,
+    /// A map of the aggregate kind of the underlying records
+    kind_mask: RSResultKindMask,
     /// The lifetime is actually on `RsIndexResult` but it is stored as a pointer which does not
     /// support lifetimes. So use a PhantomData to carry the lifetime for it instead.
     _phantom: PhantomData<&'a ()>,
@@ -245,7 +245,7 @@ impl<'a> RSAggregateResult<'a> {
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             records: LowMemoryThinVec::with_capacity(cap),
-            type_mask: RSResultTypeMask::empty(),
+            kind_mask: RSResultKindMask::empty(),
             _phantom: PhantomData,
         }
     }
@@ -266,8 +266,8 @@ impl<'a> RSAggregateResult<'a> {
     }
 
     /// The current type mask of the aggregate result
-    pub fn type_mask(&self) -> RSResultTypeMask {
-        self.type_mask
+    pub fn kind_mask(&self) -> RSResultKindMask {
+        self.kind_mask
     }
 
     /// Get an iterator over the children of this aggregate result
@@ -291,16 +291,16 @@ impl<'a> RSAggregateResult<'a> {
         }
     }
 
-    /// Reset the aggregate result, clearing all children and resetting the type mask.
+    /// Reset the aggregate result, clearing all children and resetting the kind mask.
     ///
-    /// Note, this does not deallocate the children pointers, it just resets the count and type
+    /// Note, this does not deallocate the children pointers, it just resets the count and kind
     /// mask. The owner of the children pointers is responsible for deallocating them when needed.
     pub fn reset(&mut self) {
         self.records.clear();
-        self.type_mask = RSResultTypeMask::empty();
+        self.kind_mask = RSResultKindMask::empty();
     }
 
-    /// Add a child to the aggregate result and update the type mask
+    /// Add a child to the aggregate result and update the kind mask
     ///
     /// # Safety
     /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
@@ -308,7 +308,7 @@ impl<'a> RSAggregateResult<'a> {
     pub fn push(&mut self, child: &RSIndexResult) {
         self.records.push(child as *const _ as *mut _);
 
-        self.type_mask |= child.data.result_type();
+        self.kind_mask |= child.data.result_kind();
     }
 }
 
@@ -383,7 +383,7 @@ pub struct RSVirtualResult;
 /// Repeats the [`RSResultData`] definition since `bitflags` does not support enum with values or
 /// enums with lifetimes currently.
 #[bitflags]
-#[repr(u32)]
+#[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RSResultKind {
     Union = 1,
@@ -398,8 +398,8 @@ pub enum RSResultKind {
 /// Holds the actual data of an ['IndexResult']
 ///
 /// These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
-/// the bitflags on [`RSResultTypeMask`]
-#[repr(u32)]
+/// the bitflags on [`RSResultKindMask`]
+#[repr(u8)]
 #[derive(Debug, PartialEq)]
 /// cbindgen:prefix-with-name=true
 pub enum RSResultData<'a> {
@@ -413,7 +413,7 @@ pub enum RSResultData<'a> {
 }
 
 impl RSResultData<'_> {
-    fn result_type(&self) -> RSResultKind {
+    fn result_kind(&self) -> RSResultKind {
         match self {
             RSResultData::Union(_) => RSResultKind::Union,
             RSResultData::Intersection(_) => RSResultKind::Intersection,
@@ -588,9 +588,9 @@ impl<'a> RSIndexResult<'a> {
         self
     }
 
-    /// Get the type of this index result
+    /// Get the kind of this index result
     pub fn kind(&self) -> RSResultKind {
-        self.data.result_type()
+        self.data.result_kind()
     }
 
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
@@ -675,7 +675,7 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
-    /// True if this is an aggregate type
+    /// True if this is an aggregate kind
     pub fn is_aggregate(&self) -> bool {
         matches!(
             self.data,
