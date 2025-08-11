@@ -13,6 +13,7 @@
 #include "pipeline/pipeline_construction.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/parse_hybrid.h"
 #include "document.h"
 #include "result_processor.h"
 #include "redismock/redismock.h"
@@ -22,6 +23,9 @@
 #include "common.h"
 #include "module.h"
 #include "version.h"
+
+// Macro for BLOB data that all tests using $BLOB should use
+#define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 #include <vector>
 #include <array>
@@ -58,8 +62,11 @@ IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, Query
 }
 
 // Helper function to create a basic AREQ for testing
-AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, QueryError *status) {
+AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, QueryError *status, bool isSearchSubquery = false) {
   AREQ *req = AREQ_New();
+  if (isSearchSubquery) {
+    AREQ_AddRequestFlags(req, QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
+  }
   RMCK::ArgvList args(ctx, query);
   int rv = AREQ_Compile(req, args, args.size(), status);
   if (rv != REDISMODULE_OK) {
@@ -108,10 +115,11 @@ void VerifyPipelineChain(ResultProcessor *endProc, const std::vector<ResultProce
 }
 
 
+
 /**
  * Helper function to add a LOAD step to an AGGPlan with properly initialized RLookupKeys.
- * This function creates a LOAD step that specifies which document fields should be loaded
- * during query execution.
+ * This function creates an unprocessed LOAD step with proper ArgsCursor that will be
+ * processed during Pipeline_BuildAggregationPart, following the same pattern as handleLoad.
  *
  * @param plan The AGGPlan to add the LOAD step to
  * @param fields Array of field names to load
@@ -120,27 +128,24 @@ void VerifyPipelineChain(ResultProcessor *endProc, const std::vector<ResultProce
 void AddLoadStepToPlan(AGGPlan *plan, const char **fields, size_t nfields) {
   PLN_LoadStep *loadStep = (PLN_LoadStep*)rm_calloc(1, sizeof(PLN_LoadStep));
   loadStep->base.type = PLN_T_LOAD;
-  loadStep->base.dtor = loadDtor;
-  loadStep->nkeys = nfields;
+  loadStep->base.dtor = loadDtor;  // Use standard destructor
+
+  // Create unprocessed LOAD step (following handleLoad pattern)
+  loadStep->nkeys = 0;  // Start unprocessed
 
   if (nfields > 0) {
+    // Initialize ArgsCursor with the field names directly (no copying needed)
+    // The field names are expected to have stable lifetime during test execution
+    ArgsCursor_InitCString(&loadStep->args, fields, nfields);
+
+    // Pre-allocate keys array (will be populated during processing, same as handleLoad)
     loadStep->keys = (const RLookupKey**)rm_calloc(nfields, sizeof(RLookupKey*));
-
-    // Get the RLookup from the plan to create proper RLookupKeys
-    RLookup *lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST);
-    if (!lookup) {
-      // If no lookup exists yet, create one at the end of the plan
-      lookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_FIRST);
-    }
-
-    // Create proper RLookupKeys for each field
-    for (size_t i = 0; i < nfields; i++) {
-      // Use RLookup_GetKey_Load to create keys for loading these fields
-      // This will create the key if it doesn't exist and mark it for loading
-      RLookupKey *key = RLookup_GetKey_Load(lookup, fields[i], fields[i], RLOOKUP_F_NOFLAGS);
-      loadStep->keys[i] = key;
-    }
+  } else {
+    // Handle empty case
+    memset(&loadStep->args, 0, sizeof(ArgsCursor));
+    loadStep->keys = NULL;
   }
+
   AGPLN_AddStep(plan, &loadStep->base);
 }
 
@@ -236,7 +241,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
 
   // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
   AREQ *req2 = CreateTestAREQ(ctx, "learning", spec, &qerr);
@@ -264,7 +269,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -278,12 +283,14 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify individual request pipeline structures
-  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
-  for (size_t i = 0; i < hybridReq->nrequests; i++) {
-    AREQ *areq = hybridReq->requests[i];
-    std::string pipelineName = "Request " + std::to_string(i) + " pipeline";
-    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
-  }
+  // First request should have implicit scorer and sorter added
+  // Actual order: DEPLETER -> LOADER -> SORTER -> SCORER -> INDEX
+  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX};
+  VerifyPipelineChain(hybridReq->requests[0]->pipeline.qctx.endProc, expectedFirstRequestPipeline, "First request pipeline");
+
+  // Second request should have the original structure (no implicit sorting)
+  std::vector<ResultProcessorType> expectedSecondRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
+  VerifyPipelineChain(hybridReq->requests[1]->pipeline.qctx.endProc, expectedSecondRequestPipeline, "Second request pipeline");
 
   // Verify tail pipeline structure (hybrid merger + implicit sort-by-score)
   std::vector<ResultProcessorType> expectedTailPipeline = {RP_SORTER, RP_HYBRID_MERGER};
@@ -303,7 +310,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   // No need to add documents for pipeline building tests
 
   // Create multiple AREQ requests for comprehensive hybrid search
-  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
   AREQ *req2 = CreateTestAREQ(ctx, "machine", spec, &qerr);
@@ -336,7 +343,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -350,11 +357,16 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify individual request pipeline structures
-  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
-  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+  // First request should have implicit scorer and sorter added
+  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX};
+  VerifyPipelineChain(hybridReq->requests[0]->pipeline.qctx.endProc, expectedFirstRequestPipeline, "First request pipeline");
+
+  // Other requests should have the original structure
+  std::vector<ResultProcessorType> expectedOtherRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
+  for (size_t i = 1; i < hybridReq->nrequests; i++) {
     AREQ *areq = hybridReq->requests[i];
     std::string pipelineName = "Request " + std::to_string(i) + " pipeline";
-    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedOtherRequestPipeline, pipelineName);
   }
 
   // Verify tail pipeline structure (hybrid merger + implicit sort-by-score)
@@ -373,7 +385,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
 
   // Create a valid AREQ request
-  AREQ *req1 = CreateTestAREQ(ctx, "test", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "test", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create AREQ: " << QueryError_GetUserError(&qerr);
 
   // Create array with single request
@@ -394,7 +406,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -420,7 +432,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
 
   // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
   AREQ *req2 = CreateTestAREQ(ctx, "@category:technology", spec, &qerr);
@@ -456,7 +468,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -470,14 +482,13 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   EXPECT_EQ(REDISMODULE_OK, rc) << "Complex pipeline build failed: " << QueryError_GetUserError(&qerr);
 
   // Verify individual request pipeline structures (should include filter for field queries)
-  for (size_t i = 0; i < hybridReq->nrequests; i++) {
-    AREQ *areq = hybridReq->requests[i];
-    std::string pipelineName = "Request " + std::to_string(i) + " pipeline";
+  // First request should have implicit scorer and sorter added
+  std::vector<ResultProcessorType> expectedFirstRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX};
+  VerifyPipelineChain(hybridReq->requests[0]->pipeline.qctx.endProc, expectedFirstRequestPipeline, "First request pipeline");
 
-    // Both requests should have the same basic pipeline structure
-    std::vector<ResultProcessorType> expectedPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
-    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedPipeline, pipelineName);
-  }
+  // Second request should have the original structure
+  std::vector<ResultProcessorType> expectedSecondRequestPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
+  VerifyPipelineChain(hybridReq->requests[1]->pipeline.qctx.endProc, expectedSecondRequestPipeline, "Second request pipeline");
 
   std::vector<ResultProcessorType> expectedComplexTailPipeline = {RP_PROJECTOR, RP_SORTER, RP_HYBRID_MERGER};
   VerifyPipelineChain(hybridReq->tailPipeline->qctx.endProc, expectedComplexTailPipeline, "Complex tail pipeline");
@@ -493,7 +504,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
 
   // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
   AREQ *req2 = CreateTestAREQ(ctx, "learning", spec, &qerr);
@@ -522,7 +533,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -535,25 +546,31 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
-  std::vector<ResultProcessorType> expectedIndividualPipeline = {RP_DEPLETER, RP_LOADER, RP_INDEX};
   // Verify that implicit LOAD functionality is implemented via RPLoader result processors
   // (not PLN_LoadStep aggregation plan steps) in individual request pipelines
+
+  // Define expected pipelines for each request
+  std::vector<std::vector<ResultProcessorType>> expectedPipelines = {
+    {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
+    {RP_DEPLETER, RP_LOADER, RP_INDEX}                         // Other requests pipeline
+  };
+
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     AREQ *areq = hybridReq->requests[i];
-    // Check that no PLN_LoadStep exists in the aggregation plan (implicit loading uses RPLoader instead)
     PLN_LoadStep *requestLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&areq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
-    EXPECT_EQ(nullptr, requestLoadStep) << "Request " << i << " should not have PLN_LoadStep (uses RPLoader instead)";
+    EXPECT_NE(nullptr, requestLoadStep) << "Request " << i << " should have PLN_LoadStep for implicit load";
+    EXPECT_EQ(1, requestLoadStep->nkeys) << "Request " << i << " should have 1 key for implicit load";
     std::string pipelineName = "Request " + std::to_string(i) + " pipeline with implicit LOAD";
-    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedIndividualPipeline, pipelineName);
+    VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedPipelines[i], pipelineName);
 
-    // Verify implicit load creates "key" field with path "__key"
+    // Verify implicit load creates "key" field with path "key"
     RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
     ASSERT_NE(nullptr, lookup);
 
     bool foundKeyField = false;
     for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
       if (key->name && strcmp(key->name, "key") == 0) {
-        EXPECT_STREQ("__key", key->path);
+        EXPECT_STREQ("key", key->path);
         foundKeyField = true;
         break;
       }
@@ -578,7 +595,7 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
 
   // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
   AREQ *req2 = CreateTestAREQ(ctx, "intelligence", spec, &qerr);
@@ -594,13 +611,13 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Add explicit LOAD step with custom fields
-  const char *loadFields[] = {"title", "category", "score"};
-  AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 3);
+  const char *loadFields[] = {"title", "category"};
+  AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 2);
 
   // Verify explicit LOAD step exists
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
   ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should exist";
-  EXPECT_EQ(3, loadStep->nkeys) << "Explicit LOAD should have 3 fields";
+  EXPECT_EQ(2, loadStep->args.argc) << "Explicit LOAD should have 3 fields (before processing)";
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
   HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
@@ -612,7 +629,7 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -625,10 +642,19 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
 
-  // Verify that the explicit LOAD step is preserved (still 3 fields, not 2)
+  // Verify that the explicit LOAD step is preserved in individual AREQ pipelines (processed with 3 keys)
+  // The tail pipeline should still have the unprocessed LOAD step
   loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
-  ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should still exist";
-  EXPECT_EQ(3, loadStep->nkeys) << "Explicit LOAD should still have 3 fields (not replaced by implicit)";
+  ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should still exist in tail pipeline";
+  EXPECT_EQ(2, loadStep->args.argc) << "Tail pipeline LOAD should still have 3 fields in args (unprocessed)";
+  EXPECT_EQ(0, loadStep->nkeys) << "Tail pipeline LOAD should be unprocessed (nkeys = 0)";
+
+  // Individual AREQ pipelines should have processed LOAD steps with 3 keys
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    PLN_LoadStep *areqLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->requests[i]->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+    ASSERT_NE(nullptr, areqLoadStep) << "AREQ " << i << " should have cloned LOAD step";
+    EXPECT_EQ(2, areqLoadStep->nkeys) << "AREQ " << i << " LOAD should be processed with 3 keys";
+  }
 
   ResultProcessor *hybridMerger = FindHybridMergerInPipeline(hybridReq->tailPipeline->qctx.endProc);
   const RLookupKey *scoreKey = RPHybridMerger_GetScoreKey(hybridMerger);
@@ -646,7 +672,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitSort) {
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
 
   // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
   AREQ *req2 = CreateTestAREQ(ctx, "learning", spec, &qerr);
@@ -682,7 +708,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitSort) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -712,7 +738,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
 
   // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
   AREQ *req2 = CreateTestAREQ(ctx, "intelligence", spec, &qerr);
@@ -747,7 +773,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -765,6 +791,79 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
   std::vector<ResultProcessorType> expectedTailPipeline = {RP_SORTER, RP_HYBRID_MERGER};
   VerifyPipelineChain(hybridReq->tailPipeline->qctx.endProc, expectedTailPipeline, "Tail pipeline with implicit sort-by-score");
 
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
+// Test that implicit sort-by-score is NOT added when first request already has explicit arrange step
+TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstRequestSort) {
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_no_implicit_first_sort", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  // Create AREQ requests
+  AREQ *req1 = CreateTestAREQ(ctx, "machine", spec, &qerr, true);
+  ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
+
+  AREQ *req2 = CreateTestAREQ(ctx, "learning", spec, &qerr);
+  ASSERT_TRUE(req2 != nullptr) << "Failed to create second AREQ: " << QueryError_GetUserError(&qerr);
+
+  // Add explicit arrange step to the FIRST REQUEST's plan (not tail pipeline)
+  AGGPlan *firstRequestPlan = AREQ_AGGPlan(req1);
+  const char *sortFields[] = {"title"};  // Sort by title, not score
+  AddSortStepToPlan(firstRequestPlan, sortFields, 1, SORTASCMAP_INIT);
+
+  // Verify explicit SORT step exists in first request's plan
+  const PLN_BaseStep *existingArrangeStep = AGPLN_FindStep(firstRequestPlan, NULL, NULL, PLN_T_ARRANGE);
+  ASSERT_NE(nullptr, existingArrangeStep) << "First request should have explicit SORT step";
+
+  // Create array of requests
+  AREQ **requests = array_new(AREQ*, 2);
+  requests = array_ensure_append_1(requests, req1);
+  requests = array_ensure_append_1(requests, req2);
+
+  // Create HybridRequest
+  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  ASSERT_TRUE(hybridReq != nullptr);
+
+  // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
+  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
+  scoringCtx->scoringType = HYBRID_SCORING_LINEAR;
+  scoringCtx->linearCtx.linearWeights = (double*)rm_calloc(2, sizeof(double));
+  scoringCtx->linearCtx.linearWeights[0] = 0.6;
+  scoringCtx->linearCtx.linearWeights[1] = 0.4;
+  scoringCtx->linearCtx.numWeights = 2;
+
+  HybridPipelineParams params = {
+      .aggregationParams = {
+        .common = {
+          .sctx = hybridReq->requests[0]->sctx,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
+          .optimizer = hybridReq->requests[0]->optimizer,
+        },
+        .outFields = &hybridReq->requests[0]->outFields,
+        .maxResultsLimit = 15,
+      },
+      .synchronize_read_locks = true,
+      .scoringCtx = scoringCtx,
+  };
+
+  int rc = HybridRequest_BuildPipeline(hybridReq, &params);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+
+  // Verify that the first request's plan still has exactly ONE arrange step (the explicit one)
+  // and that no additional implicit score sorter was added
+  size_t arrangeStepCount = 0;
+  for (const DLLIST_node *nn = firstRequestPlan->steps.next; nn != &firstRequestPlan->steps; nn = nn->next) {
+    const PLN_BaseStep *step = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    if (step->type == PLN_T_ARRANGE) {
+      arrangeStepCount++;
+    }
+  }
+  EXPECT_EQ(1, arrangeStepCount) << "First request should have exactly one arrange step (the explicit one)";
+
   // Clean up
   HybridRequest_Free(hybridReq);
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
@@ -777,7 +876,7 @@ TEST_F(HybridRequestTest, testHybridRequestSortBy0DisablesImplicitSort) {
   ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
 
   // Create AREQ requests
-  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr);
+  AREQ *req1 = CreateTestAREQ(ctx, "artificial", spec, &qerr, true);
   ASSERT_TRUE(req1 != nullptr) << "Failed to create first AREQ: " << QueryError_GetUserError(&qerr);
 
   AREQ *req2 = CreateTestAREQ(ctx, "intelligence", spec, &qerr);
@@ -817,7 +916,7 @@ TEST_F(HybridRequestTest, testHybridRequestSortBy0DisablesImplicitSort) {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
-          .reqflags = QEXEC_F_IS_HYBRID,
+          .reqflags = QEXEC_F_IS_HYBRID_TAIL,
           .optimizer = hybridReq->requests[0]->optimizer,
         },
         .outFields = &hybridReq->requests[0]->outFields,
@@ -834,6 +933,229 @@ TEST_F(HybridRequestTest, testHybridRequestSortBy0DisablesImplicitSort) {
   // The pipeline should be: HYBRID_MERGER only (no sorter)
   std::vector<ResultProcessorType> expectedTailPipeline = {RP_HYBRID_MERGER};
   VerifyPipelineChain(hybridReq->tailPipeline->qctx.endProc, expectedTailPipeline, "Tail pipeline with SORTBY 0 (no implicit sort)");
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
+// Test that verifies key correspondence between search subqueries and tail pipeline
+// This test uses a complex hybrid query with LOAD and APPLY steps to ensure that
+// RLookup_CloneInto properly handles both loaded fields and computed fields
+TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx_keys", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
+
+  // Create a hybrid query with SEARCH and VSIM subqueries, plus LOAD and APPLY steps
+  RMCK::ArgvList args(ctx, "FT.HYBRID", specName,
+                      "SEARCH", "@title:machine",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "LOAD", "3", "@title", "@vector", "@category");
+
+  // Create a fresh sctx for this test since parseHybridCommand takes ownership
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  // Parse the hybrid command
+  HybridRequest* hybridReq = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &status);
+  ASSERT_TRUE(hybridReq != NULL) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Build the pipeline using the parsed hybrid parameters
+  int rc = HybridRequest_BuildPipeline(hybridReq, hybridReq->hybridParams);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
+
+  // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
+  RLookup *tailLookup = AGPLN_GetLookup(&hybridReq->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+  ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
+
+  // Verify that the tail lookup has been properly initialized and populated
+  ASSERT_GT(tailLookup->rowlen, 0) << "Tail lookup should have a non-zero rowlen";
+
+  int tailKeyCount = 0;
+  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
+    if (key->name) {
+      tailKeyCount++;
+    }
+  }
+  ASSERT_GT(tailKeyCount, 0) << "Tail lookup should have at least one key";
+
+  // Test all upstream subqueries in the hybrid request
+  for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
+    AREQ *upstreamReq = hybridReq->requests[reqIdx];
+    RLookup *upstreamLookup = AGPLN_GetLookup(&upstreamReq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
+
+    // Verify that the upstream lookup has been properly populated
+    ASSERT_GT(upstreamLookup->rowlen, 0) << "Upstream request " << reqIdx << " should have a non-zero rowlen";
+
+    // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
+    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
+      if (!upstreamKey->name) {
+        continue; // Skip overridden keys
+      }
+
+      // Find corresponding key in tail lookup by name
+      RLookupKey *tailKey = NULL;
+      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
+          tailKey = tk;
+          break;
+        }
+      }
+
+      ASSERT_TRUE(tailKey != NULL)
+        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+
+      // Verify that the keys point to the same indices
+      EXPECT_EQ(upstreamKey->dstidx, tailKey->dstidx)
+        << "Key '" << upstreamKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
+        << upstreamKey->dstidx << ") vs tail (" << tailKey->dstidx << ")";
+
+      EXPECT_EQ(upstreamKey->svidx, tailKey->svidx)
+        << "Key '" << upstreamKey->name << "' has different svidx in upstream request " << reqIdx << " ("
+        << upstreamKey->svidx << ") vs tail (" << tailKey->svidx << ")";
+
+      // Verify path matches
+      if (upstreamKey->path && tailKey->path) {
+        EXPECT_STREQ(upstreamKey->path, tailKey->path)
+          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+      } else {
+        EXPECT_EQ(upstreamKey->path, tailKey->path)
+          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+      }
+
+      // Verify name length matches
+      EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
+        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+    }
+  }
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
+// Test key correspondence between search and tail pipelines with implicit loading (no LOAD clause)
+TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImplicit) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx_keys_implicit", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
+
+  // Create a hybrid query with SEARCH and VSIM subqueries, but NO LOAD clause (implicit loading)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", specName,
+                      "SEARCH", "@title:machine",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test since parseHybridCommand takes ownership
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  // Parse the hybrid command
+  HybridRequest* hybridReq = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &status);
+  ASSERT_TRUE(hybridReq != NULL) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Build the pipeline using the parsed hybrid parameters
+  int rc = HybridRequest_BuildPipeline(hybridReq, hybridReq->hybridParams);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
+
+  // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
+  RLookup *tailLookup = AGPLN_GetLookup(&hybridReq->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+  ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
+
+  // Verify that the tail lookup has been properly initialized and populated
+  ASSERT_GT(tailLookup->rowlen, 0) << "Tail lookup should have a non-zero rowlen";
+
+  int tailKeyCount = 0;
+  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
+    if (key->name) {
+      tailKeyCount++;
+    }
+  }
+  ASSERT_GT(tailKeyCount, 0) << "Tail lookup should have at least one key";
+
+  // Verify that implicit loading creates the "key" field in the tail pipeline
+  RLookupKey *tailKeyField = NULL;
+  for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+    if (tk->name && strcmp(tk->name, "key") == 0) {
+      tailKeyField = tk;
+      break;
+    }
+  }
+  ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit 'key' field";
+  EXPECT_STREQ("key", tailKeyField->path) << "Implicit key field should have path 'key'";
+
+  // Test all upstream subqueries in the hybrid request
+  for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
+    AREQ *upstreamReq = hybridReq->requests[reqIdx];
+    RLookup *upstreamLookup = AGPLN_GetLookup(&upstreamReq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
+
+    // Verify that the upstream lookup has been properly populated
+    ASSERT_GT(upstreamLookup->rowlen, 0) << "Upstream request " << reqIdx << " should have a non-zero rowlen";
+
+    // Verify that the upstream subquery also has the implicit "key" field
+    RLookupKey *upstreamKeyField = NULL;
+    for (RLookupKey *uk = upstreamLookup->head; uk; uk = uk->next) {
+      if (uk->name && strcmp(uk->name, "key") == 0) {
+        upstreamKeyField = uk;
+        break;
+      }
+    }
+    ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit 'key' field";
+    EXPECT_STREQ("key", upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
+
+    // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
+    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
+      if (!upstreamKey->name) {
+        continue; // Skip overridden keys
+      }
+
+      // Find corresponding key in tail lookup by name
+      RLookupKey *tailKey = NULL;
+      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
+          tailKey = tk;
+          break;
+        }
+      }
+
+      ASSERT_TRUE(tailKey != NULL)
+        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+
+      // Verify that the keys point to the same indices
+      EXPECT_EQ(upstreamKey->dstidx, tailKey->dstidx)
+        << "Key '" << upstreamKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
+        << upstreamKey->dstidx << ") vs tail (" << tailKey->dstidx << ")";
+
+      EXPECT_EQ(upstreamKey->svidx, tailKey->svidx)
+        << "Key '" << upstreamKey->name << "' has different svidx in upstream request " << reqIdx << " ("
+        << upstreamKey->svidx << ") vs tail (" << tailKey->svidx << ")";
+
+      // Verify path matches
+      if (upstreamKey->path && tailKey->path) {
+        EXPECT_STREQ(upstreamKey->path, tailKey->path)
+          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+      } else {
+        EXPECT_EQ(upstreamKey->path, tailKey->path)
+          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+      }
+
+      // Verify name length matches
+      EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
+        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+    }
+  }
 
   // Clean up
   HybridRequest_Free(hybridReq);

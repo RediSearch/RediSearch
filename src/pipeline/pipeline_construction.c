@@ -157,7 +157,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  if (params->common.optimizer->type != Q_OPT_NO_SORTER && !astp->noSort) {
+  if (params->common.optimizer && params->common.optimizer->type != Q_OPT_NO_SORTER && !astp->noSort) {
     if (astp->sortKeys) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
@@ -191,7 +191,7 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
-    } else if (IsHybrid(&params->common) ||
+    } else if (IsHybridTail(&params->common) || IsHybridSearchSubquery(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
                HasScorer(params->common.optimizer)) {
       // No sort? then it must be sort by score, which is the default.
@@ -247,6 +247,85 @@ bool hasQuerySortby(const AGGPlan *pln) {
   return arng && arng->sortKeys;
 }
 
+static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t loadFlags,
+                               QueryError *status) {
+  if (!loadStep || !lookup) {
+    return REDISMODULE_ERR;
+  }
+
+  // Use the original ArgsCursor directly
+  ArgsCursor *ac = &loadStep->args;
+
+    // Process all arguments in the ArgsCursor
+  while (!AC_IsAtEnd(ac)) {
+    size_t name_len;
+    const char *name, *path = AC_GetStringNC(ac, &name_len);
+
+    // Handle path prefix (@)
+    if (*path == '@') {
+      path++;
+      name_len--;
+    }
+
+    // Check for AS alias
+    if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
+      int rv = AC_GetString(ac, &name, &name_len, 0);
+      if (rv != AC_OK) {
+        if (status) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, "LOAD path AS name - must be accompanied with NAME");
+        }
+        return REDISMODULE_ERR;
+      } else if (!strcasecmp(name, SPEC_AS_STR)) {
+        if (status) {
+          QueryError_SetError(status, QUERY_EPARSEARGS, "Alias for LOAD cannot be `AS`");
+        }
+        return REDISMODULE_ERR;
+      }
+    } else {
+      // Set the name to the path. name_len is already the length of the path.
+      name = path;
+    }
+
+    // Create the RLookupKey
+    RLookupKey *kk = RLookup_GetKey_LoadEx(lookup, name, name_len, path, loadFlags);
+    // We only get a NULL return if the key already exists, which means
+    // that we don't need to retrieve it again.
+    if (kk && loadStep->nkeys < loadStep->args.argc) {
+      loadStep->keys[loadStep->nkeys++] = kk;
+    }
+  }
+
+  return REDISMODULE_OK;
+}
+
+ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
+                                RedisSearchCtx *sctx, uint32_t reqflags, uint32_t loadFlags,
+                                bool forceLoad, uint32_t *outStateFlags, QueryError *status) {
+  if (!loadStep || !lookup || !sctx) {
+    return NULL;
+  }
+
+  // Process the LOAD step arguments to populate keys array
+  if (processLoadStepArgs(loadStep, lookup, loadFlags, status) != REDISMODULE_OK) {
+    return NULL;
+  }
+
+  // Create RPLoader if we have keys to load or LOAD ALL flag is set
+  if (loadStep->nkeys || loadStep->base.flags & PLN_F_LOAD_ALL) {
+    ResultProcessor *rp = RPLoader_New(sctx, reqflags, lookup, loadStep->keys, loadStep->nkeys, forceLoad, outStateFlags);
+
+    // Handle JSON spec case
+    if (isSpecJson(sctx->spec)) {
+      // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+      lookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
+    }
+
+    return rp;
+  }
+
+  return NULL;
+}
+
 #define PUSH_RP()                                      \
   rpUpstream = pushRP(&pipeline->qctx, rp, rpUpstream); \
   rp = NULL;
@@ -283,7 +362,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
    *  * there is no subsequent sorter within this grouping */
   const int reqflags = params->common.reqflags;
   if ((reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
-      ((reqflags & QEXEC_F_IS_SEARCH) && !(reqflags & QEXEC_F_NOROWS) &&
+      ((IsSearch(&params->common) || IsHybridSearchSubquery(&params->common)) && !(reqflags & QEXEC_F_NOROWS) &&
        ((reqflags & QEXEC_OPTIMIZE) ? (params->common.optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(&pipeline->ap)))) {
     rp = getScorerRP(pipeline, first, params);
     PUSH_RP();
@@ -440,41 +519,14 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
                               "LOAD cannot be applied after projectors or reducers");
           goto error;
         }
-        // Get all the keys for this lookup...
-        while (!AC_IsAtEnd(&lstp->args)) {
-          size_t name_len;
-          const char *name, *path = AC_GetStringNC(&lstp->args, &name_len);
-          if (*path == '@') {
-            path++;
-            name_len--;
-          }
-          if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
-            int rv = AC_GetString(&lstp->args, &name, &name_len, 0);
-            if (rv != AC_OK) {
-              QueryError_SetError(status, QUERY_EPARSEARGS, "LOAD path AS name - must be accompanied with NAME");
-              return REDISMODULE_ERR;
-            } else if (!strcasecmp(name, SPEC_AS_STR)) {
-              QueryError_SetError(status, QUERY_EPARSEARGS, "Alias for LOAD cannot be `AS`");
-              return REDISMODULE_ERR;
-            }
-          } else {
-            // Set the name to the path. name_len is already the length of the path.
-            name = path;
-          }
 
-          RLookupKey *kk = RLookup_GetKey_LoadEx(curLookup, name, name_len, path, loadFlags);
-          // We only get a NULL return if the key already exists, which means
-          // that we don't need to retrieve it again.
-          if (kk) {
-            lstp->keys[lstp->nkeys++] = kk;
-          }
+        // Process the complete LOAD step
+        rp = processLoadStep(lstp, curLookup, params->common.sctx, params->common.reqflags,
+                            loadFlags, forceLoad, outStateFlags, status);
+        if (status->code != QUERY_OK) {
+          return REDISMODULE_ERR;
         }
-        if (lstp->nkeys || lstp->base.flags & PLN_F_LOAD_ALL) {
-          rp = RPLoader_New(params->common.sctx, params->common.reqflags, curLookup, lstp->keys, lstp->nkeys, forceLoad, outStateFlags);
-          if (isSpecJson(sctx->spec)) {
-            // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-            curLookup->options &= ~RLOOKUP_OPT_ALL_LOADED;
-          }
+        if (rp) {
           PUSH_RP();
         }
         break;
@@ -495,7 +547,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
-  if (!hasArrange && (requestFlags & QEXEC_F_IS_SEARCH)) {
+  if (!hasArrange && (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common))) {
     rp = getArrangeRP(pipeline, params, NULL, status, rpUpstream, forceLoad, outStateFlags);
     if (!rp) {
       goto error;

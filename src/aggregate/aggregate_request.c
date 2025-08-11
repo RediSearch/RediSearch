@@ -22,16 +22,16 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "obfuscation/hidden.h"
+#include "hybrid/vector_query_utils.h"
+#include "vector_index.h"
 
 extern RSConfig RSGlobalConfig;
 
 /**
  * Ensures that the user has not requested one of the 'extended' features. Extended
  * in this case refers to reducers which re-create the search results.
- * @param areq the request
- * @param name the name of the option that requires simple mode. Used for error
- *   formatting
- * @param status the error object
+ * @param req the request
+ * @return true if the request is in simple mode, false otherwise
  */
 static bool ensureSimpleMode(AREQ *req) {
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {
@@ -46,7 +46,7 @@ static bool ensureSimpleMode(AREQ *req) {
  * 'simple' options - i.e. ones which rely on the field to be the exact same as
  * found in the document - was not requested.
  * name argument must not contain any user data, as it is used for error formatting
- */
+*/
 static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
   if (*reqflags & QEXEC_F_IS_SEARCH) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
@@ -273,13 +273,11 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       REQFLAGS_AddFlags(papCtx->reqflags, QEXEC_F_SEND_NOFIELDS);
       // TODO: unify if when req holds only maxResults according to the query type.
       //(SEARCH / AGGREGATE)
-    } else if ((arng->limit > *papCtx->maxSearchResults) &&
-               (*papCtx->reqflags & QEXEC_F_IS_SEARCH)) {
+    } else if ((arng->limit > *papCtx->maxSearchResults) && (*papCtx->reqflags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY))) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxSearchResults);
       return ARG_ERROR;
-    } else if ((arng->limit > *papCtx->maxAggregateResults) &&
-               !(*papCtx->reqflags & QEXEC_F_IS_SEARCH)) {
+    } else if ((arng->limit > *papCtx->maxAggregateResults) && !(*papCtx->reqflags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY))) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              *papCtx->maxAggregateResults);
       return ARG_ERROR;
@@ -397,7 +395,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (*papCtx->reqflags & QEXEC_F_IS_HYBRID && isSortby0) {
+    if ((*papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) && isSortby0) {
       // SORTBY 0 means disable all sorting in Hybrid requests
       AC_Advance(ac); // Consume the "0" argument
       arng->noSort = true;
@@ -970,7 +968,9 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status
     }
   }
 
-  if (!(*papCtx->reqflags & QEXEC_F_SEND_HIGHLIGHT) && !(*papCtx->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) && (!(*papCtx->reqflags & QEXEC_F_IS_SEARCH) || hasQuerySortby(papCtx->plan))) {
+  if (!(*papCtx->reqflags & QEXEC_F_SEND_HIGHLIGHT) &&
+      !(*papCtx->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) &&
+      (!(*papCtx->reqflags & QEXEC_F_IS_SEARCH) || hasQuerySortby(papCtx->plan))) {
     // We can skip collecting full results structure and metadata from the iterators if:
     // 1. We don't have a highlight/summarize step,
     // 2. We are not required to return scores explicitly,
@@ -1135,6 +1135,66 @@ static bool IsIndexCoherent(AREQ *req) {
   return true;
 }
 
+
+static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
+  ParsedVectorData *pvd = req->parsedVectorData;
+  VectorQuery *vq = pvd->query;
+  const char *fieldName = pvd->fieldName;
+
+  // Resolve field spec
+  const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, strlen(fieldName));
+  if (!vectorField) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown field", " `%s`", fieldName);
+    return REDISMODULE_ERR;
+  } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
+    return REDISMODULE_ERR;
+  }
+  vq->field = vectorField;
+
+  QueryNode *vecNode = NewQueryNode(QN_VECTOR);
+  vecNode->vn.vq = vq;
+  pvd->query = NULL;
+  //QueryNode now owns the VectorQuery
+
+  // Always yield distance for hybrid vector subqueries
+  vecNode->opts.flags |= QueryNode_YieldsDistance;
+
+  if (pvd->isParameter) {
+    // PARAMETER CASE: Set up parameter for evalnode to resolve later
+    QueryToken vecToken = {
+      .type = QT_PARAM_VEC,
+      .s = (vq->type == VECSIM_QT_KNN) ? vq->knn.vector : vq->range.vector,
+      .len = (vq->type == VECSIM_QT_KNN) ? vq->knn.vecLen : vq->range.vecLen,
+      .pos = 0,
+      .numval = 0,
+      .sign = 0
+    };
+
+    QueryParseCtx q = {0};
+    QueryNode_InitParams(vecNode, 1);
+    switch (vq->type) {
+      case VECSIM_QT_KNN:
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->knn.vector, &vq->knn.vecLen, &vecToken);
+        break;
+      case VECSIM_QT_RANGE:
+        QueryNode_SetParam(&q, &vecNode->params[0], &vq->range.vector, &vq->range.vecLen, &vecToken);
+        break;
+    }
+    // Update AST's numParams since we used a local QueryParseCtx
+    ast->numParams += q.numParams;
+  }
+  // Handle non-vector-specific attributes (like YIELD_DISTANCE_AS)
+  if (pvd->attributes) {
+    QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
+  }
+
+  QueryNode_AddChild(vecNode, ast->root);
+  ast->root = vecNode;
+
+  return REDISMODULE_OK;
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1204,6 +1264,16 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  if (req->parsedVectorData) {
+    ast->validationFlags |= QAST_HYBRID_VSIM_FILTER_CLAUSE;
+    int rv = ApplyVectorQuery(req, sctx, ast, status);
+    if (rv != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+    // After vector is added, skip root in validation
+    ast->validationFlags |= QAST_SKIP_ROOT_VALIDATION;
   }
 
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
@@ -1299,9 +1369,17 @@ void AREQ_Free(AREQ *req) {
   if(req->requiredFields) {
     array_free(req->requiredFields);
   }
+  // Free parsed vector data
+  if (req->parsedVectorData) {
+    ParsedVectorData_Free(req->parsedVectorData);
+    req->parsedVectorData = NULL;
+  }
+
   rm_free(req->args);
   rm_free(req);
 }
+
+
 
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);

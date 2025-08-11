@@ -9,6 +9,7 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
+#include <stdbool.h>
 #include "value.h"
 #include "query.h"
 #include "reducer.h"
@@ -18,6 +19,8 @@
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "reply.h"
+#include "vector_index.h"
+#include "hybrid/vector_query_utils.h"
 
 #include "rmutil/rm_assert.h"
 
@@ -30,8 +33,10 @@ extern "C" {
 typedef struct Grouper Grouper;
 struct QOptimizer;
 
-// A query can be either a search, an aggregate or a hybrid. So QEXEC_F_IS_AGGREGATE,
-// QEXEC_F_IS_SEARCH and QEXEC_F_IS_HYBRID are mutually exclusive (Only one can be set).
+/*
+ * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL
+ * and QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY are mutually exclusive (Only one can be set).
+ */
 typedef enum {
   QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
   QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
@@ -95,7 +100,10 @@ typedef enum {
   QEXEC_F_INTERNAL = 0x400000,
 
   // The query is a Hybrid Request
-  QEXEC_F_IS_HYBRID = 0x800000,
+  QEXEC_F_IS_HYBRID_TAIL = 0x800000,
+
+  // The query is a Search Subquery of a Hybrid Request
+  QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY = 0x1000000,
 
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
@@ -123,7 +131,8 @@ typedef struct {
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
-#define IsHybrid(r) ((r)->reqflags & QEXEC_F_IS_HYBRID)
+#define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
+#define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
@@ -148,6 +157,8 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
+
+typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -155,6 +166,9 @@ typedef struct AREQ {
 
   /** Search query string */
   const char *query;
+
+  /** For hybrid queries: contains parsed vector data and partially constructed query node */
+  ParsedVectorData *parsedVectorData;
 
   /** Fields to be output and otherwise processed */
   FieldList outFields;
@@ -409,6 +423,8 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
+int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, int execOptions, QueryError *status);
+
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 

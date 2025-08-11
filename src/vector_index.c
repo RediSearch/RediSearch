@@ -187,6 +187,12 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   return 1;
 }
 
+void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen) {
+  // Set default scoreField using vector field name
+  int n_written = rm_asprintf(&vq->scoreField, "__%.*s_score", (int)fieldNameLen, fieldName);
+  RS_ASSERT(n_written != -1);
+}
+
 void VectorQuery_Free(VectorQuery *vq) {
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
