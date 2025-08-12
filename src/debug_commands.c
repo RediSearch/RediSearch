@@ -130,24 +130,23 @@ DEBUG_COMMAND(DumpTerms) {
   return REDISMODULE_OK;
 }
 
-static double InvertedIndexGetEfficiency(InvertedIndex *invidx) {
-  return ((double)InvertedIndex_NumEntries(invidx))/(InvertedIndex_NumBlocks(invidx));
-}
 
 static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *invidx) {
+  InvertedIndexSummary summary = InvertedIndex_Summary(invidx);
   size_t invIdxBulkLen = 0;
-  REPLY_WITH_LONG_LONG("numDocs", InvertedIndex_NumDocs(invidx), invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numEntries", InvertedIndex_NumEntries(invidx), invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("lastId", InvertedIndex_LastId(invidx), invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("flags", InvertedIndex_Flags(invidx), invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numberOfBlocks", InvertedIndex_NumBlocks(invidx), invIdxBulkLen);
-  if (InvertedIndex_Flags(invidx) & Index_StoreNumeric) {
-    REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/numberOfBlocks)", InvertedIndexGetEfficiency(invidx), invIdxBulkLen);
+
+  REPLY_WITH_LONG_LONG("numDocs", summary.numDocs, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numEntries", summary.numEntries, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("lastId", summary.lastId, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("flags", summary.flags, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numberOfBlocks", summary.numberOfBlocks, invIdxBulkLen);
+  if (summary.hasEfficiency) {
+    REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/numberOfBlocks)", summary.blocksEfficiency, invIdxBulkLen);
   }
   return invIdxBulkLen;
 }
 
-DEBUG_COMMAND(InvertedIndexSummary) {
+DEBUG_COMMAND(InvertedIndexSummaryCmd) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -355,14 +354,15 @@ DEBUG_COMMAND(DumpPrefixTrie) {
 }
 
 InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
-  InvertedIndexStats indexStats = {.blocks_efficiency = InvertedIndexGetEfficiency(idx)};
+  InvertedIndexSummary summary = InvertedIndex_Summary(idx);
+  InvertedIndexStats indexStats = {.blocks_efficiency = summary.blocksEfficiency};
   START_POSTPONED_LEN_ARRAY(invertedIndexDump);
 
-  REPLY_WITH_LONG_LONG("numDocs", InvertedIndex_NumDocs(idx), ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("numEntries", InvertedIndex_NumEntries(idx), ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("lastId", InvertedIndex_LastId(idx), ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("size", InvertedIndex_NumBlocks(idx), ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", indexStats.blocks_efficiency, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("numDocs", summary.numDocs, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("numEntries", summary.numEntries, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("lastId", summary.lastId, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("size", summary.numberOfBlocks, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", summary.blocksEfficiency, ARRAY_LEN_VAR(invertedIndexDump));
 
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
@@ -1843,7 +1843,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_PHONETIC_HASH", DumpPhoneticHash},
                                {"DUMP_SUFFIX_TRIE", DumpSuffix},
                                {"DUMP_TERMS", DumpTerms},
-                               {"INVIDX_SUMMARY", InvertedIndexSummary}, // Print info about an inverted index and each of its blocks.
+                               {"INVIDX_SUMMARY", InvertedIndexSummaryCmd}, // Print info about an inverted index and each of its blocks.
                                {"NUMIDX_SUMMARY", NumericIndexSummary}, // Quick summary of the numeric index
                                {"SPEC_INVIDXES_INFO", SpecInvertedIndexesInfo}, // Print general information about the inverted indexes in the spec
                                {"GC_FORCEINVOKE", GCForceInvoke},

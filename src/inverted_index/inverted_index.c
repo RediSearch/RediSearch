@@ -1216,3 +1216,34 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
   IndexResult_Free(res);
   return frags;
 }
+
+/* Calculate efficiency ratio of the inverted index: numEntries / numBlocks.
+ * Used to measure how well the index is utilizing its block structure. */
+double InvertedIndex_GetEfficiency(const InvertedIndex *idx) {
+  return ((double)InvertedIndex_NumEntries(idx))/(InvertedIndex_NumBlocks(idx));
+}
+
+/* Retrieve comprehensive summary information about an inverted index.
+ * Returns a stack-allocated struct containing all key metrics including:
+ * - numDocs: Number of documents in the index
+ * - numEntries: Total number of entries
+ * - lastId: Last document ID
+ * - flags: Index configuration flags
+ * - numberOfBlocks: Number of index blocks
+ * - blocksEfficiency: Efficiency ratio (only for numeric indexes)
+ * - hasEfficiency: Whether efficiency calculation is applicable */
+InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx) {
+  IndexFlags flags = InvertedIndex_Flags(idx);
+  bool hasEfficiency = (flags & Index_StoreNumeric) ? true : false;
+
+  InvertedIndexSummary summary = {
+    .numDocs = InvertedIndex_NumDocs(idx),
+    .numEntries = InvertedIndex_NumEntries(idx),
+    .lastId = InvertedIndex_LastId(idx),
+    .flags = flags,
+    .numberOfBlocks = InvertedIndex_NumBlocks(idx),
+    .blocksEfficiency = hasEfficiency ? InvertedIndex_GetEfficiency(idx) : 0.0,
+    .hasEfficiency = hasEfficiency
+  };
+  return summary;
+}
