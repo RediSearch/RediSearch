@@ -380,8 +380,17 @@ impl<'a> IntoIterator for RSAggregateResult<'a> {
 #[derive(Debug, PartialEq)]
 pub struct RSVirtualResult;
 
-/// Repeats the [`RSResultData`] definition since `bitflags` does not support enum with values or
-/// enums with lifetimes currently.
+/// A C-style discriminant for [`RSResultData`].
+///
+/// # Implementation notes
+///
+/// We need a standalone C-style discriminant to get `bitflags` to generate a
+/// dedicated bitmask type. Unfortunately, we can't apply `#[bitflags]` directly
+/// on [`RSResultData`] since `bitflags` doesn't support enum with data in
+/// their variants, nor lifetime parameters.
+///
+/// The discriminant values must match *exactly* the ones specified
+/// on [`RSResultData`].
 #[bitflags]
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
