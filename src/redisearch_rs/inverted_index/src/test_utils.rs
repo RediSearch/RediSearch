@@ -17,7 +17,7 @@ use crate::{RSIndexResult, RSOffsetVectorRef, RSResultData, RSTermRecord};
 /// pointers used internally stay valid for the duration of the test or bench.
 #[derive(Debug)]
 pub struct TestTermRecord<'a> {
-    pub record: RSIndexResult<'a>,
+    pub record: RSIndexResult<'a, 'a>,
     // both term and offsets need to stay alive during the test
     _term: Box<ffi::RSQueryTerm>,
     _offsets: Vec<i8>,
@@ -55,7 +55,7 @@ impl TestTermRecord<'_> {
 /// Helper to compare only the fields of a term record that are actually encoded.
 /// Only used in tests.
 #[derive(Debug)]
-pub struct TermRecordCompare<'a>(pub &'a RSIndexResult<'a>);
+pub struct TermRecordCompare<'a>(pub &'a RSIndexResult<'a, 'a>);
 
 impl<'a> PartialEq for TermRecordCompare<'a> {
     fn eq(&self, other: &Self) -> bool {

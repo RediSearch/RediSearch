@@ -10,6 +10,8 @@ use ffi::{
 };
 use low_memory_thin_vec::LowMemoryThinVec;
 
+// mod raw;
+
 unsafe extern "C" {
     /// Adds the metrics of a child [`RSIndexResult`] to the parent [`RSIndexResult`].
     ///
@@ -244,26 +246,23 @@ pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
-pub enum RSAggregateResult<'a> {
-    Borrowed(RSAggregateResultRef<'a>),
+pub enum RSAggregateResult<'a, 'children> {
+    Borrowed(RSAggregateResultRef<'a, 'children>),
     Owned(RSAggregateResultOwned),
 }
 
 #[repr(C)]
 #[derive(Debug, PartialEq)]
-pub struct RSAggregateResultRef<'a> {
+pub struct RSAggregateResultRef<'a, 'children> {
     /// The records making up this aggregate result
     ///
     /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<*const RSIndexResult<'a>>,
+    records: LowMemoryThinVec<&'children RSIndexResult<'a, 'children>>,
 
     /// A map of the aggregate kind of the underlying records
     kind_mask: RSResultKindMask,
-    /// The lifetime is actually on `RsIndexResult` but it is stored as a pointer which does not
-    /// support lifetimes. So use a PhantomData to carry the lifetime for it instead.
-    _phantom: PhantomData<&'a ()>,
 }
 
 #[repr(C)]
@@ -274,13 +273,13 @@ pub struct RSAggregateResultOwned {
     /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<*const RSIndexResult<'static>>,
+    records: LowMemoryThinVec<Box<RSIndexResult<'static, 'static>>>,
 
     /// A map of the aggregate kind of the underlying records
     kind_mask: RSResultKindMask,
 }
 
-impl<'a> RSAggregateResult<'a> {
+impl<'a, 'children> RSAggregateResult<'a, 'children> {
     /// Create a new empty aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self::Borrowed(RSAggregateResultRef::with_capacity(cap))
@@ -348,13 +347,12 @@ impl<'a> RSAggregateResult<'a> {
     // }
 }
 
-impl<'a> RSAggregateResultRef<'a> {
+impl<'a, 'children> RSAggregateResultRef<'a, 'children> {
     /// Create a new empty aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             records: LowMemoryThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
-            _phantom: PhantomData,
         }
     }
 
@@ -390,10 +388,10 @@ impl<'a> RSAggregateResultRef<'a> {
     ///
     /// # Safety
     /// The caller must ensure that the memory at the given index is still valid
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'_>> {
+    pub fn get(&self, index: usize) -> Option<&'children RSIndexResult<'a, 'children>> {
         if let Some(result_addr) = self.records.get(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
-            Some(unsafe { &**result_addr })
+            Some(*result_addr)
         } else {
             None
         }
@@ -413,8 +411,8 @@ impl<'a> RSAggregateResultRef<'a> {
     /// # Safety
     /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
     /// the child with [`Self::get()`] will cause undefined behavior.
-    pub fn push(&mut self, child: &RSIndexResult) {
-        self.records.push(child as *const _ as *mut _);
+    pub fn push(&mut self, child: &'children RSIndexResult<'a, 'children>) {
+        self.records.push(child);
 
         self.kind_mask |= child.data.result_kind();
     }
@@ -453,13 +451,8 @@ impl RSAggregateResultOwned {
     ///
     /// # Safety
     /// The caller must ensure that the memory at the given index is still valid
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'static>> {
-        if let Some(result_addr) = self.records.get(index) {
-            // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
-            Some(unsafe { &**result_addr })
-        } else {
-            None
-        }
+    pub fn get(&self, index: usize) -> Option<&Box<RSIndexResult<'static, 'static>>> {
+        self.records.get(index)
     }
 
     /// Reset the aggregate result, clearing all children and resetting the kind mask.
@@ -476,21 +469,20 @@ impl RSAggregateResultOwned {
     /// # Safety
     /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
     /// the child with [`Self::get()`] will cause undefined behavior.
-    pub fn push(&mut self, child: &RSIndexResult) {
-        self.records.push(child as *const _ as *mut _);
-
+    pub fn push(&mut self, child: RSIndexResult<'static, 'static>) {
         self.kind_mask |= child.data.result_kind();
+        self.records.push(Box::new(child));
     }
 }
 
 /// An iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultIter<'a> {
-    agg: &'a RSAggregateResult<'a>,
+pub struct RSAggregateResultIter<'a, 'children> {
+    agg: &'a RSAggregateResult<'a, 'children>,
     index: usize,
 }
 
-impl<'a> Iterator for RSAggregateResultIter<'a> {
-    type Item = &'a RSIndexResult<'a>;
+impl<'a, 'children> Iterator for RSAggregateResultIter<'a, 'children> {
+    type Item = &'a RSIndexResult<'a, 'children>;
 
     /// Get the next item in the iterator
     ///
@@ -518,7 +510,7 @@ pub struct RSAggregateResultIterOwned {
 }
 
 impl Iterator for RSAggregateResultIterOwned {
-    type Item = Box<RSIndexResult<'static>>;
+    type Item = Box<RSIndexResult<'static, 'static>>;
 
     /// Get the next item as a `Box<RSIndexResult>`
     ///
@@ -526,20 +518,19 @@ impl Iterator for RSAggregateResultIterOwned {
     /// The box can only be taken if the items in this aggregate result have been cloned and is
     /// therefore owned by the `RSAggregateResult`.
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(result_ptr) = self.agg.records.get(self.index) {
+        if self.agg.is_empty() {
+            None
+        } else {
+            let result = self.agg.records.swap_remove(self.index);
             self.index += 1;
 
-            // SAFETY: The caller is to ensure the `RSAggregateResult` was cloned to allow getting
-            // the pointer as a `Box<RSIndexResult>`.
-            unsafe { Some(Box::from_raw(*result_ptr as *mut _)) }
-        } else {
-            None
+            Some(result)
         }
     }
 }
 
 impl IntoIterator for RSAggregateResultOwned {
-    type Item = Box<RSIndexResult<'static>>;
+    type Item = Box<RSIndexResult<'static, 'static>>;
 
     type IntoIter = RSAggregateResultIterOwned;
 
@@ -578,17 +569,17 @@ pub enum RSResultKind {
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 /// cbindgen:prefix-with-name=true
-pub enum RSResultData<'a> {
-    Union(RSAggregateResult<'a>) = 1,
-    Intersection(RSAggregateResult<'a>) = 2,
+pub enum RSResultData<'a, 'children> {
+    Union(RSAggregateResult<'a, 'children>) = 1,
+    Intersection(RSAggregateResult<'a, 'children>) = 2,
     Term(RSTermRecord<'a>) = 4,
     Virtual(RSVirtualResult) = 8,
     Numeric(RSNumericRecord) = 16,
     Metric(RSNumericRecord) = 32,
-    HybridMetric(RSAggregateResult<'a>) = 64,
+    HybridMetric(RSAggregateResult<'a, 'children>) = 64,
 }
 
-impl RSResultData<'_> {
+impl RSResultData<'_, '_> {
     pub fn result_kind(&self) -> RSResultKind {
         match self {
             RSResultData::Union(_) => RSResultKind::Union,
@@ -606,7 +597,7 @@ impl RSResultData<'_> {
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
-pub struct RSIndexResult<'a> {
+pub struct RSIndexResult<'a, 'aggregate_children> {
     /// The document ID of the result
     pub doc_id: t_docId,
 
@@ -624,7 +615,7 @@ pub struct RSIndexResult<'a> {
     pub offsets_sz: u32,
 
     /// The actual data of the result
-    pub data: RSResultData<'a>,
+    pub data: RSResultData<'a, 'aggregate_children>,
 
     /// We mark copied results so we can treat them a bit differently on deletion, and pool them if
     /// we want
@@ -637,13 +628,13 @@ pub struct RSIndexResult<'a> {
     pub weight: f64,
 }
 
-impl Default for RSIndexResult<'_> {
+impl Default for RSIndexResult<'_, '_> {
     fn default() -> Self {
         Self::virt()
     }
 }
 
-impl<'a> RSIndexResult<'a> {
+impl<'a, 'aggregate_children> RSIndexResult<'a, 'aggregate_children> {
     /// Create a new virtual index result
     pub fn virt() -> Self {
         Self {
@@ -720,7 +711,7 @@ impl<'a> RSIndexResult<'a> {
         doc_id: t_docId,
         field_mask: t_fieldMask,
         freq: u32,
-    ) -> RSIndexResult<'a> {
+    ) -> Self {
         let offsets_sz = offsets.len;
         Self {
             data: RSResultData::Term(RSTermRecord::with_term(term, offsets)),
@@ -824,7 +815,7 @@ impl<'a> RSIndexResult<'a> {
 
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
-    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'a>> {
+    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'a, 'aggregate_children>> {
         match &self.data {
             RSResultData::Union(agg)
             | RSResultData::Intersection(agg)
@@ -838,7 +829,7 @@ impl<'a> RSIndexResult<'a> {
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
-    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'a>> {
+    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'a, 'aggregate_children>> {
         match &mut self.data {
             RSResultData::Union(agg)
             | RSResultData::Intersection(agg)
@@ -872,7 +863,7 @@ impl<'a> RSIndexResult<'a> {
     ///
     /// The given `result` has to stay valid for the lifetime of this index result. Else reading
     /// from this result will cause undefined behaviour.
-    pub fn push(&mut self, child: &RSIndexResult) {
+    pub fn push(&mut self, child: &'aggregate_children RSIndexResult<'a, 'aggregate_children>) {
         match &mut self.data {
             RSResultData::Union(RSAggregateResult::Borrowed(agg))
             | RSResultData::Intersection(RSAggregateResult::Borrowed(agg))
@@ -902,7 +893,7 @@ impl<'a> RSIndexResult<'a> {
 
     /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
     /// an aggregate record or if the index is out-of-bounds.
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'_>> {
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'a, 'aggregate_children>> {
         match &self.data {
             RSResultData::Union(RSAggregateResult::Borrowed(agg))
             | RSResultData::Intersection(RSAggregateResult::Borrowed(agg))
@@ -920,7 +911,7 @@ impl<'a> RSIndexResult<'a> {
     }
 }
 
-impl Drop for RSIndexResult<'_> {
+impl Drop for RSIndexResult<'_, '_> {
     fn drop(&mut self) {
         // SAFETY: we know `self` still exists because we are in `drop`. We also know the C type is
         // the same since it was autogenerated from the Rust type
