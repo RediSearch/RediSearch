@@ -68,11 +68,6 @@ class ParseHybridTest : public ::testing::Test {
       HybridRequest_Free(result);
     }
     if (ctx) {
-      // Drop the index to clean up
-      RedisModuleCallReply *reply = RedisModule_Call(ctx, "FT.DROPINDEX", "c", index_name.c_str());
-      if (reply) {
-        RedisModule_FreeCallReply(reply);
-      }
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
     }

@@ -1807,7 +1807,7 @@ dictType dictTypeHybridSearchResult = {
         window = self->hybridScoringCtx->rrfCtx.window;
       } else {
         // For LINEAR scoring, use the tail pipeline limit
-        // If parent is NULL or resultLimit is 0 (e.g., in tests), use a reasonable default
+        // If parent is NULL (e.g., in HybridMerger tests), use a reasonable default
         if (self->base.parent && self->base.parent->resultLimit > 0) {
           window = self->base.parent->resultLimit;
         } else {
