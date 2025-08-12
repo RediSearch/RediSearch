@@ -828,7 +828,12 @@ DECODER(readNumeric) {
     if (NumericFilter_IsNumeric(f)) {
       return NumericFilter_Match(f, value);
     } else {
-      return isWithinRadius(f->geoFilter, value, &value);
+      int filtered = isWithinRadius(f->geoFilter, value, &value);
+
+      // Update the value with the new calculated distance
+      IndexResult_SetNumValue(res, value);
+
+      return filtered;
     }
   }
 
