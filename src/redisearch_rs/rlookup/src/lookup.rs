@@ -214,7 +214,7 @@ pub struct RLookup<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookupHeader<'a> {
-    keys: KeyList<'a>,
+    pub(crate) keys: KeyList<'a>,
 }
 
 #[derive(Debug)]
@@ -280,7 +280,7 @@ impl<'a> RLookupKey<'a> {
     ///
     /// This is a lower-level constructor that allows you to pass in a `Cow` directly and thus
     /// let's you bypass the lifetime restrictions of the `name` parameter in [`RLookupKey::new`].
-    pub(crate) fn new_with_cow(name: CBCow<'a, CStr>, flags: RLookupKeyFlags) -> Self {
+    pub(crate) fn new_with_cow(name: Cow<'a, CStr>, flags: RLookupKeyFlags) -> Self {
         Self {
             header: RLookupKeyHeader {
                 dstidx: 0,
@@ -299,7 +299,7 @@ impl<'a> RLookupKey<'a> {
     /// Returns the name of this key as a `&CStr`.
     ///
     /// This is used internally (load_document code paths) to access a reference with the correct lifetime.
-    pub(crate) fn name_ref(&self) -> &CBCow<'a, CStr> {
+    pub(crate) fn name(&self) -> &CStr {
         // Safety: We assume the pointer is valid and points to a null-terminated C string.
         &self._name
     }
@@ -1870,8 +1870,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -1911,8 +1911,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -1955,8 +1955,8 @@ mod tests {
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup.get_key_load(
-            key_name,
-            field_name,
+            key_name.into(),
+            field_name.into(),
             make_bitflags!(RLookupKeyFlag::Override),
         );
 
@@ -1992,8 +1992,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::{Override | ForceLoad}),
             )
             .expect("expected to find key by name");
@@ -2033,7 +2033,7 @@ mod tests {
             rlookup.keys.push(key);
 
             let retrieved_key =
-                rlookup.get_key_load(key_name, field_name, RLookupKeyFlags::empty());
+                rlookup.get_key_load(key_name.into(), field_name.into(), RLookupKeyFlags::empty());
             assert!(retrieved_key.is_none());
             if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
                 assert!(!key.flags.contains(RLookupKeyFlag::ExplicitReturn));
@@ -2042,8 +2042,11 @@ mod tests {
             }
 
             // let's use the load to tag explicit return
-            let opt =
-                rlookup.get_key_load(key_name, field_name, RLookupKeyFlag::ExplicitReturn.into());
+            let opt = rlookup.get_key_load(
+                key_name.into(),
+                field_name.into(),
+                RLookupKeyFlag::ExplicitReturn.into(),
+            );
             assert!(opt.is_none(), "expected None, got {opt:?}");
 
             if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
@@ -2069,8 +2072,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -2098,8 +2101,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");

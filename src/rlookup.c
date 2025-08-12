@@ -1021,7 +1021,7 @@ void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLook
 
 // added as entry point for the rust code
 // Required from Rust therefore not an inline method anymore.
-// Internally it handles different lenghts encoded in 5,8,16,32 and 64 bit.
+// Internally it handles different lengths encoded in 5,8,16,32 and 64 bit.
 size_t sdslen__(const char* s) {
   return sdslen(s);
 }
