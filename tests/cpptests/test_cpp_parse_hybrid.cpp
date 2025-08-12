@@ -64,6 +64,7 @@ class ParseHybridTest : public ::testing::Test {
   void TearDown() override {
     // Free the result if it was set during the test
     if (result) {
+      HybridScoringContext_Free(result->hybridParams->scoringCtx);
       HybridRequest_Free(result);
     }
     if (ctx) {
