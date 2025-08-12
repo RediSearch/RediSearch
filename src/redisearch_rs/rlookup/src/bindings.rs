@@ -513,13 +513,6 @@ impl RedisKey {
 
 // ===== RedisScanCursor =====
 
-type ScanCursorCallbackType = unsafe extern "C" fn(
-    key: *mut RedisModuleKey,
-    field: *mut RedisModuleString,
-    value: *mut RedisModuleString,
-    privdata: *mut ::std::os::raw::c_void,
-);
-
 /// Scan api that allows a module to scan the elements in a hash, set or sorted set key
 #[derive(Debug)]
 pub struct RedisScanCursor {
@@ -583,8 +576,12 @@ impl Iterator for RedisScanCursor {
         let mut data: Data = MaybeUninit::uninit();
         let data_ptr = addr_of_mut!(data).cast::<c_void>();
 
+        // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
+        // i.e. after module initialization the function pointers stay valid till the end of the program.
+        let scan_key = unsafe { RedisModule_ScanKey.unwrap() };
+        // Safety: All pointers we pass here are guaranteed to remain valid during the `scan_key` call.
         let ret = unsafe {
-            RedisModule_ScanKey.unwrap()(
+            scan_key(
                 self.key.0.as_ptr(),
                 self.cursor.as_ptr(),
                 Some(callback),
@@ -597,6 +594,9 @@ impl Iterator for RedisScanCursor {
         // > possibly setting errno if the call failed.
         // <https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#redismodule_scankey>
         if ret == 1 {
+            // Safety: As stated above, we know that a return-code of 1 means we successfully scanned, which in-turn
+            // means `scan_key` called our callback, which wrote the pointers to our stack slot. Its therefore safe to
+            // read the data out of the slot here.
             let (key, field, value) = unsafe { MaybeUninit::assume_init(data) };
             let key = RedisKey(NonNull::new(key).unwrap());
 
@@ -764,13 +764,13 @@ mod tests {
     ///
     /// ```
     /// fn clone(&self) -> Self {
-    ///   // ...  
+    ///   // ...
     ///   let refcount = unsafe { &raw const self.0.as_ref().refcount };
     ///   let refcount = unsafe { AtomicUsize::from_ptr(refcount.cast_mut()) };
     ///   //...
     /// ```
     ///
-    /// This code generates the error message:  
+    /// This code generates the error message:
     ///
     /// ```
     /// error: Undefined Behavior: trying to retag from <182444> for SharedReadWrite permission at alloc76385[0x10], but that tag only grants SharedReadOnly permission for this location
