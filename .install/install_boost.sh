@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 set -e
-VERSION=1.84.0
+VERSION=1.88.0
 BOOST_NAME="boost_${VERSION//./_}"
 BOOST_DIR="boost" # here we search for the boost cached installation if exists. Do not change this value
 
