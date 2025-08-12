@@ -181,7 +181,7 @@ setup_build_environment() {
     OS_NAME=$(echo "$OS_NAME" | tr '[:upper:]' '[:lower:]')
   fi
 
-  # Get architecture and convert arm64 to arm64v8
+  # Get architecture and convert arm64 to aarch64
   ARCH=$(uname -m)
   if [[ "$ARCH" == "arm64" ]]; then
     ARCH="aarch64"
@@ -204,6 +204,12 @@ setup_build_environment() {
 
   # Set the final BINDIR using the full variant path
   BINDIR="${BINROOT}/${FULL_VARIANT}/${OUTDIR}"
+
+  # Create compatibility symlink for aarch64 -> arm64v8 if needed
+  if [[ "$ARCH" == "aarch64" ]]; then
+    export ARM64V8_VARIANT="${OS_NAME}-arm64v8-${FLAVOR}"
+    export ARM64V8_BINROOT="${BINROOT}/${ARM64V8_VARIANT}"
+  fi
 }
 
 start_group() {
@@ -320,6 +326,14 @@ run_cmake() {
   # Create build directory and ensure any parent directories exist
   mkdir -p "$BINDIR"
   cd "$BINDIR"
+
+  # Create compatibility symlink for aarch64 -> arm64v8 if needed
+  if [[ "$ARCH" == "aarch64" && -n "$ARM64V8_BINROOT" ]]; then
+    if [[ ! -e "$ARM64V8_BINROOT" ]]; then
+      echo "Creating compatibility symlink: $ARM64V8_BINROOT -> ${BINROOT}/${FULL_VARIANT}"
+      ln -sf "${FULL_VARIANT}" "$ARM64V8_BINROOT"
+    fi
+  fi
 
   # Clean up any cached CMake configuration if force is enabled
   if [[ "$FORCE" == "1" ]]; then
