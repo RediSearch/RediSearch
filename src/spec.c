@@ -486,7 +486,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += sp->stats.invertedSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
-  res += vector_overhead ? vector_overhead : IndexSpec_VectorIndexesSize(sp);
+  res += vector_overhead;
   return res;
 }
 
