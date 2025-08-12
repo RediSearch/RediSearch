@@ -167,10 +167,10 @@ DEBUG_COMMAND(InvertedIndexSummaryCmd) {
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
-  size_t numBlocks = InvertedIndex_NumBlocks(invidx);
-  for (uint32_t i = 0; i < numBlocks; ++i) {
+  InvertedIndexBlockIterator blockIter = InvertedIndex_BlockIterator(invidx);
+  IndexBlock *block;
+  while ((block = InvertedIndex_BlockIterator_Next(&blockIter)) != NULL) {
     size_t blockBulkLen = 0;
-    IndexBlock *block = InvertedIndex_BlockRef(invidx, i);
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
     REPLY_WITH_LONG_LONG("firstId", IndexBlock_FirstId(block), blockBulkLen);

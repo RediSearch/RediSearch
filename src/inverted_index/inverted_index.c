@@ -1247,3 +1247,26 @@ InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx) {
   };
   return summary;
 }
+
+/* Initialize an iterator for traversing index blocks.
+ * Returns a stack-allocated iterator positioned at the beginning. */
+InvertedIndexBlockIterator InvertedIndex_BlockIterator(const InvertedIndex *idx) {
+  InvertedIndexBlockIterator iter = {
+    .index = idx,
+    .currentBlock = 0,
+    .totalBlocks = InvertedIndex_NumBlocks(idx)
+  };
+  return iter;
+}
+
+/* Get the next block from the iterator and advance the position.
+ * Returns NULL if no more blocks are available. */
+IndexBlock *InvertedIndex_BlockIterator_Next(InvertedIndexBlockIterator *iter) {
+  if (iter->currentBlock >= iter->totalBlocks) {
+    return NULL;
+  }
+
+  IndexBlock *block = InvertedIndex_BlockRef(iter->index, iter->currentBlock);
+  iter->currentBlock++;
+  return block;
+}
