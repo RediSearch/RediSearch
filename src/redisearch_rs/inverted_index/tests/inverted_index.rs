@@ -8,13 +8,13 @@
 */
 
 use ffi::RS_FIELDMASK_ALL;
-use inverted_index::{RSAggregateResult, RSIndexResult, RSResultKind, RSResultKindMask};
+use inverted_index::{RSAggregateResultRef, RSIndexResult, RSResultKind, RSResultKindMask};
 
 mod c_mocks;
 
 #[test]
 fn pushing_to_aggregate_result() {
-    let mut agg = RSAggregateResult::with_capacity(2);
+    let mut agg = RSAggregateResultRef::with_capacity(2);
 
     assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
 
