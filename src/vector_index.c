@@ -22,7 +22,8 @@
 #endif
 
 static bool isLVQSupported() {
-#ifdef CPUID_AVAILABLE
+
+#if defined(CPUID_AVAILABLE) && defined(SVS_PRE_COMPILED_LIB)
   // Check if the machine is Intel based on the CPU vendor.
   unsigned int eax, ebx, ecx, edx;
   char vendor[13];
