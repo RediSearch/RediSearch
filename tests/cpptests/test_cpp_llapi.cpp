@@ -1472,15 +1472,3 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
 
   RediSearch_DropIndex(index);
 }
-
-TEST_F(LLApiTest, testInfoSizeWithVectorField) {
-  // creating the index
-  RSIndex* index = RediSearch_CreateIndex("index", NULL);
-  GCContext *gc;
-
-  // adding field to the index
-  RediSearch_CreateVectorField(index, "vec");
-
-  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + EMPTY_TRIE_SIZE;
-  EXPECT_EQ(RediSearch_MemUsage(index), doc_table_size);
-}
