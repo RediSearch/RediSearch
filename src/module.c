@@ -67,6 +67,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
+#include "rs_wall_clock.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -1728,7 +1729,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
-    req->profileClock = clock();
+    rs_wall_clock_init(&req->profileClock);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       req->profileLimited = 1;
       req->profileArgs++;
@@ -1868,7 +1869,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
-  req->initClock = clock();
+  rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -2716,20 +2717,20 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 struct PrintCoordProfile_ctx {
-  clock_t totalTime;
-  clock_t postProcessTime;
+  rs_wall_clock *totalTime;
+  rs_wall_clock_ns_t postProcessTime;
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - pCtx->totalTime) / CLOCKS_PER_MILLISEC);
-  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - pCtx->postProcessTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(pCtx->totalTime)));
+  RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - pCtx->postProcessTime));
   RedisModule_Reply_MapEnd(reply);
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProcessTime) {
+                               rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
   bool has_map = RedisModule_HasMap(reply);
   RedisModule_Reply_Map(reply); // root
     // Have a named map for the results for RESP3
@@ -2774,11 +2775,10 @@ static bool should_return_error(MRReply *reply) {
 static bool should_return_timeout_error(searchRequestCtx *req) {
   return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
          && req->timeout != 0
-         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
+         && (rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock))) > req->timeout;
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProcessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
@@ -2880,10 +2880,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(reply, &rCtx);
   } else {
-    profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
+    profileSearchReply(reply, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   }
-
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
 
 cleanup:
   RedisModule_EndReply(reply);

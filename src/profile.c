@@ -33,9 +33,10 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
 
   RedisModule_Reply_Map(reply);
   if (InvertedIndex_Flags(it->idx) == Index_DocIdsOnly) {
-    if (root->current->data.term.term != NULL) {
+    const RSTermRecord *term = IndexResult_TermRef(root->current);
+    if (term->term != NULL) {
       printProfileType("TAG");
-      REPLY_KVSTR_SAFE("Term", root->current->data.term.term->str);
+      REPLY_KVSTR_SAFE("Term", term->term->str);
     }
   } else if (InvertedIndex_Flags(it->idx) & Index_StoreNumeric) {
     const NumericFilter *flt = it->decoderCtx.filter;
@@ -54,7 +55,8 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
     }
   } else {
     printProfileType("TEXT");
-    REPLY_KVSTR_SAFE("Term", root->current->data.term.term->str);
+    const RSTermRecord *term = IndexResult_TermRef(root->current);
+    REPLY_KVSTR_SAFE("Term", term->term->str);
   }
 
   // print counter and clock
@@ -113,7 +115,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
 
-  double totalRPTime = (double)(RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC);
+  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
@@ -132,7 +134,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
   bool bgScanOOM = profileCtx->bgScanOOM;
-  req->totalTime += clock() - req->initClock;
+  req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
 
   //-------------------------------------------------------------------------------------------
   RedisModule_Reply_Map(reply);
@@ -140,28 +142,26 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          (double)(req->totalTime / CLOCKS_PER_MILLISEC));
+          rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
 
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          (double)(req->parseTime / CLOCKS_PER_MILLISEC));
+          rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
 
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+            rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
 
       //Print total GIL time
         if (profile_verbose){
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-            rs_timer_ms(&req->qiter.GILTime));
+            rs_wall_clock_convert_ns_to_ms_d(req->qiter.GILTime));
           } else {
-            struct timespec rpEndTime;
-            clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-            rs_timersub(&rpEndTime, &req->qiter.initTime, &rpEndTime);
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_timer_ms(&rpEndTime));
+            rs_wall_clock_ns_t rpEndTime = rs_wall_clock_elapsed_ns(&req->qiter.initTime);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_wall_clock_convert_ns_to_ms_d(rpEndTime));
           }
         }
 
@@ -458,7 +458,7 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
   printIteratorProfile(reply, pi->child, &pi->counters,
-    (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
+    rs_wall_clock_convert_ns_to_ms_d(pi->wallTime), depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, QueryIterator *root, ProfileCounters *counters,

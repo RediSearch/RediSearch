@@ -304,6 +304,73 @@ extern "C" {
 bool IndexResult_IsAggregate(const struct RSIndexResult *result);
 
 /**
+ * Get the numeric value of the result if it is a numeric result. If the result is not numeric,
+ * this function will return `0.0`.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+double IndexResult_NumValue(const struct RSIndexResult *result);
+
+/**
+ * Set the numeric value of the result if it is a numeric result. If the result is not numeric,
+ * this function will do nothing.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
+
+/**
+ * Get the term of the result if it is a term result. If the result is not a term, this function
+ * will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+const struct RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *result);
+
+/**
+ * Get the mutable term of the result if it is a term result. If the result is not a term,
+ * this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+struct RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
+
+/**
+ * Get the aggregate result reference if the result is an aggregate result. If the result is
+ * not an aggregate, this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+const struct RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
+
+/**
+ * Reset the result if it is an aggregate result. This will clear all children and reset the type mask.
+ * This function does not deallocate the children pointers, but rather resets the internal state of the
+ * aggregate result. The owner of the children pointers is responsible for managing their lifetime.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void IndexResult_AggregateReset(struct RSIndexResult *result);
+
+/**
  * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
  * if the index is out of bounds.
  *
@@ -345,18 +412,6 @@ uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
 uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
-
-/**
- * Reset the aggregate result, clearing all children and resetting the type mask. This function
- * does not deallocate the children pointers, but rather resets the internal state of the
- * aggregate result. The owner of the children pointers is responsible for managing their lifetime.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- */
-void AggregateResult_Reset(struct RSAggregateResult *agg);
 
 /**
  * Create a new aggregate result with the specified capacity. This function will make the result

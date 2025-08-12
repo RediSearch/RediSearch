@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -153,7 +154,7 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t totalIndexTime;
+  rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
   uint32_t activeQueries;
