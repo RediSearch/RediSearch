@@ -523,6 +523,11 @@ fn synced_discriminants() {
     for (data, kind) in tests {
         assert_eq!(data.kind(), kind);
 
+        // SAFETY: since `RSResultData` is a `repr(u8)` it will have a C `union` layout with a
+        // `repr(C)` struct for each variant. Each of these structs has the discriminant as the
+        // first field, which we can read here without offsetting the pointer.
+        //
+        // For more see https://doc.rust-lang.org/std/mem/fn.discriminant.html#accessing-the-numeric-value-of-the-discriminant
         let data_discriminant = unsafe { *<*const _>::from(&data).cast::<u8>() };
         let kind_discriminant = kind as u8;
 
