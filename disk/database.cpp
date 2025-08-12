@@ -47,7 +47,7 @@ static rocksdb::ColumnFamilyOptions CreateDocTableOptions(size_t cacheSize) {
   blockBasedOptions.block_align = true;
   blockBasedOptions.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
   blockBasedOptions.cache_index_and_filter_blocks = false;
-  options.table_factory.reset(NewBlockBasedTableFactory(blockBasedOptions));
+  options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(blockBasedOptions));
 
   return options;
 }
