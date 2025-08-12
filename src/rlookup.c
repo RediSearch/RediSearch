@@ -391,7 +391,7 @@ static void RLookupKey_Cleanup(RLookupKey *k) {
   }
 }
 
-static void RLookupKey_Free(RLookupKey *k) {
+void RLookupKey_Free(RLookupKey *k) {
   RLookupKey_Cleanup(k);
   rm_free(k);
 }
@@ -986,4 +986,71 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   QueryError_ClearError(&status);
   rm_free(keys);
   return rv;
+}
+
+RLookupKey *RLookupKey_Clone(const RLookupKey *src) {
+  if (!src) {
+    return NULL;
+  }
+
+  RLookupKey *dst = rm_calloc(1, sizeof(*dst));
+
+  // Copy basic fields
+  dst->dstidx = src->dstidx;
+  dst->svidx = src->svidx;
+  dst->name_len = src->name_len;
+
+  // Cloned keys ALWAYS allocate their own strings for complete independence
+  if (src->name) {
+    dst->name = rm_strndup(src->name, src->name_len);
+    dst->flags = src->flags | RLOOKUP_F_NAMEALLOC;  // Always set allocation flag
+
+    if (src->path) {
+      if (src->path == src->name) {
+        dst->path = dst->name;  // Point to our allocated name
+      } else {
+        dst->path = rm_strdup(src->path);
+      }
+    } //else - dst->path is already NULL
+  } else {
+    //source has no name
+    //dst->name = NULL;
+    //dst->path = NULL;
+    dst->flags = src->flags;  // Don't set NAMEALLOC if no strings
+  }
+
+  return dst;
+}
+
+void RLookup_CloneInto(RLookup *dst, const RLookup *src) {
+  RS_ASSERT(dst != NULL && src != NULL);
+
+  // dst should be clean after RLookup_Init - only spcache should be set
+  // Assert that dst is in the expected clean state from initialization
+  RS_ASSERT(dst->head == NULL && dst->tail == NULL && dst->rowlen == 0 && dst->options == 0);
+
+  // Reset dst structure but preserve initialization
+  dst->rowlen = src->rowlen;
+  dst->options = src->options;
+
+  // Deep copy the linked list of keys from src
+  RLookupKey *src_key = src->head;
+  RLookupKey *prev_dst_key = NULL;
+
+  while (src_key) {
+    RLookupKey *dst_key = RLookupKey_Clone(src_key);
+
+    if (!dst->head) {
+      // First key
+      dst->head = dst_key;
+      dst->tail = dst_key;
+    } else {
+      // Link to previous key
+      prev_dst_key->next = dst_key;
+      dst->tail = dst_key;
+    }
+
+    prev_dst_key = dst_key;
+    src_key = src_key->next;
+  }
 }

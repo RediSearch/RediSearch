@@ -174,6 +174,31 @@ PLN_ArrangeStep *AGPLN_GetOrCreateArrangeStep(AGGPlan *pln) {
   return ret;
 }
 
+PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
+  RS_ASSERT(original);
+
+  PLN_LoadStep *cloned = rm_calloc(1, sizeof(PLN_LoadStep));
+
+  // Copy base step properties
+  cloned->base.type = PLN_T_LOAD;
+  cloned->base.alias = original->base.alias ? rm_strdup(original->base.alias) : NULL;
+  cloned->base.flags = original->base.flags;
+  cloned->base.dtor = original->base.dtor;
+  cloned->base.getLookup = original->base.getLookup;
+
+
+  cloned->args = original->args; // Shallow copy of ArgsCursor
+  cloned->nkeys = 0;
+  // Pre-allocate keys array based on the number of arguments
+  if (original->args.argc > 0) {
+    cloned->keys = rm_calloc(original->args.argc, sizeof(RLookupKey*));
+  }
+  // else - cloned->keys is already NULL
+
+
+  return cloned;
+}
+
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
   const DLLIST_node *first = NULL, *last = NULL;
   int isReverse = 0;

@@ -1,5 +1,6 @@
 #include "hybrid/hybrid_request.h"
 #include "pipeline/pipeline.h"
+#include "pipeline/pipeline_construction.h"
 #include "hybrid/hybrid_scoring.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
@@ -12,6 +13,33 @@ extern "C" {
 
 // Field names for implicit LOAD step
 #define HYBRID_IMPLICIT_KEY_FIELD "key"
+#define SEARCH_INDEX 0
+
+/**
+ * Create implicit LOAD step for document key when no explicit LOAD is specified.
+ * Returns a PLN_LoadStep that loads only the HYBRID_IMPLICIT_KEY_FIELD.
+ */
+static PLN_LoadStep *createImplicitLoadStep(void) {
+    // Use a static array for the field name - no memory management needed
+    static const char *implicitArgv[] = {HYBRID_IMPLICIT_KEY_FIELD};
+
+    PLN_LoadStep *implicitLoadStep = rm_calloc(1, sizeof(PLN_LoadStep));
+
+    // Set up base step properties - use standard loadDtor
+    implicitLoadStep->base.type = PLN_T_LOAD;
+    implicitLoadStep->base.alias = NULL;
+    implicitLoadStep->base.flags = 0;
+    implicitLoadStep->base.dtor = loadDtor; // Use standard destructor
+
+    // Create ArgsCursor with static array - no memory management needed
+    ArgsCursor_InitCString(&implicitLoadStep->args, implicitArgv, 1);
+
+    // Pre-allocate keys array for the number of fields to load
+    implicitLoadStep->nkeys = 0;
+    implicitLoadStep->keys = rm_calloc(implicitLoadStep->args.argc, sizeof(RLookupKey*));
+
+    return implicitLoadStep;
+}
 
 /**
  * Build the complete hybrid search pipeline for processing multiple search requests.
@@ -59,21 +87,26 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
-        const RLookupKey **keys;
-        size_t nkeys;
-        RLookupKey *implicitLoadKeys[1];
-        if (loadStep) {
-          keys = loadStep->keys;
-          nkeys = loadStep->nkeys;
-        } else {
-          // If load was not specified, implicitly load doc key
-          RLookupKey *docIdKey = RLookup_GetKey_Load(lookup, HYBRID_IMPLICIT_KEY_FIELD, UNDERSCORE_KEY, RLOOKUP_F_NOFLAGS);
-          implicitLoadKeys[0] = docIdKey;
-          keys = implicitLoadKeys;
-          nkeys = 1;
+        PLN_LoadStep *subqueryLoadStep = NULL;
+
+        // Determine which load step to use (explicit or implicit)
+        subqueryLoadStep = loadStep ? PLNLoadStep_Clone(loadStep) : createImplicitLoadStep();
+
+        // Add the load step to the aggplan for proper cleanup
+        AGPLN_AddStep(&areq->pipeline.ap, &subqueryLoadStep->base);
+
+        // Process the LOAD step (explicit or implicit) using the unified function
+        ResultProcessor *loader = processLoadStep(subqueryLoadStep, lookup, AREQ_SearchCtx(areq), AREQ_RequestFlags(areq),
+                                                 RLOOKUP_F_NOFLAGS, false, &areq->stateflags, &req->errors[i]);
+        if (req->errors[i].code != QUERY_OK) {
+            StrongRef_Release(sync_ref);
+            array_free(depleters);
+            // Note: HybridRequest_Free is called by the caller on failure
+            return REDISMODULE_ERR;
         }
-        ResultProcessor *loader = RPLoader_New(AREQ_SearchCtx(areq), AREQ_RequestFlags(areq), lookup, keys, nkeys, false, &areq->stateflags);
-        QITR_PushRP(qctx, loader);
+        if (loader) {
+          QITR_PushRP(qctx, loader);
+        }
 
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
@@ -87,10 +120,18 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Release the sync reference as depleters now hold their own references
     StrongRef_Release(sync_ref);
 
+    // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
+    // and contain only keys from the loading step
+    //Init lookup since we dont call buildQueryPart
+    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    RLookup_Init(lookup, IndexSpec_GetSpecCache(params->aggregationParams.common.sctx->spec));
+    RLookup_CloneInto(lookup, AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST));
+
+
+
     const RLookupKey *scoreKey = NULL;
     if (!loadStep) {
         // implicit load score as well as key
-        RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
         scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
