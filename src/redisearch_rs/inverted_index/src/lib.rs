@@ -97,7 +97,7 @@ pub struct RSNumericRecord(pub f64);
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct RSOffsetVector<'a> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
@@ -143,7 +143,7 @@ impl RSOffsetVector<'_> {
 
 /// Represents a single record of a document inside a term in the inverted index
 #[repr(C)]
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct RSTermRecord<'a> {
     /// The term that brought up this record
     pub term: *mut RSQueryTerm,
@@ -224,7 +224,7 @@ pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 /// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct RSAggregateResult<'a> {
     /// The records making up this aggregate result
     ///
@@ -377,7 +377,7 @@ impl<'a> IntoIterator for RSAggregateResult<'a> {
 
 /// Represents a virtual result in an index record.
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct RSVirtualResult;
 
 /// A C-style discriminant for [`RSResultData`].
@@ -393,7 +393,7 @@ pub struct RSVirtualResult;
 /// on [`RSResultData`].
 #[bitflags]
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum RSResultKind {
     Union = 1,
     Intersection = 2,
