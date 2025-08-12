@@ -308,7 +308,7 @@ impl<'a> RSAggregateResult<'a> {
     pub fn push(&mut self, child: &RSIndexResult) {
         self.records.push(child as *const _ as *mut _);
 
-        self.kind_mask |= child.data.result_kind();
+        self.kind_mask |= child.data.kind();
     }
 }
 
@@ -422,7 +422,7 @@ pub enum RSResultData<'a> {
 }
 
 impl RSResultData<'_> {
-    fn result_kind(&self) -> RSResultKind {
+    fn kind(&self) -> RSResultKind {
         match self {
             RSResultData::Union(_) => RSResultKind::Union,
             RSResultData::Intersection(_) => RSResultKind::Intersection,
@@ -599,7 +599,7 @@ impl<'a> RSIndexResult<'a> {
 
     /// Get the kind of this index result
     pub fn kind(&self) -> RSResultKind {
-        self.data.result_kind()
+        self.data.kind()
     }
 
     /// Get this record as a numeric record if possible. If the record is not numeric, returns

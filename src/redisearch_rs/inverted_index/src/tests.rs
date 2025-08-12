@@ -521,7 +521,7 @@ fn synced_discriminants() {
     ];
 
     for (data, kind) in tests {
-        assert_eq!(data.result_kind(), kind);
+        assert_eq!(data.kind(), kind);
 
         let data_discriminant = unsafe { *<*const _>::from(&data).cast::<u8>() };
         let kind_discriminant = kind as u8;
