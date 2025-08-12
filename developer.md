@@ -33,7 +33,7 @@ For installing the prerequisites you can take the following approaches:
 1. Install the dependencies manually - check our install script at ".install/install_script.sh" for the list of dependencies. In general, the common installations are:
    - `rust` (latest stable version)
    - `cmake >= 3.25.1`
-   - `boost == 1.84.0` you can skip this dependency so our CMake script will have it for you, but this has build time penalty.
+   - `boost == 1.88.0` you can skip this dependency so our CMake script will have it for you, but this has build time penalty.
    - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
    - `python3` and `python3-pip` (for running tests)
    - `openssl-devel` / `libssl-dev` (for secure connections)
