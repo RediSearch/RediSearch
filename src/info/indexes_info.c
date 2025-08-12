@@ -37,11 +37,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.fields_stats.total_vector_idx_mem += vec_info.memory;
     info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
 
-    // Todo: today, this is a best effort does not account for the entire index memory accurately.
-    // In particular, it does not account for the vector index memory.
-    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0);
+    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0, vec_info.memory);
     info.total_mem += cur_mem;
-    info.total_mem += vec_info.memory;
 
     if (info.min_mem > cur_mem) info.min_mem = cur_mem;
     if (info.max_mem < cur_mem) info.max_mem = cur_mem;

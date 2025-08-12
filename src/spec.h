@@ -677,11 +677,13 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
- * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
- * TODO: fIX so this will account for the entire index memory, currently it is a best effort that
- * account only for part of the actual memory.
+ * Uses the sizes of the doc-table, tag, text and vector overhead if they are not `0`
+ * (otherwise compute them in-place).
+ * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
+ * currently it is a best effort that account only for part of the actual memory.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
+  size_t text_overhead, size_t vector_overhead);
 
 /**
 * obfuscate argument is used to determine how we will format the index name
