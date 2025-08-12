@@ -36,6 +36,8 @@
 #include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
 #include "reply_macros.h"
+#include "notifications.h"
+#include "info/field_spec_info.h"
 #include "debug_commands.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -468,7 +470,7 @@ char *IndexSpec_FormatObfuscatedName(const char *value, size_t len) {
   return rm_strdup(buffer);
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead) {
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead, size_t vector_overhead) {
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
@@ -479,6 +481,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += sp->stats.invertedSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
+  res += vector_overhead;
   return res;
 }
 

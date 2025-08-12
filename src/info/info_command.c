@@ -217,7 +217,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_terms", sp->stats.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(specForOpeningIndexes) / (float)0x100000);
+  size_t vector_indexes_size = IndexSpec_VectorIndexSize(specForOpeningIndexes);
+  REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
@@ -232,7 +233,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
-    tags_overhead, text_overhead) / (float)0x100000);
+    tags_overhead, text_overhead, vector_indexes_size) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
