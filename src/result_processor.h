@@ -81,8 +81,8 @@ typedef struct {
   // Contains our spec
   RedisSearchCtx *sctx;
 
-  struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  struct timespec GILTime;  //milliseconds
+  rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers
@@ -276,7 +276,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryIterator *qiter);

@@ -15,6 +15,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
+#include "rs_wall_clock.h"
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -890,8 +891,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx_UnlockSpec(sctx);
 
   bool isQueryProfile = rp->parent->isProfile;
-  struct timespec rpStartTime, rpEndTime;
-  if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpStartTime);
+  rs_wall_clock rpStartTime;
+  if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
@@ -901,10 +902,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
   if (isQueryProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-    rs_timersub(&rpEndTime, &rpStartTime, &rpEndTime);
-    rs_timeradd(&rpEndTime, &rp->GILTime, &rp->GILTime);
-    rs_timeradd(&rpEndTime, &rp->parent->GILTime, &rp->parent->GILTime);
+    // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->GILTime
+    rp->parent->GILTime += rs_wall_clock_elapsed_ns(&rpStartTime);
   }
 
   // Move to the yielding phase
@@ -1081,16 +1080,17 @@ const char *RPTypeToString(ResultProcessorType type) {
 
 typedef struct {
   ResultProcessor base;
-  clock_t profileTime;
+  rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  self->profileTime += rs_wall_clock_elapsed_ns(&start);
   self->profileCount++;
   return rc;
 }
@@ -1113,7 +1113,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-clock_t RPProfile_GetClock(ResultProcessor *rp) {
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }

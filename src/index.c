@@ -56,7 +56,7 @@ typedef struct {
   IndexIterator base;
   IndexIterator *child;
   size_t counter;
-  clock_t cpuTime;
+  rs_wall_clock_ns_t wallTime; // This field serves as a time accumulator, so using rs_wall_clock_ns_t is required.
   int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
@@ -1788,22 +1788,24 @@ IndexIterator *NewEmptyIterator(void) {
 static int PI_Read(void *ctx, RSIndexResult **e) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  rs_wall_clock begin;
+  rs_wall_clock_init(&begin);
   int ret = pi->child->Read(pi->child->ctx, e);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->wallTime += rs_wall_clock_elapsed_ns(&begin);
   return ret;
 }
 
 static int PI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   ProfileIterator *pi = ctx;
   pi->counter++;
-  clock_t begin = clock();
+  rs_wall_clock begin;
+  rs_wall_clock_init(&begin);
   int ret = pi->child->SkipTo(pi->child->ctx, docId, hit);
   if (ret == INDEXREAD_EOF) pi->eof = 1;
   pi->base.current = pi->child->current;
-  pi->cpuTime += clock() - begin;
+  pi->wallTime += rs_wall_clock_elapsed_ns(&begin);
   return ret;
 }
 
@@ -1835,7 +1837,7 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
   ProfileIteratorCtx *pc = rm_calloc(1, sizeof(*pc));
   pc->child = child;
   pc->counter = 0;
-  pc->cpuTime = 0;
+  pc->wallTime = 0;
   pc->eof = 0;
 
   IndexIterator *ret = &pc->base;
@@ -2015,7 +2017,7 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
   printIteratorProfile(reply, pi->child, pi->counter - pi->eof,
-    (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
+    rs_wall_clock_convert_ns_to_ms_d(pi->wallTime), depth, limited, config);
 }
 
 void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
