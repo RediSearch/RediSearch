@@ -11,7 +11,7 @@ protected:
   RedisModuleCtx *ctx;
   std::string index_name;
   RedisSearchCtx *sctx;
-   HybridRequest *result;  // Member to hold current test result
+  HybridRequest *result;  // Member to hold current test result
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
@@ -35,6 +35,8 @@ protected:
 
     sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
     ASSERT_TRUE(sctx != NULL);
+
+    result = nullptr;
   }
 
   void TearDown() override {

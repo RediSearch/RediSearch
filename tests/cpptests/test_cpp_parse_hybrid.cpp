@@ -58,6 +58,7 @@ class ParseHybridTest : public ::testing::Test {
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
+    result = nullptr;
   }
 
   void TearDown() override {
