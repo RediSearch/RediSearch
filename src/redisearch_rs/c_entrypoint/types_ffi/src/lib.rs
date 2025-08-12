@@ -11,7 +11,9 @@
 
 use std::{alloc::Layout, ffi::c_char};
 
-use inverted_index::{RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector};
+use inverted_index::{
+    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSTermRecord,
+};
 
 /// Check if the result is an aggregate result.
 ///
@@ -28,6 +30,125 @@ pub unsafe extern "C" fn IndexResult_IsAggregate(result: *const RSIndexResult) -
     let result = unsafe { &*result };
 
     result.is_aggregate()
+}
+
+/// Get the numeric value of the result if it is a numeric result. If the result is not numeric,
+/// this function will return `0.0`.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_NumValue(result: *const RSIndexResult) -> f64 {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.as_numeric().map_or(0.0, |num| num.0)
+}
+
+/// Set the numeric value of the result if it is a numeric result. If the result is not numeric,
+/// this function will do nothing.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, value: f64) {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &mut *result };
+
+    if let Some(num) = result.as_numeric_mut() {
+        num.0 = value;
+    }
+}
+
+/// Get the term of the result if it is a term result. If the result is not a term, this function
+/// will return a `NULL` pointer.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_TermRef(
+    result: *const RSIndexResult<'_>,
+) -> Option<&RSTermRecord<'_>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.as_term()
+}
+
+/// Get the mutable term of the result if it is a term result. If the result is not a term,
+/// this function will return a `NULL` pointer.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_TermRefMut(
+    result: *mut RSIndexResult<'_>,
+) -> Option<&mut RSTermRecord<'_>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &mut *result };
+
+    result.as_term_mut()
+}
+
+/// Get the aggregate result reference if the result is an aggregate result. If the result is
+/// not an aggregate, this function will return a `NULL` pointer.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateRef(
+    result: *const RSIndexResult<'_>,
+) -> Option<&RSAggregateResult<'_>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.as_aggregate()
+}
+
+/// Reset the result if it is an aggregate result. This will clear all children and reset the type mask.
+/// This function does not deallocate the children pointers, but rather resets the internal state of the
+/// aggregate result. The owner of the children pointers is responsible for managing their lifetime.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &mut *result };
+
+    if let Some(agg) = result.as_aggregate_mut() {
+        agg.reset();
+    }
 }
 
 /// Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
@@ -105,25 +226,6 @@ pub unsafe extern "C" fn AggregateResult_TypeMask(agg: *const RSAggregateResult)
     let agg = unsafe { &*agg };
 
     agg.type_mask().bits()
-}
-
-/// Reset the aggregate result, clearing all children and resetting the type mask. This function
-/// does not deallocate the children pointers, but rather resets the internal state of the
-/// aggregate result. The owner of the children pointers is responsible for managing their lifetime.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_Reset(agg: *mut RSAggregateResult) {
-    debug_assert!(!agg.is_null(), "agg must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
-    // an `RSAggregateResult`.
-    let agg = unsafe { &mut *agg };
-
-    agg.reset();
 }
 
 /// Create a new aggregate result with the specified capacity. This function will make the result

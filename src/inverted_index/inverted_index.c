@@ -232,7 +232,8 @@ void InvertedIndex_Free(void *ctx) {
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
   uint32_t offsets_len;
-  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  const RSTermRecord *term = IndexResult_TermRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
   size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -240,7 +241,8 @@ ENCODER(encodeFull) {
 
 ENCODER(encodeFullWide) {
   uint32_t offsets_len;
-  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  const RSTermRecord *term = IndexResult_TermRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
@@ -277,7 +279,8 @@ ENCODER(encodeFieldsOnlyWide) {
 // 5. (field, offset)
 ENCODER(encodeFieldsOffsets) {
   uint32_t offsets_len;
-  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  const RSTermRecord *term = IndexResult_TermRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, offsets_len);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -285,7 +288,8 @@ ENCODER(encodeFieldsOffsets) {
 
 ENCODER(encodeFieldsOffsetsWide) {
   uint32_t offsets_len;
-  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  const RSTermRecord *term = IndexResult_TermRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
   size_t sz = qint_encode2(bw, delta, offsets_len);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
@@ -295,7 +299,8 @@ ENCODER(encodeFieldsOffsetsWide) {
 // 6. Offsets only
 ENCODER(encodeOffsetsOnly) {
   uint32_t offsets_len;
-  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  const RSTermRecord *term = IndexResult_TermRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
   size_t sz = qint_encode2(bw, delta, offsets_len);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -304,7 +309,8 @@ ENCODER(encodeOffsetsOnly) {
 // 7. Offsets and freqs
 ENCODER(encodeFreqsOffsets) {
   uint32_t offsets_len;
-  const char *offsets_data = RSOffsetVector_GetData(&res->data.term.offsets, &offsets_len);
+  const RSTermRecord *term = IndexResult_TermRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, offsets_len);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -389,8 +395,8 @@ typedef union {
 
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
-  const double absVal = fabs(res->data.num.value);
-  const double realVal = res->data.num.value;
+  const double realVal = IndexResult_NumValue(res);
+  const double absVal = fabs(realVal);
   const float f32Num = absVal;
   uint64_t u64Num = (uint64_t)absVal;
   const uint8_t tinyNum = u64Num & NUM_TINYENC_MASK;
@@ -733,7 +739,8 @@ DECODER(readFreqOffsetsFlags) {
   qint_decode4(&blockReader->buffReader, &delta, &res->freq, &fieldMask, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
-  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSTermRecord *term = IndexResult_TermRefMut(res);
+  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return fieldMask & ctx->mask;
 }
@@ -760,7 +767,8 @@ SKIPPER(seekFreqOffsetsFlags) {
   res->freq = freq;
   res->fieldMask = fm;
   res->offsetsSz = offsz;
-  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader) - offsz, offsz);
+  RSTermRecord *term = IndexResult_TermRefMut(res);
+  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader) - offsz, offsz);
 
   return rc;
 }
@@ -770,7 +778,8 @@ DECODER(readFreqOffsetsFlagsWide) {
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSTermRecord *term = IndexResult_TermRefMut(res);
+  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return res->fieldMask & ctx->wideMask;
 }
@@ -785,25 +794,27 @@ DECODER(readNumeric) {
   Buffer_Read(&blockReader->buffReader, &delta, header.encCommon.deltaEncoding);
   blockReader->curBaseId = res->docId = blockReader->curBaseId + delta;
 
+  double value = 0;
+
   switch (header.encCommon.type) {
     case NUM_ENCODING_COMMON_TYPE_FLOAT:
       if (header.encFloat.isInf) {
-        res->data.num.value = INFINITY;
+        value = INFINITY;
       } else if (header.encFloat.isDouble) {
-        Buffer_Read(&blockReader->buffReader, &res->data.num.value, 8);
+        Buffer_Read(&blockReader->buffReader, &value, 8);
       } else {
         float f;
         Buffer_Read(&blockReader->buffReader, &f, 4);
-        res->data.num.value = f;
+        value = f;
       }
       if (header.encFloat.sign) {
-        res->data.num.value = -res->data.num.value;
+        value = -value;
       }
       break;
 
     case NUM_ENCODING_COMMON_TYPE_TINY:
       // Is embedded into the header
-      res->data.num.value = header.encTiny.tinyValue;
+      value = header.encTiny.tinyValue;
       break;
 
     case NUM_ENCODING_COMMON_TYPE_POSITIVE_INT:
@@ -812,20 +823,27 @@ DECODER(readNumeric) {
         // Is a none-zero integer (zero is represented as tiny)
         uint64_t num = 0;
         Buffer_Read(&blockReader->buffReader, &num, header.encInt.valueByteCount + 1);
-        res->data.num.value = num;
+        value = num;
         if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT) {
-          res->data.num.value = -res->data.num.value;
+          value = -value;
         }
       }
       break;
   }
 
+  IndexResult_SetNumValue(res, value);
+
   const NumericFilter *f = ctx->filter;
   if (f) {
     if (NumericFilter_IsNumeric(f)) {
-      return NumericFilter_Match(f, res->data.num.value);
+      return NumericFilter_Match(f, value);
     } else {
-      return isWithinRadius(f->geoFilter, res->data.num.value, &res->data.num.value);
+      int filtered = isWithinRadius(f->geoFilter, value, &value);
+
+      // Update the value with the new calculated distance
+      IndexResult_SetNumValue(res, value);
+
+      return filtered;
     }
   }
 
@@ -859,7 +877,8 @@ DECODER(readFieldsOffsets) {
   qint_decode3(&blockReader->buffReader, &delta, &mask, &res->offsetsSz);
   res->fieldMask = mask;
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSTermRecord *term = IndexResult_TermRefMut(res);
+  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return mask & ctx->mask;
 }
@@ -869,7 +888,8 @@ DECODER(readFieldsOffsetsWide) {
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSTermRecord *term = IndexResult_TermRefMut(res);
+  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
 
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return res->fieldMask & ctx->wideMask;
@@ -879,7 +899,8 @@ DECODER(readOffsetsOnly) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSTermRecord *term = IndexResult_TermRefMut(res);
+  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
@@ -888,7 +909,8 @@ DECODER(readFreqsOffsets) {
   uint32_t delta;
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSOffsetVector_SetData(&res->data.term.offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSTermRecord *term = IndexResult_TermRefMut(res);
+  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
