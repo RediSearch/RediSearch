@@ -276,6 +276,11 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
+  # Enable Rust/C LTO by using clang and lld
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS='-fuse-ld=lld' -DCMAKE_MODULE_LINKER_FLAGS='-fuse-ld=lld' -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+  clang -v
+  ld.lld-20 -v
+
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
   fi
@@ -379,6 +384,9 @@ build_redisearch_rs() {
   else
     RUST_ARTIFACT_SUBDIR="$RUST_PROFILE"
   fi
+
+  # Include LLVM bitcode information for cross-language LTO
+  export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Clinker-plugin-lto -C linker=clang -C link-arg=-fuse-ld=lld"
   # Set up RUSTFLAGS for dynamic C runtime if needed
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     # Disable statically linking the C runtime.
@@ -418,7 +426,7 @@ build_project() {
     NPROC=4  # Default if we can't determine
   fi
   echo "Building RediSearch with $NPROC parallel jobs..."
-  make -j "$NPROC"
+  make -j "$NPROC" VERBOSE=1
 
   # Build test dependencies if needed
   build_test_dependencies
@@ -698,7 +706,9 @@ run_micro_benchmarks() {
     return 0
   fi
 
-  echo "Running micro-benchmarks..."
+  echo "Running micro-benchmarks (build.sh)..."
+  clang --version
+  rustc -vV
   # Check if micro-benchmarks directory exists
   MICRO_BENCH_DIR="$BINDIR/micro-benchmarks"
 
