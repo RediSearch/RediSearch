@@ -18,7 +18,7 @@ CI = os.getenv('CI', '') != ''
 GHA = os.getenv('GITHUB_ACTIONS', '') != ''
 TEST_DEBUG = os.getenv('TEST_DEBUG', '0') == '1'
 REJSON = os.getenv('REJSON', '0') == '1'
-SVS_SHARED_LIB = os.getenv('SVS_SHARED_LIB', '0') == '1'
+SVS_PRE_COMPILED_LIB = os.getenv('SVS_PRE_COMPILED_LIB', '0') == '1'
 
 system=platform.system()
 OS =  'macos' if system == 'Darwin' else system
