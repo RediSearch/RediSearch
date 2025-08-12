@@ -536,6 +536,11 @@ size_t encode_docs_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res)
   return encodeDocIdsOnly(bw, delta, res);
 }
 
+// Wrapper around the private static `encodeRawDocIdsOnly` function to expose it to benchmarking.
+size_t encode_raw_doc_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  return encodeRawDocIdsOnly(bw, delta, res);
+}
+
 IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId) {
     IndexBlockReader reader = {
       .buffReader = *buff,
@@ -1039,6 +1044,11 @@ bool read_freqs_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx 
 // Wrapper around the private static `readDocIdsOnly` function to expose it to benchmarking
 bool read_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   return readDocIdsOnly(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readRawDocIdsOnly` function to expose it to benchmarking
+bool read_raw_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  return readRawDocIdsOnly(blockReader, ctx, res);
 }
 
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {

@@ -31,6 +31,7 @@ pub mod freqs_only;
 pub mod full;
 pub mod numeric;
 pub mod offsets_only;
+pub mod raw_doc_ids_only;
 #[doc(hidden)]
 pub mod test_utils;
 
@@ -453,7 +454,7 @@ impl<'a> RSIndexResult<'a> {
             doc_id: 0,
             dmd: ptr::null(),
             field_mask: 0,
-            freq: 0,
+            freq: 1,
             offsets_sz: 0,
             data: RSIndexResultData {
                 virt: ManuallyDrop::new(RSVirtualResult),
@@ -533,6 +534,7 @@ impl<'a> RSIndexResult<'a> {
                 term: ManuallyDrop::new(RSTermRecord::new()),
             },
             result_type: RSResultType::Term,
+            freq: 1,
             ..Default::default()
         }
     }

@@ -324,6 +324,32 @@ pub fn read_freqs_offsets(
     (returned, result)
 }
 
+pub fn encode_raw_doc_ids_only(
+    buffer: &mut TestBuffer,
+    record: &mut inverted_index::RSIndexResult,
+    delta: u64,
+) -> usize {
+    let mut buffer_writer = BufferWriter::new(&mut buffer.0);
+
+    unsafe { bindings::encode_raw_doc_ids_only(buffer_writer.as_mut_ptr() as _, delta, record) }
+}
+
+pub fn read_raw_doc_ids_only(
+    buffer: &mut Buffer,
+    base_id: u64,
+) -> (bool, inverted_index::RSIndexResult<'_>) {
+    let mut buffer_reader = BufferReader::new(buffer);
+    let mut block_reader =
+        unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
+    let mut ctx = unsafe { bindings::NewIndexDecoderCtx_MaskFilter(1) };
+    let mut result = inverted_index::RSIndexResult::term().doc_id(base_id);
+
+    let returned =
+        unsafe { bindings::read_raw_doc_ids_only(&mut block_reader, &mut ctx, &mut result) };
+
+    (returned, result)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -649,8 +675,7 @@ mod tests {
 
             let mut record = inverted_index::RSIndexResult::term()
                 .doc_id(doc_id)
-                .field_mask(field_mask)
-                .frequency(1);
+                .field_mask(field_mask);
 
             let _buffer_grew_size = encode_fields_only(&mut buffer, &mut record, delta, true);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
@@ -681,9 +706,7 @@ mod tests {
         for (delta, expected_encoding) in tests {
             let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
 
-            let mut record = inverted_index::RSIndexResult::term()
-                .doc_id(doc_id)
-                .frequency(1);
+            let mut record = inverted_index::RSIndexResult::term().doc_id(doc_id);
 
             let _buffer_grew_size = encode_doc_ids_only(&mut buffer, &mut record, delta);
             assert_eq!(buffer.0.as_slice(), expected_encoding);
@@ -995,7 +1018,7 @@ mod tests {
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
-                &mut term, rs_offsets, doc_id, field_mask, 0,
+                &mut term, rs_offsets, doc_id, field_mask, 1,
             )
             .weight(1.0);
 
@@ -1088,7 +1111,7 @@ mod tests {
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
-                &mut term, rs_offsets, doc_id, field_mask, 0,
+                &mut term, rs_offsets, doc_id, field_mask, 1,
             )
             .weight(1.0);
 
@@ -1146,7 +1169,7 @@ mod tests {
             let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
-                &mut term, rs_offsets, doc_id, 0, 0,
+                &mut term, rs_offsets, doc_id, 0, 1,
             )
             .weight(1.0);
 
@@ -1220,6 +1243,37 @@ mod tests {
                 TermRecordCompare(&decoded_result),
                 TermRecordCompare(&record)
             );
+        }
+    }
+
+    #[test]
+    fn test_encode_raw_doc_ids_only() {
+        // Test cases for the raw doc ids only encoder and decoder. These cases can be moved to the Rust
+        // implementation tests verbatim.
+        let tests = [
+            // (delta, expected encoding)
+            (0, vec![0, 0, 0, 0]),
+            (10, vec![10, 0, 0, 0]),
+            (256, vec![0, 1, 0, 0]),
+            (65536, vec![0, 0, 1, 0]),
+            (u16::MAX as u64, vec![255, 255, 0, 0]),
+            (u32::MAX as u64, vec![255, 255, 255, 255]),
+        ];
+
+        let doc_id = 4294967296;
+
+        for (delta, expected_encoding) in tests {
+            let mut buffer = TestBuffer::with_capacity(expected_encoding.len());
+
+            let mut record = inverted_index::RSIndexResult::term().doc_id(doc_id);
+
+            let _buffer_grew_size = encode_raw_doc_ids_only(&mut buffer, &mut record, delta);
+            assert_eq!(buffer.0.as_slice(), expected_encoding);
+
+            let base_id = doc_id - delta;
+            let (returned, decoded_result) = read_raw_doc_ids_only(&mut buffer.0, base_id);
+            assert!(returned);
+            assert_eq!(decoded_result, record);
         }
     }
 }

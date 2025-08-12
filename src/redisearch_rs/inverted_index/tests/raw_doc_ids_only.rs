@@ -10,11 +10,7 @@
 use std::io::Cursor;
 
 use ffi::{RSQueryTerm, RSTermRecord};
-use inverted_index::{
-    Decoder, Encoder,
-    freqs_offsets::FreqsOffsets,
-    test_utils::{TermRecordCompare, TestTermRecord},
-};
+use inverted_index::{Decoder, Encoder, RSIndexResult, raw_doc_ids_only::RawDocIdsOnly};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn ResultMetrics_Free(result: *mut inverted_index::RSIndexResult) {
@@ -44,37 +40,26 @@ pub extern "C" fn Term_Free(_t: *mut RSQueryTerm) {
 }
 
 #[test]
-fn test_encode_freqs_offsets() {
-    // Test cases for the freqs offsets encoder and decoder.
+fn test_encode_raw_doc_ids_only() {
+    // Test cases for the raw doc ids encoder and decoder.
     let tests = [
-        // (delta, freq, term offsets vector, expected encoding)
-        (0, 1, vec![1i8, 2, 3], vec![0, 0, 1, 3, 1, 2, 3]),
-        (10, 2, vec![1i8, 2, 3, 4], vec![0, 10, 2, 4, 1, 2, 3, 4]),
-        (256, 3, vec![1, 2, 3], vec![1, 0, 1, 3, 3, 1, 2, 3]),
-        (65536, 4, vec![1, 2, 3], vec![2, 0, 0, 1, 4, 3, 1, 2, 3]),
-        (
-            u16::MAX as u32,
-            5,
-            vec![1, 2, 3],
-            vec![1, 255, 255, 5, 3, 1, 2, 3],
-        ),
-        (
-            u32::MAX,
-            6,
-            vec![1, 2, 3],
-            vec![3, 255, 255, 255, 255, 6, 3, 1, 2, 3],
-        ),
+        // (delta, expected encoding - raw 4-byte little-endian)
+        (0, vec![0, 0, 0, 0]),
+        (10, vec![10, 0, 0, 0]),
+        (256, vec![0, 1, 0, 0]),
+        (65536, vec![0, 0, 1, 0]),
+        (u16::MAX as u32, vec![255, 255, 0, 0]),
+        (u32::MAX, vec![255, 255, 255, 255]),
     ];
     let doc_id = 4294967296;
 
-    for (delta, freq, offsets, expected_encoding) in tests {
+    for (delta, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
+        let record = RSIndexResult::term().doc_id(doc_id);
 
-        let record = TestTermRecord::new(doc_id, 0, freq, offsets);
-
-        let bytes_written = FreqsOffsets::default()
-            .encode(&mut buf, delta, &record.record)
-            .expect("to encode freqs offsets record");
+        let bytes_written = RawDocIdsOnly::default()
+            .encode(&mut buf, delta, &record)
+            .expect("to encode raw doc ids only record");
 
         assert_eq!(bytes_written, expected_encoding.len());
         assert_eq!(buf.get_ref(), &expected_encoding);
@@ -85,49 +70,46 @@ fn test_encode_freqs_offsets() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let record_decoded = FreqsOffsets::default()
+        let record_decoded = RawDocIdsOnly::default()
             .decode(&mut buf, prev_doc_id)
-            .expect("to decode freqs offsets record");
+            .expect("to decode raw doc ids only record");
 
-        assert_eq!(
-            TermRecordCompare(&record_decoded),
-            TermRecordCompare(&record.record)
-        );
+        assert_eq!(record_decoded, record);
     }
 }
 
 #[test]
-fn test_encode_freqs_offsets_output_too_small() {
+fn test_encode_raw_doc_ids_only_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::term();
+    let record = inverted_index::RSIndexResult::virt();
 
-    let res = FreqsOffsets::default().encode(&mut cursor, 0, &record);
+    let res = RawDocIdsOnly::default().encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
 
 #[test]
-fn test_decode_freqs_offsets_input_too_small() {
+fn test_decode_raw_doc_ids_only_input_too_small() {
     // Encoded data is too short.
     let buf = vec![0, 0];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = FreqsOffsets::default().decode(&mut cursor, 100);
+    let res = RawDocIdsOnly::default().decode(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
 
 #[test]
-fn test_decode_freqs_offsets_empty_input() {
+fn test_decode_raw_doc_ids_only_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
     let mut cursor = Cursor::new(buf.as_ref());
 
-    let res = FreqsOffsets::default().decode(&mut cursor, 100);
+    let res = RawDocIdsOnly::default().decode(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);

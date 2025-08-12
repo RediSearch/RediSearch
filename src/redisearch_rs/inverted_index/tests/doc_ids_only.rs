@@ -29,7 +29,7 @@ fn test_encode_doc_ids_only() {
 
     for (delta, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::term().doc_id(doc_id).frequency(1);
+        let record = RSIndexResult::term().doc_id(doc_id);
 
         let bytes_written = DocIdsOnly
             .encode(&mut buf, delta, &record)

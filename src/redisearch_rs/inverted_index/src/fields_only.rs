@@ -55,8 +55,7 @@ impl Decoder for FieldsOnly {
 
         let record = RSIndexResult::term()
             .doc_id(base + delta as t_docId)
-            .field_mask(field_mask as t_fieldMask)
-            .frequency(1);
+            .field_mask(field_mask as t_fieldMask);
         Ok(record)
     }
 }
@@ -98,8 +97,7 @@ impl Decoder for FieldsOnlyWide {
 
         let record = RSIndexResult::term()
             .doc_id(base + delta as t_docId)
-            .field_mask(field_mask)
-            .frequency(1);
+            .field_mask(field_mask);
         Ok(record)
     }
 }
