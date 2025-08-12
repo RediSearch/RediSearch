@@ -6,13 +6,14 @@
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
 #include "rmutil/args.h"
+#include "query_optimizer.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 // Field names for implicit LOAD step
-#define HYBRID_IMPLICIT_KEY_FIELD "key"
+#define HYBRID_IMPLICIT_KEY_FIELD "__key"
 #define SEARCH_INDEX 0
 
 /**
@@ -272,6 +273,13 @@ void HybridRequest_Free(HybridRequest *req) {
         SearchCtx_Free(req->hybridParams->aggregationParams.common.sctx);
         req->hybridParams->aggregationParams.common.sctx = NULL;
       }
+
+      // Free the hybrid tail optimizer
+      if (req->hybridParams->aggregationParams.common.optimizer) {
+        QOptimizer_Free(req->hybridParams->aggregationParams.common.optimizer);
+        req->hybridParams->aggregationParams.common.optimizer = NULL;
+      }
+
       // Free the hybrid parameters
       rm_free(req->hybridParams);
     }
@@ -285,6 +293,8 @@ void HybridRequest_Free(HybridRequest *req) {
 
     rm_free(req);
 }
+
+
 
 #ifdef __cplusplus
 }

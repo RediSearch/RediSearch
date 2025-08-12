@@ -23,6 +23,7 @@
 #include "common.h"
 #include "module.h"
 #include "version.h"
+#include "query_optimizer.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -31,6 +32,9 @@
 #include <array>
 #include <iostream>
 #include <cstdarg>
+
+
+const char *HYBRID_IMPLICIT_KEY_FIELD = "__key";
 
 class HybridRequestTest : public ::testing::Test {
 protected:
@@ -563,14 +567,14 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
     std::string pipelineName = "Request " + std::to_string(i) + " pipeline with implicit LOAD";
     VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedPipelines[i], pipelineName);
 
-    // Verify implicit load creates "key" field with path "key"
+    // Verify implicit load creates "key" field with path "__key"
     RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
     ASSERT_NE(nullptr, lookup);
 
     bool foundKeyField = false;
     for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
-      if (key->name && strcmp(key->name, "key") == 0) {
-        EXPECT_STREQ("key", key->path);
+      if (key->name && strcmp(key->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
+        EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, key->path);
         foundKeyField = true;
         break;
       }
@@ -891,7 +895,7 @@ TEST_F(HybridRequestTest, testHybridRequestSortBy0DisablesImplicitSort) {
   HybridRequest *hybridReq = HybridRequest_New(requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
-  // Add LOAD step but NO SORT step
+    // Add LOAD step but NO SORT step
   const char *loadFields[] = {"title", "category"};
   AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 2);
 
@@ -911,13 +915,14 @@ TEST_F(HybridRequestTest, testHybridRequestSortBy0DisablesImplicitSort) {
   PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(&hybridReq->tailPipeline->ap);
   arrangeStep->noSort = true;  // This simulates "SORTBY 0"
   arrangeStep->sortKeys = NULL;
-
+  QOptimizer *hybridOptimizer = QOptimizer_New();
+  hybridOptimizer->type = Q_OPT_NONE;
   HybridPipelineParams params = {
       .aggregationParams = {
         .common = {
           .sctx = hybridReq->requests[0]->sctx,
           .reqflags = QEXEC_F_IS_HYBRID_TAIL,
-          .optimizer = hybridReq->requests[0]->optimizer,
+          .optimizer = QOptimizer_New(),
         },
         .outFields = &hybridReq->requests[0]->outFields,
         .maxResultsLimit = 20,
@@ -940,8 +945,7 @@ TEST_F(HybridRequestTest, testHybridRequestSortBy0DisablesImplicitSort) {
 }
 
 // Test that verifies key correspondence between search subqueries and tail pipeline
-// This test uses a complex hybrid query with LOAD and APPLY steps to ensure that
-// RLookup_CloneInto properly handles both loaded fields and computed fields
+// This test ensure that RLookup_CloneInto properly handles loaded fields
 TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -975,7 +979,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GT(tailLookup->rowlen, 0) << "Tail lookup should have a non-zero rowlen";
+  ASSERT_EQ(tailLookup->rowlen, 3) << "Tail lookup should have rowlen 3";
 
   int tailKeyCount = 0;
   for (RLookupKey *key = tailLookup->head; key; key = key->next) {
@@ -983,56 +987,66 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
       tailKeyCount++;
     }
   }
-  ASSERT_GT(tailKeyCount, 0) << "Tail lookup should have at least one key";
+  ASSERT_EQ(tailKeyCount, 3) << "Tail lookup should have 3 keys";
+
+  // Find the load step in the tail pipeline to compare against upstream load steps
+  PLN_LoadStep *tailLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
+  ASSERT_TRUE(tailLoadStep != NULL) << "Tail pipeline should have a load step";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
     AREQ *upstreamReq = hybridReq->requests[reqIdx];
-    RLookup *upstreamLookup = AGPLN_GetLookup(&upstreamReq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
-    // Verify that the upstream lookup has been properly populated
-    ASSERT_GT(upstreamLookup->rowlen, 0) << "Upstream request " << reqIdx << " should have a non-zero rowlen";
+    // Find the load step in the upstream aggplan
+    PLN_LoadStep *upstreamLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&upstreamReq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
+    ASSERT_TRUE(upstreamLoadStep != NULL) << "Upstream request " << reqIdx << " should have a load step";
 
-    // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
-    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
-      if (!upstreamKey->name) {
-        continue; // Skip overridden keys
+    // Verify that the upstream load step has all keys from the tail load step with the same mapping
+    for (size_t tailKeyIdx = 0; tailKeyIdx < tailLoadStep->nkeys; tailKeyIdx++) {
+      const RLookupKey *tailKey = tailLoadStep->keys[tailKeyIdx];
+      if (!tailKey || !tailKey->name) {
+        continue; // Skip invalid or unnamed keys
       }
 
-      // Find corresponding key in tail lookup by name
-      RLookupKey *tailKey = NULL;
-      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
-        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
-          tailKey = tk;
+      // Skip __score key since it comes from scorer, not load steps
+      if (strcmp(tailKey->name, "__score") == 0) {
+        continue;
+      }
+
+      // Find corresponding key in upstream load step by name
+      const RLookupKey *upstreamKey = NULL;
+      for (size_t keyIdx = 0; keyIdx < upstreamLoadStep->nkeys; keyIdx++) {
+        const RLookupKey *uk = upstreamLoadStep->keys[keyIdx];
+        if (uk && uk->name && strcmp(uk->name, tailKey->name) == 0) {
+          upstreamKey = uk;
           break;
         }
       }
 
-      ASSERT_TRUE(tailKey != NULL)
-        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+      ASSERT_TRUE(upstreamKey != NULL)
+        << "Key '" << tailKey->name << "' from tail load step not found in upstream request " << reqIdx << " load step";
 
-      // Verify that the keys point to the same indices
+      // Verify that the keys are properly aligned
       EXPECT_EQ(upstreamKey->dstidx, tailKey->dstidx)
-        << "Key '" << upstreamKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
-        << upstreamKey->dstidx << ") vs tail (" << tailKey->dstidx << ")";
+        << "Key '" << tailKey->name << "' has different dstidx in upstream request " << reqIdx << " load step ("
+        << upstreamKey->dstidx << ") vs tail load step (" << tailKey->dstidx << ")";
 
       EXPECT_EQ(upstreamKey->svidx, tailKey->svidx)
-        << "Key '" << upstreamKey->name << "' has different svidx in upstream request " << reqIdx << " ("
-        << upstreamKey->svidx << ") vs tail (" << tailKey->svidx << ")";
+        << "Key '" << tailKey->name << "' has different svidx in upstream request " << reqIdx << " load step ("
+        << upstreamKey->svidx << ") vs tail load step (" << tailKey->svidx << ")";
 
       // Verify path matches
       if (upstreamKey->path && tailKey->path) {
         EXPECT_STREQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+          << "Key '" << tailKey->name << "' has different path in upstream request " << reqIdx << " load step vs tail load step";
       } else {
         EXPECT_EQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+          << "Key '" << tailKey->name << "' path nullness differs between upstream request " << reqIdx << " load step and tail load step";
       }
 
       // Verify name length matches
       EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
-        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+        << "Key '" << tailKey->name << "' has different name_len in upstream request " << reqIdx << " load step vs tail load step";
     }
   }
 
@@ -1074,7 +1088,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GT(tailLookup->rowlen, 0) << "Tail lookup should have a non-zero rowlen";
+  ASSERT_EQ(tailLookup->rowlen, 2) << "Tail lookup should have a rowlen 2";
 
   int tailKeyCount = 0;
   for (RLookupKey *key = tailLookup->head; key; key = key->next) {
@@ -1082,18 +1096,18 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
       tailKeyCount++;
     }
   }
-  ASSERT_GT(tailKeyCount, 0) << "Tail lookup should have at least one key";
+  ASSERT_EQ(tailKeyCount, 2) << "Tail lookup should have 2 keys";
 
   // Verify that implicit loading creates the "key" field in the tail pipeline
   RLookupKey *tailKeyField = NULL;
   for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
-    if (tk->name && strcmp(tk->name, "key") == 0) {
+    if (tk->name && strcmp(tk->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
       tailKeyField = tk;
       break;
     }
   }
   ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit 'key' field";
-  EXPECT_STREQ("key", tailKeyField->path) << "Implicit key field should have path 'key'";
+  EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, tailKeyField->path) << "Implicit key field should have path '__key'";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
@@ -1107,53 +1121,58 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
     // Verify that the upstream subquery also has the implicit "key" field
     RLookupKey *upstreamKeyField = NULL;
     for (RLookupKey *uk = upstreamLookup->head; uk; uk = uk->next) {
-      if (uk->name && strcmp(uk->name, "key") == 0) {
+      if (uk->name && strcmp(uk->name,HYBRID_IMPLICIT_KEY_FIELD) == 0) {
         upstreamKeyField = uk;
         break;
       }
     }
     ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit 'key' field";
-    EXPECT_STREQ("key", upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
+    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
 
-    // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
-    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
-      if (!upstreamKey->name) {
+    // For implicit loading (no LOAD clause), verify that upstream has all tail lookup keys with the same mapping
+    for (RLookupKey *tailKey = tailLookup->head; tailKey; tailKey = tailKey->next) {
+      if (!tailKey->name) {
         continue; // Skip overridden keys
       }
 
-      // Find corresponding key in tail lookup by name
-      RLookupKey *tailKey = NULL;
-      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
-        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
-          tailKey = tk;
+      // Skip __score key since it comes from scorer, not load steps
+      if (strcmp(tailKey->name, "__score") == 0) {
+        continue;
+      }
+
+      // Find corresponding key in upstream lookup by name
+      RLookupKey *upstreamKey = NULL;
+      for (RLookupKey *uk = upstreamLookup->head; uk; uk = uk->next) {
+        if (uk->name && strcmp(uk->name, tailKey->name) == 0) {
+          upstreamKey = uk;
           break;
         }
       }
 
-      ASSERT_TRUE(tailKey != NULL)
-        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+      ASSERT_TRUE(upstreamKey != NULL)
+        << "Key '" << tailKey->name << "' from tail pipeline not found in upstream request " << reqIdx;
 
       // Verify that the keys point to the same indices
       EXPECT_EQ(upstreamKey->dstidx, tailKey->dstidx)
-        << "Key '" << upstreamKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
+        << "Key '" << tailKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
         << upstreamKey->dstidx << ") vs tail (" << tailKey->dstidx << ")";
 
       EXPECT_EQ(upstreamKey->svidx, tailKey->svidx)
-        << "Key '" << upstreamKey->name << "' has different svidx in upstream request " << reqIdx << " ("
+        << "Key '" << tailKey->name << "' has different svidx in upstream request " << reqIdx << " ("
         << upstreamKey->svidx << ") vs tail (" << tailKey->svidx << ")";
 
       // Verify path matches
       if (upstreamKey->path && tailKey->path) {
         EXPECT_STREQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+          << "Key '" << tailKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
       } else {
         EXPECT_EQ(upstreamKey->path, tailKey->path)
-          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+          << "Key '" << tailKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
       }
 
       // Verify name length matches
       EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
-        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+        << "Key '" << tailKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
     }
   }
 

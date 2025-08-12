@@ -12,6 +12,10 @@
 #include "field_spec.h"
 #include "aggregate/aggregate.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct AREQ;
 
 // decision table
@@ -65,7 +69,7 @@ typedef struct QOptimizer {
     size_t limit;               // number of required results
 
     bool scorerReq;             // does the query require a scorer (WITHSCORES does not count)
-    ScorerType scorerType;      // 
+    ScorerType scorerType;      //
 
     const char *fieldName;      // name of sortby field
     const FieldSpec *field;     // spec of sortby field
@@ -107,3 +111,7 @@ void QOptimizer_UpdateTotalResults(AREQ *req);
 
 /* print type of optimizer */
 const char *QOptimizer_PrintType(QOptimizer *opt);
+
+#ifdef __cplusplus
+}
+#endif

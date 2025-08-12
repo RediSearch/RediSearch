@@ -8,6 +8,7 @@
 */
 
 #include "parse_hybrid.h"
+#include "query_optimizer.h"
 
 #include <string.h>
 #include <strings.h>
@@ -487,6 +488,9 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
                                  QueryError *status) {
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
+  //do not optimize the subqueries
+  searchRequest->optimizer->type = Q_OPT_NONE;
+  vectorRequest->optimizer->type = Q_OPT_NONE;
 
   HybridPipelineParams *hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   hybridParams->scoringCtx = rm_calloc(1, sizeof(HybridScoringContext));
@@ -603,13 +607,16 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   HybridRequest *hybridRequest = HybridRequest_New(requests, HYBRID_REQUEST_NUM_SUBQUERIES);
   hybridRequest->hybridParams = hybridParams;
 
+  // Create hybrid tail optimizer
+  QOptimizer *hybridOptimizer = QOptimizer_New();
+  hybridOptimizer->type = Q_OPT_NONE; //no optimization
   // thread safe context
   const AggregationPipelineParams params = {
       .common =
           {
               .sctx = sctx,  // should be a separate context?
-              .reqflags = hasMerge ? mergeReqflags : 0,
-              .optimizer = NULL,  // is it?
+              .reqflags = (hasMerge ? mergeReqflags : 0) | QEXEC_F_IS_HYBRID_TAIL,
+              .optimizer = hybridOptimizer,
           },
       .outFields = NULL,
       .maxResultsLimit = mergeMaxAggregateResults,
