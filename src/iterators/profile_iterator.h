@@ -21,7 +21,7 @@ typedef struct {
   QueryIterator base;
   QueryIterator *child;
   ProfileCounters counters;
-  clock_t cpuTime;
+  rs_wall_clock_ns_t wallTime; // This field serves as a time accumulator, so using rs_wall_clock_ns_t is required.
 } ProfileIterator;
 
 /**

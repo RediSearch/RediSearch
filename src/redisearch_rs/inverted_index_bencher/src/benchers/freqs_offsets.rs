@@ -14,9 +14,10 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{Decoder, Encoder, RSIndexResult, doc_ids_only::DocIdsOnly};
+use inverted_index::{Decoder, Encoder, freqs_offsets::FreqsOffsets, test_utils::TestTermRecord};
+use itertools::Itertools;
 
-use crate::ffi::{TestBuffer, encode_doc_ids_only, read_doc_ids_only};
+use crate::ffi::{TestBuffer, encode_freqs_offsets, read_freqs_offsets};
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -25,6 +26,8 @@ pub struct Bencher {
 #[derive(Debug)]
 struct TestValue {
     delta: u32,
+    freq: u32,
+    term_offsets: Vec<i8>,
 
     encoded: Vec<u8>,
 }
@@ -40,20 +43,36 @@ impl Bencher {
     const WARMUP_TIME: Duration = Duration::from_millis(200);
 
     fn new() -> Self {
-        let deltas = vec![0, 1, 256, 65536, u16::MAX as u32, u32::MAX];
+        let deltas = vec![0, u32::MAX];
+        let freqs = vec![1, 10, 100, 1000];
+        let term_offsets_values = vec![
+            vec![0],
+            vec![1; 10],
+            vec![1; 100],
+            vec![1; 1_000],
+            vec![1; 10_000],
+        ];
 
         let test_values = deltas
             .into_iter()
-            .map(|delta| {
-                let record = RSIndexResult::term().doc_id(100);
-
+            .cartesian_product(freqs)
+            .cartesian_product(term_offsets_values)
+            .map(|((delta, freq), term_offsets)| {
+                let record = TestTermRecord::new(100, 0, freq, term_offsets.clone());
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = DocIdsOnly::default()
-                    .encode(&mut buffer, delta, &record)
+
+                let _grew_size = FreqsOffsets::default()
+                    .encode(&mut buffer, delta, &record.record)
                     .unwrap();
+
                 let encoded = buffer.into_inner();
 
-                TestValue { delta, encoded }
+                TestValue {
+                    delta,
+                    freq,
+                    encoded,
+                    term_offsets,
+                }
             })
             .collect();
 
@@ -73,14 +92,14 @@ impl Bencher {
     }
 
     pub fn encoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode - DocIdsOnly");
+        let mut group = self.benchmark_group(c, "Encode - FreqsOffsets");
         self.c_encode(&mut group);
         self.rust_encode(&mut group);
         group.finish();
     }
 
     pub fn decoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode - DocIdsOnly");
+        let mut group = self.benchmark_group(c, "Decode - FreqsOffsets");
         self.c_decode(&mut group);
         self.rust_decode(&mut group);
         group.finish();
@@ -95,10 +114,14 @@ impl Bencher {
                 || TestBuffer::with_capacity(buffer_size),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let mut record = RSIndexResult::term().doc_id(100);
+                        let mut record =
+                            TestTermRecord::new(100, 0, test.freq, test.term_offsets.clone());
 
-                        let grew_size =
-                            encode_doc_ids_only(&mut buffer, &mut record, test.delta as u64);
+                        let grew_size = encode_freqs_offsets(
+                            &mut buffer,
+                            &mut record.record,
+                            test.delta as u64,
+                        );
 
                         black_box(grew_size);
                     }
@@ -117,10 +140,11 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = RSIndexResult::term().doc_id(100);
+                        let record =
+                            TestTermRecord::new(100, 0, test.freq, test.term_offsets.clone());
 
-                        let grew_size = DocIdsOnly::default()
-                            .encode(&mut buffer, test.delta, &record)
+                        let grew_size = FreqsOffsets::default()
+                            .encode(&mut buffer, test.delta, &record.record)
                             .unwrap();
 
                         black_box(grew_size);
@@ -140,7 +164,7 @@ impl Bencher {
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
                     |mut buffer| {
-                        let (_filtered, result) = read_doc_ids_only(&mut buffer, 100);
+                        let (_filtered, result) = read_freqs_offsets(&mut buffer, 100);
 
                         black_box(result);
                     },
@@ -156,8 +180,7 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let decoder = DocIdsOnly::default();
-                        let result = decoder.decode(buffer, 100).unwrap();
+                        let result = FreqsOffsets::default().decode(buffer, 100).unwrap();
 
                         let _ = black_box(result);
                     },

@@ -103,11 +103,11 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
   tr1->docId = 1;
-  tr1->data.term.offsets = offsetsFromVVW(vw);
+  IndexResult_TermRefMut(tr1)->offsets = offsetsFromVVW(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
   tr2->docId = 1;
-  tr2->data.term.offsets = offsetsFromVVW(vw2);
+  IndexResult_TermRefMut(tr2)->offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
   AggregateResult_AddChild(res, tr1);
@@ -129,7 +129,7 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
-  tr3->data.term.offsets = offsetsFromVVW(vw3);
+  IndexResult_TermRefMut(tr3)->offsets = offsetsFromVVW(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
@@ -405,14 +405,15 @@ TEST_F(IndexTest, testWeight) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
-    if (AggregateResult_NumChildren(&h->data.agg) == 2) {
-      ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 0.5);
-      ASSERT_EQ(AggregateResult_Get(&h->data.agg, 1)->weight, 1);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    if (AggregateResult_NumChildren(agg) == 2) {
+      ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 0.5);
+      ASSERT_EQ(AggregateResult_Get(agg, 1)->weight, 1);
     } else {
       if (i <= 10) {
-        ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 0.5);
+        ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 0.5);
       } else {
-        ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 1);
+        ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 1);
       }
     }
   }
@@ -535,7 +536,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // printf("%d %f\n", res->docId, res->num.value);
 
     ASSERT_EQ(i++, res->docId);
-    ASSERT_EQ(res->data.num.value, (float)res->docId);
+    ASSERT_EQ(IndexResult_NumValue(res), (float)res->docId);
   }
   InvertedIndex_Free(idx);
   it->Free(it);
@@ -584,7 +585,7 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
     IteratorStatus rv = it->Read(it);
     ASSERT_NE(ITERATOR_EOF, rv);
-    ASSERT_LT(fabs(nums[i] - it->current->data.num.value), 0.01);
+    ASSERT_LT(fabs(nums[i] - IndexResult_NumValue(it->current)), 0.01);
   }
 
   ASSERT_EQ(ITERATOR_EOF, it->Read(it));
@@ -673,9 +674,9 @@ void testNumericEncodingHelper(bool isMulti) {
     ASSERT_NE(rc, ITERATOR_EOF);
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
     if (fabs(infos[ii].value) == INFINITY) {
-      ASSERT_EQ(infos[ii].value, it->current->data.num.value);
+      ASSERT_EQ(infos[ii].value, IndexResult_NumValue(it->current));
     } else {
-      ASSERT_LT(fabs(infos[ii].value - it->current->data.num.value), 0.01);
+      ASSERT_LT(fabs(infos[ii].value - IndexResult_NumValue(it->current)), 0.01);
     }
   }
 
@@ -885,8 +886,9 @@ TEST_F(IndexTest, testHybridVector) {
     RSIndexResult *h = hybridIt->current;
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
-    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
-    ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
+    ASSERT_EQ(AggregateResult_Get(agg, 0)->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -902,8 +904,9 @@ TEST_F(IndexTest, testHybridVector) {
     RSIndexResult *h = hybridIt->current;
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
-    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
-    ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
+    ASSERT_EQ(AggregateResult_Get(agg, 0)->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -986,7 +989,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
-    ASSERT_EQ(h->data.num.value, exp_dist);
+    ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
     ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
     count++;
   }
@@ -1005,13 +1008,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
-  ASSERT_EQ(vecIt->current->data.num.value, exp_dist);
+  ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
-  ASSERT_EQ(vecIt->current->data.num.value, exp_dist);
+  ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
 
   // Invalid SkipTo

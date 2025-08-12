@@ -14,9 +14,9 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{Decoder, Encoder, RSIndexResult, doc_ids_only::DocIdsOnly};
+use inverted_index::{Decoder, Encoder, RSIndexResult, raw_doc_ids_only::RawDocIdsOnly};
 
-use crate::ffi::{TestBuffer, encode_doc_ids_only, read_doc_ids_only};
+use crate::ffi::{TestBuffer, encode_raw_doc_ids_only, read_raw_doc_ids_only};
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -48,7 +48,7 @@ impl Bencher {
                 let record = RSIndexResult::term().doc_id(100);
 
                 let mut buffer = Cursor::new(Vec::new());
-                let _grew_size = DocIdsOnly::default()
+                let _grew_size = RawDocIdsOnly::default()
                     .encode(&mut buffer, delta, &record)
                     .unwrap();
                 let encoded = buffer.into_inner();
@@ -73,14 +73,14 @@ impl Bencher {
     }
 
     pub fn encoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Encode - DocIdsOnly");
+        let mut group = self.benchmark_group(c, "Encode - RawDocIdsOnly");
         self.c_encode(&mut group);
         self.rust_encode(&mut group);
         group.finish();
     }
 
     pub fn decoding(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Decode - DocIdsOnly");
+        let mut group = self.benchmark_group(c, "Decode - RawDocIdsOnly");
         self.c_decode(&mut group);
         self.rust_decode(&mut group);
         group.finish();
@@ -98,7 +98,7 @@ impl Bencher {
                         let mut record = RSIndexResult::term().doc_id(100);
 
                         let grew_size =
-                            encode_doc_ids_only(&mut buffer, &mut record, test.delta as u64);
+                            encode_raw_doc_ids_only(&mut buffer, &mut record, test.delta as u64);
 
                         black_box(grew_size);
                     }
@@ -119,7 +119,7 @@ impl Bencher {
                     for test in &self.test_values {
                         let record = RSIndexResult::term().doc_id(100);
 
-                        let grew_size = DocIdsOnly::default()
+                        let grew_size = RawDocIdsOnly::default()
                             .encode(&mut buffer, test.delta, &record)
                             .unwrap();
 
@@ -140,7 +140,7 @@ impl Bencher {
                         unsafe { Buffer::new(buffer_ptr, test.encoded.len(), test.encoded.len()) }
                     },
                     |mut buffer| {
-                        let (_filtered, result) = read_doc_ids_only(&mut buffer, 100);
+                        let (_filtered, result) = read_raw_doc_ids_only(&mut buffer, 100);
 
                         black_box(result);
                     },
@@ -156,8 +156,7 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let decoder = DocIdsOnly::default();
-                        let result = decoder.decode(buffer, 100).unwrap();
+                        let result = RawDocIdsOnly::default().decode(buffer, 100).unwrap();
 
                         let _ = black_box(result);
                     },

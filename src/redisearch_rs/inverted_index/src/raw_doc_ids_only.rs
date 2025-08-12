@@ -10,16 +10,17 @@
 use std::io::{Cursor, Seek, Write};
 
 use ffi::t_docId;
-use varint::VarintEncode;
 
 use crate::{Decoder, Encoder, RSIndexResult};
 
-/// Encode and decode only the delta document ID of a record, without any other data.
-/// The delta is encoded using [varint encoding](varint).
+/// Encode and decode only the raw document ID delta without any compression.
+///
+/// The delta is encoded as a raw 4-byte value.
+/// This is different from the regular [`crate::doc_ids_only::DocIdsOnly`] encoder which uses varint encoding.
 #[derive(Default)]
-pub struct DocIdsOnly;
+pub struct RawDocIdsOnly;
 
-impl Encoder for DocIdsOnly {
+impl Encoder for RawDocIdsOnly {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
@@ -28,18 +29,21 @@ impl Encoder for DocIdsOnly {
         delta: Self::Delta,
         _record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        let bytes_written = delta.write_as_varint(&mut writer)?;
-        Ok(bytes_written)
+        writer.write_all(&delta.to_ne_bytes())?;
+        // Wrote delta as raw 4-bytes word
+        Ok(4)
     }
 }
 
-impl Decoder for DocIdsOnly {
+impl Decoder for RawDocIdsOnly {
     fn decode<'a>(
         &self,
         cursor: &mut Cursor<&'a [u8]>,
         base: t_docId,
     ) -> std::io::Result<RSIndexResult<'a>> {
-        let delta = u32::read_as_varint(cursor)?;
+        let mut delta_bytes = [0u8; 4];
+        std::io::Read::read_exact(cursor, &mut delta_bytes)?;
+        let delta = u32::from_ne_bytes(delta_bytes);
 
         let record = RSIndexResult::term().doc_id(base + delta as t_docId);
         Ok(record)

@@ -352,7 +352,8 @@ static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg
     ctx->last_block = blk;
   }
   // Add the current record to the last block's cardinality
-  hll_add(&ctx->last_block_card, &r->data.num.value, sizeof(r->data.num.value));
+  double value = IndexResult_NumValue(r);
+  hll_add(&ctx->last_block_card, &value, sizeof(value));
 }
 
 typedef struct {
@@ -818,7 +819,8 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
 
   // Continue reading the rest
   while (status == ITERATOR_OK) {
-    hll_add(&range->hll, &iter->current->data.num.value, sizeof(iter->current->data.num.value));
+    double value = IndexResult_NumValue(iter->current);
+    hll_add(&range->hll, &value, sizeof(value));
     status = iter->Read(iter);
   }
   iter->Free(iter);

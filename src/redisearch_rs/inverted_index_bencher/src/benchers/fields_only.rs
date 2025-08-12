@@ -67,10 +67,7 @@ impl Bencher {
             .into_iter()
             .cartesian_product(field_masks_values)
             .map(|(delta, field_mask)| {
-                let record = RSIndexResult::term()
-                    .doc_id(100)
-                    .field_mask(field_mask)
-                    .frequency(1);
+                let record = RSIndexResult::term().doc_id(100).field_mask(field_mask);
 
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = if wide {
@@ -133,9 +130,7 @@ impl Bencher {
                 || TestBuffer::with_capacity(buffer_size),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let mut record = RSIndexResult::term()
-                            .field_mask(test.field_mask)
-                            .frequency(1);
+                        let mut record = RSIndexResult::term().field_mask(test.field_mask);
 
                         let grew_size = encode_fields_only(
                             &mut buffer,
@@ -163,8 +158,7 @@ impl Bencher {
                     for test in &self.test_values {
                         let record = RSIndexResult::term()
                             .doc_id(100)
-                            .field_mask(test.field_mask)
-                            .frequency(1);
+                            .field_mask(test.field_mask);
 
                         let grew_size = if self.wide {
                             FieldsOnlyWide::default()

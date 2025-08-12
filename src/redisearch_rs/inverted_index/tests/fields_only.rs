@@ -44,8 +44,7 @@ fn test_encode_fields_only() {
         let mut buf = Cursor::new(Vec::new());
         let record = inverted_index::RSIndexResult::term()
             .doc_id(doc_id)
-            .field_mask(field_mask)
-            .frequency(1);
+            .field_mask(field_mask);
 
         let bytes_written = FieldsOnly
             .encode(&mut buf, delta, &record)
@@ -111,8 +110,7 @@ fn test_encode_fields_only_wide() {
         let mut buf = Cursor::new(Vec::new());
         let record = inverted_index::RSIndexResult::term()
             .doc_id(doc_id)
-            .field_mask(field_mask)
-            .frequency(1);
+            .field_mask(field_mask);
 
         let bytes_written = FieldsOnlyWide
             .encode(&mut buf, delta, &record)

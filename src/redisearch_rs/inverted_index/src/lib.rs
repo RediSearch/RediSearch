@@ -26,9 +26,12 @@ pub mod doc_ids_only;
 pub mod fields_offsets;
 pub mod fields_only;
 pub mod freqs_fields;
+pub mod freqs_offsets;
 pub mod freqs_only;
 pub mod full;
 pub mod numeric;
+pub mod offsets_only;
+pub mod raw_doc_ids_only;
 #[doc(hidden)]
 pub mod test_utils;
 
@@ -451,7 +454,7 @@ impl<'a> RSIndexResult<'a> {
             doc_id: 0,
             dmd: ptr::null(),
             field_mask: 0,
-            freq: 0,
+            freq: 1,
             offsets_sz: 0,
             data: RSIndexResultData {
                 virt: ManuallyDrop::new(RSVirtualResult),
@@ -531,6 +534,7 @@ impl<'a> RSIndexResult<'a> {
                 term: ManuallyDrop::new(RSTermRecord::new()),
             },
             result_type: RSResultType::Term,
+            freq: 1,
             ..Default::default()
         }
     }
@@ -603,6 +607,21 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
+    /// Get this record as a mutable numeric record if possible. If the record is not numeric,
+    /// returns `None`.
+    pub fn as_numeric_mut(&mut self) -> Option<&mut RSNumericRecord> {
+        if matches!(
+            self.result_type,
+            RSResultType::Numeric | RSResultType::Metric,
+        ) {
+            // SAFETY: We are guaranteed the record data is numeric because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &mut self.data.num })
+        } else {
+            None
+        }
+    }
+
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
     pub fn as_term(&self) -> Option<&RSTermRecord<'_>> {
@@ -610,6 +629,42 @@ impl<'a> RSIndexResult<'a> {
             // SAFETY: We are guaranteed the record data is term because of the check we just
             // did on the `result_type`.
             Some(unsafe { &self.data.term })
+        } else {
+            None
+        }
+    }
+
+    /// Get this record as a mutable term record if possible. If the record is not a term,
+    /// returns `None`.
+    pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'a>> {
+        if matches!(self.result_type, RSResultType::Term) {
+            // SAFETY: We are guaranteed the record data is term because of the check we just
+            // did on the `result_type`.
+            Some(unsafe { &mut self.data.term })
+        } else {
+            None
+        }
+    }
+
+    /// Get this record as an aggregate result if possible. If the record is not an aggregate,
+    /// returns `None`.
+    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'a>> {
+        if self.is_aggregate() {
+            // SAFETY: We are guaranteed the record data is aggregate because of the check we just
+            // did
+            Some(unsafe { &self.data.agg })
+        } else {
+            None
+        }
+    }
+
+    /// Get this record as a mutable aggregate result if possible. If the record is not an
+    /// aggregate, returns `None`.
+    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'a>> {
+        if self.is_aggregate() {
+            // SAFETY: We are guaranteed the record data is aggregate because of the check we just
+            // did
+            Some(unsafe { &mut self.data.agg })
         } else {
             None
         }
