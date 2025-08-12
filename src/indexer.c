@@ -21,6 +21,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "redismodule.h"
 #include "debug_commands.h"
+#include "search_disk.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

@@ -37,6 +37,7 @@
 #include "suffix.h"
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
+#include "search_disk.h"
 
 #ifndef STRINGIFY
 #define __STRINGIFY(x) #x
