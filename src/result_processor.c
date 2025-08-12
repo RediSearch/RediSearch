@@ -1807,7 +1807,7 @@ dictType dictTypeHybridSearchResult = {
         window = self->hybridScoringCtx->rrfCtx.window;
       } else {
         // For LINEAR scoring, consume all results from each upstream
-        window = SIZE_T_MAX;
+        window = SIZE_MAX;
       }
       int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
 
