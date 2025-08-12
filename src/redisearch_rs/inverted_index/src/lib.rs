@@ -97,9 +97,8 @@ pub struct RSNumericRecord(pub f64);
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
 #[derive(PartialEq)]
-pub struct RSOffsetVector<'a> {
+pub struct RSOffsetVectorRef<'a> {
     /// At this point the data ownership is still managed by the caller.
-    // TODO: switch to a Cow once the caller code has been ported to Rust.
     pub data: *mut c_char,
     pub len: u32,
     /// data may be borrowed from the reader.
@@ -107,7 +106,17 @@ pub struct RSOffsetVector<'a> {
     _phantom: PhantomData<&'a ()>,
 }
 
-impl std::fmt::Debug for RSOffsetVector<'_> {
+/// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
+/// over it with RSIndexResult_IterateOffsets
+#[repr(C)]
+#[derive(PartialEq)]
+pub struct RSOffsetVectorOwned {
+    /// At this point the data ownership is still managed by the caller.
+    pub data: *mut c_char,
+    pub len: u32,
+}
+
+impl std::fmt::Debug for RSOffsetVectorRef<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.data.is_null() {
             return write!(f, "RSOffsetVector(null)");
@@ -120,7 +129,20 @@ impl std::fmt::Debug for RSOffsetVector<'_> {
     }
 }
 
-impl RSOffsetVector<'_> {
+impl std::fmt::Debug for RSOffsetVectorOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.data.is_null() {
+            return write!(f, "RSOffsetVector(null)");
+        }
+        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
+        let offsets =
+            unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
+
+        write!(f, "RSOffsetVector {offsets:?}")
+    }
+}
+
+impl RSOffsetVectorRef<'_> {
     /// Create a new, empty offset vector ready to receive data
     pub fn empty() -> Self {
         Self {
@@ -142,26 +164,57 @@ impl RSOffsetVector<'_> {
 
 /// Represents a single record of a document inside a term in the inverted index
 #[repr(C)]
+#[derive(Debug, PartialEq)]
+pub enum RSTermRecord<'a> {
+    Borrowed(RSTermRecordRef<'a>),
+    Owned(RSTermRecordOwned),
+}
+
+/// Represents a single record of a document inside a term in the inverted index
+#[repr(C)]
 #[derive(PartialEq)]
-pub struct RSTermRecord<'a> {
+pub struct RSTermRecordRef<'a> {
     /// The term that brought up this record
     pub term: *mut RSQueryTerm,
 
     /// The encoded offsets in which the term appeared in the document
-    pub offsets: RSOffsetVector<'a>,
+    pub offsets: RSOffsetVectorRef<'a>,
+}
+
+/// Represents a single record of a document inside a term in the inverted index
+#[repr(C)]
+#[derive(PartialEq)]
+pub struct RSTermRecordOwned {
+    /// The term that brought up this record
+    pub term: *mut RSQueryTerm,
+
+    /// The encoded offsets in which the term appeared in the document
+    pub offsets: RSOffsetVectorOwned,
 }
 
 impl<'a> RSTermRecord<'a> {
     /// Create a new term record without term pointer and offsets.
     pub fn new() -> Self {
+        Self::Borrowed(RSTermRecordRef::new())
+    }
+
+    /// Create a new term with the given term pointer and offsets.
+    pub fn with_term(term: *mut RSQueryTerm, offsets: RSOffsetVectorRef<'a>) -> Self {
+        Self::Borrowed(RSTermRecordRef::with_term(term, offsets))
+    }
+}
+
+impl<'a> RSTermRecordRef<'a> {
+    /// Create a new term record without term pointer and offsets.
+    pub fn new() -> Self {
         Self {
             term: ptr::null_mut(),
-            offsets: RSOffsetVector::empty(),
+            offsets: RSOffsetVectorRef::empty(),
         }
     }
 
     /// Create a new term with the given term pointer and offsets.
-    pub fn with_term(term: *mut RSQueryTerm, offsets: RSOffsetVector<'a>) -> RSTermRecord<'a> {
+    pub fn with_term(term: *mut RSQueryTerm, offsets: RSOffsetVectorRef<'a>) -> Self {
         Self { term, offsets }
     }
 }
@@ -198,9 +251,18 @@ impl std::fmt::Debug for QueryTermDebug {
     }
 }
 
-impl std::fmt::Debug for RSTermRecord<'_> {
+impl std::fmt::Debug for RSTermRecordRef<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RSTermRecord")
+        f.debug_struct("RSTermRecordRef")
+            .field("term", &QueryTermDebug(self.term))
+            .field("offsets", &self.offsets)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for RSTermRecordOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RSTermRecordOwned")
             .field("term", &QueryTermDebug(self.term))
             .field("offsets", &self.offsets)
             .finish()
@@ -208,6 +270,12 @@ impl std::fmt::Debug for RSTermRecord<'_> {
 }
 
 impl Default for RSTermRecord<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for RSTermRecordRef<'_> {
     fn default() -> Self {
         Self::new()
     }
@@ -539,7 +607,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub fn term_with_term_ptr(
         term: *mut RSQueryTerm,
-        offsets: RSOffsetVector<'a>,
+        offsets: RSOffsetVectorRef<'a>,
         doc_id: t_docId,
         field_mask: t_fieldMask,
         freq: u32,
@@ -757,17 +825,16 @@ impl Drop for RSIndexResult<'_> {
                     }
                 }
             }
-            RSResultData::Term(mut term) => {
-                if self.is_copy {
-                    // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
-                    unsafe {
-                        Term_Offset_Data_Free(&mut term);
-                    }
-                } else {
-                    // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
-                    unsafe {
-                        Term_Free(term.term);
-                    }
+            RSResultData::Term(RSTermRecord::Owned(mut term)) => {
+                // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
+                unsafe {
+                    Term_Offset_Data_Free(&mut term);
+                }
+            }
+            RSResultData::Term(RSTermRecord::Borrowed(term)) => {
+                // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
+                unsafe {
+                    Term_Free(term.term);
                 }
             }
             RSResultData::Numeric(_numeric) | RSResultData::Metric(_numeric) => {}

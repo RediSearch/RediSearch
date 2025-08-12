@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVectorRef, RSResultData, RSTermRecord};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -37,6 +37,11 @@ pub struct Full;
 pub fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = record.as_term().unwrap();
+
+    let RSTermRecord::Borrowed(term) = term else {
+        return &[];
+    };
+
     if term.offsets.data.is_null() {
         &[]
     } else {
@@ -106,7 +111,7 @@ pub fn decode_term_record_offsets<'a>(
 
     cursor.set_position(end as u64);
 
-    let offsets = RSOffsetVector::with_data(data, offsets_sz);
+    let offsets = RSOffsetVectorRef::with_data(data, offsets_sz);
 
     let record = RSIndexResult::term_with_term_ptr(
         std::ptr::null_mut(),

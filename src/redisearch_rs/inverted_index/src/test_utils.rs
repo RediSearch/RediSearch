@@ -11,7 +11,7 @@
 
 use ffi::t_fieldMask;
 
-use crate::{RSIndexResult, RSOffsetVector, RSResultData};
+use crate::{RSIndexResult, RSOffsetVectorRef, RSResultData, RSTermRecord};
 
 /// Wrapper around `inverted_index::RSIndexResult` ensuring the term and offsets
 /// pointers used internally stay valid for the duration of the test or bench.
@@ -38,7 +38,7 @@ impl TestTermRecord<'_> {
         });
 
         let offsets_ptr = offsets.as_ptr() as *mut _;
-        let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+        let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
 
         let record =
             RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets, doc_id, field_mask, freq)
@@ -76,9 +76,13 @@ impl<'a> PartialEq for TermRecordCompare<'a> {
         // do not compare `weight` as it's not encoded
 
         // SAFETY: we asserted the type above
-        let a_term_record = self.0.as_term().unwrap();
+        let RSTermRecord::Borrowed(a_term_record) = self.0.as_term().unwrap() else {
+            return false;
+        };
         // SAFETY: we checked that other has the same type as self
-        let b_term_record = other.0.as_term().unwrap();
+        let RSTermRecord::Borrowed(b_term_record) = other.0.as_term().unwrap() else {
+            return false;
+        };
 
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
         let a_offsets = unsafe {
