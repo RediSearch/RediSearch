@@ -1857,6 +1857,9 @@ dictType dictTypeHybridSearchResult = {
    if (self->iterator) {
     dictReleaseIterator(self->iterator);
    }
+
+   HybridScoringContext_Free(self->hybridScoringCtx);
+
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 
