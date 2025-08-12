@@ -35,14 +35,12 @@ protected:
 
     sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
     ASSERT_TRUE(sctx != NULL);
-    result = nullptr;  // Initialize result pointer
   }
 
   void TearDown() override {
     // Free the result if it was set during the test
     if (result) {
       HybridRequest_Free(result);
-      result = nullptr;
     }
     if (sctx) {
       SearchCtx_Free(sctx);

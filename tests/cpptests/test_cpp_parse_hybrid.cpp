@@ -41,7 +41,6 @@ class ParseHybridTest : public ::testing::Test {
 
     // Initialize pointers to NULL
     spec = NULL;
-    result = nullptr;  // Initialize result pointer
 
     // Generate a unique index name for each test to avoid conflicts
     const ::testing::TestInfo* const test_info =
@@ -65,7 +64,6 @@ class ParseHybridTest : public ::testing::Test {
     // Free the result if it was set during the test
     if (result) {
       HybridRequest_Free(result);
-      result = nullptr;
     }
     if (ctx) {
       // Drop the index to clean up

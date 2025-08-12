@@ -1860,12 +1860,6 @@ dictType dictTypeHybridSearchResult = {
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 
-   // Free the hybrid scoring context - RPHybridMerger is responsible for freeing it
-   if (self->hybridScoringCtx) {
-     HybridScoringContext_Free(self->hybridScoringCtx);
-     self->hybridScoringCtx = NULL;
-   }
-
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
    array_free(self->upstreams);
 
