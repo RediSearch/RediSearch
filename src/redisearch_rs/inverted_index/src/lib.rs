@@ -238,8 +238,10 @@ pub struct RSAggregateResult<'index, 'children> {
 
     /// A map of the aggregate kind of the underlying records
     kind_mask: RSResultKindMask,
-    /// The lifetime is actually on `RsIndexResult` but it is stored as a pointer which does not
-    /// support lifetimes. So use a PhantomData to carry the lifetime for it instead.
+
+    /// The lifetime is actually on the `*const RSIndexResult` children stored in the `records`
+    /// field. But since these are stored as a pointers which do not support lifetimes, we need to
+    /// use a PhantomData to carry the lifetime for each child record instead.
     _phantom: PhantomData<&'children ()>,
 }
 
@@ -413,6 +415,10 @@ pub enum RSResultKind {
 ///
 /// These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
 /// the bitflags on [`RSResultKindMask`]
+///
+/// The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
+/// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`]s that is holding
+/// raw pointers to results.
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 /// cbindgen:prefix-with-name=true
