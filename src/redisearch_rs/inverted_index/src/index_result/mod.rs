@@ -13,14 +13,6 @@ pub mod raw;
 #[derive(Debug, PartialEq)]
 pub struct RSNumericRecord(pub f64);
 
-/// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
-/// over it with RSIndexResult_IterateOffsets
-#[derive(Debug, PartialEq)]
-pub enum RSOffsetVector<'index> {
-    Borrowed(RSOffsetVectorRef<'index>),
-    Owned(RSOffsetVectorOwned),
-}
-
 #[derive(PartialEq)]
 pub struct RSOffsetVectorRef<'index> {
     /// At this point the data ownership is still managed by the caller.
@@ -64,84 +56,102 @@ impl Debug for RSOffsetVectorOwned {
     }
 }
 
-impl RSOffsetVector<'_> {
+impl RSOffsetVectorRef<'_> {
     /// Create a new, empty offset vector ready to receive data
     pub fn empty() -> Self {
-        Self::Borrowed(RSOffsetVectorRef {
+        Self {
             data: ptr::null_mut(),
             len: 0,
             _phantom: PhantomData,
-        })
+        }
     }
 
     /// Create a new offset vector with the given data pointer and length.
     pub fn with_data(data: *mut c_char, len: u32) -> Self {
-        Self::Borrowed(RSOffsetVectorRef {
+        Self {
             data,
             len,
             _phantom: PhantomData,
-        })
-    }
-
-    fn len(&self) -> u32 {
-        match self {
-            RSOffsetVector::Borrowed(v) => v.len,
-            RSOffsetVector::Owned(v) => v.len,
         }
     }
 
     fn offsets(&self) -> &[u8] {
-        match self {
-            RSOffsetVector::Borrowed(v) => {
-                // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-                unsafe { std::slice::from_raw_parts(v.data as *const u8, v.len as usize) }
-            }
-            RSOffsetVector::Owned(v) => {
-                // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-                unsafe { std::slice::from_raw_parts(v.data as *const u8, v.len as usize) }
-            }
+        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
+        unsafe { std::slice::from_raw_parts(self.data as *const u8, self.len as usize) }
+    }
+}
+
+impl RSOffsetVectorOwned {
+    /// Create a new, empty offset vector ready to receive data
+    pub fn empty() -> Self {
+        Self {
+            data: ptr::null_mut(),
+            len: 0,
         }
+    }
+
+    /// Create a new offset vector with the given data pointer and length.
+    pub fn with_data(data: *mut c_char, len: u32) -> Self {
+        Self { data, len }
+    }
+
+    fn offsets(&self) -> &[u8] {
+        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
+        unsafe { std::slice::from_raw_parts(self.data as *const u8, self.len as usize) }
     }
 }
 
 /// Represents a single record of a document inside a term in the inverted index
-#[derive(PartialEq)]
-pub struct RSTermRecord<'index> {
-    /// We mark copied terms so we can treat them a bit differently on deletion, and pool them if
-    /// we want
-    pub is_copy: bool,
+#[derive(Debug, PartialEq)]
+pub enum RSTermRecord<'index> {
+    Borrowed(RSTermRecordRef<'index>),
+    Owned(RSTermRecordOwned),
+}
 
+#[derive(PartialEq)]
+pub struct RSTermRecordRef<'index> {
     /// The term that brought up this record
     pub term: *mut RSQueryTerm,
 
     /// The encoded offsets in which the term appeared in the document
-    pub offsets: RSOffsetVector<'index>,
+    pub offsets: RSOffsetVectorRef<'index>,
+}
+
+#[derive(PartialEq)]
+pub struct RSTermRecordOwned {
+    /// The term that brought up this record
+    pub term: *mut RSQueryTerm,
+
+    /// The encoded offsets in which the term appeared in the document
+    pub offsets: RSOffsetVectorOwned,
 }
 
 impl<'index> RSTermRecord<'index> {
     /// Create a new term record without term pointer and offsets.
     pub fn new() -> Self {
-        Self {
-            is_copy: false,
+        Self::Borrowed(RSTermRecordRef {
             term: ptr::null_mut(),
-            offsets: RSOffsetVector::empty(),
-        }
+            offsets: RSOffsetVectorRef::empty(),
+        })
     }
 
     /// Create a new term with the given term pointer and offsets.
     pub fn with_term(
         term: *mut RSQueryTerm,
-        offsets: RSOffsetVector<'index>,
+        offsets: RSOffsetVectorRef<'index>,
     ) -> RSTermRecord<'index> {
-        Self {
-            is_copy: false,
-            term,
-            offsets,
-        }
+        Self::Borrowed(RSTermRecordRef { term, offsets })
     }
 
     pub fn offsets(&self) -> &[u8] {
-        self.offsets.offsets()
+        match self {
+            RSTermRecord::Borrowed(t) => t.offsets.offsets(),
+            RSTermRecord::Owned(t) => t.offsets.offsets(),
+        }
+    }
+
+    pub fn is_copy(&self) -> bool {
+        matches!(self, Self::Owned(_))
     }
 }
 
@@ -177,9 +187,18 @@ impl Debug for QueryTermDebug {
     }
 }
 
-impl Debug for RSTermRecord<'_> {
+impl Debug for RSTermRecordRef<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RSTermRecord")
+        f.debug_struct("RSTermRecordRef")
+            .field("term", &QueryTermDebug(self.term))
+            .field("offsets", &self.offsets)
+            .finish()
+    }
+}
+
+impl Debug for RSTermRecordOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RSTermRecordOwned")
             .field("term", &QueryTermDebug(self.term))
             .field("offsets", &self.offsets)
             .finish()
@@ -513,12 +532,12 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub fn term_with_term_ptr(
         term: *mut RSQueryTerm,
-        offsets: RSOffsetVector<'index>,
+        offsets: RSOffsetVectorRef<'index>,
         doc_id: t_docId,
         field_mask: t_fieldMask,
         freq: u32,
     ) -> RSIndexResult<'index, 'aggregate_children> {
-        let offsets_sz = offsets.len();
+        let offsets_sz = offsets.len;
         Self {
             data: RSIndexResultData {
                 term: ManuallyDrop::new(RSTermRecord::with_term(term, offsets)),
@@ -722,21 +741,22 @@ impl Drop for RSIndexResult<'_, '_> {
                 // SAFETY: we just checked the type to ensure the unior has term data
                 let term = unsafe { &mut self.data.term };
 
-                if term.is_copy {
-                    // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
-                    // unsafe {
-                    //     Term_Offset_Data_Free(term.deref_mut() as *mut _);
-                    // }
-                } else {
-                    // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
-                    // unsafe {
-                    //     Term_Free(term.term);
-                    // }
-                }
-
                 // SAFETY: we are in `drop` so nothing else will have access to this union type
-                unsafe {
-                    ManuallyDrop::drop(term);
+                let term = unsafe { ManuallyDrop::take(term) };
+
+                match term {
+                    RSTermRecord::Borrowed(_t) => {
+                        // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
+                        // unsafe {
+                        //     Term_Free(t.term);
+                        // }
+                    }
+                    RSTermRecord::Owned(_t) => {
+                        // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
+                        // unsafe {
+                        //     Term_Offset_Data_Free(t.deref_mut() as *mut _);
+                        // }
+                    }
                 }
             }
             RSResultType::Numeric | RSResultType::Metric => {

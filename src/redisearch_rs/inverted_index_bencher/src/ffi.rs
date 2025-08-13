@@ -357,7 +357,7 @@ pub fn read_raw_doc_ids_only(
 mod tests {
 
     use ffi::RSQueryTerm;
-    use inverted_index::RSOffsetVector;
+    use inverted_index::RSOffsetVectorRef;
 
     use super::*;
 
@@ -761,7 +761,7 @@ mod tests {
 
             // do not compare `RSTermRecord` as it's not encoded
 
-            a_term_record.is_copy == b_term_record.is_copy
+            a_term_record.is_copy() == b_term_record.is_copy()
         }
     }
 
@@ -832,7 +832,7 @@ mod tests {
             };
 
             let offsets_ptr = offsets.as_ptr() as *mut _;
-            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+            let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
                 &mut term, rs_offsets, doc_id, field_mask, freq,
@@ -941,7 +941,7 @@ mod tests {
             };
 
             let offsets_ptr = offsets.as_ptr() as *mut _;
-            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+            let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
                 &mut term, rs_offsets, doc_id, field_mask, freq,
@@ -1006,7 +1006,7 @@ mod tests {
             };
 
             let offsets_ptr = offsets.as_ptr() as *mut _;
-            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+            let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
                 &mut term, rs_offsets, doc_id, field_mask, 1,
@@ -1099,7 +1099,7 @@ mod tests {
             };
 
             let offsets_ptr = offsets.as_ptr() as *mut _;
-            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+            let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
                 &mut term, rs_offsets, doc_id, field_mask, 1,
@@ -1157,7 +1157,7 @@ mod tests {
             };
 
             let offsets_ptr = offsets.as_ptr() as *mut _;
-            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+            let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
                 &mut term, rs_offsets, doc_id, 0, 1,
@@ -1217,7 +1217,7 @@ mod tests {
             };
 
             let offsets_ptr = offsets.as_ptr() as *mut _;
-            let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+            let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
 
             let mut record = inverted_index::RSIndexResult::term_with_term_ptr(
                 &mut term, rs_offsets, doc_id, 0, freq,
