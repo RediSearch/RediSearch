@@ -92,7 +92,7 @@ static void IL_Rewind(QueryIterator *base) {
   il->offset = 0;
 }
 
-QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weight) {
+QueryIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   // Assume the ids are not null and num > 0 otherwise these Iterator would not be created, avoid validation
   // first sort the ids, so the caller will not have to deal with it
   IdListIterator *it = rm_new(IdListIterator);
@@ -110,12 +110,13 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   ret->Read = IL_Read;
   ret->SkipTo = IL_SkipTo;
   ret->Rewind = IL_Rewind;
+  ret->Revalidate = Default_Revalidate;
   return ret;
 }
 
 static void SetYield(QueryIterator *base, double value) {
   MetricIterator *mr = (MetricIterator *)base;
-  base->current->data.num.value = value;
+  IndexResult_SetNumValue(base->current, value);
   ResultMetrics_Reset(base->current);
   ResultMetrics_Add(base->current, mr->ownKey, RS_NumVal(value));
 }
@@ -150,7 +151,7 @@ static void MR_Free(QueryIterator *self) {
   rm_free(mi);
 }
 
-QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type) {
+QueryIterator *NewMetricIterator(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type) {
   QueryIterator *ret;
   MetricIterator *mi = rm_new(MetricIterator);
   IdListIterator *it = &mi->base;
@@ -171,5 +172,6 @@ QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, si
   ret->Rewind = IL_Rewind;
   ret->Free = MR_Free;
   ret->NumEstimated = IL_NumEstimated;
+  ret->Revalidate = Default_Revalidate;
   return ret;
 }

@@ -10,6 +10,7 @@
 #include "doc_table.h"
 #include "redismodule.h"
 #include "inverted_index.h"
+#include "iterators/inverted_index_iterator.h"
 #include "rmutil/strings.h"
 #include "rmutil/util.h"
 #include "util/logging.h"
@@ -47,10 +48,12 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
 
 unsigned long InvertedIndex_MemUsage(const void *value) {
   const InvertedIndex *idx = value;
-  unsigned long ret = sizeof_InvertedIndex(idx->flags)
-                      + sizeof(IndexBlock) * idx->size;
-  for (size_t i = 0; i < idx->size; i++) {
-    ret += IndexBlock_DataCap(&idx->blocks[i]);
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  unsigned long ret = sizeof_InvertedIndex(InvertedIndex_Flags(idx))
+                      + sizeof(IndexBlock) * numBlocks;
+  for (size_t i = 0; i < numBlocks; i++) {
+    IndexBlock *block = InvertedIndex_BlockRef(idx, i);
+    ret += IndexBlock_Cap(block);
   }
   return ret;
 }
@@ -187,9 +190,9 @@ InvertedIndex *Redis_OpenInvertedIndex(const RedisSearchCtx *ctx, const char *te
   return idx;
 }
 
-IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
-                              t_fieldMask fieldMask, ConcurrentSearchCtx *csx,
-                              double weight) {
+QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocTable *dt,
+                                t_fieldMask fieldMask, double weight) {
+
   RedisModuleString *termKey = fmtRedisTermKey(ctx, term->str, term->len);
   InvertedIndex *idx = NULL;
   RedisModuleKey *k = NULL;
@@ -199,20 +202,17 @@ IndexReader *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, DocT
     goto err;
   }
 
-  if (!idx->numDocs ||
-     (Index_StoreFieldMask(ctx->spec) && !(idx->fieldMask & fieldMask))) {
+  if (!InvertedIndex_NumDocs(idx) ||
+     (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
     // empty index! or index does not have results from requested field.
     // pass
     goto err;
   }
 
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
-  IndexReader *ret = NewTermIndexReaderEx(idx, ctx, fieldMaskOrIndex, term, weight);
-  if (csx) {
-    ConcurrentSearch_AddKey(csx, TermReader_OnReopen, ret, NULL);
-  }
+  QueryIterator *it = NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
   RedisModule_FreeString(ctx->redisCtx, termKey);
-  return ret;
+  return it;
 
 err:
   if (k) {
@@ -220,6 +220,9 @@ err:
   }
   if (termKey) {
     RedisModule_FreeString(ctx->redisCtx, termKey);
+  }
+  if (term) {
+    Term_Free(term);
   }
   return NULL;
 }

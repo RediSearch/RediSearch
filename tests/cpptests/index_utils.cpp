@@ -9,7 +9,7 @@
 
 #include "index_utils.h"
 #include "common.h"
-#include "src/index.h"
+#include "src/forward_index.h"
 #include "src/inverted_index/inverted_index.h"
 #include "src/redis_index.h"
 
@@ -28,7 +28,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
     size_t sz;
     InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &sz);
 
-    IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+    IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
     t_docId id = start_with > 0 ? start_with : idStep;
     for (int i = 0; i < size; i++) {
         // if (i % 10000 == 1) {
@@ -95,10 +95,11 @@ size_t NumericRangeGetMemory(const NumericRangeNode *Node) {
     size_t curr_node_memory = sizeof_InvertedIndex(Index_StoreNumeric);
 
     // iterate idx blocks
-    for (size_t i = 0; i < idx->size; ++i) {
+    size_t num_blocks = InvertedIndex_NumBlocks(idx);
+    for (size_t i = 0; i < num_blocks; ++i) {
         curr_node_memory += sizeof(IndexBlock);
-        IndexBlock *blk = idx->blocks + i;
-        curr_node_memory += blk->buf.cap;
+        IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
+        curr_node_memory += IndexBlock_Cap(blk);
     }
 
     return curr_node_memory;

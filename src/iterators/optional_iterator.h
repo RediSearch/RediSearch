@@ -25,7 +25,7 @@ typedef struct {
   double weight;
 } OptionalIterator;
 
-QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, double weight);
+QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double weight);
 
 #ifdef __cplusplus
 }

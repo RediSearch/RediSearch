@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "low_memory_thin_vec.h"
 /**
  * Forward declarations which will be defined in `redisearch.h`
  */
@@ -40,6 +41,18 @@ enum RSResultType
 #ifndef __cplusplus
 typedef uint32_t RSResultType;
 #endif // __cplusplus
+
+/**
+ * An iterator over the results in an [`RSAggregateResult`].
+ */
+typedef struct RSAggregateResultIter RSAggregateResultIter;
+
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct LowMemoryThinVecRSIndexResult {
+  Header *ptr;
+} LowMemoryThinVecRSIndexResult;
 
 /**
  * Represents a set of flags of some type `T`.
@@ -160,20 +173,21 @@ typedef BitFlags_RSResultType__u32 RSResultTypeMask;
 
 /**
  * Represents an aggregate array of values in an index record.
+ *
+ * The C code should always use `AggregateResult_New` to construct a new instance of this type
+ * using Rust since the internals cannot be constructed directly in C. The reason is because of
+ * the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
+ * managed correctly.
  */
 typedef struct RSAggregateResult {
   /**
-   * The number of child records
+   * The records making up this aggregate result
+   *
+   * The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+   * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  int numChildren;
-  /**
-   * The capacity of the records array. Has no use for extensions
-   */
-  int childrenCap;
-  /**
-   * An array of records
-   */
-  struct RSIndexResult **children;
+  struct LowMemoryThinVecRSIndexResult records;
   /**
    * A map of the aggregate type of the underlying records
    */
@@ -182,9 +196,12 @@ typedef struct RSAggregateResult {
 
 /**
  * Represents the encoded offsets of a term in a document. You can read the offsets by iterating
- * over it with RSOffsetVector_Iterator
+ * over it with RSIndexResult_IterateOffsets
  */
 typedef struct RSOffsetVector {
+  /**
+   * At this point the data ownership is still managed by the caller.
+   */
   char *data;
   uint32_t len;
 } RSOffsetVector;
@@ -271,3 +288,265 @@ typedef struct RSIndexResult {
    */
   double weight;
 } RSIndexResult;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+/**
+ * Check if the result is an aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+bool IndexResult_IsAggregate(const struct RSIndexResult *result);
+
+/**
+ * Get the numeric value of the result if it is a numeric result. If the result is not numeric,
+ * this function will return `0.0`.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+double IndexResult_NumValue(const struct RSIndexResult *result);
+
+/**
+ * Set the numeric value of the result if it is a numeric result. If the result is not numeric,
+ * this function will do nothing.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
+
+/**
+ * Get the term of the result if it is a term result. If the result is not a term, this function
+ * will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+const struct RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *result);
+
+/**
+ * Get the mutable term of the result if it is a term result. If the result is not a term,
+ * this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+struct RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
+
+/**
+ * Get the aggregate result reference if the result is an aggregate result. If the result is
+ * not an aggregate, this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+const struct RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
+
+/**
+ * Reset the result if it is an aggregate result. This will clear all children and reset the type mask.
+ * This function does not deallocate the children pointers, but rather resets the internal state of the
+ * aggregate result. The owner of the children pointers is responsible for managing their lifetime.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void IndexResult_AggregateReset(struct RSIndexResult *result);
+
+/**
+ * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
+ * if the index is out of bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * - The memory address at `index` should still be valid and not have been deallocated.
+ */
+const struct RSIndexResult *AggregateResult_Get(const struct RSAggregateResult *agg,
+                                                uintptr_t index);
+
+/**
+ * Get the element count of the aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+uintptr_t AggregateResult_NumChildren(const struct RSAggregateResult *agg);
+
+/**
+ * Get the capacity of the aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
+
+/**
+ * Get the type mask of the aggregate result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+uint32_t AggregateResult_TypeMask(const struct RSAggregateResult *agg);
+
+/**
+ * Create a new aggregate result with the specified capacity. This function will make the result
+ * in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
+ * should return to Rust to free up any heap memory using [`AggregateResult_Free`].
+ */
+struct RSAggregateResult AggregateResult_New(uintptr_t cap);
+
+/**
+ * Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
+ * free the individual children pointers, but rather the heap allocations owned by the aggregate
+ * result itself (such as the internal vector buffer). The caller is responsible for managing the
+ * memory of the children pointers before this call if needed.
+ *
+ * The `agg` parameter should have been created with [`AggregateResult_New`].
+ */
+void AggregateResult_Free(struct RSAggregateResult agg);
+
+/**
+ * Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
+ * the `child` and will therefore not free it. Instead, the caller is responsible for managing
+ * the memory of the `child` pointer *after* the `parent` has been freed.
+ *
+ * If the `parent` is not an aggregate type, then this is a no-op.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
+
+/**
+ * Create an iterator over the aggregate result. This iterator should be freed
+ * using [`AggregateResultIter_Free`].
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ */
+struct RSAggregateResultIter *AggregateResult_Iter(const struct RSAggregateResult *agg);
+
+/**
+ * Get the next item in the aggregate result iterator and put it into the provided `value`
+ * pointer. This function will return `true` if there is a next item, or `false` if the iterator
+ * is exhausted.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
+ * - `value` must point to a valid pointer where the next item will be stored.
+ * - All the memory addresses of the `RSAggregateResult` should still be valid and not have
+ *   been deallocated.
+ */
+bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndexResult **value);
+
+/**
+ * Free the aggregate result iterator. This function will deallocate the memory used by the iterator.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `iter` must point to a valid `RSAggregateResultIter`.
+ * - The iterator must have been created using [`AggregateResult_Iter`].
+ */
+void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
+
+/**
+ * Retrieve the offsets array from [`RSOffsetVector`].
+ *
+ * Set the array length into the `len` pointer.
+ * The returned array is borrowed from the [`RSOffsetVector`] and should not be modified.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
+ */
+const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_t *len);
+
+/**
+ * Set the offsets array on a [`RSOffsetVector`].
+ *
+ * The [`RSOffsetVector`] will borrow the passed array so it's up to the caller to
+ * ensure it stays alive during the [`RSOffsetVector`] lifetime.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `data` must point to an array of `len` offsets.
+ * - if `data` is NULL then `len` should be 0.
+ */
+void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, uint32_t len);
+
+/**
+ * Free the data inside an [`RSOffsetVector`]'s offset
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - The data pointer of `offsets` had been allocated via the global allocator
+ *   and points to an array matching the length of `offsets`.
+ */
+void RSOffsetVector_FreeData(struct RSOffsetVector *offsets);
+
+/**
+ * Copy the data from one offset vector to another.
+ *
+ * Deep copies the data array from `src` to `dest`.
+ * It's up to the caller to free the copied array using [`RSOffsetVector_FreeData`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `src` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ * - `src` data should point to a valid array of `src.len` offsets.
+ */
+void RSOffsetVector_CopyData(struct RSOffsetVector *dest, const struct RSOffsetVector *src);
+
+/**
+ * Retrieve the number of offsets in [`RSOffsetVector`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
+ */
+uint32_t RSOffsetVector_Len(const struct RSOffsetVector *offsets);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus

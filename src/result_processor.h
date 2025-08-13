@@ -14,11 +14,12 @@
 #include "value.h"
 #include "concurrent_ctx.h"
 #include "search_ctx.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 #include "search_options.h"
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,21 +69,19 @@ typedef enum {
 struct ResultProcessor;
 struct RLookup;
 
-typedef struct {
+// Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
+typedef struct QueryProcessingCtx {
   // First processor
   struct ResultProcessor *rootProc;
 
   // Last processor
   struct ResultProcessor *endProc;
 
-  // Concurrent search context for thread switching
-  ConcurrentSearchCtx *conc;
-
   // Contains our spec
   RedisSearchCtx *sctx;
 
-  struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  struct timespec GILTime;  //milliseconds
+  rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers
@@ -104,11 +103,11 @@ typedef struct {
 
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
-} QueryIterator, QueryProcessingCtx;
+} QueryProcessingCtx;
 
-IndexIterator *QITR_GetRootFilter(QueryIterator *it);
-void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
-void QITR_FreeChain(QueryIterator *qitr);
+QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
+void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
+void QITR_FreeChain(QueryProcessingCtx *qitr);
 
 /*
  * SearchResult - the object all the processing chain is working on.
@@ -164,7 +163,7 @@ typedef enum {
  */
 typedef struct ResultProcessor {
   // Reference to the parent structure
-  QueryIterator *parent;
+  QueryProcessingCtx *parent;
 
   // Previous result processor in the chain
   struct ResultProcessor *upstream;
@@ -208,7 +207,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -265,7 +264,7 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
  * This processor collects time and count info about the performance of its upstream RP.
  *
  *******************************************************************************************************************/
-ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qiter);
 
 
 /*******************************************************************************************************************
@@ -276,10 +275,10 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
-void Profile_AddRPs(QueryIterator *qiter);
+void Profile_AddRPs(QueryProcessingCtx *qiter);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);

@@ -572,12 +572,12 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `COMPRESSION`')
 
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'LEANVEC_DIM', 'str') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `LEANVEC_DIM`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'LEANVEC_DIM', '-1') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `LEANVEC_DIM`')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'LEANVEC_DIM', '0.5') \
-        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `LEANVEC_DIM`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'REDUCE', 'str') \
+        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `REDUCE`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'REDUCE', '-1') \
+        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `REDUCE`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'LeanVec4x8', 'REDUCE', '0.5') \
+        .error().contains('Bad arguments for vector similarity SVS-VAMANA index `REDUCE`')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', '1024', 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'CONSTRUCTION_WINDOW_SIZE', '200', 'EPSILON', 'str') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `EPSILON`')
@@ -593,10 +593,10 @@ def test_create_errors():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048') \
         .error().contains('TRAINING_THRESHOLD is irrelevant when compression was not requested')
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'LEANVEC_DIM', '10') \
-        .error().contains('LEANVEC_DIM is irrelevant when compression is not of type LeanVec')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'Lvq8', 'LEANVEC_DIM', '10') \
-        .error().contains('LEANVEC_DIM is irrelevant when compression is not of type LeanVec')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'REDUCE', '10') \
+        .error().contains('REDUCE is irrelevant when compression is not of type LeanVec')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'COMPRESSION', 'Lvq8', 'REDUCE', '10') \
+        .error().contains('REDUCE is irrelevant when compression is not of type LeanVec')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048', 'COMPRESSION', 'LVQ8') \
         .ok()   # valid case when training threshold is set while compression is set also, but after.
@@ -1730,6 +1730,10 @@ class TestTimeoutReached(object):
                    'TIMEOUT', 1).error().contains('Timeout limit was reached')
 
         # HYBRID MODES
+        # Add some dummy documents so `-dummy` won't be empty and optimized away.
+        with self.env.getClusterConnectionIfNeeded() as conn:
+            for i in range(n_vec + 1, n_vec + 5 * self.env.shardsCount):
+                conn.execute_command('HSET', i, 't', 'dummy')
         for mode in self.hybrid_modes:
             res = self.env.cmd('FT.SEARCH', 'idx', '(-dummy)=>[KNN $K @vector $vec_param HYBRID_POLICY $hp]',
                                'NOCONTENT', 'LIMIT', 0, n_vec, 'PARAMS', 6, 'K', n_vec, 'vec_param',
@@ -1746,7 +1750,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['FLAT']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', self.type,
                     'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
@@ -1756,7 +1760,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['HNSW']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', self.type,
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
@@ -1766,7 +1770,7 @@ class TestTimeoutReached(object):
         # Create index and load vectors.
         n_vec = self.index_sizes['SVS-VAMANA']
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', self.type,
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text', 'vector', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', self.type,
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2').ok()
         waitForIndex(self.env, 'idx')
 
@@ -1788,14 +1792,9 @@ def test_create_multi_value_json():
     for algo in VECSIM_ALGOS:
         for path in multi_paths:
             conn.flushall()
-            #TODO: enable when SVS-VAMANA supports multi value
-            if algo == 'SVS-VAMANA':
-                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
-                           '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).error().contains('Multi-value index is currently not supported for SVS-VAMANA algorithm')
-            else:
-                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
-                           '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
-                env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
+            env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', path, 'AS', 'vec', 'VECTOR', algo,
+                       '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',).ok()
+            env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 1, message=f'{algo}, {path}')
 
         for path in single_paths:
             conn.flushall()
@@ -1813,9 +1812,14 @@ def test_index_multi_value_json():
 
     for data_t in VECSIM_DATA_TYPES:
         conn.flushall()
-        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-            '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-            '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+
+        args = ['FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+                '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+                '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+        if data_t in ('FLOAT32', 'FLOAT16'):
+            args += ['$.vecs[*]', 'AS', 'svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2']
+
+        env.expect(*args).ok()
 
         for i in range(0, n, 2):
             # Test setting vectors with python list
@@ -1869,6 +1873,15 @@ def test_index_multi_value_json():
             flat_res = conn.execute_command(*cmd_range)
             env.assertEqual(sortedResults(flat_res), expected_res_range)
 
+            if data_t in ('FLOAT32', 'FLOAT16'):
+                cmd_knn[2] = f'*=>[KNN {k} @svs $b AS {score_field_name}]'
+                svs_res = conn.execute_command(*cmd_knn)[1:]
+                env.assertEqual(svs_res, expected_res_knn)
+
+                cmd_range[2] = f'@svs:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+                svs_res = conn.execute_command(*cmd_range)
+                env.assertEqual(sortedResults(svs_res), expected_res_range)
+
 @skip(no_json=True)
 def test_bad_index_multi_value_json():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1879,7 +1892,8 @@ def test_bad_index_multi_value_json():
     failures = 0
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$.vecs', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+               '$.vecs', 'AS', 'vecs_hnsv', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               '$.vecs', 'AS', 'vecs_svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     # By default, we assume that a static path leads to a single value, so we can't index an array of vectors as multi-value
     conn.json().set(46, '.', {'vecs': [[0.46] * dim] * per_doc})
@@ -1894,7 +1908,8 @@ def test_bad_index_multi_value_json():
     conn.flushall()
     failures = 0
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-               '$.vecs[*]', 'AS', 'vecs', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+               '$.vecs[*]', 'AS', 'vecs_hnsv', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+               '$.vecs[*]', 'AS', 'vecs_svs', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
     # dynamic path returns a non array type
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), 'not a vector']})
@@ -1904,7 +1919,7 @@ def test_bad_index_multi_value_json():
     # we should NOT fail if some of the vectors are NULLs
     conn.json().set(46, '.', {'vecs': [np.ones(dim).tolist(), None, (np.ones(dim) * 2).tolist()]})
     env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], failures)
-    env.assertEqual(index_info(env, 'idx')['num_records'], 2)
+    env.assertEqual(index_info(env, 'idx')['num_records'], 4)
 
     # ...or if the path returns NULL
     conn.json().set(46, '.', {'vecs': None})
@@ -2114,7 +2129,7 @@ def test_range_query_complex_queries():
         env.assertEqual(con.execute_command('HSET', str(index_size), 't', 'unique'), 0)
 
         radius = dim * 10**2
-        expected_res = [11, str(index_size), '8' if env.isCluster() and env.shardsCount > 1 else '9']  # Todo: fix this inconsistency
+        expected_res = [11, str(index_size), '16' if env.isCluster() and env.shardsCount > 1 else '18']  # Todo: fix this inconsistency
         for i in range(index_size-10, index_size, 5):
             expected_res.extend([str(i), '2'])
         for i in sorted(set(range(index_size-10, index_size))-set(range(index_size-10, index_size+1, 5))):
@@ -2534,13 +2549,13 @@ def test_svs_vamana_info_with_compression():
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression
         # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
-        compression_runtime = compression_type if is_intel_cpu() else 'GlobalSQ8'
+        compression_runtime = compression_type if is_intel_cpu() and SVS_PRE_COMPILED_LIB else 'GlobalSQ8'
         expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
                           'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
                           'construction_window_size', 200, 'compression', compression_runtime, 'training_threshold',
                           10240]]
         if compression_type == 'LeanVec4x8' or compression_type == 'LeanVec8x8':
-            expected_info[0].extend(['leanvec_dim', dim // 2])
+            expected_info[0].extend(['reduced_dim', dim // 2])
         assertInfoField(env, 'idx', 'attributes',
                         expected_info)
         env.expect('FT.DROPINDEX', 'idx').ok()

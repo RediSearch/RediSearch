@@ -14,6 +14,7 @@
 
 #include "redisearch.h"
 #include "spec.h"
+#include "types_rs.h"
 #include "query.h"
 #include "synonym_map.h"
 #include "snowball/include/libstemmer.h"
@@ -51,24 +52,41 @@ static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **
 static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *dmd,
                              RSScoreExplain *scrExp) {
   if (r->type == RSResultType_Term) {
-    double idf = r->data.term.term ? r->data.term.term->idf : 0;
+    const RSTermRecord *term = IndexResult_TermRef(r);
+    double idf = term->term ? term->term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
   }
   if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     double ret = 0;
-    int numChildren = r->data.agg.numChildren;
     if (!scrExp) {
-      for (int i = 0; i < numChildren; i++) {
-        ret += tfidfRecursive(r->data.agg.children[i], dmd, NULL);
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+      RSIndexResult *child = NULL;
+
+      while (AggregateResultIter_Next(iter, &child)) {
+        ret += tfidfRecursive(child, dmd, NULL);
       }
+
+      AggregateResultIter_Free(iter);
     } else {
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
-      for (int i = 0; i < numChildren; i++) {
-        ret += tfidfRecursive(r->data.agg.children[i], dmd, &scrExp->children[i]);
+
+      int i = 0;
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+      RSIndexResult *child = NULL;
+
+      while (AggregateResultIter_Next(iter, &child)) {
+        ret += tfidfRecursive(child, dmd, &scrExp->children[i]);
+        i++;
       }
+
+      AggregateResultIter_Free(iter);
+
       EXPLAIN(scrExp, "(Weight %.2f * total children TFIDF %.2f)", r->weight, ret);
     }
     return r->weight * ret;
@@ -141,24 +159,41 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   double f = (double)r->freq;
   double ret = 0;
   if (r->type == RSResultType_Term) {
-    double idf = (r->data.term.term ? r->data.term.term->idf : 0);
+    const RSTermRecord *term = IndexResult_TermRef(r);
+    double idf = (term->term ? term->term->idf : 0);
     ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(scrExp,
             "(%.2f = Weight %.2f * IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
             ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
 
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
-    int numChildren = r->data.agg.numChildren;
     if (!scrExp) {
-      for (int i = 0; i < numChildren; i++) {
-        ret += bm25Recursive(ctx, r->data.agg.children[i], dmd, NULL);
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+      RSIndexResult *child = NULL;
+
+      while (AggregateResultIter_Next(iter, &child)) {
+        ret += bm25Recursive(ctx, child, dmd, NULL);
       }
+
+      AggregateResultIter_Free(iter);
     } else {
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
-      for (int i = 0; i < numChildren; i++) {
-        ret += bm25Recursive(ctx, r->data.agg.children[i], dmd, &scrExp->children[i]);
+
+      int i = 0;
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+      RSIndexResult *child = NULL;
+
+      while (AggregateResultIter_Next(iter, &child)) {
+        ret += bm25Recursive(ctx, child, dmd, &scrExp->children[i]);
+        i++;
       }
+
+      AggregateResultIter_Free(iter);
+
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
     ret *= r->weight;
@@ -222,21 +257,38 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   double ret = 0;
   if (r->type == RSResultType_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
-    double idf = r->data.term.term->bm25_idf;
+    const RSTermRecord *term = IndexResult_TermRef(r);
+    double idf = term->term->bm25_idf;
     ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
-                           r->data.term.term->str);
+                           term->term->str);
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
-    int numChildren = r->data.agg.numChildren;
     if (!scrExp) {
-      for (int i = 0; i < numChildren; i++) {
-        ret += bm25StdRecursive(ctx, r->data.agg.children[i], dmd, NULL);
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+      RSIndexResult *child = NULL;
+
+      while (AggregateResultIter_Next(iter, &child)) {
+        ret += bm25StdRecursive(ctx, child, dmd, NULL);
       }
+
+      AggregateResultIter_Free(iter);
     } else {
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
-      for (int i = 0; i < numChildren; i++) {
-        ret += bm25StdRecursive(ctx, r->data.agg.children[i], dmd, &scrExp->children[i]);
+
+      int i = 0;
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+      RSIndexResult *child = NULL;
+
+      while (AggregateResultIter_Next(iter, &child)) {
+        ret += bm25StdRecursive(ctx, child, dmd, &scrExp->children[i]);
+        i++;
       }
+
+      AggregateResultIter_Free(iter);
+
       EXPLAIN(scrExp, "(Weight %.2f * children BM25 %.2f)", r->weight, ret);
     }
     ret *= r->weight;
@@ -345,15 +397,32 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
     // for intersections - we sum up the term scores
     case RSResultType_Intersection:
       if (!scrExp) {
-        for (int i = 0; i < r->data.agg.numChildren; i++) {
-          ret += dismaxRecursive(ctx, r->data.agg.children[i], NULL);
+        const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+        RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+        RSIndexResult *child = NULL;
+
+        while (AggregateResultIter_Next(iter, &child)) {
+          ret += dismaxRecursive(ctx, child, NULL);
         }
+
+        AggregateResultIter_Free(iter);
       } else {
-        scrExp->numChildren = r->data.agg.numChildren;
-        scrExp->children = rm_calloc(r->data.agg.numChildren, sizeof(RSScoreExplain));
-        for (int i = 0; i < r->data.agg.numChildren; i++) {
-          ret += dismaxRecursive(ctx, r->data.agg.children[i], &scrExp->children[i]);
+        const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+        size_t numChildren = AggregateResult_NumChildren(agg);
+        scrExp->numChildren = numChildren;
+        scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+
+        int i = 0;
+        RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+        RSIndexResult *child = NULL;
+
+        while (AggregateResultIter_Next(iter, &child)) {
+          ret += dismaxRecursive(ctx, child, &scrExp->children[i]);
+          i++;
         }
+
+        AggregateResultIter_Free(iter);
+
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
       }
@@ -361,22 +430,42 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
     // for unions - we take the max frequency
     case RSResultType_Union:
       if (!scrExp) {
-        for (int i = 0; i < r->data.agg.numChildren; i++) {
-          ret = MAX(ret, dismaxRecursive(ctx, r->data.agg.children[i], NULL));
+        const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+        RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+        RSIndexResult *child = NULL;
+
+        while (AggregateResultIter_Next(iter, &child)) {
+          ret = MAX(ret, dismaxRecursive(ctx, child, NULL));
         }
+
+        AggregateResultIter_Free(iter);
       } else {
-        scrExp->numChildren = r->data.agg.numChildren;
-        scrExp->children = rm_calloc(r->data.agg.numChildren, sizeof(RSScoreExplain));
-        for (int i = 0; i < r->data.agg.numChildren; i++) {
-          ret = MAX(ret, dismaxRecursive(ctx, r->data.agg.children[i], &scrExp->children[i]));
+        const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+        size_t numChildren = AggregateResult_NumChildren(agg);
+        scrExp->numChildren = numChildren;
+        scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
+
+        int i = 0;
+        RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+        RSIndexResult *child = NULL;
+
+        while (AggregateResultIter_Next(iter, &child)) {
+          ret = MAX(ret, dismaxRecursive(ctx, child, &scrExp->children[i]));
+          i++;
         }
+
+        AggregateResultIter_Free(iter);
+
         EXPLAIN(scrExp, "%.2f = Weight %.2f * children DISMAX %.2f", r->weight * ret, r->weight,
                 ret);
       }
       break;
     // for hybrid - just take the non-vector child score (the second one).
     case RSResultType_HybridMetric:
-      return dismaxRecursive(ctx, r->data.agg.children[1], scrExp);
+    {
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      return dismaxRecursive(ctx, AggregateResult_Get(agg, 1), scrExp);
+    }
   }
   return r->weight * ret;
 }

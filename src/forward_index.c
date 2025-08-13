@@ -277,12 +277,12 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask};
 
-  rec.data.term.term = NULL;
+  RSTermRecord *term = IndexResult_TermRefMut(&rec);
+  term->term = NULL;
   if (ent->vw) {
-    rec.data.term.offsets.data = (char *) VVW_GetByteData(ent->vw);
-    rec.data.term.offsets.len = VVW_GetByteLength(ent->vw);
+    RSOffsetVector_SetData(&term->offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));
   }
-  return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
+  return InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
 }
 
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {

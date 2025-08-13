@@ -9,7 +9,9 @@
 
 use std::io::Cursor;
 
-use inverted_index::{Decoder, DecoderResult, Encoder, RSIndexResult, freqs_only::FreqsOnly};
+use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
+
+mod c_mocks;
 
 #[test]
 fn test_encode_freqs_only() {
@@ -39,9 +41,9 @@ fn test_encode_freqs_only() {
 
     for (freq, delta, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::freqs_only(doc_id, freq);
+        let record = RSIndexResult::virt().doc_id(doc_id).frequency(freq);
 
-        let bytes_written = FreqsOnly::default()
+        let bytes_written = FreqsOnly
             .encode(&mut buf, delta, &record)
             .expect("to encode freqs only record");
 
@@ -50,12 +52,11 @@ fn test_encode_freqs_only() {
 
         buf.set_position(0);
         let prev_doc_id = doc_id - (delta as u64);
-        let DecoderResult::Record(record_decoded) = FreqsOnly
+        let buf = buf.into_inner();
+        let mut buf = Cursor::new(buf.as_ref());
+        let record_decoded = FreqsOnly
             .decode(&mut buf, prev_doc_id)
-            .expect("to decode freqs only record")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
+            .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
     }
@@ -64,14 +65,13 @@ fn test_encode_freqs_only() {
 #[test]
 fn test_encode_freqs_only_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
-    let mut buf = [0u8; 3];
-    let buf = &mut buf[0..1];
+    let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
 
-    let record = RSIndexResult::freqs_only(10, 5);
-    let res = FreqsOnly::default().encode(&mut cursor, 0, &record);
+    let record = RSIndexResult::virt().doc_id(10).frequency(5);
+    let res = FreqsOnly.encode(&mut cursor, 0, &record);
 
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
@@ -80,10 +80,10 @@ fn test_encode_freqs_only_output_too_small() {
 fn test_decode_freqs_only_input_too_small() {
     // Encoded data is one byte too short.
     let buf = vec![0, 0];
-    let mut cursor = Cursor::new(buf);
-    let res = FreqsOnly.decode(&mut cursor, 100);
+    let mut buf = Cursor::new(buf.as_ref());
+    let res = FreqsOnly.decode(&mut buf, 100);
 
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -92,10 +92,10 @@ fn test_decode_freqs_only_input_too_small() {
 fn test_decode_freqs_only_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
-    let mut cursor = Cursor::new(buf);
-    let res = FreqsOnly.decode(&mut cursor, 100);
+    let mut buf = Cursor::new(buf.as_ref());
+    let res = FreqsOnly.decode(&mut buf, 100);
 
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }

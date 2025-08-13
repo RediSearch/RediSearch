@@ -42,7 +42,9 @@ impl Bencher {
             .into_iter()
             .cartesian_product(deltas)
             .map(|(freq, delta)| {
-                let record = inverted_index::RSIndexResult::freqs_only(100, freq);
+                let record = inverted_index::RSIndexResult::virt()
+                    .doc_id(100)
+                    .frequency(freq);
                 let mut buffer = Cursor::new(Vec::new());
                 let _grew_size = FreqsOnly::default()
                     .encode(&mut buffer, delta, &record)
@@ -98,7 +100,9 @@ impl Bencher {
                 || TestBuffer::with_capacity(buffer_size),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let mut record = inverted_index::RSIndexResult::freqs_only(100, test.freq);
+                        let mut record = inverted_index::RSIndexResult::virt()
+                            .doc_id(100)
+                            .frequency(test.freq);
                         let grew_size =
                             encode_freqs_only(&mut buffer, &mut record, test.delta as _);
 
@@ -119,7 +123,9 @@ impl Bencher {
                 || Cursor::new(Vec::with_capacity(buffer_size)),
                 |mut buffer| {
                     for test in &self.test_values {
-                        let record = inverted_index::RSIndexResult::freqs_only(100, test.freq);
+                        let record = inverted_index::RSIndexResult::virt()
+                            .doc_id(100)
+                            .frequency(test.freq);
 
                         let grew_size = FreqsOnly::default()
                             .encode(&mut buffer, test.delta, &record)
@@ -156,9 +162,9 @@ impl Bencher {
         group.bench_function("Rust", |b| {
             for test in &self.test_values {
                 b.iter_batched_ref(
-                    || Cursor::new(&test.encoded),
+                    || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = FreqsOnly.decode(buffer, 100);
+                        let result = FreqsOnly.decode(buffer, 100).unwrap();
                         let _ = black_box(result);
                     },
                     BatchSize::SmallInput,
