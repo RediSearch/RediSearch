@@ -16,8 +16,8 @@ use crate::{RSIndexResult, RSOffsetVector, RSResultData};
 /// Wrapper around `inverted_index::RSIndexResult` ensuring the term and offsets
 /// pointers used internally stay valid for the duration of the test or bench.
 #[derive(Debug)]
-pub struct TestTermRecord<'a, 'aggregate_children> {
-    pub record: RSIndexResult<'a, 'aggregate_children>,
+pub struct TestTermRecord<'index, 'aggregate_children> {
+    pub record: RSIndexResult<'index, 'aggregate_children>,
     // both term and offsets need to stay alive during the test
     _term: Box<ffi::RSQueryTerm>,
     _offsets: Vec<i8>,
@@ -55,8 +55,8 @@ impl TestTermRecord<'_, '_> {
 /// Helper to compare only the fields of a term record that are actually encoded.
 /// Only used in tests.
 #[derive(Debug)]
-pub struct TermRecordCompare<'a, 'aggregate_children>(
-    pub &'a RSIndexResult<'a, 'aggregate_children>,
+pub struct TermRecordCompare<'index, 'aggregate_children>(
+    pub &'index RSIndexResult<'index, 'aggregate_children>,
 );
 
 impl<'a, 'aggregate_children> PartialEq for TermRecordCompare<'a, 'aggregate_children> {
