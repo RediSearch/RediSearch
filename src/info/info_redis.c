@@ -11,6 +11,7 @@
 #include "cursor.h"
 #include "indexes_info.h"
 #include "util/units.h"
+#include "rs_wall_clock.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -190,7 +191,7 @@ void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_MB(total_info->max_mem));
 
 	// Indexing time
-  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
+  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(total_info->indexing_time));
 
 	// Vector memory
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
