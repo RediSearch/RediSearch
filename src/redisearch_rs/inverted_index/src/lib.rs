@@ -254,8 +254,10 @@ pub struct RSAggregateResult<'index, 'children> {
 
     /// A map of the aggregate type of the underlying records
     type_mask: RSResultTypeMask,
-    /// The lifetime is actually on `RsIndexResult` but it is stored as a pointer which does not
-    /// support lifetimes. So use a PhantomData to carry the lifetime for it instead.
+
+    /// The lifetime is actually on the `*const RSIndexResult` children stored in the `records`
+    /// field. But since these are stored as a pointers which do not support lifetimes, we need to
+    /// use a PhantomData to carry the lifetime for each child record instead.
     _phantom: PhantomData<&'children ()>,
 }
 
@@ -402,6 +404,10 @@ impl<'index, 'children> IntoIterator for RSAggregateResult<'index, 'children> {
 pub struct RSVirtualResult;
 
 /// Holds the actual data of an ['IndexResult']
+///
+/// The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
+/// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`]s that is holding
+/// raw pointers to results.
 #[repr(C)]
 pub union RSIndexResultData<'index, 'aggregate_children> {
     pub agg: ManuallyDrop<RSAggregateResult<'index, 'aggregate_children>>,
