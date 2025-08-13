@@ -325,7 +325,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       // Excludes hidden fields, fields not included in RETURN and, score and language fields.
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
       int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = 0; // (hreq->hybridParams->aggregationParams.common.reqflags & QEXEC_F_EXPLICITRETURN) ? RLOOKUP_F_EXPLICITRETURN : 0;
+      int requiredFlags = (hreq->hybridParams->aggregationParams.outFields->explicitReturn) ? RLOOKUP_F_EXPLICITRETURN : 0;
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
@@ -442,10 +442,10 @@ static void destroyResults(SearchResult **results) {
   }
 }
 
-static bool ShouldReplyWithError(ResultProcessor *rp, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
-  return QueryError_HasError(rp->parent->err)
-      && (rp->parent->err->code != QUERY_ETIMEDOUT
-          || (rp->parent->err->code == QUERY_ETIMEDOUT
+static bool ShouldReplyWithError(QueryError *status, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
+  return QueryError_HasError(status)
+      && (status->code != QUERY_ETIMEDOUT
+          || (status->code == QUERY_ETIMEDOUT
               && timeoutPolicy == TimeoutPolicy_Fail
               && !isProfile));
 }
@@ -590,7 +590,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
+    if (ShouldReplyWithError(rp->parent->err, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
@@ -679,7 +679,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    if (ShouldReplyWithError(rp->parent->err, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_2_err;
@@ -797,7 +797,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &results, &r, &rc);
 
-    if (ShouldReplyWithError(rp, req->reqConfig.timeoutPolicy, IsProfile(req))) {
+    if (ShouldReplyWithError(rp->parent->err, req->reqConfig.timeoutPolicy, IsProfile(req))) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       cursor_done = true;
       goto done_3_err;
