@@ -417,7 +417,7 @@ pub enum RSResultKind {
 /// the bitflags on [`RSResultKindMask`]
 ///
 /// The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
-/// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`]s that is holding
+/// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
 /// raw pointers to results.
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
