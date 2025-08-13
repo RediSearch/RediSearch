@@ -325,6 +325,8 @@ target_link_libraries(redisearch
         inverted_index
         wildcard
         uv_a
+        spdlog::spdlog
+        fmt::fmt
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
