@@ -1577,6 +1577,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
       {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
+      // A temporary flag to force indexes to be stored in RAM - for benchmarking purposes.
       {AC_MKBITFLAG(SPEC_RAM_STR, &spec->flags, Index_StoreInRAM)},
 
       // For compatibility

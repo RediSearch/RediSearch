@@ -1119,7 +1119,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
   }
 
   char *isFlexStr = getRedisConfigValue(ctx, "bigredis-enabled");
-  if (isFlexStr && !strcasecmp(isFlex, "yes")) {
+  if (isFlexStr && !strcasecmp(isFlexStr, "yes")) {
     isFlex = true;
   } // Default is false, so nothing to change in that case.
   rm_free(isFlexStr);
