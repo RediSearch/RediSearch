@@ -36,17 +36,10 @@ pub struct Full;
 #[inline(always)]
 pub fn offsets<'a>(record: &'a RSIndexResult<'_, '_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
-    let term = record.as_term().unwrap();
-    if term.offsets.data.is_null() {
-        &[]
-    } else {
-        assert_eq!(term.offsets.len, record.offsets_sz);
+    let offsets = record.as_term().unwrap().offsets();
+    assert_eq!(offsets.len(), record.offsets_sz as usize);
 
-        // SAFETY: We checked that data is not NULL and `len` is guaranteed to be a valid length for the data pointer.
-        unsafe {
-            std::slice::from_raw_parts(term.offsets.data as *const u8, term.offsets.len as usize)
-        }
-    }
+    offsets
 }
 
 impl Encoder for Full {
