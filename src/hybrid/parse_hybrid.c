@@ -607,16 +607,13 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   HybridRequest *hybridRequest = HybridRequest_New(requests, HYBRID_REQUEST_NUM_SUBQUERIES);
   hybridRequest->hybridParams = hybridParams;
 
-  // Create hybrid tail optimizer
-  QOptimizer *hybridOptimizer = QOptimizer_New();
-  hybridOptimizer->type = Q_OPT_NONE; //no optimization
   // thread safe context
   const AggregationPipelineParams params = {
       .common =
           {
               .sctx = sctx,  // should be a separate context?
               .reqflags = (hasMerge ? mergeReqflags : 0) | QEXEC_F_IS_HYBRID_TAIL,
-              .optimizer = hybridOptimizer,
+              .optimizer = NULL,
           },
       .outFields = NULL,
       .maxResultsLimit = mergeMaxAggregateResults,
