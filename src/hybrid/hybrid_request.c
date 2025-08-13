@@ -225,11 +225,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
-      // Clear the pipeline's result processor chain to prevent double-free
-      // The processors (including depleters) will be freed by the tail pipeline
-      QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req->requests[i]);
-      qctx->rootProc = NULL;
-      qctx->endProc = NULL;
 
       // Check if we need to manually free the thread-safe context
       if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
@@ -267,6 +262,13 @@ void HybridRequest_Free(HybridRequest *req) {
 
       // Free the hybrid parameters
       rm_free(req->hybridParams);
+    }
+
+    // Free the tail pipeline
+    if (req->tailPipeline) {
+      Pipeline_Clean(req->tailPipeline);
+      rm_free(req->tailPipeline);
+      req->tailPipeline = NULL;
     }
 
     rm_free(req);
