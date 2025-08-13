@@ -181,6 +181,10 @@ typedef BitFlags_RSResultType__u32 RSResultTypeMask;
  */
 typedef struct RSAggregateResult {
   /**
+   * We mark copied aggregates so we can treat them a bit differently on deletion.
+   */
+  bool isCopy;
+  /**
    * The records making up this aggregate result
    *
    * The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
@@ -210,6 +214,11 @@ typedef struct RSOffsetVector {
  * Represents a single record of a document inside a term in the inverted index
  */
 typedef struct RSTermRecord {
+  /**
+   * We mark copied terms so we can treat them a bit differently on deletion, and pool them if
+   * we want
+   */
+  bool isCopy;
   /**
    * The term that brought up this record
    */
@@ -274,11 +283,6 @@ typedef struct RSIndexResult {
    * The type of data stored at ['Self::data']
    */
   RSResultType type;
-  /**
-   * We mark copied results so we can treat them a bit differently on deletion, and pool them if
-   * we want
-   */
-  bool isCopy;
   /**
    * Holds an array of metrics yielded by the different iterators in the AST
    */
