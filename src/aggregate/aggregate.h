@@ -14,6 +14,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "reply.h"
+#include "rs_wall_clock.h"
 
 #include "rmutil/rm_assert.h"
 
