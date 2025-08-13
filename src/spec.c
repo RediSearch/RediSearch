@@ -65,6 +65,7 @@ Version redisVersion;
 Version rlecVersion;
 bool isCrdt;
 bool isTrimming = false;
+bool isFlex = false;
 
 // Default values make no limits.
 size_t memoryLimit = -1;
@@ -1576,6 +1577,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
       {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
+      {AC_MKBITFLAG(SPEC_RAM_STR, &spec->flags, Index_StoreInRAM)},
 
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
@@ -1639,8 +1641,12 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     SchemaRule_FilterFields(spec);
   }
 
-  spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
-  RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
+  // Store on disk if we're on Flex and we don't force RAM
+  if (isFlex && !(spec->flags & Index_StoreInRAM)) {
+    RS_ASSERT(disk_db);
+    spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
+    RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
+  }
 
   return spec_ref;
 
@@ -1882,7 +1888,8 @@ void IndexSpec_Free(IndexSpec *spec) {
   } else {
     redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
   }
-  SearchDisk_CloseIndex(spec->diskSpec);
+
+  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2994,8 +3001,13 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     goto cleanup;
   }
 
-
-  sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+  if (isFlex) {
+    // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
+    // we add the `Index_StoreInRAM` flag to the rdb file.
+    RS_ASSERT(disk_db);
+    sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+  }
+  
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   /* For version 3 or up - load the generic trie */
   //  if (encver >= 3) {
@@ -3150,7 +3162,13 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   QueryError status;
   sp->rule = SchemaRule_Create(rule_args, spec_ref, &status);
-  sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+
+  if (isFlex) {
+    // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
+    // we add the `Index_StoreInRAM` flag to the rdb file.
+    RS_ASSERT(disk_db);
+    sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+  }
 
   dictDelete(legacySpecRules, sp->specName);
   SchemaRuleArgs_Free(rule_args);

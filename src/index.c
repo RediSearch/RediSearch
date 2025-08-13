@@ -1258,7 +1258,8 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
 
   NotContext *nc = rm_calloc(1, sizeof(*nc));
   bool optimized = q && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
-  if (optimized) {
+  bool disk_optimized = q && q->sctx->spec->diskSpec;
+  if (optimized || disk_optimized) {
     nc->wcii = NewWildcardIterator(q);
   }
   nc->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
@@ -1586,7 +1587,8 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, QueryEvalCtx *q, double we
   OptionalMatchContext *nc = rm_calloc(1, sizeof(*nc));
 
   bool optimized = q && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
-  if (optimized) {
+  bool disk_optimized = q && q->sctx->spec->diskSpec;
+  if (optimized || disk_optimized) {
     nc->wcii = NewWildcardIterator(q);
   }
   nc->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);

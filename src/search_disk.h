@@ -11,6 +11,8 @@ bool SearchDisk_HasAPI();
 __attribute__((weak))
  RedisSearchDiskAPI *SearchDisk_GetAPI();
 
+extern RedisSearchDisk *disk_db;
+
 /**
  * @brief Initialize the search disk module
  *
