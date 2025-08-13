@@ -166,7 +166,7 @@ typedef struct RSAggregateResult {
   /**
    * The records making up this aggregate result
    *
-   * The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+   * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
@@ -223,7 +223,7 @@ typedef struct RSNumericRecord {
  * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
  * the bitflags on [`RSResultKindMask`]
  *
- * The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
+ * The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
  * While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
  * raw pointers to results.
  */
