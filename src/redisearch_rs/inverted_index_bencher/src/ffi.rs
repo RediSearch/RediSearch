@@ -749,21 +749,8 @@ mod tests {
             // SAFETY: we checked that other has the same type as self
             let b_term_record = other.0.as_term().unwrap();
 
-            let a_offsets = (!a_term_record.offsets.data.is_null()).then(|| unsafe {
-                // SAFETY: `len` is guaranteed to be a valid length for the non-null data pointer.
-                std::slice::from_raw_parts(
-                    a_term_record.offsets.data as *const i8,
-                    a_term_record.offsets.len as usize,
-                )
-            });
-
-            let b_offsets = (!b_term_record.offsets.data.is_null()).then(|| unsafe {
-                // SAFETY: `len` is guaranteed to be a valid length for the non-null data pointer.
-                std::slice::from_raw_parts(
-                    b_term_record.offsets.data as *const i8,
-                    b_term_record.offsets.len as usize,
-                )
-            });
+            let a_offsets = a_term_record.offsets();
+            let b_offsets = b_term_record.offsets();
 
             if a_offsets != b_offsets {
                 return false;

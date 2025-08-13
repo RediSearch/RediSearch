@@ -56,10 +56,16 @@ pub struct RSNumericRecord(pub f64);
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
+#[derive(Debug, Eq, PartialEq)]
+pub enum RSOffsetVector<'index> {
+    Borrowed(RSOffsetVectorRef<'index>),
+    Owned(RSOffsetVectorOwned),
+}
+
+#[repr(C)]
 #[derive(Eq, PartialEq)]
-pub struct RSOffsetVector<'index> {
+pub struct RSOffsetVectorRef<'index> {
     /// At this point the data ownership is still managed by the caller.
-    // TODO: switch to a Cow once the caller code has been ported to Rust.
     pub data: *mut c_char,
     pub len: u32,
     /// data may be borrowed from the reader.
@@ -67,35 +73,78 @@ pub struct RSOffsetVector<'index> {
     _phantom: PhantomData<&'index ()>,
 }
 
-impl Debug for RSOffsetVector<'_> {
+#[repr(C)]
+#[derive(Eq, PartialEq)]
+pub struct RSOffsetVectorOwned {
+    /// At this point the data ownership is still managed by the caller.
+    pub data: *mut c_char,
+    pub len: u32,
+}
+
+impl Debug for RSOffsetVectorRef<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.data.is_null() {
-            return write!(f, "RSOffsetVector(null)");
+            return write!(f, "RSOffsetVectorRef(null)");
         }
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
         let offsets =
             unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
 
-        write!(f, "RSOffsetVector {offsets:?}")
+        write!(f, "RSOffsetVectorRef {offsets:?}")
+    }
+}
+
+impl Debug for RSOffsetVectorOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.data.is_null() {
+            return write!(f, "RSOffsetVectorOwned(null)");
+        }
+        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
+        let offsets =
+            unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
+
+        write!(f, "RSOffsetVectorOwned {offsets:?}")
     }
 }
 
 impl RSOffsetVector<'_> {
     /// Create a new, empty offset vector ready to receive data
     pub fn empty() -> Self {
-        Self {
+        Self::Borrowed(RSOffsetVectorRef {
             data: ptr::null_mut(),
             len: 0,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Create a new offset vector with the given data pointer and length.
     pub fn with_data(data: *mut c_char, len: u32) -> Self {
-        Self {
+        Self::Borrowed(RSOffsetVectorRef {
             data,
             len,
             _phantom: PhantomData,
+        })
+    }
+
+    /// Get the length of the offsets in this vector.
+    fn len(&self) -> u32 {
+        match self {
+            RSOffsetVector::Borrowed(v) => v.len,
+            RSOffsetVector::Owned(v) => v.len,
+        }
+    }
+
+    /// Get a slice of the offsets in this vector.
+    fn offsets(&self) -> &[u8] {
+        match self {
+            RSOffsetVector::Borrowed(v) => {
+                // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
+                unsafe { std::slice::from_raw_parts(v.data as *const u8, v.len as usize) }
+            }
+            RSOffsetVector::Owned(v) => {
+                // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
+                unsafe { std::slice::from_raw_parts(v.data as *const u8, v.len as usize) }
+            }
         }
     }
 }
@@ -134,6 +183,11 @@ impl<'index> RSTermRecord<'index> {
             term,
             offsets,
         }
+    }
+
+    /// Get a slice of the term offsets.
+    pub fn offsets(&self) -> &[u8] {
+        self.offsets.offsets()
     }
 }
 
@@ -529,7 +583,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
         field_mask: t_fieldMask,
         freq: u32,
     ) -> RSIndexResult<'index, 'aggregate_children> {
-        let offsets_sz = offsets.len;
+        let offsets_sz = offsets.len();
         Self {
             data: RSResultData::Term(RSTermRecord::with_term(term, offsets)),
             doc_id,
