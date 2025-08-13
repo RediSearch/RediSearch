@@ -312,15 +312,9 @@ TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
 
   parseCommand(args);
 
-  // Verify that an arrange step was created with noSort flag set
+  // Verify that an arrange step was not created
   const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
-  ASSERT_TRUE(arrangeStep != NULL);
-  const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
-  ASSERT_TRUE(arng->noSort);
-  ASSERT_TRUE(arng->sortKeys == NULL);
-
-  // Verify default RRF scoring type was set
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
+  ASSERT_TRUE(arrangeStep == NULL);
 }
 
 TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
@@ -333,7 +327,6 @@ TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
   ASSERT_TRUE(arrangeStep != NULL);
   const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
-  ASSERT_FALSE(arng->noSort);
   ASSERT_TRUE(arng->sortKeys != NULL);
 
   // Verify default RRF scoring type was set
@@ -352,32 +345,6 @@ TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
 
   // Verify default RRF scoring type was set
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
-}
-
-// Test that SORTBY 0 correctly sets noSort flag and clears sortKeys
-TEST_F(ParseHybridTest, ParseSortby0_SetsNoSortFlagAndClearsSortKeys) {
-  QueryError qerr = {QueryErrorCode(0)};
-  RMCK::ArgvList args(ctx, "hello", "SORTBY", "0");
-
-  AREQ *req = AREQ_New();
-  req->reqflags = QEXEC_F_IS_HYBRID_TAIL;
-
-  int rc = AREQ_Compile(req, args, args.size(), &qerr);
-  EXPECT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&qerr);
-
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(sctx);
-
-  rc = AREQ_ApplyContext(req, sctx, &qerr);
-  EXPECT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&qerr);
-
-  // Verify SORTBY 0 sets the correct flags
-  PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
-  ASSERT_TRUE(arrangeStep);
-  EXPECT_TRUE(arrangeStep->noSort) << "SORTBY 0 should set noSort=true";
-  EXPECT_EQ(nullptr, arrangeStep->sortKeys) << "SORTBY 0 should set sortKeys=NULL";
-
-  AREQ_Free(req);
 }
 
 // Tests for parseVectorSubquery functionality (VSIM tests)
