@@ -81,20 +81,8 @@ impl<'a, 'aggregate_children> PartialEq for TermRecordCompare<'a, 'aggregate_chi
         // SAFETY: we checked that other has the same type as self
         let b_term_record = other.0.as_term().unwrap();
 
-        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let a_offsets = unsafe {
-            std::slice::from_raw_parts(
-                a_term_record.offsets.data as *const i8,
-                a_term_record.offsets.len as usize,
-            )
-        };
-        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let b_offsets = unsafe {
-            std::slice::from_raw_parts(
-                b_term_record.offsets.data as *const i8,
-                b_term_record.offsets.len as usize,
-            )
-        };
+        let a_offsets = a_term_record.offsets();
+        let b_offsets = b_term_record.offsets();
 
         if a_offsets != b_offsets {
             return false;
