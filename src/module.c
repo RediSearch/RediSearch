@@ -2731,7 +2731,7 @@ static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
                                rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
-  bool has_map = RedisModule_HasMap(reply);
+  bool has_map = RedisModule_IsRESP3(reply);
   RedisModule_Reply_Map(reply); // root
     // Have a named map for the results for RESP3
     if (has_map) {

@@ -817,7 +817,6 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool has_map = RedisModule_HasMap(reply);
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
@@ -856,7 +855,6 @@ err:
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool has_map = RedisModule_HasMap(reply);
 
   AREQ *r = NULL;
   IndexSpec *sp = NULL;
