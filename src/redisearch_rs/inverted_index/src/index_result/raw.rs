@@ -17,13 +17,11 @@ use low_memory_thin_vec::LowMemoryThinVec;
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
-#[derive(Debug, PartialEq)]
 pub struct RSNumericRecordRaw(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
-#[derive(Eq, PartialEq)]
 pub struct RSOffsetVectorRaw<'index> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
@@ -37,7 +35,6 @@ pub struct RSOffsetVectorRaw<'index> {
 /// Represents a single record of a document inside a term in the inverted index
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(Eq, PartialEq)]
 pub struct RSTermRecordRaw<'index> {
     /// We mark copied terms so we can treat them a bit differently on delete.
     pub is_copy: bool,
@@ -59,7 +56,6 @@ pub type RSResultKindMaskRaw = BitFlags<RSResultKindRaw, u8>;
 /// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(Debug, Eq, PartialEq)]
 pub struct RSAggregateResultRaw<'index, 'children> {
     /// We mark copied aggregates so we can treat them a bit differently on delete.
     pub is_copy: bool,
@@ -96,9 +92,9 @@ impl<'index, 'aggregate_children> Iterator
     /// # Safety
     /// The caller must ensure that all memory pointers in the aggregate result are still valid.
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(result) = self.agg.get(self.index) {
+        if let Some(result) = self.agg.records.get(self.index) {
             self.index += 1;
-            Some(result)
+            Some(unsafe { &**result })
         } else {
             None
         }
@@ -107,7 +103,6 @@ impl<'index, 'aggregate_children> Iterator
 
 /// Represents a virtual result in an index record.
 #[repr(C)]
-#[derive(Debug, Eq, PartialEq)]
 pub struct RSVirtualResultRaw;
 
 /// A C-style discriminant for [`RSResultDataRaw`].
@@ -123,7 +118,7 @@ pub struct RSVirtualResultRaw;
 /// on [`RSResultDataRaw`].
 #[bitflags]
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone)]
 pub enum RSResultKindRaw {
     Union = 1,
     Intersection = 2,
@@ -143,7 +138,6 @@ pub enum RSResultKindRaw {
 /// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
 /// raw pointers to results.
 #[repr(u8)]
-#[derive(Debug, PartialEq)]
 /// cbindgen:prefix-with-name=true
 pub enum RSResultDataRaw<'index, 'aggregate_children> {
     Union(RSAggregateResultRaw<'index, 'aggregate_children>) = 1,
@@ -158,7 +152,6 @@ pub enum RSResultDataRaw<'index, 'aggregate_children> {
 /// The result of an inverted index
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(Debug, PartialEq)]
 pub struct RSIndexResultRaw<'index, 'aggregate_children> {
     /// The document ID of the result
     pub doc_id: t_docId,
