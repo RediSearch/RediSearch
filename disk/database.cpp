@@ -69,6 +69,7 @@ Database::Index* Database::Index::Create(std::string name, rocksdb::DB& db, Docu
 
   // We currently enable the block-cache for the doc-table only, since we use
   // the iterator pre-fetch for the inverted index.
+  // static constexpr size_t InvertedIndexCacheSize = 30 * 1024 * 1024; // 30MB
   static constexpr size_t DocTableCacheSize = 30 * 1024 * 1024; // 30MB
 
   auto deletedIds = std::make_shared<DeletedIds>();
