@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVectorRef, RSResultData};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -99,7 +99,7 @@ pub fn decode_term_record_offsets<'index>(
 
     cursor.set_position(end as u64);
 
-    let offsets = RSOffsetVector::with_data(data, offsets_sz);
+    let offsets = RSOffsetVectorRef::with_data(data, offsets_sz);
 
     let record = RSIndexResult::term_with_term_ptr(
         std::ptr::null_mut(),

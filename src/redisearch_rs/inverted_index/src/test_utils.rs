@@ -11,7 +11,7 @@
 
 use ffi::t_fieldMask;
 
-use crate::{RSIndexResult, RSOffsetVector, RSResultData};
+use crate::{RSIndexResult, RSOffsetVectorRef, RSResultData};
 
 /// Wrapper around `inverted_index::RSIndexResult` ensuring the term and offsets
 /// pointers used internally stay valid for the duration of the test or bench.
@@ -38,7 +38,7 @@ impl TestTermRecord<'_, '_> {
         });
 
         let offsets_ptr = offsets.as_ptr() as *mut _;
-        let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
+        let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
 
         let record =
             RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets, doc_id, field_mask, freq)
@@ -90,6 +90,6 @@ impl<'a, 'aggregate_children> PartialEq for TermRecordCompare<'a, 'aggregate_chi
 
         // do not compare `RSTermRecord` as it's not encoded
 
-        a_term_record.is_copy == b_term_record.is_copy
+        a_term_record.is_copy() == b_term_record.is_copy()
     }
 }
