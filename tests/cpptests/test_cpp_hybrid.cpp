@@ -264,10 +264,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 2);
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewRRF(10.0, 100, false);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -338,10 +335,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   AddLoadStepToPlan(&hybridReq->tailPipeline->ap, loadFields, 3);
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewRRF(10.0, 100, false);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -401,10 +395,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewRRF(10.0, 100, false);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -463,10 +454,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   AddApplyStepToPlan(&hybridReq->tailPipeline->ap, "@score * 2", "boosted_score");
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewRRF(10.0, 100, false);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -528,10 +516,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   EXPECT_EQ(nullptr, loadStep) << "No LOAD step should exist initially";
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewRRF(10.0, 100, false);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -624,10 +609,7 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   EXPECT_EQ(2, loadStep->args.argc) << "Explicit LOAD should have 3 fields (before processing)";
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewRRF(10.0, 100, false);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -703,10 +685,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitSort) {
   ASSERT_NE(nullptr, arrangeStep) << "Explicit SORT step should exist";
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  scoringCtx->rrfCtx.k = 10;
-  scoringCtx->rrfCtx.window = 100;
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewRRF(10.0, 100, false);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -766,12 +745,8 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
   EXPECT_EQ(nullptr, arrangeStep) << "No explicit SORT step should exist initially";
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_LINEAR;
-  scoringCtx->linearCtx.linearWeights = (double*)rm_calloc(2, sizeof(double));
-  scoringCtx->linearCtx.linearWeights[0] = 0.7;
-  scoringCtx->linearCtx.linearWeights[1] = 0.3;
-  scoringCtx->linearCtx.numWeights = 2;
+  double weights[] = {0.7, 0.3};
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewLinear(weights, 2);
 
   HybridPipelineParams params = {
       .aggregationParams = {
@@ -833,12 +808,8 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
-  HybridScoringContext *scoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-  scoringCtx->scoringType = HYBRID_SCORING_LINEAR;
-  scoringCtx->linearCtx.linearWeights = (double*)rm_calloc(2, sizeof(double));
-  scoringCtx->linearCtx.linearWeights[0] = 0.6;
-  scoringCtx->linearCtx.linearWeights[1] = 0.4;
-  scoringCtx->linearCtx.numWeights = 2;
+  double weights[] = {0.6, 0.4};
+  HybridScoringContext *scoringCtx = HybridScoringContext_NewLinear(weights, 2);
 
   HybridPipelineParams params = {
       .aggregationParams = {

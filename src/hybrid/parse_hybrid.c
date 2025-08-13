@@ -20,7 +20,6 @@
 #include "query_error.h"
 #include "spec.h"
 #include "param.h"
-#include "resp3.h"
 #include "rmalloc.h"
 
 #include "rmutil/args.h"
@@ -91,7 +90,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
+static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
   // Try to get number of parameters
@@ -126,6 +125,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attr
       }
       vq->knn.k = (size_t)kValue;
       hasK = true;  // codespell:ignore
+      pvd->hasExplicitK = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
       if (hasEF) {
@@ -158,7 +158,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attr
         .value = rm_strdup(value),
         .vallen = strlen(value)
       };
-      *attributes = array_ensure_append_1(*attributes, attr);
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       hasYieldDistanceAs = true;
 
     } else {
@@ -311,14 +311,15 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Set default KNN values before checking for more parameters
   vq->type = VECSIM_QT_KNN;
-  vq->knn.k = 10;  // Default k value
+  vq->knn.k = HYBRID_DEFAULT_KNN_K;
   vq->knn.order = BY_SCORE;
+  pvd->hasExplicitK = false;
 
   if (AC_IsAtEnd(ac)) goto final;
 
   // Parse optional KNN or RANGE clause
   if (AC_AdvanceIfMatch(ac, "KNN")) {
-    if (parseKNNClause(ac, vq, &pvd->attributes, status) != REDISMODULE_OK) {
+    if (parseKNNClause(ac, vq, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
     vq->type = VECSIM_QT_KNN;
@@ -372,15 +373,18 @@ error:
 /**
  * Parse COMBINE clause parameters for hybrid scoring configuration.
  *
- * Supports LINEAR (requires HYBRID_REQUEST_NUM_SUBQUERIES weight values) and RRF (optional K and WINDOW parameters).
- * Defaults to RRF if no method specified.
+ * Supports LINEAR (requires numWeights weight values) and RRF (optional K and WINDOW parameters).
+ * Defaults to RRF if no method specified. Uses hybrid-specific defaults: RRF K=60, WINDOW=20.
+ * WINDOW parameter controls the number of results consumed from each subquery before fusion.
+ * When WINDOW is not explicitly set, it can be overridden by LIMIT parameter in fallback logic.
  *
  * @param ac Arguments cursor positioned after "COMBINE"
- * @param combineCtx Hybrid scoring context to populate
+ * @param combineCtx Hybrid scoring context to populate (window field and hasExplicitWindow flag are set)
+ * @param numWeights Number of weight values required for LINEAR scoring
  * @param status Output parameter for error reporting
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryError *status) {
+static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t numWeights, QueryError *status) {
   // Check if a specific method is provided
   if (AC_AdvanceIfMatch(ac, "LINEAR")) {
     combineCtx->scoringType = HYBRID_SCORING_LINEAR;
@@ -392,11 +396,11 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
 
   // Parse parameters based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    combineCtx->linearCtx.linearWeights = rm_calloc(HYBRID_REQUEST_NUM_SUBQUERIES, sizeof(double));
-    combineCtx->linearCtx.numWeights = HYBRID_REQUEST_NUM_SUBQUERIES;
+    combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
+    combineCtx->linearCtx.numWeights = numWeights;
 
     // Parse the weight values directly
-    for (size_t i = 0; i < HYBRID_REQUEST_NUM_SUBQUERIES; i++) {
+    for (size_t i = 0; i < numWeights; i++) {
       double weight;
       if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
@@ -410,8 +414,9 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
     int rv = AC_GetVarArgs(ac, &params);
 
     // Initialize with defaults
-    combineCtx->rrfCtx.k = 1;
-    combineCtx->rrfCtx.window = 20;
+    combineCtx->rrfCtx.k = HYBRID_DEFAULT_RRF_K;
+    combineCtx->rrfCtx.window = HYBRID_DEFAULT_WINDOW;
+    combineCtx->rrfCtx.hasExplicitWindow = false;
 
     if (rv == AC_OK) {
       // Parameters were provided
@@ -430,7 +435,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
 
         if (strcasecmp(paramName, "K") == 0) {
           double k;
-          if (AC_GetDouble(&params, &k, 0) != AC_OK) {
+          if (AC_GetDouble(&params, &k, 0) != AC_OK || k <= 0) {
             QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value in RRF");
             goto error;
           }
@@ -442,6 +447,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
             goto error;
           }
           combineCtx->rrfCtx.window = window;
+          combineCtx->rrfCtx.hasExplicitWindow = true;
         } else {
           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RRF", paramName);
           goto error;
@@ -453,7 +459,9 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, QueryE
   return REDISMODULE_OK;
 
 error:
-  HybridScoringContext_Free(combineCtx);
+  if (combineCtx->scoringType == HYBRID_SCORING_LINEAR && combineCtx->linearCtx.linearWeights) {
+    rm_free(combineCtx->linearCtx.linearWeights);
+  }
   return REDISMODULE_ERR;
 }
 
@@ -465,6 +473,82 @@ static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
   dest->timeoutPolicy = src->timeoutPolicy;
   dest->printProfileClock = src->printProfileClock;
   dest->BM25STD_TanhFactor = src->BM25STD_TanhFactor;
+}
+
+// Helper function to get LIMIT value from parsed aggregation pipeline
+static size_t getLimitFromPipeline(Pipeline *pipeline) {
+  RS_ASSERT(pipeline);
+
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(&pipeline->ap);
+  if (arrangeStep && arrangeStep->isLimited && arrangeStep->limit > 0) {
+    return (size_t)arrangeStep->limit;
+  }
+  return 0;
+}
+
+// Helper function to check if LIMIT was explicitly provided
+static bool tailHasExplicitLimitInPipeline(Pipeline *pipeline) {
+  if (!pipeline) return false;
+
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(&pipeline->ap);
+  return (arrangeStep && arrangeStep->isLimited);
+}
+
+/**
+ * Apply LIMIT parameter fallback logic to KNN K and WINDOW parameters.
+ *
+ * When LIMIT is explicitly provided but KNN K or WINDOW are not explicitly set,
+ * this function applies the LIMIT value as a fallback for those parameters instead of their
+ * defaults (unless they have been explicitly set).
+ * This ensures consistent behavior where LIMIT acts as a unified size hint
+ * for hybrid search operations.
+ *
+ * @param tailPipeline The pipeline to extract LIMIT from
+ * @param pvd The parsed vector data containing KNN parameters
+ * @param hybridParams The hybrid parameters containing WINDOW settings
+ */
+static void applyLimitParameterFallbacks(Pipeline *tailPipeline,
+                                       ParsedVectorData *pvd,
+                                       HybridPipelineParams *hybridParams) {
+  size_t limitValue = getLimitFromPipeline(tailPipeline);
+  bool hasExplicitLimit = tailHasExplicitLimitInPipeline(tailPipeline);
+
+  // Apply LIMIT → KNN K fallback ONLY if K was not explicitly set AND LIMIT was explicitly provided
+  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
+      !pvd->hasExplicitK &&
+      hasExplicitLimit && limitValue > 0) {
+    pvd->query->knn.k = limitValue;
+  }
+
+  // Apply LIMIT → WINDOW fallback ONLY if WINDOW was not explicitly set AND LIMIT was explicitly provided
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF &&
+      !hybridParams->scoringCtx->rrfCtx.hasExplicitWindow &&
+      hasExplicitLimit && limitValue > 0) {
+    hybridParams->scoringCtx->rrfCtx.window = limitValue;
+  }
+}
+
+/**
+ * Apply KNN K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation.
+ *
+ * The RRF merger only considers the top WINDOW results from each component,
+ * so having KNN K > WINDOW would fetch unnecessary results that won't be used.
+ * This constraint is applied after all parameter resolution (defaults, explicit values,
+ * and LIMIT fallbacks) is complete.
+ *
+ * @param pvd The parsed vector data containing KNN parameters
+ * @param hybridParams The hybrid parameters containing WINDOW settings
+ */
+static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
+                                 HybridPipelineParams *hybridParams) {
+  // Apply K ≤ WINDOW constraint for RRF scoring to prevent wasteful computation
+  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
+      hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+    size_t windowValue = hybridParams->scoringCtx->rrfCtx.window;
+    if (pvd->query->knn.k > windowValue) {
+      pvd->query->knn.k = windowValue;
+    }
+  }
 }
 
 /**
@@ -493,12 +577,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   vectorRequest->optimizer->type = Q_OPT_NONE;
 
   HybridPipelineParams *hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
-  hybridParams->scoringCtx = rm_calloc(1, sizeof(HybridScoringContext));
-  hybridParams->scoringCtx->scoringType = HYBRID_SCORING_RRF;
-  hybridParams->scoringCtx->rrfCtx = (HybridRRFContext) {
-    .k = 1,
-    .window = 20
-  };
+  hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
   RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
   RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
@@ -508,7 +587,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
 
   // Individual variables used for parsing the tail of the command
-  Pipeline *mergePipeline = NULL;
+  Pipeline *tailPipeline = NULL;
   uint32_t mergeReqflags = QEXEC_F_IS_HYBRID_TAIL;
   RequestConfig mergeReqConfig = RSGlobalConfig.requestConfigParams;
   RSSearchOptions mergeSearchopts = {0};
@@ -537,7 +616,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Look for optional COMBINE parameter
   if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
-    if (parseCombine(&ac, hybridParams->scoringCtx, status) != REDISMODULE_OK) {
+    if (parseCombine(&ac, hybridParams->scoringCtx, HYBRID_REQUEST_NUM_SUBQUERIES, status) != REDISMODULE_OK) {
       goto error;
     }
   }
@@ -551,12 +630,12 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (remainingArgs > 0) {
     hasMerge = true;
 
-    mergePipeline = rm_calloc(1, sizeof(Pipeline));
-    AGPLN_Init(&mergePipeline->ap);
+    tailPipeline = rm_calloc(1, sizeof(Pipeline));
+    AGPLN_Init(&tailPipeline->ap);
     RSSearchOptions_Init(&mergeSearchopts);
 
     ParseAggPlanContext papCtx = {
-      .plan = &mergePipeline->ap,
+      .plan = &tailPipeline->ap,
       .reqflags = &mergeReqflags,
       .reqConfig = &mergeReqConfig,
       .searchopts = &mergeSearchopts,
@@ -589,7 +668,12 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
+
+    applyLimitParameterFallbacks(tailPipeline, vectorRequest->parsedVectorData, hybridParams);
   }
+
+  // Apply KNN K ≤ WINDOW constraint after all parameter resolution is complete
+  applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
   // Create the hybrid request with proper structure
   requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
@@ -632,8 +716,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       rm_free(hybridRequest->tailPipeline);
     }
 
-    hybridRequest->tailPipeline = mergePipeline;
-    mergePipeline = NULL;  // Prevent double free
+    hybridRequest->tailPipeline = tailPipeline;
+    tailPipeline = NULL;  // Prevent double free
   }
 
   return hybridRequest;
@@ -672,9 +756,9 @@ error:
     rm_free(hybridParams);
   }
 
-  if (mergePipeline) {
-    Pipeline_Clean(mergePipeline);
-    rm_free(mergePipeline);
+  if (tailPipeline) {
+    Pipeline_Clean(tailPipeline);
+    rm_free(tailPipeline);
   }
 
   return NULL;
