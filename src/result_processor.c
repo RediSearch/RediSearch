@@ -1463,6 +1463,7 @@ typedef struct {
   RedisSearchCtx *nextThreadCtx;       // Downstream search context - used by the thread calling Next
   arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
   bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
+  uint cur_idx;                        // Current index for yielding results
   RPStatus last_rc;                    // Last return code from upstream
   bool first_call;                     // Whether the first call to Next has been made
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
@@ -1563,16 +1564,14 @@ static void RPDepleter_Deplete(void *arg) {
 static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
 
-  // Check if we have any results left
-  if (array_len(self->results) == 0) {
+  // Depleting thread is done, it's safe to return the results.
+  if (self->cur_idx == array_len(self->results)) {
     // We've reached the end of the array, return the last code from the upstream.
     return self->last_rc;
   }
-
-  // Pop the next result from the array (removes it from array and returns it)
-  SearchResult *current = array_pop(self->results);
+  // Return the next result in the array.
+  SearchResult *current = self->results[self->cur_idx++];
   SearchResult_Override(r, current);    // Copy result data to output
-  rm_free(current);                     // Free the popped result
   return RS_RESULT_OK;
 }
 
@@ -1781,7 +1780,6 @@ dictType dictTypeHybridSearchResult = {
    double hybridScore = scoringFunc(self->hybridScoringCtx, hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
 
    SearchResult_Override(r, hybridResult->searchResult);
-   hybridResult->searchResult = NULL;
    r->score = hybridScore;
 
    // Add score as field if scoreKey is provided
