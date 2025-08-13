@@ -22,7 +22,7 @@ pub mod freqs_fields;
 pub mod freqs_offsets;
 pub mod freqs_only;
 pub mod full;
-mod index_result;
+pub mod index_result;
 pub mod numeric;
 pub mod offsets_only;
 pub mod raw_doc_ids_only;
