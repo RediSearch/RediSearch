@@ -19,7 +19,7 @@
  * Merge flags from source into target (in-place).
  * Modifies target by ORing it with source flags.
  */
-void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags) {
+void mergeFlags(uint8_t *target_flags, const uint8_t *source_flags) {
   RS_ASSERT(target_flags && source_flags);
   *target_flags |= *source_flags;
 }
@@ -83,7 +83,7 @@ void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResu
  * Apply hybrid scoring to compute combined score from multiple sources.
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  */
-double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, HybridScoringContext *scoringCtx) {
+double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, HybridScoringContext *scoringCtx) {
   RS_ASSERT(scoringCtx && hybridResult && hybridResult->hasResults[targetIndex])
 
   // Extract values from SearchResults
@@ -118,7 +118,7 @@ double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
  * The primary result is the SearchResult we merge into and return to the downstream processor.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
  */
-SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx) {
+SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx) {
   RS_ASSERT(hybridResult && scoringCtx);
 
   // Find the primary result (first non-null result)
@@ -135,7 +135,7 @@ SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
   RS_ASSERT(primary && targetIndex != -1);
 
   // Apply hybrid scoring to compute hybrid score and merge explanations
-  double hybridScore = ApplyHybridScoring(hybridResult, targetIndex, scoringCtx);
+  double hybridScore = applyHybridScoring(hybridResult, targetIndex, scoringCtx);
 
   // Update primary result's score, we are using the combined score in the rest of the pipeline, so sorting for example is done on the combined score
   primary->score = hybridScore;
@@ -144,7 +144,7 @@ SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
   for (size_t i = 0; i < hybridResult->numSources; i++) {
     if (hybridResult->hasResults[i] && i != targetIndex) {
       RS_ASSERT(hybridResult->searchResults[i]);
-      MergeFlags(&primary->flags, &hybridResult->searchResults[i]->flags);
+      mergeFlags(&primary->flags, &hybridResult->searchResults[i]->flags);
     }
   }
 

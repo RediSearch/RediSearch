@@ -1756,7 +1756,7 @@ dictType dictTypeHybridSearchResult = {
    HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
    RS_ASSERT(hybridResult);
 
-   SearchResult *mergedResult = MergeSearchResults(hybridResult, self->hybridScoringCtx);
+   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx);
    if (!mergedResult) {
      return RS_RESULT_ERROR;
    }

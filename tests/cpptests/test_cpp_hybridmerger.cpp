@@ -13,7 +13,7 @@
 #include "gtest/gtest.h"
 #include "config.h"
 #include "hybrid/hybrid_scoring.h"
-#include "hybrid/hybrid_search_result.h"  // For MergeFlags function
+#include "hybrid/hybrid_search_result.h"  // For mergeFlags function
 #include "redisearch.h"  // For Result_ExpiredDoc flag
 #include <vector>
 #include <string>
@@ -1304,25 +1304,25 @@ static SearchResult* createTestSearchResult(uint8_t flags) {
 }
 
 /*
- * Test MergeFlags function with no flags set
+ * Test mergeFlags function with no flags set
  */
-TEST_F(HybridMergerTest, testMergeFlags_NoFlags) {
+TEST_F(HybridMergerTest, testmergeFlags_NoFlags) {
   uint8_t target_flags = 0;
   uint8_t source_flags = 0;
 
   // Test merging no flags
-  MergeFlags(&target_flags, &source_flags);
+  mergeFlags(&target_flags, &source_flags);
   EXPECT_EQ(target_flags, 0);
 }
 
 /*
- * Test MergeFlags function with Result_ExpiredDoc flag
+ * Test mergeFlags function with Result_ExpiredDoc flag
  */
-TEST_F(HybridMergerTest, testMergeFlags_ExpiredDoc) {
+TEST_F(HybridMergerTest, testmergeFlags_ExpiredDoc) {
   uint8_t target_flags = 0;  // No flags initially
   uint8_t source_flags = Result_ExpiredDoc;  // Source has expired flag
 
   // Test merging expired flag
-  MergeFlags(&target_flags, &source_flags);
+  mergeFlags(&target_flags, &source_flags);
   EXPECT_TRUE(target_flags & Result_ExpiredDoc);
 }

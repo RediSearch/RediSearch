@@ -47,20 +47,20 @@ void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResu
  * Merge flags from source flags into target flags (in-place).
  * Modifies target_flags by ORing it with source_flags.
  */
-void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags);
+void mergeFlags(uint8_t *target_flags, const uint8_t *source_flags);
 
 /**
  * Apply hybrid scoring to compute combined score from multiple sources.
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  */
-double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, HybridScoringContext *scoringCtx);
+double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, HybridScoringContext *scoringCtx);
 
 /**
  * Main function to merge SearchResults from multiple upstreams into a single comprehensive result.
  * Finds the primary result, computes hybrid score, merges flags, and returns the merged result.
  * This function transfers ownership of the primary result away from the HybridSearchResult.
  */
-SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx);
+SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx);
 
 
 
