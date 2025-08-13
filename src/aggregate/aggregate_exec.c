@@ -20,6 +20,7 @@
 #include "query_error.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
+#include "rs_wall_clock.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -422,7 +423,8 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
   }
 
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    TotalGlobalStats_CountQuery(req->reqflags, clock() - req->initClock);
+    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+    TotalGlobalStats_CountQuery(req->reqflags, duration);
   }
 
   // Reset the total results length:
@@ -830,17 +832,18 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     Profile_AddIters(&req->rootiter);
   }
 
-  clock_t parseClock;
+  rs_wall_clock parseClock;
   bool is_profile = IsProfile(req);
   if (is_profile) {
-    parseClock = clock();
-    req->parseTime = parseClock - req->initClock;
+    rs_wall_clock_init(&parseClock);
+    // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock);
   }
 
   rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
-    req->pipelineBuildTime = clock() - parseClock;
+    req->profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
   }
 
   if (IsDebug(req)) {
@@ -942,7 +945,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
-    r->initClock = clock();
+    rs_wall_clock_init(&r->initClock);
   }
 
   // This function also builds the RedisSearchCtx.
@@ -1186,7 +1189,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
   }
 
   if (IsProfile(req) || !IsInternal(req)) {
-    req->initClock = clock(); // Reset the clock for the current cursor read
+    rs_wall_clock_init(&req->initClock); // Reset the clock for the current cursor read
   }
 
   runCursor(reply, cursor, count);
