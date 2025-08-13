@@ -21,7 +21,7 @@ typedef struct RedisModule_Reply_StackEntry StackEntry;
 //---------------------------------------------------------------------------------------------
 
 bool RedisModule_HasMap(RedisModule_Reply *reply) {
-  return _ReplyMap(reply->ctx);
+  return reply->resp3;
 }
 
 int RedisModule_Reply_LocalCount(RedisModule_Reply *reply) {
@@ -113,11 +113,11 @@ static inline void json_add_close(RedisModule_Reply *reply, const char *s) {}
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx) {
 #ifdef REDISMODULE_REPLY_DEBUG
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx) && _ReplySet(ctx), 0, NULL, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL, NULL };
   reply.json = array_new(char, 1);
   *reply.json = '\0';
 #else
-  RedisModule_Reply reply = { ctx, _ReplyMap(ctx) && _ReplySet(ctx), 0, NULL };
+  RedisModule_Reply reply = { ctx, is_resp3(ctx), 0, NULL };
 #endif
   return reply;
 }
