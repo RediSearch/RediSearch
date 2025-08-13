@@ -600,7 +600,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     RedisModule_Reply_Map(reply);
 
-    // TODO: Needed?
     // <format>
     QEFlags reqFlags = HREQ_RequestFlags(hreq);
     if (reqFlags & QEXEC_FORMAT_EXPAND) {
@@ -610,11 +609,6 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     }
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
-
-    // If no rows are expected (in case of `LIMIT 0 0`), `results` should be empty
-    if (reqFlags & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
-      goto done;
-    }
 
     if (results != NULL) {
       HREQ_populateReplyWithResults(reply, results, hreq, &cv);

@@ -274,17 +274,8 @@ void HybridRequest_Free(HybridRequest *req) {
       rm_free(req->hybridParams);
     }
 
-    // // Free the tail pipeline
-    // if (req->tailPipeline) {
-    //   Pipeline_Clean(req->tailPipeline);
-    //   rm_free(req->tailPipeline);
-    //   req->tailPipeline = NULL;
-    // }
-
     rm_free(req);
 }
-
-
 
 #ifdef __cplusplus
 }
