@@ -134,30 +134,16 @@ struct MockUpstream : public ResultProcessor {
 
 // Helper function to create hybrid merger with linear scoring
 ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double *weights) {
-  // Allocate contexts on heap to avoid stack memory issues
-  HybridScoringContext *hybridScoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-
-  // Allocate weights on heap and copy values
-  double *heapWeights = (double*)rm_calloc(numUpstreams, sizeof(double));
-  for (size_t i = 0; i < numUpstreams; i++) {
-    heapWeights[i] = weights[i];
-  }
-
-  hybridScoringCtx->scoringType = HYBRID_SCORING_LINEAR;
-  hybridScoringCtx->linearCtx.linearWeights = heapWeights;
-  hybridScoringCtx->linearCtx.numWeights = numUpstreams;
+  // Create HybridScoringContext using constructor
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams);
 
   return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
 }
 
 // Helper function to create hybrid merger with RRF scoring
-ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, size_t k, size_t window) {
-  // Allocate contexts on heap to avoid stack memory issues
-  HybridScoringContext *hybridScoringCtx = (HybridScoringContext*)rm_calloc(1, sizeof(HybridScoringContext));
-
-  hybridScoringCtx->scoringType = HYBRID_SCORING_RRF;
-  hybridScoringCtx->rrfCtx.k = k;
-  hybridScoringCtx->rrfCtx.window = window;
+ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double k, size_t window) {
+  // Create HybridScoringContext using constructor
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewRRF(k, window, false);
 
   return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
 }
