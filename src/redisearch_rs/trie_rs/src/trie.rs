@@ -146,6 +146,7 @@ impl<Data> TrieMap<Data> {
         }
     }
 
+    #[cfg(feature = "test_utils")]
     /// Get the memory usage of the trie in bytes.
     /// Includes the memory usage of the root node on the stack.
     ///

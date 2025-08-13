@@ -360,6 +360,7 @@ impl<Data> Node<Data> {
         })
     }
 
+    #[cfg(feature = "test_utils")]
     /// The memory usage of this node and his descendants, in bytes.
     ///
     /// It is computed by traversing the sub-tree and adding the size of each node.
