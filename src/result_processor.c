@@ -19,7 +19,7 @@
 #include <pthread.h>
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
-#include "src/util/likely.h"
+#include "config.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -1802,7 +1802,13 @@ dictType dictTypeHybridSearchResult = {
       if (consumed[i]) {
         continue;
       }
-      size_t window = self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF ? self->hybridScoringCtx->rrfCtx.window : SIZE_MAX;
+      size_t window;
+      if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+        window = self->hybridScoringCtx->rrfCtx.window;
+      } else {
+        // For LINEAR scoring, consume all results from each upstream
+        window = SIZE_MAX;
+      }
       int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
 
       if (rc == RS_RESULT_DEPLETING) {
@@ -1846,14 +1852,11 @@ dictType dictTypeHybridSearchResult = {
    if (self->iterator) {
     dictReleaseIterator(self->iterator);
    }
+
+   HybridScoringContext_Free(self->hybridScoringCtx);
+
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
-
-   // Free the hybrid scoring context - RPHybridMerger is responsible for freeing it
-   if (self->hybridScoringCtx) {
-     HybridScoringContext_Free(self->hybridScoringCtx);
-     self->hybridScoringCtx = NULL;
-   }
 
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
    array_free(self->upstreams);
@@ -1892,8 +1895,13 @@ dictType dictTypeHybridSearchResult = {
 
    // Calculate maximal dictionary size based on scoring type
    RS_ASSERT(hybridScoringCtx);
-   size_t window = (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) ? hybridScoringCtx->rrfCtx.window : 1000; // Default window for linear
-   size_t maximalSize = window * numUpstreams;
+   size_t maximalSize;
+   if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
+     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
+   } else {
+     // For LINEAR scoring, use a reasonable default for dictionary pre-sizing
+     maximalSize = 1000; // Conservative estimate for dictionary sizing
+   }
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);
 
