@@ -78,17 +78,17 @@ pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, val
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_TermRef<'index, 'aggregate_children>(
+pub unsafe extern "C" fn IndexResult_TermRef<'result, 'index, 'aggregate_children>(
     result: *const RSIndexResult<'index, 'aggregate_children>,
-) -> Option<&'index RSTermRecord<'index>>
+) -> Option<&'result RSTermRecord<'index>>
 where
-    'aggregate_children: 'index,
+    'aggregate_children: 'result,
 {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
     // an `RSIndexResult`.
-    let result = unsafe { &*result };
+    let result: &'result _ = unsafe { &*result };
 
     result.as_term()
 }
@@ -101,17 +101,17 @@ where
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_TermRefMut<'index, 'aggregate_children>(
+pub unsafe extern "C" fn IndexResult_TermRefMut<'result, 'index, 'aggregate_children>(
     result: *mut RSIndexResult<'index, 'aggregate_children>,
-) -> Option<&'index mut RSTermRecord<'index>>
+) -> Option<&'result mut RSTermRecord<'index>>
 where
-    'aggregate_children: 'index,
+    'aggregate_children: 'result,
 {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
     // an `RSIndexResult`.
-    let result = unsafe { &mut *result };
+    let result: &'result mut _ = unsafe { &mut *result };
 
     result.as_term_mut()
 }
@@ -124,9 +124,9 @@ where
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_AggregateRef<'index, 'aggregate_children>(
+pub unsafe extern "C" fn IndexResult_AggregateRef<'result, 'index, 'aggregate_children>(
     result: *const RSIndexResult<'index, 'aggregate_children>,
-) -> Option<&'index RSAggregateResult<'index, 'aggregate_children>> {
+) -> Option<&'result RSAggregateResult<'index, 'aggregate_children>> {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -166,21 +166,17 @@ pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) 
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 /// - The memory address at `index` should still be valid and not have been deallocated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_Get<'index, 'aggregate_children>(
+pub unsafe extern "C" fn AggregateResult_Get<'result, 'index, 'aggregate_children>(
     agg: *const RSAggregateResult<'index, 'aggregate_children>,
     index: usize,
-) -> *const RSIndexResult<'index, 'aggregate_children> {
+) -> Option<&'result RSIndexResult<'index, 'aggregate_children>> {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
     // an `RSAggregateResult`.
     let agg = unsafe { &*agg };
 
-    if let Some(next) = agg.get(index) {
-        next
-    } else {
-        std::ptr::null()
-    }
+    agg.get(index)
 }
 
 /// Get the element count of the aggregate result.
