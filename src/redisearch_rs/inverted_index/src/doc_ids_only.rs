@@ -38,7 +38,7 @@ impl Decoder for DocIdsOnly {
         &self,
         cursor: &mut Cursor<&'a [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'a, 'static>> {
         let delta = u32::read_as_varint(cursor)?;
 
         let record = RSIndexResult::term().doc_id(base + delta as t_docId);

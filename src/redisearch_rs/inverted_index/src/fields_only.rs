@@ -49,7 +49,7 @@ impl Decoder for FieldsOnly {
         &self,
         cursor: &mut Cursor<&'a [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'a, 'static>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, field_mask] = decoded_values;
 
@@ -91,7 +91,7 @@ impl Decoder for FieldsOnlyWide {
         &self,
         cursor: &mut Cursor<&'a [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'a, 'static>> {
         let delta = u32::read_as_varint(cursor)?;
         let field_mask = u128::read_as_varint(cursor)?;
 
