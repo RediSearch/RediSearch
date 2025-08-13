@@ -273,14 +273,14 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   char *str;
   tm_len_t slen;
   void *ptr;
-  RedisModule_ReplyWithSetOrArray(ctx, REDISMODULE_POSTPONED_LEN);
+  RedisModule_ReplyWithSet(ctx, REDISMODULE_POSTPONED_LEN);
   long long count = 0;
   while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 
-  RedisModule_ReplySetSetOrArrayLength(ctx, count);
+  RedisModule_ReplySetSetLength(ctx, count);
 
   TrieMapIterator_Free(it);
 }
