@@ -92,7 +92,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   RSIndexResult *res = NewHybridResult();
   AggregateResult_AddChild(res, IndexResult_DeepCopy(vec_res));
   AggregateResult_AddChild(res, IndexResult_DeepCopy(child_res));
-  res->isCopy = true; // Mark as copy, so when we free it, it will also free its children.
+  res->data.hybrid_metric.isCopy = true; // Mark as copy, so when we free it, it will also free its children.
   ResultMetrics_Add(res, hr->ownKey, RS_NumVal(IndexResult_NumValue(vec_res)));
 
   if (hr->topResults->count < hr->query.k) {
