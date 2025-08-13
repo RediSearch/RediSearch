@@ -406,7 +406,7 @@ pub struct RSVirtualResult;
 /// Holds the actual data of an ['IndexResult']
 ///
 /// The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
-/// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`]s that is holding
+/// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
 /// raw pointers to results.
 #[repr(C)]
 pub union RSIndexResultData<'index, 'aggregate_children> {
