@@ -37,6 +37,7 @@
 #include "util/hash/hash.h"
 #include "reply_macros.h"
 #include "debug_commands.h"
+#include "rs_wall_clock.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -3075,7 +3076,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  clock_t startDocTime = clock();
+  rs_wall_clock startDocTime;
+  rs_wall_clock_init(&startDocTime);
 
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
@@ -3115,7 +3117,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   Document_Free(&doc);
 
-  spec->stats.totalIndexTime += clock() - startDocTime;
+  spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startDocTime);
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
