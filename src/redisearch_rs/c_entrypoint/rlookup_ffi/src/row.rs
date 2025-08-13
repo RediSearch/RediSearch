@@ -41,6 +41,7 @@ unsafe extern "C" fn RLookup_WriteKey<'a>(
 /// Safety:
 /// 1. `key` must be a valid pointer to an [`RLookupKey`].
 /// 2. `row` must be a valid pointer to an [`RLookupRow`].
+/// 3. `value` must be a valid pointer to an [`ffi::RSValue`].
 #[unsafe(no_mangle)]
 unsafe extern "C" fn RLookup_WriteOwnKey<'a>(
     key: *const RLookupKey,

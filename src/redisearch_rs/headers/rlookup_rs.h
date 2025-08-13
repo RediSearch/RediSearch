@@ -285,6 +285,7 @@ void RLookup_WriteKey(const struct RLookupKey *key,
  * Safety:
  * 1. `key` must be a valid pointer to an [`RLookupKey`].
  * 2. `row` must be a valid pointer to an [`RLookupRow`].
+ * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
  */
 void RLookup_WriteOwnKey(const struct RLookupKey *key,
                          struct RLookupRow *row,
