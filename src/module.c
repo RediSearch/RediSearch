@@ -1069,7 +1069,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
 Version supportedVersion = {
-    .majorVersion = 7,
+    .majorVersion = 8,
     .minorVersion = 1,
     .patchVersion = 0,
 };
