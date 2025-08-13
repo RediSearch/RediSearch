@@ -10,15 +10,11 @@ use low_memory_thin_vec::LowMemoryThinVec;
 pub mod raw;
 
 /// Represents a numeric value in an index record.
-/// cbindgen:field-names=[value]
-#[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
-#[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
-#[repr(C)]
 #[derive(PartialEq)]
 pub struct RSOffsetVector<'index> {
     /// At this point the data ownership is still managed by the caller.
@@ -64,8 +60,6 @@ impl RSOffsetVector<'_> {
 }
 
 /// Represents a single record of a document inside a term in the inverted index
-/// cbindgen:rename-all=CamelCase
-#[repr(C)]
 #[derive(PartialEq)]
 pub struct RSTermRecord<'index> {
     /// We mark copied terms so we can treat them a bit differently on deletion, and pool them if
@@ -152,7 +146,6 @@ impl Default for RSTermRecord<'_> {
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-/// cbindgen:prefix-with-name=true
 pub enum RSResultType {
     Union = 1,
     Intersection = 2,
@@ -171,8 +164,6 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 /// using Rust since the internals cannot be constructed directly in C. The reason is because of
 /// the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
 /// managed correctly.
-/// cbindgen:rename-all=CamelCase
-#[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSAggregateResult<'index, 'children> {
     /// We mark copied aggregates so we can treat them a bit differently on deletion.
@@ -332,12 +323,10 @@ impl<'index, 'children> IntoIterator for RSAggregateResult<'index, 'children> {
 }
 
 /// Represents a virtual result in an index record.
-#[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSVirtualResult;
 
 /// Holds the actual data of an ['IndexResult']
-#[repr(C)]
 pub union RSIndexResultData<'index, 'aggregate_children> {
     pub agg: ManuallyDrop<RSAggregateResult<'index, 'aggregate_children>>,
     pub term: ManuallyDrop<RSTermRecord<'index>>,
@@ -346,8 +335,6 @@ pub union RSIndexResultData<'index, 'aggregate_children> {
 }
 
 /// The result of an inverted index
-/// cbindgen:field-names=[docId, dmd, fieldMask, freq, offsetsSz, data, type, metrics, weight]
-#[repr(C)]
 pub struct RSIndexResult<'index, 'aggregate_children> {
     /// The document ID of the result
     pub doc_id: t_docId,

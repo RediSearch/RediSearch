@@ -11,7 +11,7 @@
 
 use std::{alloc::Layout, ffi::c_char};
 
-use inverted_index::{
+use inverted_index::index_result::raw::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSTermRecord,
 };
 
