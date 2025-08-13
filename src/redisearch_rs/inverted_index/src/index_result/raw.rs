@@ -1,6 +1,3 @@
-// Manually define some C functions, because we'll create a circular dependency if we use the FFI
-// crate to make them automatically.
-
 use std::{ffi::c_char, fmt::Debug, marker::PhantomData, ptr};
 
 use enumflags2::{BitFlags, bitflags};
@@ -10,6 +7,8 @@ use ffi::{
 };
 use low_memory_thin_vec::LowMemoryThinVec;
 
+// Manually define some C functions, because we'll create a circular dependency if we use the FFI
+// crate to make them automatically.
 unsafe extern "C" {
     /// Adds the metrics of a child [`RSIndexResult`] to the parent [`RSIndexResult`].
     ///

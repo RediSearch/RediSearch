@@ -10,7 +10,7 @@
 use std::io::{BufRead, Cursor, Seek, Write};
 
 pub use ffi::{t_docId, t_fieldMask};
-pub use index_result::raw::{
+pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSNumericRecord, RSOffsetVector,
     RSResultData, RSResultKind, RSResultKindMask, RSTermRecord, RSVirtualResult,
 };
