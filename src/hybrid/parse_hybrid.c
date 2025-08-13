@@ -708,7 +708,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
-    Pipeline_Initialize(mergePipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridRequest->tailPipelineError);
+    Pipeline_Initialize(tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridRequest->tailPipelineError);
 
     // Create and transfer the pipeline
     if (hybridRequest->tailPipeline) {

@@ -6,7 +6,6 @@
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
 #include "rmutil/args.h"
-#include "query_optimizer.h"
 
 #ifdef __cplusplus
 extern "C" {
