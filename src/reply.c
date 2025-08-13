@@ -18,7 +18,7 @@ typedef struct RedisModule_Reply_StackEntry StackEntry;
 
 //---------------------------------------------------------------------------------------------
 
-bool RedisModule_HasMap(RedisModule_Reply *reply) {
+inline bool RedisModule_HasMap(RedisModule_Reply *reply) {
   return reply->resp3;
 }
 
