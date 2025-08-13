@@ -315,6 +315,10 @@ set_target_properties(redisearch
     C_STANDARD 17
     C_STANDARD_REQUIRED ON)
 setup_shared_object_target(redisearch "")
+
+find_package(spdlog REQUIRED)
+find_package(fmt REQUIRED)
+
 target_link_libraries(redisearch
         redisearch-geometry
         redisearch-hash
