@@ -274,12 +274,6 @@ void HybridRequest_Free(HybridRequest *req) {
         req->hybridParams->aggregationParams.common.sctx = NULL;
       }
 
-      // Free the hybrid tail optimizer
-      if (req->hybridParams->aggregationParams.common.optimizer) {
-        QOptimizer_Free(req->hybridParams->aggregationParams.common.optimizer);
-        req->hybridParams->aggregationParams.common.optimizer = NULL;
-      }
-
       // Free the hybrid parameters
       rm_free(req->hybridParams);
     }
