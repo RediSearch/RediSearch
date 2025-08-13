@@ -58,5 +58,3 @@ void explain(RSScoreExplain *scrExp, char *fmt, ...) {
 
   rm_free(tempStr);
 }
-
-

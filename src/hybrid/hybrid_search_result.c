@@ -20,10 +20,7 @@
  * Modifies target by ORing it with source flags.
  */
 void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags) {
-  if (!target_flags || !source_flags) {
-    return;
-  }
-
+  RS_ASSERT(target_flags && source_flags);
   *target_flags |= *source_flags;
 }
 
@@ -32,9 +29,7 @@ void MergeFlags(uint8_t *target_flags, const uint8_t *source_flags) {
  * Allocates memory for storing SearchResults from numSources sources.
  */
 HybridSearchResult* HybridSearchResult_New(size_t numSources) {
-  if (numSources == 0) {
-    return NULL;
-  }
+  RS_ASSERT(numSources > 0);
 
   HybridSearchResult* result = rm_calloc(1, sizeof(HybridSearchResult));
   result->searchResults = array_newlen(SearchResult*, numSources);
@@ -75,9 +70,7 @@ void HybridSearchResult_Free(HybridSearchResult* result) {
  * Updates the score of the SearchResult and marks the source as having results.
  */
 void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResult* searchResult, int sourceIndex) {
-  if (!hybridResult || !searchResult ) {
-    return;
-  }
+  RS_ASSERT(hybridResult && searchResult);
   RS_ASSERT(sourceIndex < hybridResult->numSources);
 
   // Store the SearchResult from this source (preserving all data)
@@ -91,15 +84,13 @@ void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResu
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  */
 double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, HybridScoringContext *scoringCtx) {
-  if (!hybridResult || !scoringCtx) {
-    return 0.0;
-  }
-  RS_ASSERT(hybridResult->hasResults[targetIndex]);
+  RS_ASSERT(scoringCtx && hybridResult && hybridResult->hasResults[targetIndex])
 
   // Extract values from SearchResults
   arrayof(double) values = array_newlen(double, hybridResult->numSources);
   for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
+    if (hybridResult->hasResults[i]) {
+      RS_ASSERT(hybridResult->searchResults[i]);
       // Note: SearchResult->score contains ranks for RRF, scores for Linear
       // This is set correctly by upstream processors based on scoring type
       values[i] = hybridResult->searchResults[i]->score;
@@ -118,7 +109,13 @@ double ApplyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
 
 /**
  * Main function to merge SearchResults from multiple upstreams into a single comprehensive result.
- * Finds the primary result, computes hybrid score, merges flags, and returns the merged result.
+ *
+ * PRIMARY RESULT SELECTION:
+ * The "primary result" is the first non-null SearchResult found in index order (0, 1, 2...).
+ * This prefers search results (index 0) over vector results (index 1) when both exist,
+ * ensuring RSIndexResult compatibility and pipeline consistency.
+ *
+ * The primary result is the SearchResult we merge into and return to the downstream processor.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
  */
 SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx) {
@@ -135,25 +132,21 @@ SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
     }
   }
 
-  if (!primary || targetIndex == -1) {
-    return NULL;
-  }
+  RS_ASSERT(primary && targetIndex != -1);
 
   // Apply hybrid scoring to compute hybrid score and merge explanations
   double hybridScore = ApplyHybridScoring(hybridResult, targetIndex, scoringCtx);
 
-  // Update primary result's score
+  // Update primary result's score, we are using the combined score in the rest of the pipeline, so sorting for example is done on the combined score
   primary->score = hybridScore;
 
   // Merge flags from all upstreams
   for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i] && i != targetIndex) {
+    if (hybridResult->hasResults[i] && i != targetIndex) {
+      RS_ASSERT(hybridResult->searchResults[i]);
       MergeFlags(&primary->flags, &hybridResult->searchResults[i]->flags);
     }
   }
-
-  // RLookup rows – use the primary result's RLookupRow. Assumes that in FT.HYBRID, all RLookups are synchronized
-  // (required keys exist in all of them and reference the same row indices).
 
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;
@@ -161,4 +154,3 @@ SearchResult* MergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
 
   return primary;
 }
-
