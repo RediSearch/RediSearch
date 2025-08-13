@@ -100,14 +100,14 @@ pub struct RSNumericRecord(pub f64);
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
 #[derive(PartialEq)]
-pub struct RSOffsetVector<'a> {
+pub struct RSOffsetVector<'index> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
     pub data: *mut c_char,
     pub len: u32,
     /// data may be borrowed from the reader.
     /// The data pointer does not allow lifetime so use a PhantomData to carry the lifetime for it instead.
-    _phantom: PhantomData<&'a ()>,
+    _phantom: PhantomData<&'index ()>,
 }
 
 impl std::fmt::Debug for RSOffsetVector<'_> {
@@ -146,15 +146,15 @@ impl RSOffsetVector<'_> {
 /// Represents a single record of a document inside a term in the inverted index
 #[repr(C)]
 #[derive(PartialEq)]
-pub struct RSTermRecord<'a> {
+pub struct RSTermRecord<'index> {
     /// The term that brought up this record
     pub term: *mut RSQueryTerm,
 
     /// The encoded offsets in which the term appeared in the document
-    pub offsets: RSOffsetVector<'a>,
+    pub offsets: RSOffsetVector<'index>,
 }
 
-impl<'a> RSTermRecord<'a> {
+impl<'index> RSTermRecord<'index> {
     /// Create a new term record without term pointer and offsets.
     pub fn new() -> Self {
         Self {
@@ -164,7 +164,10 @@ impl<'a> RSTermRecord<'a> {
     }
 
     /// Create a new term with the given term pointer and offsets.
-    pub fn with_term(term: *mut RSQueryTerm, offsets: RSOffsetVector<'a>) -> RSTermRecord<'a> {
+    pub fn with_term(
+        term: *mut RSQueryTerm,
+        offsets: RSOffsetVector<'index>,
+    ) -> RSTermRecord<'index> {
         Self { term, offsets }
     }
 }
@@ -241,13 +244,13 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
-pub struct RSAggregateResult<'a, 'children> {
+pub struct RSAggregateResult<'index, 'children> {
     /// The records making up this aggregate result
     ///
     /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<*const RSIndexResult<'a, 'children>>,
+    records: LowMemoryThinVec<*const RSIndexResult<'index, 'children>>,
 
     /// A map of the aggregate type of the underlying records
     type_mask: RSResultTypeMask,
@@ -256,7 +259,7 @@ pub struct RSAggregateResult<'a, 'children> {
     _phantom: PhantomData<&'children ()>,
 }
 
-impl<'a, 'children> RSAggregateResult<'a, 'children> {
+impl<'index, 'children> RSAggregateResult<'index, 'children> {
     /// Create a new empty aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self {
@@ -287,7 +290,7 @@ impl<'a, 'children> RSAggregateResult<'a, 'children> {
     }
 
     /// Get an iterator over the children of this aggregate result
-    pub fn iter(&'a self) -> RSAggregateResultIter<'a, 'children> {
+    pub fn iter(&'index self) -> RSAggregateResultIter<'index, 'children> {
         RSAggregateResultIter {
             agg: self,
             index: 0,
@@ -298,7 +301,7 @@ impl<'a, 'children> RSAggregateResult<'a, 'children> {
     ///
     /// # Safety
     /// The caller must ensure that the memory at the given index is still valid
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'a, 'children>> {
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index, 'children>> {
         if let Some(result_addr) = self.records.get(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
             Some(unsafe { &**result_addr })
@@ -329,13 +332,13 @@ impl<'a, 'children> RSAggregateResult<'a, 'children> {
 }
 
 /// An iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultIter<'a, 'aggregate_children> {
-    agg: &'a RSAggregateResult<'a, 'aggregate_children>,
+pub struct RSAggregateResultIter<'index, 'aggregate_children> {
+    agg: &'index RSAggregateResult<'index, 'aggregate_children>,
     index: usize,
 }
 
-impl<'a, 'aggregate_children> Iterator for RSAggregateResultIter<'a, 'aggregate_children> {
-    type Item = &'a RSIndexResult<'a, 'aggregate_children>;
+impl<'index, 'aggregate_children> Iterator for RSAggregateResultIter<'index, 'aggregate_children> {
+    type Item = &'index RSIndexResult<'index, 'aggregate_children>;
 
     /// Get the next item in the iterator
     ///
@@ -352,13 +355,15 @@ impl<'a, 'aggregate_children> Iterator for RSAggregateResultIter<'a, 'aggregate_
 }
 
 /// An owned iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultIterOwned<'a, 'aggregate_children> {
-    agg: RSAggregateResult<'a, 'aggregate_children>,
+pub struct RSAggregateResultIterOwned<'index, 'aggregate_children> {
+    agg: RSAggregateResult<'index, 'aggregate_children>,
     index: usize,
 }
 
-impl<'a, 'aggregate_children> Iterator for RSAggregateResultIterOwned<'a, 'aggregate_children> {
-    type Item = Box<RSIndexResult<'a, 'aggregate_children>>;
+impl<'index, 'aggregate_children> Iterator
+    for RSAggregateResultIterOwned<'index, 'aggregate_children>
+{
+    type Item = Box<RSIndexResult<'index, 'aggregate_children>>;
 
     /// Get the next item as a `Box<RSIndexResult>`
     ///
@@ -378,10 +383,10 @@ impl<'a, 'aggregate_children> Iterator for RSAggregateResultIterOwned<'a, 'aggre
     }
 }
 
-impl<'a, 'children> IntoIterator for RSAggregateResult<'a, 'children> {
-    type Item = Box<RSIndexResult<'a, 'children>>;
+impl<'index, 'children> IntoIterator for RSAggregateResult<'index, 'children> {
+    type Item = Box<RSIndexResult<'index, 'children>>;
 
-    type IntoIter = RSAggregateResultIterOwned<'a, 'children>;
+    type IntoIter = RSAggregateResultIterOwned<'index, 'children>;
 
     fn into_iter(self) -> Self::IntoIter {
         RSAggregateResultIterOwned {
@@ -398,9 +403,9 @@ pub struct RSVirtualResult;
 
 /// Holds the actual data of an ['IndexResult']
 #[repr(C)]
-pub union RSIndexResultData<'a, 'aggregate_children> {
-    pub agg: ManuallyDrop<RSAggregateResult<'a, 'aggregate_children>>,
-    pub term: ManuallyDrop<RSTermRecord<'a>>,
+pub union RSIndexResultData<'index, 'aggregate_children> {
+    pub agg: ManuallyDrop<RSAggregateResult<'index, 'aggregate_children>>,
+    pub term: ManuallyDrop<RSTermRecord<'index>>,
     pub num: ManuallyDrop<RSNumericRecord>,
     pub virt: ManuallyDrop<RSVirtualResult>,
 }
@@ -408,7 +413,7 @@ pub union RSIndexResultData<'a, 'aggregate_children> {
 /// The result of an inverted index
 /// cbindgen:field-names=[docId, dmd, fieldMask, freq, offsetsSz, data, type, isCopy, metrics, weight]
 #[repr(C)]
-pub struct RSIndexResult<'a, 'aggregate_children> {
+pub struct RSIndexResult<'index, 'aggregate_children> {
     /// The document ID of the result
     pub doc_id: t_docId,
 
@@ -425,7 +430,7 @@ pub struct RSIndexResult<'a, 'aggregate_children> {
     /// directly into memory
     pub offsets_sz: u32,
 
-    data: RSIndexResultData<'a, 'aggregate_children>,
+    data: RSIndexResultData<'index, 'aggregate_children>,
 
     /// The type of data stored at ['Self::data']
     pub result_type: RSResultType,
@@ -447,7 +452,7 @@ impl Default for RSIndexResult<'_, '_> {
     }
 }
 
-impl<'a, 'aggregate_children> RSIndexResult<'a, 'aggregate_children> {
+impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
     /// Create a new virtual index result
     pub fn virt() -> Self {
         Self {
@@ -542,11 +547,11 @@ impl<'a, 'aggregate_children> RSIndexResult<'a, 'aggregate_children> {
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub fn term_with_term_ptr(
         term: *mut RSQueryTerm,
-        offsets: RSOffsetVector<'a>,
+        offsets: RSOffsetVector<'index>,
         doc_id: t_docId,
         field_mask: t_fieldMask,
         freq: u32,
-    ) -> RSIndexResult<'a, 'aggregate_children> {
+    ) -> RSIndexResult<'index, 'aggregate_children> {
         let offsets_sz = offsets.len;
         Self {
             data: RSIndexResultData {
@@ -624,7 +629,7 @@ impl<'a, 'aggregate_children> RSIndexResult<'a, 'aggregate_children> {
 
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
-    pub fn as_term(&self) -> Option<&RSTermRecord<'_>> {
+    pub fn as_term(&self) -> Option<&RSTermRecord<'index>> {
         if matches!(self.result_type, RSResultType::Term) {
             // SAFETY: We are guaranteed the record data is term because of the check we just
             // did on the `result_type`.
@@ -636,7 +641,7 @@ impl<'a, 'aggregate_children> RSIndexResult<'a, 'aggregate_children> {
 
     /// Get this record as a mutable term record if possible. If the record is not a term,
     /// returns `None`.
-    pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'a>> {
+    pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
         if matches!(self.result_type, RSResultType::Term) {
             // SAFETY: We are guaranteed the record data is term because of the check we just
             // did on the `result_type`.
@@ -648,7 +653,7 @@ impl<'a, 'aggregate_children> RSIndexResult<'a, 'aggregate_children> {
 
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
-    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'a, 'aggregate_children>> {
+    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'index, 'aggregate_children>> {
         if self.is_aggregate() {
             // SAFETY: We are guaranteed the record data is aggregate because of the check we just
             // did
@@ -660,7 +665,9 @@ impl<'a, 'aggregate_children> RSIndexResult<'a, 'aggregate_children> {
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
-    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'a, 'aggregate_children>> {
+    pub fn as_aggregate_mut(
+        &mut self,
+    ) -> Option<&mut RSAggregateResult<'index, 'aggregate_children>> {
         if self.is_aggregate() {
             // SAFETY: We are guaranteed the record data is aggregate because of the check we just
             // did
@@ -712,7 +719,7 @@ impl<'a, 'aggregate_children> RSIndexResult<'a, 'aggregate_children> {
 
     /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
     /// an aggregate record or if the index is out-of-bounds.
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'a, 'aggregate_children>> {
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index, 'aggregate_children>> {
         if self.is_aggregate() {
             // SAFETY: we know the data will be an aggregate because we just checked the type
             let agg = unsafe { &self.data.agg };
@@ -922,21 +929,21 @@ pub trait Encoder {
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a, 'static>>;
+    ) -> std::io::Result<RSIndexResult<'index, 'static>>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
     /// Returns `None` if no record has a document ID greater than or equal to `target`.
-    fn seek<'a>(
+    fn seek<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'a, 'static>>> {
+    ) -> std::io::Result<Option<RSIndexResult<'index, 'static>>> {
         loop {
             match self.decode(cursor, base) {
                 Ok(record) if record.doc_id >= target => {
@@ -1132,20 +1139,20 @@ impl<E: Encoder> InvertedIndex<E> {
 }
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
-pub struct IndexReader<'a, D> {
+pub struct IndexReader<'index, D> {
     /// The block of the inverted index that is being read from. This might be used to determine the
     /// base document ID for delta calculations.
-    blocks: &'a Vec<IndexBlock>,
+    blocks: &'index Vec<IndexBlock>,
 
     /// The decoder used to decode the records from the index blocks.
     decoder: D,
 
     /// The current position in the block that is being read from.
-    current_buffer: Cursor<&'a [u8]>,
+    current_buffer: Cursor<&'index [u8]>,
 
     /// The current block that is being read from. This might be used to determine the base document
     /// ID for delta calculations and to read the next record from the block.
-    current_block: &'a IndexBlock,
+    current_block: &'index IndexBlock,
 
     /// The index of the current block in the `blocks` vector. This is used to keep track of
     /// which block we are currently reading from, especially when the current buffer is empty and we
@@ -1157,12 +1164,12 @@ pub struct IndexReader<'a, D> {
     last_doc_id: t_docId,
 }
 
-impl<'a, D: Decoder> IndexReader<'a, D> {
+impl<'index, D: Decoder> IndexReader<'index, D> {
     /// Create a new index reader that reads from the given blocks using the provided decoder.
     ///
     /// # Panic
     /// This function will panic if the `blocks` vector is empty. The reader expects at least one block to read from.
-    pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
+    pub fn new(blocks: &'index Vec<IndexBlock>, decoder: D) -> Self {
         debug_assert!(
             !blocks.is_empty(),
             "IndexReader should not be created with an empty block list"
@@ -1181,7 +1188,7 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
     }
 
     /// Read the next record from the index. If there are no more records to read, then `None` is returned.
-    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult<'a, 'static>>> {
+    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult<'index, 'static>>> {
         // Check if the current buffer is empty. The GC might clean out a block so we have to
         // continue checking until we find a block with data.
         while self.current_buffer.fill_buf()?.is_empty() {
@@ -1218,7 +1225,7 @@ pub struct SkipDuplicatesReader<I> {
     inner: I,
 }
 
-impl<'a, I: Iterator<Item = RSIndexResult<'a, 'static>>> SkipDuplicatesReader<I> {
+impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> SkipDuplicatesReader<I> {
     /// Create a new skip duplicates reader over the given inner iterator.
     pub fn new(inner: I) -> Self {
         Self {
@@ -1228,8 +1235,10 @@ impl<'a, I: Iterator<Item = RSIndexResult<'a, 'static>>> SkipDuplicatesReader<I>
     }
 }
 
-impl<'a, I: Iterator<Item = RSIndexResult<'a, 'static>>> Iterator for SkipDuplicatesReader<I> {
-    type Item = RSIndexResult<'a, 'static>;
+impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> Iterator
+    for SkipDuplicatesReader<I>
+{
+    type Item = RSIndexResult<'index, 'static>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -1257,15 +1266,15 @@ pub struct FilterMaskReader<I> {
     inner: I,
 }
 
-impl<'a, I: Iterator<Item = RSIndexResult<'a, 'static>>> FilterMaskReader<I> {
+impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> FilterMaskReader<I> {
     /// Create a new filter mask reader with the given mask and inner iterator
     pub fn new(mask: t_fieldMask, inner: I) -> Self {
         Self { mask, inner }
     }
 }
 
-impl<'a, I: Iterator<Item = RSIndexResult<'a, 'static>>> Iterator for FilterMaskReader<I> {
-    type Item = RSIndexResult<'a, 'static>;
+impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> Iterator for FilterMaskReader<I> {
+    type Item = RSIndexResult<'index, 'static>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {

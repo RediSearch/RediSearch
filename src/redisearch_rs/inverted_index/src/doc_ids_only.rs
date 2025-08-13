@@ -34,11 +34,11 @@ impl Encoder for DocIdsOnly {
 }
 
 impl Decoder for DocIdsOnly {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let delta = u32::read_as_varint(cursor)?;
 
         let record = RSIndexResult::term().doc_id(base + delta as t_docId);
