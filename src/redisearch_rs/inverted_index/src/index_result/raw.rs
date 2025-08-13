@@ -97,8 +97,7 @@ impl RSOffsetVector<'_> {
 #[repr(C)]
 #[derive(Eq, PartialEq)]
 pub struct RSTermRecord<'index> {
-    /// We mark copied terms so we can treat them a bit differently on deletion, and pool them if
-    /// we want
+    /// We mark copied terms so we can treat them a bit differently on delete.
     pub is_copy: bool,
 
     /// The term that brought up this record
@@ -190,7 +189,7 @@ pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 #[repr(C)]
 #[derive(Debug, Eq, PartialEq)]
 pub struct RSAggregateResult<'index, 'children> {
-    /// We mark copied aggregates so we can treat them a bit differently on deletion.
+    /// We mark copied aggregates so we can treat them a bit differently on delete.
     is_copy: bool,
 
     /// The records making up this aggregate result

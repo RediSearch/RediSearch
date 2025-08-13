@@ -164,7 +164,7 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
  */
 typedef struct RSAggregateResult {
   /**
-   * We mark copied aggregates so we can treat them a bit differently on deletion.
+   * We mark copied aggregates so we can treat them a bit differently on delete.
    */
   bool isCopy;
   /**
@@ -198,8 +198,7 @@ typedef struct RSOffsetVector {
  */
 typedef struct RSTermRecord {
   /**
-   * We mark copied terms so we can treat them a bit differently on deletion, and pool them if
-   * we want
+   * We mark copied terms so we can treat them a bit differently on delete.
    */
   bool isCopy;
   /**
