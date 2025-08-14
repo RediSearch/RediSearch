@@ -67,8 +67,6 @@ double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
  */
 SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx);
 
-
-
 #ifdef __cplusplus
 }
 #endif
