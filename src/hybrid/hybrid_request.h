@@ -9,6 +9,8 @@ extern "C" {
 
 // Number of requests in a hybrid command: SEARCH + VSIM
 #define HYBRID_REQUEST_NUM_SUBQUERIES 2
+// Field name for implicit key loading in hybrid requests
+#define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
     arrayof(AREQ*) requests;

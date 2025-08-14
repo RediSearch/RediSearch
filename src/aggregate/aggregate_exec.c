@@ -325,7 +325,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       // Excludes hidden fields, fields not included in RETURN and, score and language fields.
       SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
       int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = 0;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
+      int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
