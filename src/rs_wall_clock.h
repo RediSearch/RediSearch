@@ -38,10 +38,6 @@ static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start,
     RS_ASSERT(end->tv_sec >= start->tv_sec); // Assert the assumption
     uint64_t sec_diff = (uint64_t)(end->tv_sec - start->tv_sec);
     int64_t nsec_diff = end->tv_nsec - start->tv_nsec;
-    if (nsec_diff < 0) {
-        sec_diff -= 1;
-        nsec_diff += NANOSEC_PER_SECOND;
-    }
 
     return sec_diff * NANOSEC_PER_SECOND + nsec_diff;
 }
