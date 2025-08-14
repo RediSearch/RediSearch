@@ -274,7 +274,9 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
     // SAFETY: Caller is to ensure that `child` is a valid, non-null pointer to an `RSIndexResult`
     let child = unsafe { &*child };
 
-    parent.push(child);
+    if let Some(agg) = parent.as_aggregate_mut() {
+        agg.push(child);
+    }
 }
 
 /// Create an iterator over the aggregate result. This iterator should be freed
