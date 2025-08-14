@@ -125,6 +125,36 @@ void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask);
 uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx);
 void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries);
 
+/* Summary information about an inverted index containing all key metrics */
+typedef struct {
+  uint32_t numDocs;           /* Number of documents in the index */
+  uint64_t numEntries;        /* Total number of entries */
+  t_docId lastId;             /* Last document ID */
+  IndexFlags flags;           /* Index configuration flags */
+  uint32_t numberOfBlocks;    /* Number of index blocks */
+  double blocksEfficiency;    /* Efficiency ratio (numEntries/numberOfBlocks) */
+  bool hasEfficiency;         /* Whether efficiency calculation has been set */
+} InvertedIndexSummary;
+
+/* Retrieve comprehensive summary information about an inverted index */
+InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx);
+
+/* Calculate efficiency ratio of the inverted index: numEntries / numBlocks */
+double InvertedIndex_GetEfficiency(const InvertedIndex *idx);
+
+/* Iterator for traversing index blocks in an inverted index */
+typedef struct {
+  const InvertedIndex *index;   /* The inverted index being iterated */
+  uint32_t currentBlock;        /* Current block index */
+  uint32_t totalBlocks;         /* Total number of blocks */
+} InvertedIndexBlockIterator;
+
+/* Initialize an iterator for traversing index blocks */
+InvertedIndexBlockIterator InvertedIndex_BlockIterator(const InvertedIndex *idx);
+
+/* Get the next block from the iterator and advance it */
+IndexBlock *InvertedIndex_BlockIterator_Next(InvertedIndexBlockIterator *iter);
+
 t_docId IndexBlock_FirstId(const IndexBlock *b);
 t_docId IndexBlock_LastId(const IndexBlock *b);
 uint16_t IndexBlock_NumEntries(const IndexBlock *b);
