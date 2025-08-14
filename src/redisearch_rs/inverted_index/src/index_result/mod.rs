@@ -30,7 +30,7 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// The caller must ensure that the `tr` pointer is valid and points to an `RSTermRecord`.
-    unsafe fn Term_Offset_Data_Free(tr: *mut raw::RSTermRecord);
+    unsafe fn Term_Offset_Data_Free(tr: *mut raw::RSTermRecordRaw);
 
     /// Free a [`RSQueryTerm`]
     ///
