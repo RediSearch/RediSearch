@@ -12,7 +12,6 @@ extern "C" {
 #endif
 
 // Field names for implicit LOAD step
-#define HYBRID_IMPLICIT_KEY_FIELD "__key"
 #define SEARCH_INDEX 0
 
 /**

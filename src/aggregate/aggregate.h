@@ -39,12 +39,7 @@ typedef struct {
 typedef struct Grouper Grouper;
 struct QOptimizer;
 
-// Forward declarations
-struct HybridRequest;
-typedef struct HybridRequest HybridRequest;
-
-// Forward declarations
-struct HybridRequest;
+// Forward declaration
 typedef struct HybridRequest HybridRequest;
 
 /*

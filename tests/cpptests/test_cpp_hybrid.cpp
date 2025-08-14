@@ -33,9 +33,6 @@
 #include <iostream>
 #include <cstdarg>
 
-
-const char *HYBRID_IMPLICIT_KEY_FIELD = "__key";
-
 class HybridRequestTest : public ::testing::Test {
 protected:
   void SetUp() override {
