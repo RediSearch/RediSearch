@@ -112,8 +112,7 @@ double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
  *
  * PRIMARY RESULT SELECTION:
  * The "primary result" is the first non-null SearchResult found in index order (0, 1, 2...).
- * This prefers search results (index 0) over vector results (index 1) when both exist,
- * ensuring RSIndexResult compatibility and pipeline consistency.
+ * This prefers search results (index 0) over vector results (index 1) when both exist for RSIndexResult.
  *
  * The primary result is the SearchResult we merge into and return to the downstream processor.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
