@@ -1,8 +1,9 @@
 use std::{ffi::c_char, marker::PhantomData};
 
-use enumflags2::{BitFlags, bitflags};
 use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 use low_memory_thin_vec::LowMemoryThinVec;
+
+use super::{RSResultKind, RSResultKindMask};
 
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
@@ -57,7 +58,7 @@ pub struct RSAggregateResultRaw<'index, 'children> {
     records: LowMemoryThinVec<*const RSIndexResultRaw<'index, 'children>>,
 
     /// A map of the aggregate kind of the underlying records
-    kind_mask: RSResultKindMaskRaw,
+    kind_mask: RSResultKindMask,
 
     /// The lifetime is actually on the `*const RSIndexResult` children stored in the `records`
     /// field. But since these are stored as a pointers which do not support lifetimes, we need to
@@ -71,7 +72,7 @@ impl<'index, 'children> RSAggregateResultRaw<'index, 'children> {
         Self {
             is_copy: false,
             records: LowMemoryThinVec::with_capacity(cap),
-            kind_mask: RSResultKindMaskRaw::empty(),
+            kind_mask: RSResultKindMask::empty(),
             _phantom: PhantomData,
         }
     }
@@ -92,7 +93,7 @@ impl<'index, 'children> RSAggregateResultRaw<'index, 'children> {
     }
 
     /// The current type mask of the aggregate result
-    pub fn kind_mask(&self) -> RSResultKindMaskRaw {
+    pub fn kind_mask(&self) -> RSResultKindMask {
         self.kind_mask
     }
 
@@ -123,7 +124,7 @@ impl<'index, 'children> RSAggregateResultRaw<'index, 'children> {
     /// mask. The owner of the children pointers is responsible for deallocating them when needed.
     pub fn reset(&mut self) {
         self.records.clear();
-        self.kind_mask = RSResultKindMaskRaw::empty();
+        self.kind_mask = RSResultKindMask::empty();
     }
 
     /// Add a child to the aggregate result and update the kind mask
@@ -166,32 +167,6 @@ impl<'index, 'aggregate_children> Iterator
 #[repr(C)]
 pub struct RSVirtualResultRaw;
 
-/// A C-style discriminant for [`RSResultDataRaw`].
-///
-/// # Implementation notes
-///
-/// We need a standalone C-style discriminant to get `bitflags` to generate a
-/// dedicated bitmask type. Unfortunately, we can't apply `#[bitflags]` directly
-/// on [`RSResultDataRaw`] since `bitflags` doesn't support enum with data in
-/// their variants, nor lifetime parameters.
-///
-/// The discriminant values must match *exactly* the ones specified
-/// on [`RSResultDataRaw`].
-#[bitflags]
-#[repr(u8)]
-#[derive(Copy, Clone)]
-pub enum RSResultKindRaw {
-    Union = 1,
-    Intersection = 2,
-    Term = 4,
-    Virtual = 8,
-    Numeric = 16,
-    Metric = 32,
-    HybridMetric = 64,
-}
-
-pub type RSResultKindMaskRaw = BitFlags<RSResultKindRaw, u8>;
-
 /// Holds the actual data of an ['IndexResult']
 ///
 /// These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
@@ -213,15 +188,15 @@ pub enum RSResultDataRaw<'index, 'aggregate_children> {
 }
 
 impl RSResultDataRaw<'_, '_> {
-    pub fn kind(&self) -> RSResultKindRaw {
+    pub fn kind(&self) -> RSResultKind {
         match self {
-            RSResultDataRaw::Union(_) => RSResultKindRaw::Union,
-            RSResultDataRaw::Intersection(_) => RSResultKindRaw::Intersection,
-            RSResultDataRaw::Term(_) => RSResultKindRaw::Term,
-            RSResultDataRaw::Virtual(_) => RSResultKindRaw::Virtual,
-            RSResultDataRaw::Numeric(_) => RSResultKindRaw::Numeric,
-            RSResultDataRaw::Metric(_) => RSResultKindRaw::Metric,
-            RSResultDataRaw::HybridMetric(_) => RSResultKindRaw::HybridMetric,
+            RSResultDataRaw::Union(_) => RSResultKind::Union,
+            RSResultDataRaw::Intersection(_) => RSResultKind::Intersection,
+            RSResultDataRaw::Term(_) => RSResultKind::Term,
+            RSResultDataRaw::Virtual(_) => RSResultKind::Virtual,
+            RSResultDataRaw::Numeric(_) => RSResultKind::Numeric,
+            RSResultDataRaw::Metric(_) => RSResultKind::Metric,
+            RSResultDataRaw::HybridMetric(_) => RSResultKind::HybridMetric,
         }
     }
 }
