@@ -171,7 +171,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
 
 void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
-  bool resp3 = RedisModule_HasMap(reply);
+  bool resp3 = RedisModule_IsRESP3(reply);
 
   if (totalDocNumber == 0) { // Can happen with FT.DICTADD
     totalDocNumber = 1;

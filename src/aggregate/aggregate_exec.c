@@ -111,7 +111,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   const uint32_t options = req->reqflags;
   const RSDocumentMetadata *dmd = r->dmd;
   size_t count0 = RedisModule_Reply_LocalCount(reply);
-  bool has_map = RedisModule_HasMap(reply);
+  bool has_map = RedisModule_IsRESP3(reply);
 
   if (has_map) {
     RedisModule_Reply_Map(reply);
@@ -1126,7 +1126,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
-  bool has_map = RedisModule_HasMap(reply);
 
   // update timeout for current cursor read
   SearchCtx_UpdateTime(req->sctx, req->reqConfig.queryTimeoutMS);

@@ -464,7 +464,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
-    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
   }
 
@@ -739,7 +739,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CurrentThread_SetIndexSpec(ref);
 
   if (!sp->smap) {
-    return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
+    return RedisModule_ReplyWithMap(ctx, 0);
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -748,7 +748,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
-  RedisModule_ReplyWithMapOrArray(ctx, size * 2, true);
+  RedisModule_ReplyWithMap(ctx, size);
 
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
@@ -2731,7 +2731,7 @@ static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
                                rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
-  bool has_map = RedisModule_HasMap(reply);
+  bool has_map = RedisModule_IsRESP3(reply);
   RedisModule_Reply_Map(reply); // root
     // Have a named map for the results for RESP3
     if (has_map) {
