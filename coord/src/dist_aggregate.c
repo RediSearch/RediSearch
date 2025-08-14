@@ -18,6 +18,7 @@
 #include "coord/src/config.h"
 #include "util/misc.h"
 #include "util/units.h"
+#include "rs_wall_clock.h"
 
 #include <err.h>
 
@@ -617,7 +618,6 @@ void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **repl
 void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 
 void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
-  clock_t finishTime = clock();
   AREQ *req = ctx->req;
 
   RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
@@ -641,7 +641,7 @@ void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   Profile_Print(reply, ctx);
   RedisModule_Reply_MapEnd(reply);
 
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock)));
 
   RedisModule_Reply_MapEnd(reply); // >coordinator
 }
@@ -676,7 +676,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
-  r->initClock = clock();
+  rs_wall_clock_init(&r->initClock);
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;
@@ -723,7 +723,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, sc, &us);
 
-  if (IsProfile(r)) r->parseTime = clock() - r->initClock;
+  if (IsProfile(r)) r->profileParseTime = rs_wall_clock_elapsed_ns(&r->initClock);
 
   // Create the Search context
   // (notice with cursor, we rely on the existing mechanism of AREQ to free the ctx object when the cursor is exhausted)

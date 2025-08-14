@@ -246,7 +246,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVNUM("hash_indexing_failures", sp->stats.indexError.error_count);
-  REPLY_KVNUM("total_indexing_time", (float)(sp->stats.totalIndexTime / (float)CLOCKS_PER_MILLISEC));
+  REPLY_KVNUM("total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(sp->stats.totalIndexTime));
   REPLY_KVNUM("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;

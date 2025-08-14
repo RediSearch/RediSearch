@@ -261,7 +261,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryIterator *qiter);

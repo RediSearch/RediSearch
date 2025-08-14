@@ -1,6 +1,7 @@
 #include "src/module.h"
 #include "util/heap.h"
 #include "query.h"
+#include "rs_wall_clock.h"
 
 #include <stdbool.h>
 
@@ -39,7 +40,7 @@ typedef struct {
   long long offset;
   long long limit;
   long long requestedResultsCount;
-  long long initClock;
+  rs_wall_clock initClock;
   long long timeout;
   int withScores;
   int withExplainScores;
@@ -55,7 +56,7 @@ typedef struct {
   // used to signal profile flag and count related args
   int profileArgs;
   int profileLimited;
-  clock_t profileClock;
+  rs_wall_clock profileClock;
   void *reducer;
 } searchRequestCtx;
 

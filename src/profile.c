@@ -7,6 +7,7 @@
 #include "profile.h"
 #include "reply_macros.h"
 #include "util/units.h"
+#include "rs_wall_clock.h"
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
@@ -87,7 +88,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     return upstreamTime;
   }
 
-  double totalRPTime = (double)(RPProfile_GetClock(rp) / CLOCKS_PER_MILLISEC);
+  double totalRPTime = rs_wall_clock_convert_ns_to_ms_d(RPProfile_GetClock(rp));
   if (printProfileClock) {
     printProfileTime(totalRPTime - upstreamTime);
   }
@@ -103,7 +104,7 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
 void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   bool has_map = RedisModule_HasMap(reply);
   AREQ *req = ctx->req;
-  req->totalTime += clock() - req->initClock;
+  req->profileTotalTime += rs_wall_clock_elapsed_ns(&req->initClock);
 
   //-------------------------------------------------------------------------------------------
   if (has_map) { // RESP3 variant
@@ -113,17 +114,17 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
       // Print total time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Total profile time",
-          (double)(req->totalTime / CLOCKS_PER_MILLISEC));
+          rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
 
       // Print query parsing time
       if (profile_verbose)
         RedisModule_ReplyKV_Double(reply, "Parsing time",
-          (double)(req->parseTime / CLOCKS_PER_MILLISEC));
+          rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
 
       // Print iterators creation time
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
-            (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+            rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
 
       // Print whether a warning was raised throughout command execution
       if (ctx->bgScanOOM) {
@@ -168,21 +169,21 @@ void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Total profile time");
       if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)(req->totalTime / CLOCKS_PER_MILLISEC));
+        RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(req->profileTotalTime));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print query parsing time
     RedisModule_Reply_Array(reply);
       RedisModule_Reply_SimpleString(reply, "Parsing time");
       if (profile_verbose)
-        RedisModule_Reply_Double(reply, (double)(req->parseTime / CLOCKS_PER_MILLISEC));
+        RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(req->profileParseTime));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print iterators creation time
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, "Pipeline creation time");
     if (profile_verbose)
-      RedisModule_Reply_Double(reply, (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+      RedisModule_Reply_Double(reply, rs_wall_clock_convert_ns_to_ms_d(req->profilePipelineBuildTime));
     RedisModule_Reply_ArrayEnd(reply);
 
     // Print whether a warning was raised throughout command execution

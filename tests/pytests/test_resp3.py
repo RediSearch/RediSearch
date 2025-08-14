@@ -252,7 +252,7 @@ def test_coord_profile():
                                                    {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Sorter', 'Time': ANY, 'Counter': ANY},
                                                    {'Type': 'Loader', 'Time': ANY, 'Counter': ANY}]},
-        'Coordinator': {'Total Coordinator time': ANY, 'Post Proccessing time': ANY}}}
+        'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY}}}
     res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING')
     res['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
     env.assertEqual(res, exp)
