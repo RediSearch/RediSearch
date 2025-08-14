@@ -13,6 +13,8 @@
 #include "gtest/gtest.h"
 #include "config.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_search_result.h"  // For mergeFlags function
+#include "redisearch.h"  // For Result_ExpiredDoc flag
 #include <vector>
 #include <string>
 #include <set>
@@ -41,6 +43,7 @@ struct MockUpstream : public ResultProcessor {
   int errorAfterCount = -1;  // -1 means no error, >= 0 means return error after this many calls
   std::vector<double> scores;
   std::vector<int> docIds;
+  uint8_t flags = 0;  // Single flags value for all results
   int depletionCount = 0;
   int counter = 0;
   std::vector<RSDocumentMetadata> documentMetadata;
@@ -51,8 +54,9 @@ struct MockUpstream : public ResultProcessor {
                const std::vector<double>& Scores = {},
                const std::vector<int>& DocIds = {},
                int depletionCount = 0,
-               int errorAfterCount = -1)
-    : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), depletionCount(depletionCount) {
+               int errorAfterCount = -1,
+               uint8_t Flags = 0)
+    : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), flags(Flags), depletionCount(depletionCount) {
 
     this->Next = NextFn;
     documentMetadata.reserve(50);
@@ -117,6 +121,9 @@ struct MockUpstream : public ResultProcessor {
 
     // Use score from array
     res->score = p->scores[docIndex];
+
+    // Set flags from upstream
+    res->flags = p->flags;
 
     // Use pre-created document metadata
     res->dmd = &p->documentMetadata[p->counter];
@@ -577,7 +584,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 3); // depletionCount = 3
   MockUpstream upstream2(0, {2.0, 2.0, 2.0}, {21, 22, 23}, 1); // depletionCount = 1
 
-  
+
   ResultProcessor *rp1 = &upstream1;
   ResultProcessor *rp2 = &upstream2;
 
@@ -1176,4 +1183,146 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
 
   SearchResult_Destroy(&r);
   hybridMerger->Free(hybridMerger);
+}
+
+/*
+ * Test that hybrid merger with Linear scoring correctly merges flags from multiple upstreams.
+ * Focus: Flag merging functionality and basic linear scoring
+ */
+TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
+  QueryIterator qitr = {0};
+
+  // Create upstreams with same documents (full intersection)
+  // Set Result_ExpiredDoc flag on upstream1 to test flag merging
+  MockUpstream upstream1(0, {3.0, 5.0}, {1, 2}, 0, -1, Result_ExpiredDoc);
+  MockUpstream upstream2(0, {2.0, 4.0}, {1, 2}); // Same docIds, no flags
+
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
+  // Create hybrid merger with linear scoring
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  double weights[] = {0.3, 0.7};
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results focus on flag merging
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int lastResult;
+  size_t count = 0;
+
+  while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    count++;
+
+    // Basic verification
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    //Verify flag merging - should have Result_ExpiredDoc from upstream1
+    ASSERT_TRUE(r.flags & Result_ExpiredDoc);
+
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(RS_RESULT_EOF, lastResult);
+  ASSERT_EQ(2, count); // Should have processed 2 documents
+  SearchResult_Destroy(&r);
+
+  QITR_FreeChain(&qitr);
+}
+
+/*
+ * Test that hybrid merger with RRF scoring correctly merges flags from multiple upstreams.
+ * Focus: Flag merging functionality and basic RRF scoring
+ */
+TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
+  QueryIterator qitr = {0};
+
+  // Create upstreams with same documents but different rankings
+  // Upstream1: no flags
+  MockUpstream upstream1(0, {0.9, 0.5}, {1, 2});
+  // Set Result_ExpiredDoc flag on upstream2 for flag merging test
+  MockUpstream upstream2(0, {0.8, 0.3}, {2, 1}, 0, -1, Result_ExpiredDoc);
+
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+
+  // Create hybrid merger with RRF scoring
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // k=60, window=4
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results focus on flag merging
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int lastResult;
+  size_t count = 0;
+
+  while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    count++;
+
+    // Basic verification
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    //Verify flag merging - should have Result_ExpiredDoc from upstream2
+    ASSERT_TRUE(r.flags & Result_ExpiredDoc);
+
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(RS_RESULT_EOF, lastResult);
+  ASSERT_EQ(2, count); // Should have processed 2 documents
+  SearchResult_Destroy(&r);
+
+  QITR_FreeChain(&qitr);
+}
+
+/*
+ * Helper function to create a test SearchResult with specified flags
+ */
+static SearchResult* createTestSearchResult(uint8_t flags) {
+  SearchResult* result = (SearchResult*)rm_calloc(1, sizeof(SearchResult));
+  if (!result) return NULL;
+
+  result->docId = 1;  // Use a dummy docId
+  result->score = 1.0;  // Use a dummy score
+  result->flags = flags;
+  result->scoreExplain = NULL;
+  result->dmd = NULL;
+  result->indexResult = NULL;
+  memset(&result->rowdata, 0, sizeof(RLookupRow));
+
+  return result;
+}
+
+/*
+ * Test mergeFlags function with no flags set
+ */
+TEST_F(HybridMergerTest, testmergeFlags_NoFlags) {
+  uint8_t target_flags = 0;
+  uint8_t source_flags = 0;
+
+  // Test merging no flags
+  mergeFlags(&target_flags, &source_flags);
+  EXPECT_EQ(target_flags, 0);
+}
+
+/*
+ * Test mergeFlags function with Result_ExpiredDoc flag
+ */
+TEST_F(HybridMergerTest, testmergeFlags_ExpiredDoc) {
+  uint8_t target_flags = 0;  // No flags initially
+  uint8_t source_flags = Result_ExpiredDoc;  // Source has expired flag
+
+  // Test merging expired flag
+  mergeFlags(&target_flags, &source_flags);
+  EXPECT_TRUE(target_flags & Result_ExpiredDoc);
 }

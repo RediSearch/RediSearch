@@ -19,6 +19,8 @@
 #include <pthread.h>
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_search_result.h"
+#include "src/util/likely.h"
 #include "config.h"
 
 /*******************************************************************************************************************
@@ -1660,34 +1662,6 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
   return &ret->base;
 }
 
-// Container for search results with scores from multiple upstream processors
-typedef struct {
-  SearchResult *searchResult; // The actual search result document with metadata
-  double *scores;             // Dynamic array of scores from each upstream processor
-  bool *hasScores;            // Dynamic array of flags indicating if each score is available
-  size_t numSources;          // Number of upstream processors (array size)
-} HybridSearchResult;
-
-// Constructor for HybridSearchResult
-static HybridSearchResult* HybridSearchResult_New(SearchResult *searchResult, size_t numUpstreams) {
-  HybridSearchResult* hybridResult = rm_calloc(1, sizeof(HybridSearchResult));
-  hybridResult->searchResult = searchResult;
-  hybridResult->numSources = numUpstreams;
-  hybridResult->scores = rm_calloc(numUpstreams, sizeof(double));
-  hybridResult->hasScores = rm_calloc(numUpstreams, sizeof(bool));
-  return hybridResult;
-}
-
-// Destructor for HybridSearchResult
-static void HybridSearchResult_Free(HybridSearchResult* hybridResult) {
-  if (hybridResult) {
-    srDtor(hybridResult->searchResult);
-    rm_free(hybridResult->scores);
-    rm_free(hybridResult->hasScores);
-    rm_free(hybridResult);
-  }
-}
-
 // Wrapper for HybridSearchResult destructor to match dictionary value destructor signature
 static void hybridSearchResultValueDestructor(void *privdata, void *obj) {
   HybridSearchResult_Free((HybridSearchResult*)obj);
@@ -1721,27 +1695,30 @@ dictType dictTypeHybridSearchResult = {
    const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
  } RPHybridMerger;
 
- /* Helper function to store a result from an upstream into the hybrid merger's dictionary */
+ /* Helper function to store a result from an upstream into the hybrid merger's dictionary
+  * @param r - the result to store
+  * @param hybridResults - the dictionary to store the result in
+  * @param upstreamIndex - the index of the upstream that provided the result
+  * @param numUpstreams - the number of upstreams
+  * @param score - used to override the result's score
+ */
  static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex, size_t numUpstreams, double score) {
    const char *keyPtr = r->dmd->keyPtr;
 
    // Check if we've seen this document before
-   HybridSearchResult *hybridResult = dictFetchValue(hybridResults, keyPtr);
+   HybridSearchResult *hybridResult = (HybridSearchResult*)dictFetchValue(hybridResults, keyPtr);
 
    if (!hybridResult) {
-     // First time seeing this document - create new hybrid result with copied SearchResult
-     hybridResult = HybridSearchResult_New(r, numUpstreams);
+     // First time seeing this document - create new hybrid result
+     hybridResult = HybridSearchResult_New(numUpstreams);
      dictAdd(hybridResults, (void*)keyPtr, hybridResult);
-   } else {
-     // Document already exists - free new SearchResult
-     SearchResult_Destroy(r);
-     rm_free(r);
    }
 
-   // Update the score for this upstream
-   hybridResult->scores[upstreamIndex] = score;
-   hybridResult->hasScores[upstreamIndex] = true;
+   r->score = score;
+   HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
  }
+
+
 
  /* Helper function to consume results from a single upstream */
  static int ConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
@@ -1774,17 +1751,23 @@ dictType dictTypeHybridSearchResult = {
      return ret;
    }
 
-   HybridSearchResult *hybridResult = dictGetVal(entry);
-   RS_ASSERT(hybridResult && hybridResult->searchResult);
-   HybridScoringFunction scoringFunc = GetScoringFunction(self->hybridScoringCtx->scoringType);
-   double hybridScore = scoringFunc(self->hybridScoringCtx, hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
+   // Get the key and value before removing the entry
+   void *key = dictGetKey(entry);
+   HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
+   RS_ASSERT(hybridResult);
 
-   SearchResult_Override(r, hybridResult->searchResult);
-   r->score = hybridScore;
+   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx);
+   if (!mergedResult) {
+     return RS_RESULT_ERROR;
+   }
+
+   // Override the output result with merged data
+   SearchResult_Override(r, mergedResult);
+   rm_free(mergedResult);
 
    // Add score as field if scoreKey is provided
    if (self->scoreKey) {
-     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(hybridScore));
+     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
    }
 
    return RS_RESULT_OK;
