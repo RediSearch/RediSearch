@@ -23,7 +23,6 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultData_Tag t, double weigh
       .docId = 0,
       .freq = 0,
       .fieldMask = 0,
-      .isCopy = 0,
       .weight = weight,
       .metrics = NULL,
       .data = {
@@ -75,7 +74,6 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
   *res = (RSIndexResult){
                          .docId = 0,
                          .fieldMask = 0,
-                         .isCopy = 0,
                          .freq = 0,
                          .weight = weight,
                          .metrics = NULL,
@@ -84,6 +82,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
                           .term = (RSTermRecord){
                               .term = term,
                               .offsets = (RSOffsetVector){},
+                             .isCopy = false,
                           }
                          }};
   return res;
@@ -94,7 +93,6 @@ RSIndexResult *NewNumericResult() {
 
   *res = (RSIndexResult){
                          .docId = 0,
-                         .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 1,
                          .weight = 1,
@@ -116,7 +114,6 @@ RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask) {
       .freq = 0,
       .weight = weight,
       .metrics = NULL,
-      .isCopy = 0,
   };
   return res;
 }
@@ -126,7 +123,6 @@ RSIndexResult *NewMetricResult() {
 
   *res = (RSIndexResult){
                          .docId = 0,
-                         .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 0,
                          .weight = 1,
@@ -141,7 +137,6 @@ RSIndexResult *NewMetricResult() {
 RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
   RSIndexResult *ret = rm_new(RSIndexResult);
   *ret = *src;
-  ret->isCopy = 1;
 
   if (src->metrics) {
     // Create a copy of the array and increase the refcount for each element's value
@@ -161,6 +156,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(src);
       size_t numChildren = AggregateResult_NumChildren(agg);
       ret->data.union_ = AggregateResult_New(numChildren);
+      ret->data.union_.isCopy = true;
 
       // deep copy recursively all children
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
@@ -179,6 +175,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     case RSResultData_Term:
       // copy the offset vectors
       RSOffsetVector_CopyData(&IndexResult_TermRefMut(ret)->offsets, &IndexResult_TermRef(src)->offsets);
+      ret->data.term.isCopy = true;
       break;
 
     // the rest have no dynamic stuff, we can just copy the base result
@@ -232,7 +229,7 @@ void IndexResult_Free(RSIndexResult *r) {
   ResultMetrics_Free(r);
   if (r->data.tag == RSResultData_Intersection || r->data.tag == RSResultData_Union || r->data.tag == RSResultData_HybridMetric) {
     // for deep-copy results we also free the children
-    if (r->isCopy) {
+    if (r->data.agg.isCopy) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(r);
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
       RSIndexResult *child = NULL;
@@ -245,7 +242,7 @@ void IndexResult_Free(RSIndexResult *r) {
     }
     AggregateResult_Free(r->data.union_);
   } else if (r->data.tag == RSResultData_Term) {
-    if (r->isCopy) {
+    if (r->data.term.isCopy) {
       RSOffsetVector_FreeData(&IndexResult_TermRefMut(r)->offsets);
 
     } else {  // non copy result...

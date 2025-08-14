@@ -69,7 +69,6 @@ impl<'a, 'aggregate_children> PartialEq for TermRecordCompare<'a, 'aggregate_chi
             && self.0.freq == other.0.freq
             && self.0.offsets_sz == other.0.offsets_sz
             && self.0.data.kind() == other.0.data.kind()
-            && self.0.is_copy == other.0.is_copy
             && self.0.metrics == other.0.metrics)
         {
             return false;
@@ -103,6 +102,6 @@ impl<'a, 'aggregate_children> PartialEq for TermRecordCompare<'a, 'aggregate_chi
 
         // do not compare `RSTermRecord` as it's not encoded
 
-        true
+        a_term_record.is_copy == b_term_record.is_copy
     }
 }

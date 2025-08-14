@@ -355,7 +355,7 @@ TEST_F(IndexTest, testUnion) {
       RSIndexResult *copy = IndexResult_DeepCopy(ui->current);
       ASSERT_TRUE(copy != NULL);
       ASSERT_TRUE(copy != ui->current);
-      ASSERT_TRUE(copy->isCopy);
+      ASSERT_TRUE(copy->data.term.isCopy);
 
       ASSERT_EQ(copy->docId, ui->current->docId);
       ASSERT_EQ(copy->data.tag, ui->current->data.tag);
@@ -715,7 +715,7 @@ TEST_F(IndexTest, testIntersection) {
     RSIndexResult *copy = IndexResult_DeepCopy(h);
     ASSERT_TRUE(copy != NULL);
     ASSERT_TRUE(copy != h);
-    ASSERT_TRUE(copy->isCopy == 1);
+    ASSERT_TRUE(copy->data.term.isCopy == 1);
 
     ASSERT_TRUE(copy->docId == h->docId);
     ASSERT_TRUE(copy->data.tag == RSResultData_Intersection);

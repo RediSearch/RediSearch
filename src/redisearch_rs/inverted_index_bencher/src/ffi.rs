@@ -737,7 +737,6 @@ mod tests {
                 && self.0.freq == other.0.freq
                 && self.0.offsets_sz == other.0.offsets_sz
                 && self.0.kind() == other.0.kind()
-                && self.0.is_copy == other.0.is_copy
                 && self.0.metrics == other.0.metrics)
             {
                 return false;
@@ -772,7 +771,7 @@ mod tests {
 
             // do not compare `RSTermRecord` as it's not encoded
 
-            true
+            a_term_record.is_copy == b_term_record.is_copy
         }
     }
 
