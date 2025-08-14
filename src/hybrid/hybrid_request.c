@@ -122,6 +122,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     //Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(params->aggregationParams.common.sctx->spec));
+    RLookup *searchLookup = AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    RLookup_CloneInto(lookup, searchLookup);
 
     const RLookupKey *scoreKey = NULL;
     if (!loadStep) {

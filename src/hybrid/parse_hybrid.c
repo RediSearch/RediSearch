@@ -357,8 +357,8 @@ final:
       break;
   }
 
-  // Set default scoreField using vector field name (can be done during parsing)
-  VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
+  // // Set default scoreField using vector field name (can be done during parsing)
+  // VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
 
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
