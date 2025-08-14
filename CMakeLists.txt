@@ -291,19 +291,46 @@ set(FINAL_OBJECTS
 )
 
 #----------------------------------------------------------------------------------------------
-# Build the shared library
-add_library(redisearch SHARED ${FINAL_OBJECTS})
+# Build either shared or static library based on BUILD_STATIC_LIB option
+if(BUILD_STATIC_LIB)
+    # Build static library
+    add_library(redisearch STATIC ${FINAL_OBJECTS})
 
-if(COORD_TYPE STREQUAL "rlec")
-    set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
+    # Set the output name to redisearch.a (or module-enterprise.a for enterprise)
+    if(COORD_TYPE STREQUAL "rlec")
+        set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
+    else()
+        set_target_properties(redisearch PROPERTIES OUTPUT_NAME "redisearch")
+    endif()
+
+    set_target_properties(redisearch
+        PROPERTIES
+        LINKER_LANGUAGE CXX
+        C_STANDARD 17
+        C_STANDARD_REQUIRED ON
+        PREFIX "lib"
+        SUFFIX ".a")
+
+    message(STATUS "Building static library")
+else()
+    # Build shared library (default)
+    add_library(redisearch SHARED ${FINAL_OBJECTS})
+
+    if(COORD_TYPE STREQUAL "rlec")
+        set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
+    endif()
+
+    set_target_properties(redisearch
+        PROPERTIES
+        LINKER_LANGUAGE CXX
+        C_STANDARD 17
+        C_STANDARD_REQUIRED ON)
+    setup_shared_object_target(redisearch "")
+
+    message(STATUS "Building shared library")
 endif()
 
-set_target_properties(redisearch
-    PROPERTIES
-    LINKER_LANGUAGE CXX
-    C_STANDARD 17
-    C_STANDARD_REQUIRED ON)
-setup_shared_object_target(redisearch "")
+# Link libraries (same for both static and shared)
 target_link_libraries(redisearch
         redisearch-geometry
         redisearch-hash
@@ -322,48 +349,6 @@ target_link_libraries(redisearch
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
-
-#----------------------------------------------------------------------------------------------
-# Build the static library if requested
-if(BUILD_STATIC_LIB)
-    add_library(redisearch_static STATIC ${FINAL_OBJECTS})
-
-    # Set the output name to redisearch.a (or module-enterprise.a for enterprise)
-    if(COORD_TYPE STREQUAL "rlec")
-        set_target_properties(redisearch_static PROPERTIES OUTPUT_NAME "module-enterprise")
-    else()
-        set_target_properties(redisearch_static PROPERTIES OUTPUT_NAME "redisearch")
-    endif()
-
-    set_target_properties(redisearch_static
-        PROPERTIES
-        LINKER_LANGUAGE CXX
-        C_STANDARD 17
-        C_STANDARD_REQUIRED ON
-        PREFIX "lib"
-        SUFFIX ".a")
-
-    # Link all the same libraries as the shared version
-    target_link_libraries(redisearch_static
-            redisearch-geometry
-            redisearch-hash
-            VectorSimilarity
-            redisearch-coord
-            arr
-            buffer
-            inverted_index
-            wildcard
-            uv_a
-            ${BINDIR}/redisearch_rs/libredisearch_rs.a
-            ${HIREDIS_LIBS}
-            ${SSL_LIBS}
-            ${CMAKE_LD_LIBS})
-
-    add_dependencies(redisearch_static VectorSimilarity)
-    add_dependencies(redisearch_static uv_a)
-
-    message(STATUS "Static library will be built")
-endif()
 
 
 #----------------------------------------------------------------------------------------------
