@@ -33,6 +33,7 @@
 #include "info/global_stats.h"
 #include "util/units.h"
 #include "libuv/include/uv.h"
+#include "rs_wall_clock.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -371,7 +372,7 @@ typedef struct {
   char *queryString;
   long long offset;
   long long limit;
-  long long initClock;
+  rs_wall_clock initClock;
   long long requestedResultsCount;
   int withScores;
   int withExplainScores;
@@ -386,7 +387,7 @@ typedef struct {
   // used to signal profile flag and count related args
   int profileArgs;
   int profileLimited;
-  clock_t profileClock;
+  rs_wall_clock profileClock;
   void *reducer;
 } searchRequestCtx;
 
@@ -450,7 +451,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
-    req->profileClock = clock();
+    rs_wall_clock_init(&req->profileClock);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       req->profileLimited = 1;
       req->profileArgs++;
@@ -574,7 +575,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
-  req->initClock = clock();
+  rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -1135,7 +1136,8 @@ size_t PrintShardProfile(RedisModuleCtx *ctx, int count, MRReply **replies, int 
 
 static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProccesTime) {
+                               rs_wall_clock *totalTime,
+                               rs_wall_clock_ns_t postProccesTime) {
   RedisModule_ReplyWithArray(ctx, 2);
   // print results
   sendSearchResults(ctx, rCtx);
@@ -1152,19 +1154,18 @@ static void profileSearchReply(RedisModuleCtx *ctx, searchReducerCtx *rCtx,
   // search cmd only do the heap so there is no parsing time
   RedisModule_ReplyWithArray(ctx, 2);
   RedisModule_ReplyWithSimpleString(ctx, "Total Coordinator time");
-  RedisModule_ReplyWithDouble(ctx, (double)(clock() - totalTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyWithDouble(ctx, rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(totalTime)));
   arrLen++;
 
   RedisModule_ReplyWithArray(ctx, 2);
-  RedisModule_ReplyWithSimpleString(ctx, "Post Proccessing time");
-  RedisModule_ReplyWithDouble(ctx, (double)(clock() - postProccesTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyWithSimpleString(ctx, "Post Processing time");
+  RedisModule_ReplyWithDouble(ctx, rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - postProccesTime));
   arrLen++;
 
   RedisModule_ReplySetArrayLength(ctx, arrLen);
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProccesTime;
   RedisModuleBlockedClient *bc = (RedisModuleBlockedClient *)MRCtx_GetRedisCtx(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivdata(mc);
@@ -1238,11 +1239,11 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(ctx, &rCtx);
   } else {
-    postProccesTime = clock();
-    profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
+    profileSearchReply(ctx, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   }
 
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
 
 cleanup:
   if (rCtx.pq) {

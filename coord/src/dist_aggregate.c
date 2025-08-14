@@ -16,6 +16,7 @@
 #include "coord/src/config.h"
 #include "util/misc.h"
 #include "util/units.h"
+#include "rs_wall_clock.h"
 
 #include <err.h>
 
@@ -373,7 +374,6 @@ size_t PrintShardProfile(RedisModuleCtx *ctx, int count, MRReply **replies, int 
 
 void printAggProfile(RedisModuleCtx *ctx, AREQ *req) {
   size_t nelem = 0;
-  clock_t finishTime = clock();
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   // profileRP replace netRP as end PR
@@ -391,7 +391,7 @@ void printAggProfile(RedisModuleCtx *ctx, AREQ *req) {
   nelem += 2;
 
   RedisModule_ReplyWithSimpleString(ctx, "Total Coordinator time");
-  RedisModule_ReplyWithDouble(ctx, (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyWithDouble(ctx, rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock)));
   nelem += 2;
 
   RedisModule_ReplySetArrayLength(ctx, nelem);
@@ -422,7 +422,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   QueryError status = {0};
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE;
-  r->initClock = clock();
+  rs_wall_clock_init(&r->initClock);
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;
@@ -447,7 +447,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Build the result processor chain
   buildDistRPChain(r, &xcmd, sc, &us);
 
-  if (IsProfile(r)) r->parseTime = clock() - r->initClock;
+  if (IsProfile(r)) r->profileParseTime = rs_wall_clock_elapsed_ns(&r->initClock);
 
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     const char *ixname = RedisModule_StringPtrLen(argv[1 + profileArgs], NULL);

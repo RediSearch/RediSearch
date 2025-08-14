@@ -17,6 +17,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -24,6 +24,7 @@
 #include "redisearch_api.h"
 #include "rules.h"
 #include "info/index_error.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -120,7 +121,7 @@ typedef struct {
   size_t termsSize;
   IndexError indexError;
   size_t vectorIndexSize;
-  long double totalIndexTime; // usec
+  rs_wall_clock_ns_t totalIndexTime; // Accumulated in nanoseconds, reported in milliseconds (double)
   uint32_t activeQueries;
   uint32_t activeWrites;
 } IndexStats;

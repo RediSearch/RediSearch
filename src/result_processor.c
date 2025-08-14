@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "rmutil/cxx/chrono-clock.h"
 #include "util/timeout.h"
+#include "rs_wall_clock.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -79,7 +80,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   if (self->iiter == NULL) {
     return RS_RESULT_EOF;
   }
-  
+
   RSIndexResult *r;
   RSDocumentMetadata *dmd;
   int rc;
@@ -721,17 +722,17 @@ const char *RPTypeToString(ResultProcessorType type) {
 
 typedef struct {
   ResultProcessor base;
-  double profileTime;
+  rs_wall_clock_ns_t profileTime; // Accumulated in nanoseconds, reported in milliseconds (double)
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  rs_wall_clock t0;
+  rs_wall_clock_init(&t0);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += hires_clock_since_msec(&t0);
+  self->profileTime += rs_wall_clock_elapsed_ns(&t0);
   self->profileCount++;
   return rc;
 }
@@ -756,7 +757,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
 
 double RPProfile_GetDurationMSec(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
-  return self->profileTime;
+  return rs_wall_clock_convert_ns_to_ms_d(self->profileTime);
 }
 
 uint64_t RPProfile_GetCount(ResultProcessor *rp) {

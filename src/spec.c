@@ -29,8 +29,8 @@
 #include "doc_types.h"
 #include "rdb.h"
 #include "commands.h"
-#include "rmutil/cxx/chrono-clock.h"
 #include "info/global_stats.h"
+#include "rs_wall_clock.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -2596,8 +2596,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  hires_clock_t t0;
-  hires_clock_get(&t0);
+  rs_wall_clock t0;
+  rs_wall_clock_init(&t0);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   QueryError status = {0};
@@ -2636,7 +2636,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   Document_Free(&doc);
 
-  spec->stats.totalIndexTime += hires_clock_since_usec(&t0);
+  spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&t0);
   IndexSpec_DecrActiveWrites(spec);
   return REDISMODULE_OK;
 }

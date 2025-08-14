@@ -324,7 +324,7 @@ done:
     IndexSpec_DecrActiveQueries(req->sctx->spec);
   }
   if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    TotalGlobalStats_CountQuery(req->reqflags, clock() - req->initClock);
+    TotalGlobalStats_CountQuery(req->reqflags, rs_wall_clock_elapsed_ns(&req->initClock));
   }
   // Reset the total results length:
   req->qiter.totalResults = 0;
@@ -350,7 +350,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         QueryError *status, AREQ **r) {
 
   int rc = REDISMODULE_ERR;
-  hires_clock_t parseClock;
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
@@ -388,16 +387,17 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
+  rs_wall_clock parseClock;
   bool is_profile = IsProfile(*r);
   if (is_profile) {
-    hires_clock_get(&parseClock);
-    (*r)->parseTime += hires_clock_diff_msec(&parseClock, &(*r)->initClock);
+    rs_wall_clock_init(&parseClock);
+    (*r)->profileParseTime = rs_wall_clock_diff_ns(&(*r)->initClock, &parseClock);
   }
 
   rc = AREQ_BuildPipeline(*r, 0, status);
 
   if (is_profile) {
-    (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
+    (*r)->profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
   }
 
 done:
@@ -430,7 +430,7 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
-    hires_clock_get(&r->initClock);
+    rs_wall_clock_init(&r->initClock);
   }
   return REDISMODULE_OK;
 }

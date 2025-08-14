@@ -1,0 +1,74 @@
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
+
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <time.h>
+#include <stdint.h>
+#include "rmutil/rm_assert.h"
+
+typedef struct timespec rs_wall_clock;
+
+#define NANOSEC_PER_SECOND     1000000000ULL // 10^9
+#define NANOSEC_PER_MILLISEC   (NANOSEC_PER_SECOND / 1000) // 10^6
+
+// Using different types for nanoseconds and milliseconds to avoid confusion
+typedef uint64_t rs_wall_clock_ns_t;
+typedef uint64_t rs_wall_clock_ms_t;
+
+// Initializes the clock with current time
+static inline void rs_wall_clock_init(rs_wall_clock *clk) {
+    clock_gettime(CLOCK_MONOTONIC, clk);
+}
+
+// Returns the time difference between two rs_wall_clock in nanoseconds.
+// Assumes 'end' is sampled after 'start'.
+static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start,
+                                                       rs_wall_clock *end) {
+    RS_ASSERT((end->tv_sec > start->tv_sec) || (end->tv_sec == start->tv_sec && end->tv_nsec >= start->tv_nsec)); // Assert the assumption
+    uint64_t sec_diff = (uint64_t)(end->tv_sec - start->tv_sec);
+    int64_t nsec_diff = end->tv_nsec - start->tv_nsec;
+
+    return sec_diff * NANOSEC_PER_SECOND + nsec_diff;
+}
+
+// Returns time elapsed since start, in nanoseconds
+static inline rs_wall_clock_ns_t rs_wall_clock_elapsed_ns(rs_wall_clock *clk) {
+    rs_wall_clock now;
+    rs_wall_clock_init(&now);
+    return rs_wall_clock_diff_ns(clk, &now);
+}
+
+// Returns current time of the monotonic clock in nanoseconds
+static inline rs_wall_clock_ns_t rs_wall_clock_now_ns() {
+    rs_wall_clock now;
+    rs_wall_clock_init(&now);
+    return (rs_wall_clock_ns_t)now.tv_sec * NANOSEC_PER_SECOND + now.tv_nsec;
+}
+
+// Converts a duration from nanoseconds to milliseconds (floating-point result).
+// Returns: elapsed time in milliseconds as a double, preserving fractional ms.
+static inline double rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_ns_t ns) {
+    return (double)ns / NANOSEC_PER_MILLISEC;
+}
+
+// Converts a duration from nanoseconds to milliseconds (integer result).
+// Returns: elapsed time in whole milliseconds as rs_wall_clock_ms_t (uint64_t).
+static inline rs_wall_clock_ms_t rs_wall_clock_convert_ns_to_ms(rs_wall_clock_ns_t ns) {
+    return ns / NANOSEC_PER_MILLISEC;
+}
+
+// Undefine macros to avoid conflicts
+#undef NANOSEC_PER_SECOND
+#undef NANOSEC_PER_MILLISEC
+
+#ifdef __cplusplus
+}
+#endif
