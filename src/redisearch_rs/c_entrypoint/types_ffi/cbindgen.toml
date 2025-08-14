@@ -32,4 +32,13 @@ include = ["enumflags2", "inverted_index", "low_memory_thin_vec"]
 exclude = ["Header"]
 
 [export.rename]
-"LowMemoryThinVec______RSIndexResult" = "LowMemoryThinVecRSIndexResult"
+"LowMemoryThinVec______RSIndexResultRaw" = "LowMemoryThinVecRSIndexResult"
+"RSNumericRecordRaw" = "RSNumericRecord"
+"RSOffsetVectorRaw" = "RSOffsetVector"
+"RSTermRecordRaw" = "RSTermRecord"
+"RSAggregateResultRaw" = "RSAggregateResult"
+"RSAggregateResultRawIter" = "RSAggregateResultIter"
+"RSVirtualResultRaw" = "RSVirtualResult"
+"RSResultKindMaskRaw" = "RSResultKindMask"
+"RSResultDataRaw" = "RSResultData"
+"RSIndexResultRaw" = "RSIndexResult"

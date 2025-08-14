@@ -11,8 +11,11 @@ use std::io::{BufRead, Cursor, Seek, Write};
 
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::raw::{
-    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSNumericRecord, RSOffsetVector,
-    RSResultData, RSResultKind, RSResultKindMask, RSTermRecord, RSVirtualResult,
+    RSAggregateResultRaw as RSAggregateResult, RSAggregateResultRawIter as RSAggregateResultIter,
+    RSIndexResultRaw as RSIndexResult, RSNumericRecordRaw as RSNumericRecord,
+    RSOffsetVectorRaw as RSOffsetVector, RSResultDataRaw as RSResultData,
+    RSResultKindMaskRaw as RSResultKindMask, RSResultKindRaw as RSResultKind,
+    RSTermRecordRaw as RSTermRecord, RSVirtualResultRaw as RSVirtualResult,
 };
 
 pub mod doc_ids_only;
@@ -22,7 +25,7 @@ pub mod freqs_fields;
 pub mod freqs_offsets;
 pub mod freqs_only;
 pub mod full;
-mod index_result;
+pub mod index_result;
 pub mod numeric;
 pub mod offsets_only;
 pub mod raw_doc_ids_only;

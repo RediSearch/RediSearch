@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_char, fmt::Debug, marker::PhantomData};
+use std::{ffi::c_char, marker::PhantomData};
 
 use enumflags2::{BitFlags, bitflags};
 use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
@@ -18,13 +18,13 @@ use low_memory_thin_vec::LowMemoryThinVec;
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
 #[derive(Debug, PartialEq)]
-pub struct RSNumericRecord(pub f64);
+pub struct RSNumericRecordRaw(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
 #[derive(Eq, PartialEq)]
-pub struct RSOffsetVector<'index> {
+pub struct RSOffsetVectorRaw<'index> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
     pub data: *mut c_char,
@@ -38,7 +38,7 @@ pub struct RSOffsetVector<'index> {
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Eq, PartialEq)]
-pub struct RSTermRecord<'index> {
+pub struct RSTermRecordRaw<'index> {
     /// We mark copied terms so we can treat them a bit differently on delete.
     pub is_copy: bool,
 
@@ -46,10 +46,10 @@ pub struct RSTermRecord<'index> {
     pub term: *mut RSQueryTerm,
 
     /// The encoded offsets in which the term appeared in the document
-    pub offsets: RSOffsetVector<'index>,
+    pub offsets: RSOffsetVectorRaw<'index>,
 }
 
-pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
+pub type RSResultKindMaskRaw = BitFlags<RSResultKindRaw, u8>;
 
 /// Represents an aggregate array of values in an index record.
 ///
@@ -60,7 +60,7 @@ pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, Eq, PartialEq)]
-pub struct RSAggregateResult<'index, 'children> {
+pub struct RSAggregateResultRaw<'index, 'children> {
     /// We mark copied aggregates so we can treat them a bit differently on delete.
     pub is_copy: bool,
 
@@ -69,10 +69,10 @@ pub struct RSAggregateResult<'index, 'children> {
     /// The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    pub records: LowMemoryThinVec<*const RSIndexResult<'index, 'children>>,
+    pub records: LowMemoryThinVec<*const RSIndexResultRaw<'index, 'children>>,
 
     /// A map of the aggregate kind of the underlying records
-    pub kind_mask: RSResultKindMask,
+    pub kind_mask: RSResultKindMaskRaw,
 
     /// The lifetime is actually on the `*const RSIndexResult` children stored in the `records`
     /// field. But since these are stored as a pointers which do not support lifetimes, we need to
@@ -81,13 +81,15 @@ pub struct RSAggregateResult<'index, 'children> {
 }
 
 /// An iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultIter<'index, 'aggregate_children> {
-    pub agg: &'index RSAggregateResult<'index, 'aggregate_children>,
+pub struct RSAggregateResultRawIter<'index, 'aggregate_children> {
+    pub agg: &'index RSAggregateResultRaw<'index, 'aggregate_children>,
     pub index: usize,
 }
 
-impl<'index, 'aggregate_children> Iterator for RSAggregateResultIter<'index, 'aggregate_children> {
-    type Item = &'index RSIndexResult<'index, 'aggregate_children>;
+impl<'index, 'aggregate_children> Iterator
+    for RSAggregateResultRawIter<'index, 'aggregate_children>
+{
+    type Item = &'index RSIndexResultRaw<'index, 'aggregate_children>;
 
     /// Get the next item in the iterator
     ///
@@ -106,23 +108,23 @@ impl<'index, 'aggregate_children> Iterator for RSAggregateResultIter<'index, 'ag
 /// Represents a virtual result in an index record.
 #[repr(C)]
 #[derive(Debug, Eq, PartialEq)]
-pub struct RSVirtualResult;
+pub struct RSVirtualResultRaw;
 
-/// A C-style discriminant for [`RSResultData`].
+/// A C-style discriminant for [`RSResultDataRaw`].
 ///
 /// # Implementation notes
 ///
 /// We need a standalone C-style discriminant to get `bitflags` to generate a
 /// dedicated bitmask type. Unfortunately, we can't apply `#[bitflags]` directly
-/// on [`RSResultData`] since `bitflags` doesn't support enum with data in
+/// on [`RSResultDataRaw`] since `bitflags` doesn't support enum with data in
 /// their variants, nor lifetime parameters.
 ///
 /// The discriminant values must match *exactly* the ones specified
-/// on [`RSResultData`].
+/// on [`RSResultDataRaw`].
 #[bitflags]
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum RSResultKind {
+pub enum RSResultKindRaw {
     Union = 1,
     Intersection = 2,
     Term = 4,
@@ -143,21 +145,21 @@ pub enum RSResultKind {
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 /// cbindgen:prefix-with-name=true
-pub enum RSResultData<'index, 'aggregate_children> {
-    Union(RSAggregateResult<'index, 'aggregate_children>) = 1,
-    Intersection(RSAggregateResult<'index, 'aggregate_children>) = 2,
-    Term(RSTermRecord<'index>) = 4,
-    Virtual(RSVirtualResult) = 8,
-    Numeric(RSNumericRecord) = 16,
-    Metric(RSNumericRecord) = 32,
-    HybridMetric(RSAggregateResult<'index, 'aggregate_children>) = 64,
+pub enum RSResultDataRaw<'index, 'aggregate_children> {
+    Union(RSAggregateResultRaw<'index, 'aggregate_children>) = 1,
+    Intersection(RSAggregateResultRaw<'index, 'aggregate_children>) = 2,
+    Term(RSTermRecordRaw<'index>) = 4,
+    Virtual(RSVirtualResultRaw) = 8,
+    Numeric(RSNumericRecordRaw) = 16,
+    Metric(RSNumericRecordRaw) = 32,
+    HybridMetric(RSAggregateResultRaw<'index, 'aggregate_children>) = 64,
 }
 
 /// The result of an inverted index
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
-pub struct RSIndexResult<'index, 'aggregate_children> {
+pub struct RSIndexResultRaw<'index, 'aggregate_children> {
     /// The document ID of the result
     pub doc_id: t_docId,
 
@@ -175,7 +177,7 @@ pub struct RSIndexResult<'index, 'aggregate_children> {
     pub offsets_sz: u32,
 
     /// The actual data of the result
-    pub data: RSResultData<'index, 'aggregate_children>,
+    pub data: RSResultDataRaw<'index, 'aggregate_children>,
 
     /// Holds an array of metrics yielded by the different iterators in the AST
     pub metrics: *mut RSYieldableMetric,
