@@ -12,7 +12,6 @@ extern "C" {
 #endif
 
 // Field names for implicit LOAD step
-#define HYBRID_IMPLICIT_KEY_FIELD "key"
 #define SEARCH_INDEX 0
 
 /**
@@ -74,6 +73,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), &areq->conc, areq->reqflags, &req->errors[i]);
+
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
         int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
@@ -118,14 +119,11 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Release the sync reference as depleters now hold their own references
     StrongRef_Release(sync_ref);
 
-    // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
-    // and contain only keys from the loading step
     //Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(params->aggregationParams.common.sctx->spec));
-    RLookup_CloneInto(lookup, AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST));
-
-
+    RLookup *searchLookup = AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    RLookup_CloneInto(lookup, searchLookup);
 
     const RLookupKey *scoreKey = NULL;
     if (!loadStep) {
@@ -150,13 +148,39 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    if (rc != REDISMODULE_OK) {
+        return rc;
+    };
 
     // Restore the LOAD step to the tail pipeline for proper cleanup
     if (loadStep) {
         AGPLN_AddStep(&req->tailPipeline->ap, &loadStep->base);
     }
     return REDISMODULE_OK;
+}
+
+/**
+ * Execute the hybrid search pipeline and send results to the client.
+ * This function uses the hybrid-specific result serialization functions.
+ *
+ * @param req The HybridRequest with built pipeline
+ * @param ctx Redis module context for sending the reply
+ */
+void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
+                            RedisSearchCtx *sctx, const char *indexname) {
+    // Set the chunk size limit for the query
+    hreq->tailPipeline->qctx.resultLimit = UINT64_MAX;
+
+    AGGPlan *plan = &hreq->tailPipeline->ap;
+    cachedVars cv = {
+        .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+        .lastAstp = AGPLN_GetArrangeStep(plan)
+    };
+
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+    RedisModule_EndReply(reply);
 }
 
 /**
@@ -187,6 +211,7 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
         QueryError_Init(&hybridReq->errors[i]);
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
+    hybridReq->initClock = clock();
     return hybridReq;
 }
 
@@ -202,6 +227,7 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Free all individual AREQ requests and their pipelines
     for (size_t i = 0; i < req->nrequests; i++) {
+
       // Check if we need to manually free the thread-safe context
       if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
         RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
@@ -233,7 +259,9 @@ void HybridRequest_Free(HybridRequest *req) {
       // Free the aggregationParams search context
       if(req->hybridParams->aggregationParams.common.sctx) {
         SearchCtx_Free(req->hybridParams->aggregationParams.common.sctx);
+        req->hybridParams->aggregationParams.common.sctx = NULL;
       }
+
       // Free the hybrid parameters
       rm_free(req->hybridParams);
     }

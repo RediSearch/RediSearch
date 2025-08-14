@@ -8,6 +8,7 @@
 */
 
 #include "parse_hybrid.h"
+#include "query_optimizer.h"
 
 #include <string.h>
 #include <strings.h>
@@ -356,8 +357,8 @@ final:
       break;
   }
 
-  // Set default scoreField using vector field name (can be done during parsing)
-  VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
+  // // Set default scoreField using vector field name (can be done during parsing)
+  // VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
 
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
@@ -571,6 +572,9 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
                                  QueryError *status) {
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
+  //do not optimize the subqueries
+  searchRequest->optimizer->type = Q_OPT_NONE;
+  vectorRequest->optimizer->type = Q_OPT_NONE;
 
   HybridPipelineParams *hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
@@ -692,8 +696,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       .common =
           {
               .sctx = sctx,  // should be a separate context?
-              .reqflags = hasMerge ? mergeReqflags : 0,
-              .optimizer = NULL,  // is it?
+              .reqflags = (hasMerge ? mergeReqflags : 0) | QEXEC_F_IS_HYBRID_TAIL,
+              .optimizer = NULL,
           },
       .outFields = NULL,
       .maxResultsLimit = mergeMaxAggregateResults,
@@ -704,6 +708,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
+    Pipeline_Initialize(tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridRequest->tailPipelineError);
+
     // Create and transfer the pipeline
     if (hybridRequest->tailPipeline) {
       Pipeline_Clean(hybridRequest->tailPipeline);
@@ -758,6 +764,31 @@ error:
   return NULL;
 }
 
+
+static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
+                    RedisSearchCtx *sctx, const char *indexname,
+                    QueryError *status) {
+  RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
+  RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
+
+  if (RunInThread()) {
+    // TODO: Implement multi-threaded execution
+    return REDISMODULE_ERR;
+  } else {
+
+    int result = REDISMODULE_OK;
+    // Build the pipeline and execute
+    if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Error building hybrid pipeline");
+      result = REDISMODULE_ERR;
+    } else {
+      HREQ_Execute(hreq, ctx, sctx, indexname);
+    }
+
+    return result;
+  }
+}
+
 /**
  * Main command handler for FT.HYBRID command.
  *
@@ -788,26 +819,15 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HybridRequest_BuildPipeline(hybridRequest, hybridRequest->hybridParams) != REDISMODULE_OK) {
+  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx, indexname, &status) != REDISMODULE_OK) {
     goto error;
   }
 
-  // TODO: Add execute command here
-
-  StrongRef_Release(spec_ref);
   HybridRequest_Free(hybridRequest);
   return REDISMODULE_OK;
 
 error:
   RS_LOG_ASSERT(QueryError_HasError(&status), "Hybrid query parsing error");
-
-  // Clear the current thread's index spec if it was set
-  CurrentThread_ClearIndexSpec();
-
-  // Release our strong reference to the spec if it was acquired
-  if (spec_ref.rm) {
-    StrongRef_Release(spec_ref);
-  }
 
   // Free the search context
   SearchCtx_Free(sctx);

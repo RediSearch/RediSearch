@@ -30,8 +30,17 @@ extern "C" {
 
 #define DEFAULT_LIMIT 10
 
+/** Cached variables to avoid serializeResult retrieving these each time */
+typedef struct {
+  RLookup *lastLk;
+  const PLN_ArrangeStep *lastAstp;
+} cachedVars;
+
 typedef struct Grouper Grouper;
 struct QOptimizer;
+
+// Forward declaration
+typedef struct HybridRequest HybridRequest;
 
 /*
  * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL
@@ -133,6 +142,7 @@ typedef struct {
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
+#define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
@@ -388,6 +398,7 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv);
 void AREQ_Free(AREQ *req);
 
 /**
