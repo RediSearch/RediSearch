@@ -210,6 +210,7 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
         QueryError_Init(&hybridReq->errors[i]);
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
+    hybridReq->initClock = clock();
     return hybridReq;
 }
 
