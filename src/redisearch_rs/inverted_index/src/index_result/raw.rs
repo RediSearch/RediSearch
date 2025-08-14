@@ -1,23 +1,18 @@
-use std::{ffi::c_char, fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ptr};
+use std::{ffi::c_char, marker::PhantomData, mem::ManuallyDrop};
 
 use enumflags2::{BitFlags, bitflags};
-use ffi::{
-    FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId,
-    t_fieldMask,
-};
+use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 use low_memory_thin_vec::LowMemoryThinVec;
 
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
-#[derive(Debug, PartialEq)]
 pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
-#[derive(PartialEq)]
 pub struct RSOffsetVector<'index> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
@@ -28,43 +23,9 @@ pub struct RSOffsetVector<'index> {
     _phantom: PhantomData<&'index ()>,
 }
 
-impl Debug for RSOffsetVector<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.data.is_null() {
-            return write!(f, "RSOffsetVector(null)");
-        }
-        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let offsets =
-            unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
-
-        write!(f, "RSOffsetVector {offsets:?}")
-    }
-}
-
-impl RSOffsetVector<'_> {
-    /// Create a new, empty offset vector ready to receive data
-    pub fn empty() -> Self {
-        Self {
-            data: ptr::null_mut(),
-            len: 0,
-            _phantom: PhantomData,
-        }
-    }
-
-    /// Create a new offset vector with the given data pointer and length.
-    pub fn with_data(data: *mut c_char, len: u32) -> Self {
-        Self {
-            data,
-            len,
-            _phantom: PhantomData,
-        }
-    }
-}
-
 /// Represents a single record of a document inside a term in the inverted index
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(PartialEq)]
 pub struct RSTermRecord<'index> {
     /// We mark copied terms so we can treat them a bit differently on deletion, and pool them if
     /// we want
@@ -77,79 +38,9 @@ pub struct RSTermRecord<'index> {
     pub offsets: RSOffsetVector<'index>,
 }
 
-impl<'index> RSTermRecord<'index> {
-    /// Create a new term record without term pointer and offsets.
-    pub fn new() -> Self {
-        Self {
-            is_copy: false,
-            term: ptr::null_mut(),
-            offsets: RSOffsetVector::empty(),
-        }
-    }
-
-    /// Create a new term with the given term pointer and offsets.
-    pub fn with_term(
-        term: *mut RSQueryTerm,
-        offsets: RSOffsetVector<'index>,
-    ) -> RSTermRecord<'index> {
-        Self {
-            is_copy: false,
-            term,
-            offsets,
-        }
-    }
-}
-
-/// Wrapper to provide better Debug output for `RSQueryTerm`.
-/// Can be removed once `RSQueryTerm` is fully ported to Rust.
-struct QueryTermDebug(*mut RSQueryTerm);
-
-impl Debug for QueryTermDebug {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0.is_null() {
-            return write!(f, "RSQueryTerm(null)");
-        }
-        // SAFETY: we just checked that `self.0` is not null.
-        let term = unsafe { &*self.0 };
-
-        let term_str = if term.str_.is_null() {
-            "<null>"
-        } else {
-            // SAFETY: we just checked than `str_` is not null and `len`
-            // is guaranteed to be a valid length for the data pointer.
-            let slice = unsafe { std::slice::from_raw_parts(term.str_ as *const u8, term.len) };
-            // SAFETY: term.str_ is used as a string in the C code.
-            unsafe { std::str::from_utf8_unchecked(slice) }
-        };
-
-        f.debug_struct("RSQueryTerm")
-            .field("str", &term_str)
-            .field("idf", &term.idf)
-            .field("id", &term.id)
-            .field("flags", &term.flags)
-            .field("bm25_idf", &term.bm25_idf)
-            .finish()
-    }
-}
-
-impl Debug for RSTermRecord<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RSTermRecord")
-            .field("term", &QueryTermDebug(self.term))
-            .field("offsets", &self.offsets)
-            .finish()
-    }
-}
-
-impl Default for RSTermRecord<'_> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[bitflags]
 #[repr(u32)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone)]
 /// cbindgen:prefix-with-name=true
 pub enum RSResultType {
     Union = 1,
@@ -171,7 +62,6 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 /// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(Debug, PartialEq)]
 pub struct RSAggregateResult<'index, 'children> {
     /// We mark copied aggregates so we can treat them a bit differently on deletion.
     is_copy: bool,
@@ -286,10 +176,8 @@ impl<'index, 'aggregate_children> Iterator for RSAggregateResultIter<'index, 'ag
         }
     }
 }
-
 /// Represents a virtual result in an index record.
 #[repr(C)]
-#[derive(Debug, PartialEq)]
 pub struct RSVirtualResult;
 
 /// Holds the actual data of an ['IndexResult']
@@ -333,155 +221,7 @@ pub struct RSIndexResult<'index, 'aggregate_children> {
     pub weight: f64,
 }
 
-impl Default for RSIndexResult<'_, '_> {
-    fn default() -> Self {
-        Self::virt()
-    }
-}
-
 impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
-    /// Create a new virtual index result
-    pub fn virt() -> Self {
-        Self {
-            doc_id: 0,
-            dmd: ptr::null(),
-            field_mask: 0,
-            freq: 1,
-            offsets_sz: 0,
-            data: RSIndexResultData {
-                virt: ManuallyDrop::new(RSVirtualResult),
-            },
-            result_type: RSResultType::Virtual,
-            metrics: ptr::null_mut(),
-            weight: 0.0,
-        }
-    }
-
-    /// Create a new numeric index result with the given number
-    pub fn numeric(num: f64) -> Self {
-        Self {
-            field_mask: RS_FIELDMASK_ALL,
-            freq: 1,
-            data: RSIndexResultData {
-                num: ManuallyDrop::new(RSNumericRecord(num)),
-            },
-            result_type: RSResultType::Numeric,
-            weight: 1.0,
-            ..Default::default()
-        }
-    }
-
-    /// Create a new metric index result
-    pub fn metric() -> Self {
-        Self {
-            field_mask: RS_FIELDMASK_ALL,
-            data: RSIndexResultData {
-                num: ManuallyDrop::new(RSNumericRecord(0.0)),
-            },
-            result_type: RSResultType::Metric,
-            weight: 1.0,
-            ..Default::default()
-        }
-    }
-
-    /// Create a new intersection index result with the given capacity
-    pub fn intersect(cap: usize) -> Self {
-        Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
-            },
-            result_type: RSResultType::Intersection,
-            ..Default::default()
-        }
-    }
-
-    /// Create a new union index result with the given capacity
-    pub fn union(cap: usize) -> Self {
-        Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
-            },
-            result_type: RSResultType::Union,
-            ..Default::default()
-        }
-    }
-
-    /// Create a new hybrid metric index result
-    pub fn hybrid_metric() -> Self {
-        Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(2)),
-            },
-            result_type: RSResultType::HybridMetric,
-            weight: 1.0,
-            ..Default::default()
-        }
-    }
-
-    /// Create a new term index result.
-    pub fn term() -> Self {
-        Self {
-            data: RSIndexResultData {
-                term: ManuallyDrop::new(RSTermRecord::new()),
-            },
-            result_type: RSResultType::Term,
-            freq: 1,
-            ..Default::default()
-        }
-    }
-
-    /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
-    pub fn term_with_term_ptr(
-        term: *mut RSQueryTerm,
-        offsets: RSOffsetVector<'index>,
-        doc_id: t_docId,
-        field_mask: t_fieldMask,
-        freq: u32,
-    ) -> RSIndexResult<'index, 'aggregate_children> {
-        let offsets_sz = offsets.len;
-        Self {
-            data: RSIndexResultData {
-                term: ManuallyDrop::new(RSTermRecord::with_term(term, offsets)),
-            },
-            result_type: RSResultType::Term,
-            doc_id,
-            field_mask,
-            freq,
-            offsets_sz,
-            dmd: std::ptr::null(),
-            metrics: std::ptr::null_mut(),
-            weight: 0.0,
-        }
-    }
-
-    /// Set the document ID of this record
-    pub fn doc_id(mut self, doc_id: t_docId) -> Self {
-        self.doc_id = doc_id;
-
-        self
-    }
-
-    /// Set the field mask of this record
-    pub fn field_mask(mut self, field_mask: FieldMask) -> Self {
-        self.field_mask = field_mask;
-
-        self
-    }
-
-    /// Set the weight of this record
-    pub fn weight(mut self, weight: f64) -> Self {
-        self.weight = weight;
-
-        self
-    }
-
-    /// Set the frequency of this record
-    pub fn frequency(mut self, frequency: u32) -> Self {
-        self.freq = frequency;
-
-        self
-    }
-
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
     /// `None`.
     pub fn as_numeric(&self) -> Option<&RSNumericRecord> {
@@ -568,50 +308,5 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             self.result_type,
             RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
         )
-    }
-
-    /// If this is an aggregate result, then add a child to it. Also updates the following of this
-    /// record:
-    /// - The document ID will inherit the new child added
-    /// - The child's frequency will contribute to this result
-    /// - The child's field mask will contribute to this result's field mask
-    /// - If the child has metrics, then they will be concatenated to this result's metrics
-    ///
-    /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
-    /// to make sure this is an aggregate result.
-    ///
-    /// # Safety
-    ///
-    /// The given `result` has to stay valid for the lifetime of this index result. Else reading
-    /// from this result will cause undefined behaviour.
-    pub fn push(&mut self, child: &RSIndexResult) {
-        if self.is_aggregate() {
-            // SAFETY: we know the data will be an aggregate because we just checked the type
-            let agg = unsafe { &mut self.data.agg };
-
-            agg.push(child);
-
-            self.doc_id = child.doc_id;
-            self.freq += child.freq;
-            self.field_mask |= child.field_mask;
-
-            // SAFETY: we know both arguments are valid `RSIndexResult` types
-            unsafe {
-                IndexResult_ConcatMetrics(self, child);
-            }
-        }
-    }
-
-    /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
-    /// an aggregate record or if the index is out-of-bounds.
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index, 'aggregate_children>> {
-        if self.is_aggregate() {
-            // SAFETY: we know the data will be an aggregate because we just checked the type
-            let agg = unsafe { &self.data.agg };
-
-            agg.get(index)
-        } else {
-            None
-        }
     }
 }
