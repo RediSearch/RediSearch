@@ -157,21 +157,21 @@ RSOffsetIterator _emptyIterator() {
 /* Create the appropriate iterator from a result based on its type */
 RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
 
-  switch (res->type) {
-    case RSResultType_Term:
+  switch (res->data.tag) {
+    case RSResultData_Term:
     {
       const RSTermRecord *term = IndexResult_TermRef(res);
       return RSOffsetVector_Iterate(&term->offsets, term->term);
     }
 
     // virtual and numeric entries have no offsets and cannot participate
-    case RSResultType_Virtual:
-    case RSResultType_Numeric:
-    case RSResultType_Metric:
+    case RSResultData_Virtual:
+    case RSResultData_Numeric:
+    case RSResultData_Metric:
       return _emptyIterator();
 
-    case RSResultType_Intersection:
-    case RSResultType_Union:
+    case RSResultData_Intersection:
+    case RSResultData_Union:
     default:
     {
       // if we only have one sub result, just iterate that...

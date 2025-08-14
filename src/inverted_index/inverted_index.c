@@ -695,8 +695,10 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
 
   RSIndexResult rec = (RSIndexResult){
       .docId = docId,
-      .type = RSResultType_Numeric,
-      .data.num = (RSNumericRecord){.value = value},
+      .data = {
+        .numeric_tag = RSResultData_Numeric,
+        .numeric = (RSNumericRecord){.value = value},
+      },
   };
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, &rec);
 }

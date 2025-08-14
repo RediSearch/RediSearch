@@ -12,7 +12,7 @@
 #include "VecSim/query_results.h"
 #include "wildcard_iterator.h"
 
-#define VECTOR_SCORE(p) (p->type == RSResultType_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
+#define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;

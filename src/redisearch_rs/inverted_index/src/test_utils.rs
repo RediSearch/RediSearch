@@ -11,7 +11,7 @@
 
 use ffi::t_fieldMask;
 
-use crate::{RSIndexResult, RSOffsetVector, RSResultType};
+use crate::{RSIndexResult, RSOffsetVector, RSResultData};
 
 /// Wrapper around `inverted_index::RSIndexResult` ensuring the term and offsets
 /// pointers used internally stay valid for the duration of the test or bench.
@@ -59,14 +59,14 @@ pub struct TermRecordCompare<'a>(pub &'a RSIndexResult<'a>);
 
 impl<'a> PartialEq for TermRecordCompare<'a> {
     fn eq(&self, other: &Self) -> bool {
-        assert!(matches!(self.0.result_type, RSResultType::Term));
+        assert!(matches!(self.0.data, RSResultData::Term(_)));
 
         if !(self.0.doc_id == other.0.doc_id
             && self.0.dmd == other.0.dmd
             && self.0.field_mask == other.0.field_mask
             && self.0.freq == other.0.freq
             && self.0.offsets_sz == other.0.offsets_sz
-            && self.0.result_type == other.0.result_type
+            && self.0.data.kind() == other.0.data.kind()
             && self.0.is_copy == other.0.is_copy
             && self.0.metrics == other.0.metrics)
         {

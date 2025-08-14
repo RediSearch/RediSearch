@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultType};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -58,7 +58,7 @@ impl Encoder for Full {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let field_mask = record
                 .field_mask
@@ -163,7 +163,7 @@ impl Encoder for FullWide {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, record.offsets_sz])?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;

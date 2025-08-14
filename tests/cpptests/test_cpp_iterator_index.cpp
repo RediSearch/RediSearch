@@ -125,7 +125,7 @@ private:
         idx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
         IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
         for (size_t i = 0; i < n_docs; ++i) {
-            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            RSIndexResult rec = {.docId = resultSet[i], .data = {.virtual_tag = RSResultData_Virtual}};
             InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
         }
     }
@@ -308,7 +308,7 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
             .docId = i,
             .fieldMask = 1,
             .freq = 1,
-            .type = RSResultType::RSResultType_Term,
+            .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
         };
         InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
     }
@@ -348,7 +348,7 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           IndexEncoder encoder = InvertedIndex_GetEncoder(flags);
           RSIndexResult res = {
               .fieldMask = fieldMask,
-              .type = RSResultType_Term,
+              .data = {.term_tag = RSResultData_Term},
           };
           for (size_t i = 1; i <= n_docs; ++i) {
               res.docId = i;
@@ -772,7 +772,7 @@ private:
         // Populate with tag data using the simpler approach
         IndexEncoder encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
         for (size_t i = 0; i < n_docs; ++i) {
-            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            RSIndexResult rec = {.docId = resultSet[i], .data = {.virtual_tag = RSResultData_Virtual}};
             InvertedIndex_WriteEntryGeneric(tagInvIdx, encoder, &rec);
         }
 
@@ -812,7 +812,7 @@ private:
 
         // Populate with document data for wildcard matching
         for (size_t i = 0; i < n_docs; ++i) {
-            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            RSIndexResult rec = {.docId = resultSet[i], .data = {.virtual_tag = RSResultData_Virtual}};
             InvertedIndex_WriteEntryGeneric(spec->existingDocs, encoder, &rec);
         }
 
@@ -847,7 +847,7 @@ private:
 
         // Populate with some data (for missing iterator, the content represents what's missing)
         for (size_t i = 0; i < n_docs; ++i) {
-            RSIndexResult rec = {.docId = resultSet[i], .type = RSResultType_Virtual};
+            RSIndexResult rec = {.docId = resultSet[i], .data = {.virtual_tag = RSResultData_Virtual}};
             InvertedIndex_WriteEntryGeneric(termIdx, encoder, &rec);
         }
 
