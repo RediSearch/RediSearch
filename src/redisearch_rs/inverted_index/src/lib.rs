@@ -11,8 +11,8 @@ use std::io::{BufRead, Cursor, Seek, Write};
 
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
-    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSNumericRecord, RSOffsetVectorRef,
-    RSResultData, RSResultKind, RSResultKindMask, RSTermRecord, RSVirtualResult,
+    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVectorRef, RSResultData,
+    RSResultKind, RSResultKindMask, RSTermRecord, RSVirtualResult,
 };
 
 pub mod doc_ids_only;

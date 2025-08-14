@@ -48,11 +48,6 @@ unsafe extern "C" {
     unsafe fn Term_Free(t: *mut RSQueryTerm);
 }
 
-/// Represents a numeric value in an index record.
-#[repr(C)]
-#[derive(Debug, PartialEq)]
-pub struct RSNumericRecord(pub f64);
-
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
@@ -512,8 +507,8 @@ pub enum RSResultData<'index, 'aggregate_children> {
     Intersection(RSAggregateResult<'index, 'aggregate_children>) = 2,
     Term(RSTermRecord<'index>) = 4,
     Virtual(RSVirtualResult) = 8,
-    Numeric(RSNumericRecord) = 16,
-    Metric(RSNumericRecord) = 32,
+    Numeric(f64) = 16,
+    Metric(f64) = 32,
     HybridMetric(RSAggregateResult<'index, 'aggregate_children>) = 64,
 }
 
@@ -587,7 +582,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
         Self {
             field_mask: RS_FIELDMASK_ALL,
             freq: 1,
-            data: RSResultData::Numeric(RSNumericRecord(num)),
+            data: RSResultData::Numeric(num),
             weight: 1.0,
             ..Default::default()
         }
@@ -597,7 +592,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
     pub fn metric() -> Self {
         Self {
             field_mask: RS_FIELDMASK_ALL,
-            data: RSResultData::Metric(RSNumericRecord(0.0)),
+            data: RSResultData::Metric(0.0),
             weight: 1.0,
             ..Default::default()
         }
@@ -693,8 +688,8 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
 
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
     /// `None`.
-    pub fn as_numeric(&self) -> Option<&RSNumericRecord> {
-        match &self.data {
+    pub fn as_numeric(&self) -> Option<f64> {
+        match self.data {
             RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(numeric),
             RSResultData::HybridMetric(_)
             | RSResultData::Union(_)
@@ -706,7 +701,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
 
     /// Get this record as a mutable numeric record if possible. If the record is not numeric,
     /// returns `None`.
-    pub fn as_numeric_mut(&mut self) -> Option<&mut RSNumericRecord> {
+    pub fn as_numeric_mut(&mut self) -> Option<&mut f64> {
         match &mut self.data {
             RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(numeric),
             RSResultData::HybridMetric(_)
