@@ -124,7 +124,8 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
   SearchResult *primary = NULL;
   int8_t targetIndex = -1;
   for (size_t i = 0; i < hybridResult->numSources; i++) {
-    if (hybridResult->hasResults[i] && hybridResult->searchResults[i]) {
+    if (hybridResult->hasResults[i]) {
+      RS_ASSERT(hybridResult->searchResults[i]);
       primary = hybridResult->searchResults[i];
       targetIndex = (int8_t)i;
       break;
