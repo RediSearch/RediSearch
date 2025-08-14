@@ -809,6 +809,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
+  StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
+  CurrentThread_SetIndexSpec(spec_ref);
+
   QueryError status = {0};
 
   HybridRequest *hybridRequest = parseHybridCommand(ctx, argv, argc, sctx, indexname, &status);
