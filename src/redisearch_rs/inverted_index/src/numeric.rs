@@ -249,7 +249,7 @@ impl Encoder for Numeric {
         let delta = &delta[..end];
         let delta_bytes = delta.len() as _;
 
-        let bytes_written = match Value::from(num_record.0, self.compress_floats) {
+        let bytes_written = match Value::from(num_record, self.compress_floats) {
             Value::TinyInteger(i) => {
                 let header = Header {
                     delta_bytes,

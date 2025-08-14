@@ -11,8 +11,8 @@ use std::io::{Cursor, Read};
 
 use crate::{
     Decoder, Encoder, FilterMaskReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
-    RSAggregateResult, RSIndexResult, RSNumericRecord, RSResultData, RSResultKind, RSTermRecord,
-    RSVirtualResult, SkipDuplicatesReader,
+    RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord, RSVirtualResult,
+    SkipDuplicatesReader,
 };
 use pretty_assertions::assert_eq;
 
@@ -506,14 +506,8 @@ fn synced_discriminants() {
             RSResultData::Virtual(RSVirtualResult),
             RSResultKind::Virtual,
         ),
-        (
-            RSResultData::Numeric(RSNumericRecord(0.0)),
-            RSResultKind::Numeric,
-        ),
-        (
-            RSResultData::Metric(RSNumericRecord(0.0)),
-            RSResultKind::Metric,
-        ),
+        (RSResultData::Numeric(0.0), RSResultKind::Numeric),
+        (RSResultData::Metric(0.0), RSResultKind::Metric),
         (
             RSResultData::HybridMetric(RSAggregateResult::with_capacity(0)),
             RSResultKind::HybridMetric,
