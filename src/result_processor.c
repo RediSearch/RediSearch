@@ -1079,7 +1079,7 @@ const char *RPTypeToString(ResultProcessorType type) {
 
 typedef struct {
   ResultProcessor base;
-  uint64_t profileTime;
+  rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
 } RPProfile;
 
