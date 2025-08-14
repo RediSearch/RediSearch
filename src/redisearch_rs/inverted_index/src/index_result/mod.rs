@@ -54,8 +54,8 @@ unsafe extern "C" {
 #[derive(Eq, PartialEq)]
 pub struct RSOffsetVectorRef<'index> {
     /// At this point the data ownership is still managed by the caller.
-    pub data: *mut c_char,
-    pub len: u32,
+    data: *mut c_char,
+    len: u32,
     /// data may be borrowed from the reader.
     /// The data pointer does not allow lifetime so use a PhantomData to carry the lifetime for it instead.
     _phantom: PhantomData<&'index ()>,
@@ -67,8 +67,8 @@ pub struct RSOffsetVectorRef<'index> {
 #[derive(Eq, PartialEq)]
 pub struct RSOffsetVectorOwned {
     /// At this point the data ownership is still managed by the caller.
-    pub data: *mut c_char,
-    pub len: u32,
+    data: *mut c_char,
+    len: u32,
 }
 
 impl Debug for RSOffsetVectorRef<'_> {
@@ -143,20 +143,20 @@ pub enum RSTermRecord<'index> {
 #[derive(Eq, PartialEq)]
 pub struct RSTermRecordRef<'index> {
     /// The term that brought up this record
-    pub term: *mut RSQueryTerm,
+    term: *mut RSQueryTerm,
 
     /// The encoded offsets in which the term appeared in the document
-    pub offsets: RSOffsetVectorRef<'index>,
+    offsets: RSOffsetVectorRef<'index>,
 }
 
 #[repr(C)]
 #[derive(Eq, PartialEq)]
 pub struct RSTermRecordOwned {
     /// The term that brought up this record
-    pub term: *mut RSQueryTerm,
+    term: *mut RSQueryTerm,
 
     /// The encoded offsets in which the term appeared in the document
-    pub offsets: RSOffsetVectorOwned,
+    offsets: RSOffsetVectorOwned,
 }
 
 impl<'index> RSTermRecord<'index> {
