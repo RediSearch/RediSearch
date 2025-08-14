@@ -73,6 +73,7 @@ option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
 option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
+option(BUILD_STATIC_LIB "Build static library in addition to shared library" OFF)
 
 
 #----------------------------------------------------------------------------------------------
@@ -321,6 +322,48 @@ target_link_libraries(redisearch
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
+
+#----------------------------------------------------------------------------------------------
+# Build the static library if requested
+if(BUILD_STATIC_LIB)
+    add_library(redisearch_static STATIC ${FINAL_OBJECTS})
+
+    # Set the output name to redisearch.a (or module-enterprise.a for enterprise)
+    if(COORD_TYPE STREQUAL "rlec")
+        set_target_properties(redisearch_static PROPERTIES OUTPUT_NAME "module-enterprise")
+    else()
+        set_target_properties(redisearch_static PROPERTIES OUTPUT_NAME "redisearch")
+    endif()
+
+    set_target_properties(redisearch_static
+        PROPERTIES
+        LINKER_LANGUAGE CXX
+        C_STANDARD 17
+        C_STANDARD_REQUIRED ON
+        PREFIX "lib"
+        SUFFIX ".a")
+
+    # Link all the same libraries as the shared version
+    target_link_libraries(redisearch_static
+            redisearch-geometry
+            redisearch-hash
+            VectorSimilarity
+            redisearch-coord
+            arr
+            buffer
+            inverted_index
+            wildcard
+            uv_a
+            ${BINDIR}/redisearch_rs/libredisearch_rs.a
+            ${HIREDIS_LIBS}
+            ${SSL_LIBS}
+            ${CMAKE_LD_LIBS})
+
+    add_dependencies(redisearch_static VectorSimilarity)
+    add_dependencies(redisearch_static uv_a)
+
+    message(STATUS "Static library will be built")
+endif()
 
 
 #----------------------------------------------------------------------------------------------

@@ -18,6 +18,7 @@ BINROOT="$ROOT/bin"
 COORD="oss"      # Coordinator type: oss or rlec
 DEBUG=0          # Debug build flag
 PROFILE=0        # Profile build flag
+STATIC=0         # Static library build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
@@ -57,6 +58,9 @@ parse_arguments() {
         ;;
       PROFILE|profile)
         PROFILE=1
+        ;;
+      STATIC|static)
+        STATIC=1
         ;;
       TESTS|tests)
         BUILD_TESTS=1
@@ -297,6 +301,10 @@ prepare_cmake_arguments() {
       echo "Error: Cannot run profile with debug/sanitizer/coverage"
       exit 1
     fi
+  fi
+
+  if [[ "$STATIC" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_STATIC_LIB=ON"
   fi
 
   # Set build type
