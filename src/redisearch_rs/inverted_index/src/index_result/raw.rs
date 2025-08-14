@@ -9,9 +9,10 @@
 
 use std::{ffi::c_char, marker::PhantomData};
 
-use enumflags2::{BitFlags, bitflags};
 use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 use low_memory_thin_vec::LowMemoryThinVec;
+
+use super::RSResultKindMask;
 
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
@@ -46,8 +47,6 @@ pub struct RSTermRecordRaw<'index> {
     pub offsets: RSOffsetVectorRaw<'index>,
 }
 
-pub type RSResultKindMaskRaw = BitFlags<RSResultKindRaw, u8>;
-
 /// Represents an aggregate array of values in an index record.
 ///
 /// The C code should always use `AggregateResult_New` to construct a new instance of this type
@@ -68,7 +67,7 @@ pub struct RSAggregateResultRaw<'index, 'children> {
     pub records: LowMemoryThinVec<*const RSIndexResultRaw<'index, 'children>>,
 
     /// A map of the aggregate kind of the underlying records
-    pub kind_mask: RSResultKindMaskRaw,
+    pub kind_mask: RSResultKindMask,
 
     /// The lifetime is actually on the `*const RSIndexResult` children stored in the `records`
     /// field. But since these are stored as a pointers which do not support lifetimes, we need to
@@ -104,30 +103,6 @@ impl<'index, 'aggregate_children> Iterator
 /// Represents a virtual result in an index record.
 #[repr(C)]
 pub struct RSVirtualResultRaw;
-
-/// A C-style discriminant for [`RSResultDataRaw`].
-///
-/// # Implementation notes
-///
-/// We need a standalone C-style discriminant to get `bitflags` to generate a
-/// dedicated bitmask type. Unfortunately, we can't apply `#[bitflags]` directly
-/// on [`RSResultDataRaw`] since `bitflags` doesn't support enum with data in
-/// their variants, nor lifetime parameters.
-///
-/// The discriminant values must match *exactly* the ones specified
-/// on [`RSResultDataRaw`].
-#[bitflags]
-#[repr(u8)]
-#[derive(Copy, Clone)]
-pub enum RSResultKindRaw {
-    Union = 1,
-    Intersection = 2,
-    Term = 4,
-    Virtual = 8,
-    Numeric = 16,
-    Metric = 32,
-    HybridMetric = 64,
-}
 
 /// Holds the actual data of an ['IndexResult']
 ///
