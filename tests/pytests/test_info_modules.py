@@ -500,6 +500,8 @@ def test_redis_info_modules_vecsim():
   info = env.cmd('INFO', 'MODULES')
   field_infos = get_field_infos()
   env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  # Validate that vector indexes are accounted in the total index memory
+  env.assertGreater(info['search_used_memory_indexes'], info['search_used_memory_vector_index'])
   env.assertEqual(info['search_marked_deleted_vectors'], 0)
 
   [env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', f'idx{i}').ok() for i in range(1, 4)]   # Stop the gc

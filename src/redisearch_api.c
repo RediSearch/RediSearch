@@ -892,7 +892,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0);
 }
 
 // Collect statistics of all the currently existing indexes
