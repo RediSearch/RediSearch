@@ -275,11 +275,11 @@ fn u32_delta_overflow() {
 }
 
 impl Decoder for Dummy {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         prev_doc_id: u64,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let mut buffer = [0; 4];
         cursor.read_exact(&mut buffer)?;
 
@@ -387,11 +387,11 @@ fn read_using_the_first_block_id_as_the_base() {
     struct FirstBlockIdDummy;
 
     impl Decoder for FirstBlockIdDummy {
-        fn decode<'a>(
+        fn decode<'index>(
             &self,
-            cursor: &mut Cursor<&'a [u8]>,
+            cursor: &mut Cursor<&'index [u8]>,
             prev_doc_id: u64,
-        ) -> std::io::Result<RSIndexResult<'a>> {
+        ) -> std::io::Result<RSIndexResult<'index, 'static>> {
             let mut buffer = [0; 4];
             cursor.read_exact(&mut buffer)?;
 

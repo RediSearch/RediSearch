@@ -47,11 +47,11 @@ impl Encoder for OffsetsOnly {
 }
 
 impl Decoder for OffsetsOnly {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, offsets_sz] = decoded_values;
 

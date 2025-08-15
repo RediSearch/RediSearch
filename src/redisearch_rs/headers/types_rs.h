@@ -222,6 +222,10 @@ typedef struct RSNumericRecord {
  *
  * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
  * the bitflags on [`RSResultKindMask`]
+ *
+ * The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
+ * While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
+ * raw pointers to results.
  */
 enum RSResultData_Tag
 #ifdef __cplusplus
