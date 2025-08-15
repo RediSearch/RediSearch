@@ -52,7 +52,7 @@ void SearchResult_Clear(SearchResult *r) {
 /* Free the search result object including the object itself */
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
-  RLookupRow_Cleanup(&r->rowdata);
+  RLookupRow_Reset(&r->rowdata);
 }
 
 // Overwrites the contents of 'dst' with those from 'src'.
@@ -61,7 +61,7 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
   if (!src) return;
   RLookupRow oldrow = dst->rowdata;
   *dst = *src;
-  RLookupRow_Cleanup(&oldrow);
+  RLookupRow_Reset(&oldrow);
 }
 
 
@@ -742,7 +742,7 @@ typedef struct RPSafeLoader {
 
 static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
-  RLookupRow_Cleanup(&result_output->rowdata);
+  RLookupRow_Reset(&result_output->rowdata);
   *result_output = *buffered_result;
 }
 

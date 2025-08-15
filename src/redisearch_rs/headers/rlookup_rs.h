@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-// forwards for bitflags types
+// forward declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
  
@@ -107,6 +107,20 @@ enum RLookupOption
 #ifndef __cplusplus
 typedef uint32_t RLookupOption;
 #endif // __cplusplus
+
+/**
+ * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
+ * or from dynamic values stored in the row during processing.
+ *
+ * The type itself exposes the dynamic values, [`RLookupRow::dyn_values`], as a vector of `Option<T>`, where `T` is the type
+ * of the value and it also provides methods to get the length of the dynamic values and check if they are empty.
+ *
+ * The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
+ * [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
+ *
+ * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
+ */
+typedef struct RLookupRow RLookupRow;
 
 /**
  * This type acts like a [std::borrow::Cow] but it has a C-compatible representation.
@@ -248,3 +262,53 @@ typedef struct RLookupKey {
   union CBCow_CStr _name;
   union CBOption_CBCow_CStr _path;
 } RLookupKey;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+/**
+ * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
+ *
+ * Safety:
+ * 1. `key` must be a valid pointer to an [`RLookupKey`].
+ * 2. `row` must be a valid pointer to an [`RLookupRow`].
+ * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
+ */
+void RLookup_WriteKey(const struct RLookupKey *key,
+                      struct RLookupRow *row,
+                      RSValue *value);
+
+/**
+ * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
+ *
+ * Safety:
+ * 1. `key` must be a valid pointer to an [`RLookupKey`].
+ * 2. `row` must be a valid pointer to an [`RLookupRow`].
+ * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
+ */
+void RLookup_WriteOwnKey(const struct RLookupKey *key,
+                         struct RLookupRow *row,
+                         RSValue *value);
+
+/**
+ * Wipes a RLookupRow by decrementing all values and resetting the row.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ */
+void RLookupRow_Wipe(struct RLookupRow *row);
+
+/**
+ * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
+ *
+ * This does not affect the sorting vector.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ */
+void RLookupRow_Reset(struct RLookupRow *row);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
