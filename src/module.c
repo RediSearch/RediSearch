@@ -113,6 +113,15 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
     return true;
   }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+
+  if (!user_name) {
+    // In Redis, the "master" client (such as replication or internal server
+    // operations) may not have an associated user, and
+    // RedisModule_GetCurrentUserName will return NULL in such cases.
+    // If we are in a context without a user_name, allow access.
+    return true;
+  }
+
   RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
 
   if (!user) {
