@@ -11,7 +11,7 @@
 MAKEFLAGS += --no-print-directory
 
 ROOT := $(shell pwd)
-BUILD_SCRIPT := $(ROOT)/build.sh
+BUILD_SCRIPT := $(ROOT)/sbin/build.sh
 
 # Default target
 .DEFAULT_GOAL := build
