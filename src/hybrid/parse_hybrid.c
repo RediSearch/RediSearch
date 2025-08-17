@@ -25,7 +25,11 @@
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
 #include "util/references.h"
+#include "util/workers.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "cursor.h"
+#include "info/info_redis/block_client.h"
+#include "hybrid/hybrid_request.h"
 
 
 static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
@@ -764,7 +768,6 @@ error:
   return NULL;
 }
 
-
 static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, const char *indexname,
                     QueryError *status) {
@@ -772,17 +775,34 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
   RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
 
   if (RunInThread()) {
-    // TODO: Implement multi-threaded execution
-    return REDISMODULE_ERR;
-  } else {
+    // Multi-threaded execution path
+    StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
+    // Create a dummy AREQ for BlockQueryClient (it expects an AREQ but we'll use the first one)
+    AREQ *dummy_req = hreq->requests[0];
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, 0);
+
+    blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, blockedClient, spec_ref);
+
+    // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
+    }
+
+    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
+    RS_ASSERT(rc == 0);
+
+    return REDISMODULE_OK;
+    } else {
+    // Single-threaded execution path
     int result = REDISMODULE_OK;
+
     // Build the pipeline and execute
     if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
       QueryError_SetError(status, QUERY_EGENERIC, "Error building hybrid pipeline");
       result = REDISMODULE_ERR;
     } else {
-      HREQ_Execute(hreq, ctx, sctx, indexname);
+      HREQ_Execute(hreq, ctx, sctx);
     }
 
     return result;
@@ -823,12 +843,12 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  HybridRequest_Free(hybridRequest);
   return REDISMODULE_OK;
 
 error:
-  RS_LOG_ASSERT(QueryError_HasError(&status), "Hybrid query parsing error");
-
+  if (hybridRequest) {
+    HybridRequest_Free(hybridRequest);
+  }
   // Free the search context
   SearchCtx_Free(sctx);
 

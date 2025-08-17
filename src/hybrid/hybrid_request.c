@@ -6,6 +6,11 @@
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
 #include "rmutil/args.h"
+#include "util/workers.h"
+#include "cursor.h"
+#include "info/info_redis/block_client.h"
+#include "query_error.h"
+#include "spec.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -168,7 +173,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
  * @param ctx Redis module context for sending the reply
  */
 void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
-                            RedisSearchCtx *sctx, const char *indexname) {
+                            RedisSearchCtx *sctx) {
     // Set the chunk size limit for the query
     hreq->tailPipeline->qctx.resultLimit = UINT64_MAX;
 
@@ -181,6 +186,7 @@ void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
     RedisModule_EndReply(reply);
+    HybridRequest_Free(hreq);
 }
 
 /**
@@ -274,6 +280,65 @@ void HybridRequest_Free(HybridRequest *req) {
     }
 
     rm_free(req);
+}
+
+// Background execution functions implementation
+blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
+                                                   RedisModuleBlockedClient *blockedClient,
+                                                   StrongRef spec) {
+  blockedClientHybridCtx *ret = rm_new(blockedClientHybridCtx);
+  ret->hreq = hreq;
+  ret->blockedClient = blockedClient;
+  ret->spec_ref = StrongRef_Demote(spec);
+  return ret;
+}
+
+void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
+  if (BCHCtx->hreq) {
+    HybridRequest_Free(BCHCtx->hreq);
+  }
+  RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
+  void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
+  RedisModule_UnblockClient(BCHCtx->blockedClient, privdata);
+  WeakRef_Release(BCHCtx->spec_ref);
+  rm_free(BCHCtx);
+}
+
+void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
+  HybridRequest *hreq = BCHCtx->hreq;
+  RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
+  QueryError status = {0};
+
+  StrongRef execution_ref = IndexSpecRef_Promote(BCHCtx->spec_ref);
+  if (!StrongRef_Get(execution_ref)) {
+    // The index was dropped while the query was in the job queue.
+    // Notify the client that the query was aborted
+    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    QueryError_ReplyAndClear(outctx, &status);
+    RedisModule_FreeThreadSafeContext(outctx);
+    blockedClientHybridCtx_destroy(BCHCtx);
+    return;
+  }
+
+  // Update the main search context with the thread-safe context
+  RedisSearchCtx *sctx = hreq->hybridParams->aggregationParams.common.sctx;
+  sctx->redisCtx = outctx;
+
+  // Build the pipeline and execute
+  if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
+    QueryError_SetError(&status, QUERY_EGENERIC, "Error building hybrid pipeline");
+    QueryError_ReplyAndClear(outctx, &status);
+    // hreq will be freed by blockedClientHybridCtx_destroy since execution failed
+  } else {
+    // Hybrid query doesn't support cursors.
+    HREQ_Execute(hreq, outctx, sctx);
+    // Set hreq to NULL so it won't be freed in destroy (it was freed by HREQ_Execute)
+    BCHCtx->hreq = NULL;
+  }
+
+  RedisModule_FreeThreadSafeContext(outctx);
+  IndexSpecRef_Release(execution_ref);
+  blockedClientHybridCtx_destroy(BCHCtx);
 }
 
 #ifdef __cplusplus
