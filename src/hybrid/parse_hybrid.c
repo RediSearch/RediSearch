@@ -802,8 +802,7 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     // Single-threaded execution path
 
     // Build the pipeline and execute
-    if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Error building hybrid pipeline");
+    if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     } else {
       HREQ_Execute(hreq, ctx, sctx);
@@ -852,8 +851,6 @@ error:
   if (hybridRequest) {
     HybridRequest_Free(hybridRequest);
   }
-  // Free the search context
-  SearchCtx_Free(sctx);
 
   return QueryError_ReplyAndClear(ctx, &status);
 }
