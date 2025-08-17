@@ -19,7 +19,7 @@ extern "C" {
 
 typedef struct timespec rs_wall_clock;
 
-#define NANOSEC_PER_SECOND     1000000000ULL // 10^9
+#define NANOSEC_PER_SECOND     1000000000L // 10^9
 #define NANOSEC_PER_MILLISEC   (NANOSEC_PER_SECOND / 1000) // 10^6
 
 // Using different types for nanoseconds and milliseconds to avoid confusion
@@ -36,10 +36,19 @@ static inline void rs_wall_clock_init(rs_wall_clock *clk) {
 static inline rs_wall_clock_ns_t rs_wall_clock_diff_ns(rs_wall_clock *start,
                                                        rs_wall_clock *end) {
     RS_ASSERT(end->tv_sec >= start->tv_sec); // Assert the assumption
+
+    // We assume that the difference in seconds will not overflow int64_t.
+    RS_ASSERT(end->tv_sec - start->tv_sec <= INT64_MAX);
+    // Since 2^63 seconds is 292*10^9 years, it's safe to assume it won't happen.
     int64_t sec_diff = (int64_t)(end->tv_sec - start->tv_sec);
+
+    // timespec nanoseconds can't hold more then 1 second (10^9), so the difference
+    // can't overflow int64_t.
     int64_t nsec_diff = end->tv_nsec - start->tv_nsec;
 
     // Implicit cast to rs_wall_clock_ns_t
+    // The cast should happen after the addition
+    // int64_t * long -> int64_t, int64_t + int64_t -> int64_t
     return sec_diff * NANOSEC_PER_SECOND + nsec_diff;
 }
 
