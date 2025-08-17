@@ -13,7 +13,7 @@
 #include "expr/expression.h"
 #include "aggregate_plan.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/cxx/chrono-clock.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -125,10 +125,10 @@ typedef struct {
   unsigned int dialectVersion;
 
   /** Profile variables */
-  hires_clock_t initClock;  // Time of start. Reset for each cursor call
-  double totalTime;          // Total time. Used to accimulate cursors times
-  double parseTime;          // Time for parsing the query
-  double pipelineBuildTime;  // Time for creating the pipeline
+  rs_wall_clock initClock;  // Time of start. Reset for each cursor call
+  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accimulate cursors times. Accumulated in nanoseconds, reported in milliseconds (double)
+  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query. Accumulated in nanoseconds, reported in milliseconds (double)
+  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline. Accumulated in nanoseconds, reported in milliseconds (double)
 
   const char** requiredFields;
 } AREQ;
