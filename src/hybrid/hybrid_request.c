@@ -45,6 +45,25 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
+static bool containScoresAsField(const PLN_LoadStep *step) {
+  // Create a temporary ArgsCursor to iterate over the original arguments
+  ArgsCursor tempArgs = step->args;
+
+  while (!AC_IsAtEnd(&tempArgs)) {
+    const char *fieldName = AC_GetStringNC(&tempArgs, NULL);
+
+    // Handle path prefix (@) if present
+    if (fieldName && *fieldName == '@') {
+      fieldName++;
+    }
+
+    if (fieldName && strcmp(fieldName, UNDERSCORE_SCORE) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Build the complete hybrid search pipeline for processing multiple search requests.
  * This function constructs a sophisticated pipeline that:
@@ -132,9 +151,9 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     RLookup_CloneInto(lookup, searchLookup);
 
     const RLookupKey *scoreKey = NULL;
-    if (!loadStep) {
+    if (!loadStep || containScoresAsField(loadStep)) {
         // implicit load score as well as key
-        scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+        scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
     }
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
@@ -150,6 +169,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     if (loadStep) {
         AGPLN_PopStep(&loadStep->base);
     }
+
 
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
