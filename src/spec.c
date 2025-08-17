@@ -30,6 +30,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "info/global_stats.h"
+#include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -298,7 +299,7 @@ size_t IndexSpec_collect_text_overhead(IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead) {
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead, size_t vector_overhead) {
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
@@ -308,6 +309,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += sp->stats.invertedSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
+  res += vector_overhead;
   return res;
 }
 

@@ -221,7 +221,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
   REPLY_KVNUM(n, "text_overhead_sz_mb", text_overhead / (float)0x100000);
   REPLY_KVNUM(n, "total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, dt_tm_size,
-    tags_overhead, text_overhead) / (float)0x100000);
+    tags_overhead, text_overhead, sp->stats.vectorIndexSize) / (float)0x100000);
   REPLY_KVNUM(n, "records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
   REPLY_KVNUM(n, "bytes_per_record_avg",
