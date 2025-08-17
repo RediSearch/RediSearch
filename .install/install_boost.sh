@@ -10,8 +10,8 @@ if [[ -d ${BOOST_DIR} ]]; then
     exit 0
 fi
 
-wget https://archives.boost.io/release/${VERSION}/source/${BOOST_NAME}.tar.gz -O ${BOOST_NAME}.tar.gz
+wget https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}.tar.gz -O ${BOOST_NAME}.tar.gz
 
 tar -xzf ${BOOST_NAME}.tar.gz
-mv ${BOOST_NAME} ${BOOST_DIR}
+mv boost-${VERSION} ${BOOST_DIR}
 rm ${BOOST_NAME}.tar.gz
