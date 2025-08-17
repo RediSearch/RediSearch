@@ -11,7 +11,8 @@ use std::io::{Cursor, Read};
 
 use crate::{
     Decoder, Encoder, FilterMaskReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
-    RSIndexResult, SkipDuplicatesReader,
+    RSAggregateResult, RSIndexResult, RSNumericRecord, RSResultData, RSResultKind, RSTermRecord,
+    RSVirtualResult, SkipDuplicatesReader,
 };
 use pretty_assertions::assert_eq;
 
@@ -274,11 +275,11 @@ fn u32_delta_overflow() {
 }
 
 impl Decoder for Dummy {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         prev_doc_id: u64,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let mut buffer = [0; 4];
         cursor.read_exact(&mut buffer)?;
 
@@ -386,11 +387,11 @@ fn read_using_the_first_block_id_as_the_base() {
     struct FirstBlockIdDummy;
 
     impl Decoder for FirstBlockIdDummy {
-        fn decode<'a>(
+        fn decode<'index>(
             &self,
-            cursor: &mut Cursor<&'a [u8]>,
+            cursor: &mut Cursor<&'index [u8]>,
             prev_doc_id: u64,
-        ) -> std::io::Result<RSIndexResult<'a>> {
+        ) -> std::io::Result<RSIndexResult<'index, 'static>> {
             let mut buffer = [0; 4];
             cursor.read_exact(&mut buffer)?;
 
@@ -484,4 +485,52 @@ fn reading_filter_based_on_field_mask() {
             RSIndexResult::default().doc_id(12).field_mask(0b0100),
         ]
     );
+}
+
+#[test]
+fn synced_discriminants() {
+    let tests = [
+        (
+            RSResultData::Union(RSAggregateResult::with_capacity(0)),
+            RSResultKind::Union,
+        ),
+        (
+            RSResultData::Intersection(RSAggregateResult::with_capacity(0)),
+            RSResultKind::Intersection,
+        ),
+        (
+            RSResultData::Term(RSTermRecord::default()),
+            RSResultKind::Term,
+        ),
+        (
+            RSResultData::Virtual(RSVirtualResult),
+            RSResultKind::Virtual,
+        ),
+        (
+            RSResultData::Numeric(RSNumericRecord(0.0)),
+            RSResultKind::Numeric,
+        ),
+        (
+            RSResultData::Metric(RSNumericRecord(0.0)),
+            RSResultKind::Metric,
+        ),
+        (
+            RSResultData::HybridMetric(RSAggregateResult::with_capacity(0)),
+            RSResultKind::HybridMetric,
+        ),
+    ];
+
+    for (data, kind) in tests {
+        assert_eq!(data.kind(), kind);
+
+        // SAFETY: since `RSResultData` is a `repr(u8)` it will have a C `union` layout with a
+        // `repr(C)` struct for each variant. Each of these structs has the discriminant as the
+        // first field, which we can read here without offsetting the pointer.
+        //
+        // For more see https://doc.rust-lang.org/std/mem/fn.discriminant.html#accessing-the-numeric-value-of-the-discriminant
+        let data_discriminant = unsafe { *<*const _>::from(&data).cast::<u8>() };
+        let kind_discriminant = kind as u8;
+
+        assert_eq!(data_discriminant, kind_discriminant, "for {kind:?}");
+    }
 }

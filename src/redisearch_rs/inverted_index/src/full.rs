@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultType};
+use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -34,7 +34,7 @@ pub struct Full;
 ///
 /// record must have `result_type` set to `RSResultType::Term`.
 #[inline(always)]
-pub fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
+pub fn offsets<'a>(record: &'a RSIndexResult<'_, '_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = record.as_term().unwrap();
     if term.offsets.data.is_null() {
@@ -58,7 +58,7 @@ impl Encoder for Full {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let field_mask = record
                 .field_mask
@@ -79,14 +79,14 @@ impl Encoder for Full {
 
 /// Create a [`RSIndexResult`] from the given parameters and read its offsets from the reader.
 #[inline(always)]
-pub fn decode_term_record_offsets<'a>(
-    cursor: &mut Cursor<&'a [u8]>,
+pub fn decode_term_record_offsets<'index>(
+    cursor: &mut Cursor<&'index [u8]>,
     base: t_docId,
     delta: u32,
     field_mask: t_fieldMask,
     freq: u32,
     offsets_sz: u32,
-) -> std::io::Result<RSIndexResult<'a>> {
+) -> std::io::Result<RSIndexResult<'index, 'static>> {
     // borrow the offsets vector from the cursor
     let start = cursor.position() as usize;
     let end = start + offsets_sz as usize;
@@ -120,11 +120,11 @@ pub fn decode_term_record_offsets<'a>(
 }
 
 impl Decoder for Full {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
         let [delta, freq, field_mask, offsets_sz] = decoded_values;
 
@@ -163,7 +163,7 @@ impl Encoder for FullWide {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, record.offsets_sz])?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;
@@ -176,11 +176,11 @@ impl Encoder for FullWide {
 }
 
 impl Decoder for FullWide {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, offsets_sz] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;

@@ -14,7 +14,7 @@ use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, RSResultType,
+    Decoder, Encoder, RSIndexResult, RSResultData,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -39,7 +39,7 @@ impl Encoder for FieldsOffsets {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let field_mask = record
                 .field_mask
@@ -56,11 +56,11 @@ impl Encoder for FieldsOffsets {
 }
 
 impl Decoder for FieldsOffsets {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, field_mask, offsets_sz] = decoded_values;
 
@@ -97,7 +97,7 @@ impl Encoder for FieldsOffsetsWide {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let mut bytes_written = qint_encode(&mut writer, [delta, record.offsets_sz])?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;
@@ -110,11 +110,11 @@ impl Encoder for FieldsOffsetsWide {
 }
 
 impl Decoder for FieldsOffsetsWide {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, offsets_sz] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;

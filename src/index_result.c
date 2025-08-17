@@ -16,18 +16,20 @@
 #include "value.h"
 
 /* Allocate a new aggregate result of a given type with a given capacity*/
-RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
+RSIndexResult *__newAggregateResult(size_t cap, RSResultData_Tag t, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
-      .type = t,
       .docId = 0,
       .freq = 0,
       .fieldMask = 0,
       .isCopy = 0,
       .weight = weight,
       .metrics = NULL,
-      .data.agg = AggregateResult_New(cap)
+      .data = {
+        .union_tag = t,
+        .union_ = AggregateResult_New(cap)
+      },
   };
   return res;
 }
@@ -52,34 +54,37 @@ void Term_Offset_Data_Free(RSTermRecord *tr) {
 
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight) {
-  return __newAggregateResult(cap, RSResultType_Intersection, weight);
+  return __newAggregateResult(cap, RSResultData_Intersection, weight);
 }
 
 /* Allocate a new union result with a given capacity*/
 RSIndexResult *NewUnionResult(size_t cap, double weight) {
-  return __newAggregateResult(cap, RSResultType_Union, weight);
+  return __newAggregateResult(cap, RSResultData_Union, weight);
 }
 
 /* Allocate a new hybrid result with a given capacity (currently relevant for
  * hybrid vector similarity queries)*/
 RSIndexResult *NewHybridResult() {
-  return __newAggregateResult(2, RSResultType_HybridMetric, 1);
+  return __newAggregateResult(2, RSResultData_HybridMetric, 1);
 }
 
 /* Allocate a new token record result for a given term */
 RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
-  *res = (RSIndexResult){.type = RSResultType_Term,
+  *res = (RSIndexResult){
                          .docId = 0,
                          .fieldMask = 0,
                          .isCopy = 0,
                          .freq = 0,
                          .weight = weight,
                          .metrics = NULL,
-                         .data.term = (RSTermRecord){
-                             .term = term,
-                             .offsets = (RSOffsetVector){},
+                         .data = {
+                          .term_tag = RSResultData_Term,
+                          .term = (RSTermRecord){
+                              .term = term,
+                              .offsets = (RSOffsetVector){},
+                          }
                          }};
   return res;
 }
@@ -87,14 +92,17 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
 RSIndexResult *NewNumericResult() {
   RSIndexResult *res = rm_new(RSIndexResult);
 
-  *res = (RSIndexResult){.type = RSResultType_Numeric,
+  *res = (RSIndexResult){
                          .docId = 0,
                          .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 1,
                          .weight = 1,
                          .metrics = NULL,
-                         .data.num = (RSNumericRecord){.value = 0}};
+                         .data = {
+                          .numeric_tag = RSResultData_Numeric,
+                          .numeric = (RSNumericRecord){.value = 0}
+                         }};
   return res;
 }
 
@@ -102,7 +110,7 @@ RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
-      .type = RSResultType_Virtual,
+      .data.virtual_tag = RSResultData_Virtual,
       .docId = 0,
       .fieldMask = fieldMask,
       .freq = 0,
@@ -116,14 +124,17 @@ RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask) {
 RSIndexResult *NewMetricResult() {
   RSIndexResult *res = rm_new(RSIndexResult);
 
-  *res = (RSIndexResult){.type = RSResultType_Metric,
+  *res = (RSIndexResult){
                          .docId = 0,
                          .isCopy = 0,
                          .fieldMask = RS_FIELDMASK_ALL,
                          .freq = 0,
                          .weight = 1,
                          .metrics = NULL,
-                         .data.num = (RSNumericRecord){.value = 0}};
+                         .data = {
+                          .metric_tag = RSResultData_Metric,
+                          .metric = (RSNumericRecord){.value = 0}
+                         }};
   return res;
 }
 
@@ -140,16 +151,16 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
       RSValue_IncrRef(ret->metrics[i].value);
   }
 
-  switch (src->type) {
+  switch (src->data.tag) {
     // copy aggregate types
-    case RSResultType_Intersection:
-    case RSResultType_Union:
-    case RSResultType_HybridMetric:
+    case RSResultData_Intersection:
+    case RSResultData_Union:
+    case RSResultData_HybridMetric:
     {
       // allocate a new child pointer array
       const RSAggregateResult *agg = IndexResult_AggregateRef(src);
       size_t numChildren = AggregateResult_NumChildren(agg);
-      ret->data.agg = AggregateResult_New(numChildren);
+      ret->data.union_ = AggregateResult_New(numChildren);
 
       // deep copy recursively all children
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
@@ -165,7 +176,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     }
 
     // copy term results
-    case RSResultType_Term:
+    case RSResultData_Term:
       // copy the offset vectors
       RSOffsetVector_CopyData(&IndexResult_TermRefMut(ret)->offsets, &IndexResult_TermRef(src)->offsets);
       break;
@@ -195,22 +206,22 @@ void Term_Free(RSQueryTerm *t) {
 }
 
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
-  switch (res->type) {
-    case RSResultType_Term:
+  switch (res->data.tag) {
+    case RSResultData_Term:
       return RSOffsetVector_Len(&IndexResult_TermRef(res)->offsets) > 0;
-    case RSResultType_Intersection:
-    case RSResultType_Union:
+    case RSResultData_Intersection:
+    case RSResultData_Union:
     {
       const RSAggregateResult *agg = IndexResult_AggregateRef(res);
 
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return AggregateResult_TypeMask(agg) != RSResultType_Virtual && AggregateResult_TypeMask(agg) != RS_RESULT_NUMERIC;
+      return AggregateResult_KindMask(agg) != RSResultData_Virtual && AggregateResult_KindMask(agg) != RS_RESULT_NUMERIC;
     }
     // a virtual result doesn't have offsets!
-    case RSResultType_Virtual:
-    case RSResultType_Numeric:
-    case RSResultType_Metric:
+    case RSResultData_Virtual:
+    case RSResultData_Numeric:
+    case RSResultData_Metric:
     default:
       return 0;
   }
@@ -219,7 +230,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
   ResultMetrics_Free(r);
-  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
+  if (r->data.tag == RSResultData_Intersection || r->data.tag == RSResultData_Union || r->data.tag == RSResultData_HybridMetric) {
     // for deep-copy results we also free the children
     if (r->isCopy) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(r);
@@ -232,8 +243,8 @@ void IndexResult_Free(RSIndexResult *r) {
 
       AggregateResultIter_Free(iter);
     }
-    AggregateResult_Free(r->data.agg);
-  } else if (r->type == RSResultType_Term) {
+    AggregateResult_Free(r->data.union_);
+  } else if (r->data.tag == RSResultData_Term) {
     if (r->isCopy) {
       RSOffsetVector_FreeData(&IndexResult_TermRefMut(r)->offsets);
 
@@ -313,9 +324,9 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
 void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
   if (*len == cap) return;
 
-  switch (r->type) {
-    case RSResultType_Intersection:
-    case RSResultType_Union:
+  switch (r->data.tag) {
+    case RSResultData_Intersection:
+    case RSResultData_Union:
     {
       const RSAggregateResult *agg = IndexResult_AggregateRef(r);
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
@@ -329,7 +340,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
 
       break;
     }
-    case RSResultType_Term:
+    case RSResultData_Term:
     {
       const RSTermRecord *term = IndexResult_TermRef(r);
       if (term->term) {

@@ -203,7 +203,7 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
   size_t sz;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-  RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
+  RSIndexResult rec = {.data.virtual_tag = RSResultData_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   return InvertedIndex_WriteEntryGeneric(iv, enc, &rec) + sz;
 }
@@ -273,14 +273,14 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   char *str;
   tm_len_t slen;
   void *ptr;
-  RedisModule_ReplyWithSetOrArray(ctx, REDISMODULE_POSTPONED_LEN);
+  RedisModule_ReplyWithSet(ctx, REDISMODULE_POSTPONED_LEN);
   long long count = 0;
   while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 
-  RedisModule_ReplySetSetOrArrayLength(ctx, count);
+  RedisModule_ReplySetSetLength(ctx, count);
 
   TrieMapIterator_Free(it);
 }

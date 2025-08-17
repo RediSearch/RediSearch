@@ -139,7 +139,7 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
       ASSERT_NE(found_mult, -1);
-      if (res->type == RSResultType_Union) {
+      if (res->data.tag == RSResultData_Union) {
         const RSAggregateResult *agg = IndexResult_AggregateRef(res);
         res = (RSIndexResult*)AggregateResult_Get(agg, 0);
       }
@@ -156,7 +156,7 @@ void testRangeIteratorHelper(bool isMulti) {
       }
       ASSERT_NE(found_mult, -1);
 
-      ASSERT_EQ(res->type, RSResultType_Numeric);
+      ASSERT_EQ(res->data.tag, RSResultData_Numeric);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
       ASSERT_TRUE(!IndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);

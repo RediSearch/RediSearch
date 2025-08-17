@@ -102,7 +102,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
 }
 
 void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool obfuscate, bool withTimes) {
-  const bool has_map = RedisModule_HasMap(reply);
+  const bool has_map = RedisModule_IsRESP3(reply);
 
   RedisModule_Reply_Map(reply); // top
 

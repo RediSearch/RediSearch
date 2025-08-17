@@ -271,7 +271,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 /** Write a forward-index entry to the index */
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
                                             ForwardIndexEntry *ent) {
-  RSIndexResult rec = {.type = RSResultType_Term,
+  RSIndexResult rec = {.data.term_tag = RSResultData_Term,
                        .docId = ent->docId,
                        .offsetsSz = VVW_GetByteLength(ent->vw),
                        .freq = ent->freq,

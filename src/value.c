@@ -735,7 +735,7 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
       return REDISMODULE_OK;
 
     case RSValue_Map:
-      // If Map value is used, assume Map api exists (RedisModule_HasMap)
+      // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
       RedisModule_Reply_Map(reply);
       for (uint32_t i = 0; i < v->mapval.len; i++) {
           RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], flags);

@@ -13,7 +13,7 @@ use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, RSResultType,
+    Decoder, Encoder, RSIndexResult, RSResultData,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -35,7 +35,7 @@ impl Encoder for FreqsOffsets {
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, record.offsets_sz])?;
 
@@ -47,11 +47,11 @@ impl Encoder for FreqsOffsets {
 }
 
 impl Decoder for FreqsOffsets {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, offsets_sz] = decoded_values;
 

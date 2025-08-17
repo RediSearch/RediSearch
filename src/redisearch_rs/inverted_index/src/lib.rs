@@ -12,8 +12,6 @@ use std::{
     fmt::Debug,
     io::{BufRead, Cursor, Seek, Write},
     marker::PhantomData,
-    mem::ManuallyDrop,
-    ops::DerefMut,
     ptr,
 };
 
@@ -99,15 +97,15 @@ pub struct RSNumericRecord(pub f64);
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
-#[derive(PartialEq)]
-pub struct RSOffsetVector<'a> {
+#[derive(Eq, PartialEq)]
+pub struct RSOffsetVector<'index> {
     /// At this point the data ownership is still managed by the caller.
     // TODO: switch to a Cow once the caller code has been ported to Rust.
     pub data: *mut c_char,
     pub len: u32,
     /// data may be borrowed from the reader.
     /// The data pointer does not allow lifetime so use a PhantomData to carry the lifetime for it instead.
-    _phantom: PhantomData<&'a ()>,
+    _phantom: PhantomData<&'index ()>,
 }
 
 impl std::fmt::Debug for RSOffsetVector<'_> {
@@ -145,16 +143,16 @@ impl RSOffsetVector<'_> {
 
 /// Represents a single record of a document inside a term in the inverted index
 #[repr(C)]
-#[derive(PartialEq)]
-pub struct RSTermRecord<'a> {
+#[derive(Eq, PartialEq)]
+pub struct RSTermRecord<'index> {
     /// The term that brought up this record
     pub term: *mut RSQueryTerm,
 
     /// The encoded offsets in which the term appeared in the document
-    pub offsets: RSOffsetVector<'a>,
+    pub offsets: RSOffsetVector<'index>,
 }
 
-impl<'a> RSTermRecord<'a> {
+impl<'index> RSTermRecord<'index> {
     /// Create a new term record without term pointer and offsets.
     pub fn new() -> Self {
         Self {
@@ -164,7 +162,10 @@ impl<'a> RSTermRecord<'a> {
     }
 
     /// Create a new term with the given term pointer and offsets.
-    pub fn with_term(term: *mut RSQueryTerm, offsets: RSOffsetVector<'a>) -> RSTermRecord<'a> {
+    pub fn with_term(
+        term: *mut RSQueryTerm,
+        offsets: RSOffsetVector<'index>,
+    ) -> RSTermRecord<'index> {
         Self { term, offsets }
     }
 }
@@ -216,21 +217,7 @@ impl Default for RSTermRecord<'_> {
     }
 }
 
-#[bitflags]
-#[repr(u32)]
-#[derive(Copy, Clone, Debug, PartialEq)]
-/// cbindgen:prefix-with-name=true
-pub enum RSResultType {
-    Union = 1,
-    Intersection = 2,
-    Term = 4,
-    Virtual = 8,
-    Numeric = 16,
-    Metric = 32,
-    HybridMetric = 64,
-}
-
-pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
+pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 
 /// Represents an aggregate array of values in an index record.
 ///
@@ -240,28 +227,30 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 /// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(Debug, PartialEq)]
-pub struct RSAggregateResult<'a> {
+#[derive(Debug, Eq, PartialEq)]
+pub struct RSAggregateResult<'index, 'children> {
     /// The records making up this aggregate result
     ///
     /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<*const RSIndexResult<'a>>,
+    records: LowMemoryThinVec<*const RSIndexResult<'index, 'children>>,
 
-    /// A map of the aggregate type of the underlying records
-    type_mask: RSResultTypeMask,
-    /// The lifetime is actually on `RsIndexResult` but it is stored as a pointer which does not
-    /// support lifetimes. So use a PhantomData to carry the lifetime for it instead.
-    _phantom: PhantomData<&'a ()>,
+    /// A map of the aggregate kind of the underlying records
+    kind_mask: RSResultKindMask,
+
+    /// The lifetime is actually on the `*const RSIndexResult` children stored in the `records`
+    /// field. But since these are stored as a pointers which do not support lifetimes, we need to
+    /// use a PhantomData to carry the lifetime for each child record instead.
+    _phantom: PhantomData<&'children ()>,
 }
 
-impl<'a> RSAggregateResult<'a> {
+impl<'index, 'children> RSAggregateResult<'index, 'children> {
     /// Create a new empty aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             records: LowMemoryThinVec::with_capacity(cap),
-            type_mask: RSResultTypeMask::empty(),
+            kind_mask: RSResultKindMask::empty(),
             _phantom: PhantomData,
         }
     }
@@ -282,12 +271,12 @@ impl<'a> RSAggregateResult<'a> {
     }
 
     /// The current type mask of the aggregate result
-    pub fn type_mask(&self) -> RSResultTypeMask {
-        self.type_mask
+    pub fn kind_mask(&self) -> RSResultKindMask {
+        self.kind_mask
     }
 
     /// Get an iterator over the children of this aggregate result
-    pub fn iter(&'a self) -> RSAggregateResultIter<'a> {
+    pub fn iter(&'index self) -> RSAggregateResultIter<'index, 'children> {
         RSAggregateResultIter {
             agg: self,
             index: 0,
@@ -298,7 +287,7 @@ impl<'a> RSAggregateResult<'a> {
     ///
     /// # Safety
     /// The caller must ensure that the memory at the given index is still valid
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'_>> {
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index, 'children>> {
         if let Some(result_addr) = self.records.get(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
             Some(unsafe { &**result_addr })
@@ -307,16 +296,16 @@ impl<'a> RSAggregateResult<'a> {
         }
     }
 
-    /// Reset the aggregate result, clearing all children and resetting the type mask.
+    /// Reset the aggregate result, clearing all children and resetting the kind mask.
     ///
-    /// Note, this does not deallocate the children pointers, it just resets the count and type
+    /// Note, this does not deallocate the children pointers, it just resets the count and kind
     /// mask. The owner of the children pointers is responsible for deallocating them when needed.
     pub fn reset(&mut self) {
         self.records.clear();
-        self.type_mask = RSResultTypeMask::empty();
+        self.kind_mask = RSResultKindMask::empty();
     }
 
-    /// Add a child to the aggregate result and update the type mask
+    /// Add a child to the aggregate result and update the kind mask
     ///
     /// # Safety
     /// The given `child` has to stay valid for the lifetime of this aggregate result. Else reading
@@ -324,18 +313,18 @@ impl<'a> RSAggregateResult<'a> {
     pub fn push(&mut self, child: &RSIndexResult) {
         self.records.push(child as *const _ as *mut _);
 
-        self.type_mask |= child.result_type;
+        self.kind_mask |= child.data.kind();
     }
 }
 
 /// An iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultIter<'a> {
-    agg: &'a RSAggregateResult<'a>,
+pub struct RSAggregateResultIter<'index, 'aggregate_children> {
+    agg: &'index RSAggregateResult<'index, 'aggregate_children>,
     index: usize,
 }
 
-impl<'a> Iterator for RSAggregateResultIter<'a> {
-    type Item = &'a RSIndexResult<'a>;
+impl<'index, 'aggregate_children> Iterator for RSAggregateResultIter<'index, 'aggregate_children> {
+    type Item = &'index RSIndexResult<'index, 'aggregate_children>;
 
     /// Get the next item in the iterator
     ///
@@ -352,13 +341,15 @@ impl<'a> Iterator for RSAggregateResultIter<'a> {
 }
 
 /// An owned iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultIterOwned<'a> {
-    agg: RSAggregateResult<'a>,
+pub struct RSAggregateResultIterOwned<'index, 'aggregate_children> {
+    agg: RSAggregateResult<'index, 'aggregate_children>,
     index: usize,
 }
 
-impl<'a> Iterator for RSAggregateResultIterOwned<'a> {
-    type Item = Box<RSIndexResult<'a>>;
+impl<'index, 'aggregate_children> Iterator
+    for RSAggregateResultIterOwned<'index, 'aggregate_children>
+{
+    type Item = Box<RSIndexResult<'index, 'aggregate_children>>;
 
     /// Get the next item as a `Box<RSIndexResult>`
     ///
@@ -378,10 +369,10 @@ impl<'a> Iterator for RSAggregateResultIterOwned<'a> {
     }
 }
 
-impl<'a> IntoIterator for RSAggregateResult<'a> {
-    type Item = Box<RSIndexResult<'a>>;
+impl<'index, 'children> IntoIterator for RSAggregateResult<'index, 'children> {
+    type Item = Box<RSIndexResult<'index, 'children>>;
 
-    type IntoIter = RSAggregateResultIterOwned<'a>;
+    type IntoIter = RSAggregateResultIterOwned<'index, 'children>;
 
     fn into_iter(self) -> Self::IntoIter {
         RSAggregateResultIterOwned {
@@ -393,22 +384,73 @@ impl<'a> IntoIterator for RSAggregateResult<'a> {
 
 /// Represents a virtual result in an index record.
 #[repr(C)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct RSVirtualResult;
 
+/// A C-style discriminant for [`RSResultData`].
+///
+/// # Implementation notes
+///
+/// We need a standalone C-style discriminant to get `bitflags` to generate a
+/// dedicated bitmask type. Unfortunately, we can't apply `#[bitflags]` directly
+/// on [`RSResultData`] since `bitflags` doesn't support enum with data in
+/// their variants, nor lifetime parameters.
+///
+/// The discriminant values must match *exactly* the ones specified
+/// on [`RSResultData`].
+#[bitflags]
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RSResultKind {
+    Union = 1,
+    Intersection = 2,
+    Term = 4,
+    Virtual = 8,
+    Numeric = 16,
+    Metric = 32,
+    HybridMetric = 64,
+}
+
 /// Holds the actual data of an ['IndexResult']
-#[repr(C)]
-pub union RSIndexResultData<'a> {
-    pub agg: ManuallyDrop<RSAggregateResult<'a>>,
-    pub term: ManuallyDrop<RSTermRecord<'a>>,
-    pub num: ManuallyDrop<RSNumericRecord>,
-    pub virt: ManuallyDrop<RSVirtualResult>,
+///
+/// These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
+/// the bitflags on [`RSResultKindMask`]
+///
+/// The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
+/// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
+/// raw pointers to results.
+#[repr(u8)]
+#[derive(Debug, PartialEq)]
+/// cbindgen:prefix-with-name=true
+pub enum RSResultData<'index, 'aggregate_children> {
+    Union(RSAggregateResult<'index, 'aggregate_children>) = 1,
+    Intersection(RSAggregateResult<'index, 'aggregate_children>) = 2,
+    Term(RSTermRecord<'index>) = 4,
+    Virtual(RSVirtualResult) = 8,
+    Numeric(RSNumericRecord) = 16,
+    Metric(RSNumericRecord) = 32,
+    HybridMetric(RSAggregateResult<'index, 'aggregate_children>) = 64,
+}
+
+impl RSResultData<'_, '_> {
+    fn kind(&self) -> RSResultKind {
+        match self {
+            RSResultData::Union(_) => RSResultKind::Union,
+            RSResultData::Intersection(_) => RSResultKind::Intersection,
+            RSResultData::Term(_) => RSResultKind::Term,
+            RSResultData::Virtual(_) => RSResultKind::Virtual,
+            RSResultData::Numeric(_) => RSResultKind::Numeric,
+            RSResultData::Metric(_) => RSResultKind::Metric,
+            RSResultData::HybridMetric(_) => RSResultKind::HybridMetric,
+        }
+    }
 }
 
 /// The result of an inverted index
-/// cbindgen:field-names=[docId, dmd, fieldMask, freq, offsetsSz, data, type, isCopy, metrics, weight]
+/// cbindgen:rename-all=CamelCase
 #[repr(C)]
-pub struct RSIndexResult<'a> {
+#[derive(Debug, PartialEq)]
+pub struct RSIndexResult<'index, 'aggregate_children> {
     /// The document ID of the result
     pub doc_id: t_docId,
 
@@ -425,10 +467,8 @@ pub struct RSIndexResult<'a> {
     /// directly into memory
     pub offsets_sz: u32,
 
-    data: RSIndexResultData<'a>,
-
-    /// The type of data stored at ['Self::data']
-    pub result_type: RSResultType,
+    /// The actual data of the result
+    data: RSResultData<'index, 'aggregate_children>,
 
     /// We mark copied results so we can treat them a bit differently on deletion, and pool them if
     /// we want
@@ -441,13 +481,13 @@ pub struct RSIndexResult<'a> {
     pub weight: f64,
 }
 
-impl Default for RSIndexResult<'_> {
+impl Default for RSIndexResult<'_, '_> {
     fn default() -> Self {
         Self::virt()
     }
 }
 
-impl<'a> RSIndexResult<'a> {
+impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
     /// Create a new virtual index result
     pub fn virt() -> Self {
         Self {
@@ -456,10 +496,7 @@ impl<'a> RSIndexResult<'a> {
             field_mask: 0,
             freq: 1,
             offsets_sz: 0,
-            data: RSIndexResultData {
-                virt: ManuallyDrop::new(RSVirtualResult),
-            },
-            result_type: RSResultType::Virtual,
+            data: RSResultData::Virtual(RSVirtualResult),
             is_copy: false,
             metrics: ptr::null_mut(),
             weight: 0.0,
@@ -471,10 +508,7 @@ impl<'a> RSIndexResult<'a> {
         Self {
             field_mask: RS_FIELDMASK_ALL,
             freq: 1,
-            data: RSIndexResultData {
-                num: ManuallyDrop::new(RSNumericRecord(num)),
-            },
-            result_type: RSResultType::Numeric,
+            data: RSResultData::Numeric(RSNumericRecord(num)),
             weight: 1.0,
             ..Default::default()
         }
@@ -484,10 +518,7 @@ impl<'a> RSIndexResult<'a> {
     pub fn metric() -> Self {
         Self {
             field_mask: RS_FIELDMASK_ALL,
-            data: RSIndexResultData {
-                num: ManuallyDrop::new(RSNumericRecord(0.0)),
-            },
-            result_type: RSResultType::Metric,
+            data: RSResultData::Metric(RSNumericRecord(0.0)),
             weight: 1.0,
             ..Default::default()
         }
@@ -496,10 +527,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new intersection index result with the given capacity
     pub fn intersect(cap: usize) -> Self {
         Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
-            },
-            result_type: RSResultType::Intersection,
+            data: RSResultData::Intersection(RSAggregateResult::with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -507,10 +535,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new union index result with the given capacity
     pub fn union(cap: usize) -> Self {
         Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(cap)),
-            },
-            result_type: RSResultType::Union,
+            data: RSResultData::Union(RSAggregateResult::with_capacity(cap)),
             ..Default::default()
         }
     }
@@ -518,10 +543,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new hybrid metric index result
     pub fn hybrid_metric() -> Self {
         Self {
-            data: RSIndexResultData {
-                agg: ManuallyDrop::new(RSAggregateResult::with_capacity(2)),
-            },
-            result_type: RSResultType::HybridMetric,
+            data: RSResultData::HybridMetric(RSAggregateResult::with_capacity(2)),
             weight: 1.0,
             ..Default::default()
         }
@@ -530,10 +552,7 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new term index result.
     pub fn term() -> Self {
         Self {
-            data: RSIndexResultData {
-                term: ManuallyDrop::new(RSTermRecord::new()),
-            },
-            result_type: RSResultType::Term,
+            data: RSResultData::Term(RSTermRecord::new()),
             freq: 1,
             ..Default::default()
         }
@@ -542,17 +561,14 @@ impl<'a> RSIndexResult<'a> {
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub fn term_with_term_ptr(
         term: *mut RSQueryTerm,
-        offsets: RSOffsetVector<'a>,
+        offsets: RSOffsetVector<'index>,
         doc_id: t_docId,
         field_mask: t_fieldMask,
         freq: u32,
-    ) -> RSIndexResult<'a> {
+    ) -> RSIndexResult<'index, 'aggregate_children> {
         let offsets_sz = offsets.len;
         Self {
-            data: RSIndexResultData {
-                term: ManuallyDrop::new(RSTermRecord::with_term(term, offsets)),
-            },
-            result_type: RSResultType::Term,
+            data: RSResultData::Term(RSTermRecord::with_term(term, offsets)),
             doc_id,
             field_mask,
             freq,
@@ -592,89 +608,100 @@ impl<'a> RSIndexResult<'a> {
         self
     }
 
+    /// Get the kind of this index result
+    pub fn kind(&self) -> RSResultKind {
+        self.data.kind()
+    }
+
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
     /// `None`.
     pub fn as_numeric(&self) -> Option<&RSNumericRecord> {
-        if matches!(
-            self.result_type,
-            RSResultType::Numeric | RSResultType::Metric,
-        ) {
-            // SAFETY: We are guaranteed the record data is numeric because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &self.data.num })
-        } else {
-            None
+        match &self.data {
+            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(numeric),
+            RSResultData::HybridMetric(_)
+            | RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Term(_)
+            | RSResultData::Virtual(_) => None,
         }
     }
 
     /// Get this record as a mutable numeric record if possible. If the record is not numeric,
     /// returns `None`.
     pub fn as_numeric_mut(&mut self) -> Option<&mut RSNumericRecord> {
-        if matches!(
-            self.result_type,
-            RSResultType::Numeric | RSResultType::Metric,
-        ) {
-            // SAFETY: We are guaranteed the record data is numeric because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &mut self.data.num })
-        } else {
-            None
+        match &mut self.data {
+            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => Some(numeric),
+            RSResultData::HybridMetric(_)
+            | RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Term(_)
+            | RSResultData::Virtual(_) => None,
         }
     }
 
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
-    pub fn as_term(&self) -> Option<&RSTermRecord<'_>> {
-        if matches!(self.result_type, RSResultType::Term) {
-            // SAFETY: We are guaranteed the record data is term because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &self.data.term })
-        } else {
-            None
+    pub fn as_term(&self) -> Option<&RSTermRecord<'index>> {
+        match &self.data {
+            RSResultData::Term(term) => Some(term),
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Virtual(_)
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_)
+            | RSResultData::HybridMetric(_) => None,
         }
     }
 
     /// Get this record as a mutable term record if possible. If the record is not a term,
     /// returns `None`.
-    pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'a>> {
-        if matches!(self.result_type, RSResultType::Term) {
-            // SAFETY: We are guaranteed the record data is term because of the check we just
-            // did on the `result_type`.
-            Some(unsafe { &mut self.data.term })
-        } else {
-            None
+    pub fn as_term_mut(&mut self) -> Option<&mut RSTermRecord<'index>> {
+        match &mut self.data {
+            RSResultData::Term(term) => Some(term),
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Virtual(_)
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_)
+            | RSResultData::HybridMetric(_) => None,
         }
     }
 
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
-    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'a>> {
-        if self.is_aggregate() {
-            // SAFETY: We are guaranteed the record data is aggregate because of the check we just
-            // did
-            Some(unsafe { &self.data.agg })
-        } else {
-            None
+    pub fn as_aggregate(&self) -> Option<&RSAggregateResult<'index, 'aggregate_children>> {
+        match &self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => Some(agg),
+            RSResultData::Term(_)
+            | RSResultData::Virtual(_)
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => None,
         }
     }
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
-    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResult<'a>> {
-        if self.is_aggregate() {
-            // SAFETY: We are guaranteed the record data is aggregate because of the check we just
-            // did
-            Some(unsafe { &mut self.data.agg })
-        } else {
-            None
+    pub fn as_aggregate_mut(
+        &mut self,
+    ) -> Option<&mut RSAggregateResult<'index, 'aggregate_children>> {
+        match &mut self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => Some(agg),
+            RSResultData::Term(_)
+            | RSResultData::Virtual(_)
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => None,
         }
     }
 
-    /// True if this is an aggregate type
+    /// True if this is an aggregate kind
     pub fn is_aggregate(&self) -> bool {
         matches!(
-            self.result_type,
-            RSResultType::Intersection | RSResultType::Union | RSResultType::HybridMetric
+            self.data,
+            RSResultData::Intersection(_) | RSResultData::Union(_) | RSResultData::HybridMetric(_)
         )
     }
 
@@ -693,38 +720,44 @@ impl<'a> RSIndexResult<'a> {
     /// The given `result` has to stay valid for the lifetime of this index result. Else reading
     /// from this result will cause undefined behaviour.
     pub fn push(&mut self, child: &RSIndexResult) {
-        if self.is_aggregate() {
-            // SAFETY: we know the data will be an aggregate because we just checked the type
-            let agg = unsafe { &mut self.data.agg };
+        match &mut self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => {
+                agg.push(child);
 
-            agg.push(child);
+                self.doc_id = child.doc_id;
+                self.freq += child.freq;
+                self.field_mask |= child.field_mask;
 
-            self.doc_id = child.doc_id;
-            self.freq += child.freq;
-            self.field_mask |= child.field_mask;
-
-            // SAFETY: we know both arguments are valid `RSIndexResult` types
-            unsafe {
-                IndexResult_ConcatMetrics(self, child);
+                // SAFETY: we know both arguments are valid `RSIndexResult` types
+                unsafe {
+                    IndexResult_ConcatMetrics(self, child);
+                }
             }
+            RSResultData::Term(_)
+            | RSResultData::Virtual(_)
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => {}
         }
     }
 
     /// Get a child at the given index if this is an aggregate record. Returns `None` if this is not
     /// an aggregate record or if the index is out-of-bounds.
-    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'_>> {
-        if self.is_aggregate() {
-            // SAFETY: we know the data will be an aggregate because we just checked the type
-            let agg = unsafe { &self.data.agg };
-
-            agg.get(index)
-        } else {
-            None
+    pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index, 'aggregate_children>> {
+        match &self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => agg.get(index),
+            RSResultData::Term(_)
+            | RSResultData::Virtual(_)
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => None,
         }
     }
 }
 
-impl Drop for RSIndexResult<'_> {
+impl Drop for RSIndexResult<'_, '_> {
     fn drop(&mut self) {
         // SAFETY: we know `self` still exists because we are in `drop`. We also know the C type is
         // the same since it was autogenerated from the Rust type
@@ -732,28 +765,27 @@ impl Drop for RSIndexResult<'_> {
             ResultMetrics_Free(self);
         }
 
-        match self.result_type {
-            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
-                // SAFETY: we just checked the type to ensure the union has aggregated data
-                let agg = unsafe { &mut self.data.agg };
+        // Take ownership of the internal data to be able to call `into_iter()` below.
+        // `into_iter()` will convert each pointer back to a `Box` to allow it to be cleaned up
+        // correctly.
+        let mut data = RSResultData::Virtual(RSVirtualResult);
+        std::mem::swap(&mut self.data, &mut data);
 
-                // SAFETY: we are in `drop` so nothing else will have access to this union type
-                let agg = unsafe { ManuallyDrop::take(agg) };
-
+        match data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => {
                 if self.is_copy {
                     for child in agg.into_iter() {
                         drop(child);
                     }
                 }
             }
-            RSResultType::Term => {
-                // SAFETY: we just checked the type to ensure the unior has term data
-                let term = unsafe { &mut self.data.term };
-
+            RSResultData::Term(mut term) => {
                 if self.is_copy {
                     // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
                     unsafe {
-                        Term_Offset_Data_Free(term.deref_mut() as *mut _);
+                        Term_Offset_Data_Free(&mut term);
                     }
                 } else {
                     // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
@@ -761,124 +793,9 @@ impl Drop for RSIndexResult<'_> {
                         Term_Free(term.term);
                     }
                 }
-
-                // SAFETY: we are in `drop` so nothing else will have access to this union type
-                unsafe {
-                    ManuallyDrop::drop(term);
-                }
             }
-            RSResultType::Numeric | RSResultType::Metric => {
-                // SAFETY: we just checked the type to ensure the union has numeric data
-                let num = unsafe { &mut self.data.num };
-
-                // SAFETY: we are in `drop` so nothing else will have access to this union type
-                unsafe {
-                    ManuallyDrop::drop(num);
-                }
-            }
-            RSResultType::Virtual => {
-                // SAFETY: we just checked the type to ensure the union has virtual data
-                let virt = unsafe { &mut self.data.virt };
-
-                // SAFETY: we are in `drop` so nothing else will have access to this union type
-                unsafe {
-                    ManuallyDrop::drop(virt);
-                }
-            }
-        }
-    }
-}
-
-impl Debug for RSIndexResult<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut d = f.debug_struct("RSIndexResult");
-
-        d.field("doc_id", &self.doc_id)
-            .field("dmd", &self.dmd)
-            .field("field_mask", &self.field_mask)
-            .field("freq", &self.freq)
-            .field("offsets_sz", &self.offsets_sz);
-
-        match self.result_type {
-            RSResultType::Numeric | RSResultType::Metric => {
-                d.field(
-                    "data.num",
-                    // SAFETY: we just checked the type to ensure the data union has numeric data
-                    unsafe { &self.data.num },
-                );
-            }
-            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
-                d.field(
-                    "data.agg",
-                    // SAFETY: we just checked the type to ensure the data union has aggregate data
-                    unsafe { &self.data.agg },
-                );
-            }
-            RSResultType::Term => {
-                d.field(
-                    "data.term",
-                    // SAFETY: we just checked the type to ensure the data union has term data
-                    unsafe { &self.data.term },
-                );
-            }
-            RSResultType::Virtual => {}
-        }
-
-        d.field("result_type", &self.result_type)
-            .field("is_copy", &self.is_copy)
-            .field("metrics", &self.metrics)
-            .field("weight", &self.weight)
-            .finish()
-    }
-}
-
-impl PartialEq for RSIndexResult<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        if !(self.doc_id == other.doc_id
-            && self.dmd == other.dmd
-            && self.field_mask == other.field_mask
-            && self.freq == other.freq
-            && self.offsets_sz == other.offsets_sz
-            && self.result_type == other.result_type
-            && self.is_copy == other.is_copy
-            && self.metrics == other.metrics
-            && self.weight == other.weight)
-        {
-            return false;
-        }
-
-        match self.result_type {
-            RSResultType::Numeric | RSResultType::Metric => {
-                // SAFETY: we just checked the type of self to ensure the data union has numeric data
-                let self_num = unsafe { &self.data.num };
-
-                // SAFETY: from the previous checks we already know `other` has the same result
-                // type as `self`. Therefore `other` also has numeric data in its union.
-                let other_num = unsafe { &other.data.num };
-
-                self_num == other_num
-            }
-            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
-                // SAFETY: we just checked the type of self to ensure the data union has aggregate data
-                let self_agg = unsafe { &self.data.agg };
-
-                // SAFETY: from the previous checks we already know `other` has the same result
-                // type as `self`. Therefore `other` also has aggregate data in its union.
-                let other_agg = unsafe { &other.data.agg };
-
-                self_agg == other_agg
-            }
-            RSResultType::Term => {
-                // SAFETY: we just checked the type of self to ensure the data union has term data
-                let self_term = unsafe { &self.data.term };
-
-                // SAFETY: from the previous checks we already know `other` has the same result
-                // type as `self`. Therefore `other` also has term data in its union.
-                let other_term = unsafe { &other.data.term };
-
-                self_term == other_term
-            }
-            RSResultType::Virtual => true,
+            RSResultData::Numeric(_numeric) | RSResultData::Metric(_numeric) => {}
+            RSResultData::Virtual(_virtual) => {}
         }
     }
 }
@@ -922,21 +839,21 @@ pub trait Encoder {
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>>;
+    ) -> std::io::Result<RSIndexResult<'index, 'static>>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
     /// Returns `None` if no record has a document ID greater than or equal to `target`.
-    fn seek<'a>(
+    fn seek<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'a>>> {
+    ) -> std::io::Result<Option<RSIndexResult<'index, 'static>>> {
         loop {
             match self.decode(cursor, base) {
                 Ok(record) if record.doc_id >= target => {
@@ -1132,20 +1049,20 @@ impl<E: Encoder> InvertedIndex<E> {
 }
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
-pub struct IndexReader<'a, D> {
+pub struct IndexReader<'index, D> {
     /// The block of the inverted index that is being read from. This might be used to determine the
     /// base document ID for delta calculations.
-    blocks: &'a Vec<IndexBlock>,
+    blocks: &'index Vec<IndexBlock>,
 
     /// The decoder used to decode the records from the index blocks.
     decoder: D,
 
     /// The current position in the block that is being read from.
-    current_buffer: Cursor<&'a [u8]>,
+    current_buffer: Cursor<&'index [u8]>,
 
     /// The current block that is being read from. This might be used to determine the base document
     /// ID for delta calculations and to read the next record from the block.
-    current_block: &'a IndexBlock,
+    current_block: &'index IndexBlock,
 
     /// The index of the current block in the `blocks` vector. This is used to keep track of
     /// which block we are currently reading from, especially when the current buffer is empty and we
@@ -1157,12 +1074,12 @@ pub struct IndexReader<'a, D> {
     last_doc_id: t_docId,
 }
 
-impl<'a, D: Decoder> IndexReader<'a, D> {
+impl<'index, D: Decoder> IndexReader<'index, D> {
     /// Create a new index reader that reads from the given blocks using the provided decoder.
     ///
     /// # Panic
     /// This function will panic if the `blocks` vector is empty. The reader expects at least one block to read from.
-    pub fn new(blocks: &'a Vec<IndexBlock>, decoder: D) -> Self {
+    pub fn new(blocks: &'index Vec<IndexBlock>, decoder: D) -> Self {
         debug_assert!(
             !blocks.is_empty(),
             "IndexReader should not be created with an empty block list"
@@ -1181,7 +1098,7 @@ impl<'a, D: Decoder> IndexReader<'a, D> {
     }
 
     /// Read the next record from the index. If there are no more records to read, then `None` is returned.
-    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult<'_>>> {
+    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult<'index, 'static>>> {
         // Check if the current buffer is empty. The GC might clean out a block so we have to
         // continue checking until we find a block with data.
         while self.current_buffer.fill_buf()?.is_empty() {
@@ -1218,7 +1135,7 @@ pub struct SkipDuplicatesReader<I> {
     inner: I,
 }
 
-impl<'a, I: Iterator<Item = RSIndexResult<'a>>> SkipDuplicatesReader<I> {
+impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> SkipDuplicatesReader<I> {
     /// Create a new skip duplicates reader over the given inner iterator.
     pub fn new(inner: I) -> Self {
         Self {
@@ -1228,8 +1145,10 @@ impl<'a, I: Iterator<Item = RSIndexResult<'a>>> SkipDuplicatesReader<I> {
     }
 }
 
-impl<'a, I: Iterator<Item = RSIndexResult<'a>>> Iterator for SkipDuplicatesReader<I> {
-    type Item = RSIndexResult<'a>;
+impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> Iterator
+    for SkipDuplicatesReader<I>
+{
+    type Item = RSIndexResult<'index, 'static>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -1257,15 +1176,15 @@ pub struct FilterMaskReader<I> {
     inner: I,
 }
 
-impl<'a, I: Iterator<Item = RSIndexResult<'a>>> FilterMaskReader<I> {
+impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> FilterMaskReader<I> {
     /// Create a new filter mask reader with the given mask and inner iterator
     pub fn new(mask: t_fieldMask, inner: I) -> Self {
         Self { mask, inner }
     }
 }
 
-impl<'a, I: Iterator<Item = RSIndexResult<'a>>> Iterator for FilterMaskReader<I> {
-    type Item = RSIndexResult<'a>;
+impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> Iterator for FilterMaskReader<I> {
+    type Item = RSIndexResult<'index, 'static>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
