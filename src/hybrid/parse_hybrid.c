@@ -775,8 +775,7 @@ error:
 }
 
 static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
-                    RedisSearchCtx *sctx, const char *indexname,
-                    QueryError *status) {
+                    RedisSearchCtx *sctx, QueryError *status) {
   RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
   RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
 
@@ -801,17 +800,15 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     return REDISMODULE_OK;
     } else {
     // Single-threaded execution path
-    int result = REDISMODULE_OK;
 
     // Build the pipeline and execute
     if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
       QueryError_SetError(status, QUERY_EGENERIC, "Error building hybrid pipeline");
-      result = REDISMODULE_ERR;
+      return REDISMODULE_ERR;
     } else {
       HREQ_Execute(hreq, ctx, sctx);
+      return REDISMODULE_OK;
     }
-
-    return result;
   }
 }
 
@@ -845,7 +842,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx, indexname, &status) != REDISMODULE_OK) {
+  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx, &status) != REDISMODULE_OK) {
     goto error;
   }
 
