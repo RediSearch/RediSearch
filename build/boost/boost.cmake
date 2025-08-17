@@ -20,7 +20,7 @@ else()
     Set(FETCHCONTENT_QUIET FALSE)
     FetchContent_Declare(
             Boost
-            URL https://archives.boost.io/release/1.84.0/source/boost_1_84_0.tar.gz
+            URL https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0.tar.gz
             USES_TERMINAL_DOWNLOAD TRUE
             DOWNLOAD_NO_EXTRACT FALSE
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
@@ -30,5 +30,29 @@ else()
     message(STATUS "boost fetched")
     message(STATUS "boost source dir: ${boost_SOURCE_DIR}")
     message(STATUS "boost binary dir: ${boost_BINARY_DIR}")
+
+    # Build Boost headers if they don't exist
+    if(NOT EXISTS "${boost_SOURCE_DIR}/boost")
+        message(STATUS "Building Boost headers...")
+        execute_process(
+            COMMAND ./bootstrap.sh --with-libraries=headers
+            WORKING_DIRECTORY ${boost_SOURCE_DIR}
+            RESULT_VARIABLE bootstrap_result
+        )
+        if(NOT bootstrap_result EQUAL 0)
+            message(FATAL_ERROR "Boost bootstrap failed")
+        endif()
+
+        execute_process(
+            COMMAND ./b2 headers
+            WORKING_DIRECTORY ${boost_SOURCE_DIR}
+            RESULT_VARIABLE b2_result
+        )
+        if(NOT b2_result EQUAL 0)
+            message(FATAL_ERROR "Boost header generation failed")
+        endif()
+        message(STATUS "Boost headers built successfully")
+    endif()
+
     set(BOOST_DIR ${boost_SOURCE_DIR})
 endif()
