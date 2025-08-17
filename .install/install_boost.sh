@@ -10,8 +10,13 @@ if [[ -d ${BOOST_DIR} ]]; then
     exit 0
 fi
 
-wget https://sourceforge.net/projects/boost/files/boost/${VERSION}/${BOOST_NAME}.tar.gz/download -O ${BOOST_NAME}.tar.gz
+wget https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}.tar.gz -O ${BOOST_NAME}.tar.gz
 
 tar -xzf ${BOOST_NAME}.tar.gz
-mv ${BOOST_NAME} ${BOOST_DIR}
+cd boost-${VERSION}
+echo "Building Boost headers..."
+./bootstrap.sh --with-libraries=headers
+./b2 headers
+cd ..
+mv boost-${VERSION} ${BOOST_DIR}
 rm ${BOOST_NAME}.tar.gz
