@@ -20,7 +20,7 @@ else()
     Set(FETCHCONTENT_QUIET FALSE)
     FetchContent_Declare(
             Boost
-            URL https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0.tar.gz
+            URL https://sourceforge.net/projects/boost/files/boost/1.84.0/boost_1_84_0.tar.gz/download
             USES_TERMINAL_DOWNLOAD TRUE
             DOWNLOAD_NO_EXTRACT FALSE
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
