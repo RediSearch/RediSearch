@@ -43,8 +43,8 @@ struct QOptimizer;
 typedef struct HybridRequest HybridRequest;
 
 /*
- * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL
- * and QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY are mutually exclusive (Only one can be set).
+ * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL,
+ * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, and QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
  */
 typedef enum {
   QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
@@ -114,6 +114,9 @@ typedef enum {
   // The query is a Search Subquery of a Hybrid Request
   QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY = 0x1000000,
 
+  // The query is a Vector Subquery of a Hybrid Request (aggregate equivalent)
+  QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY = 0x2000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
@@ -142,7 +145,8 @@ typedef struct {
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
-#define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r))
+#define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
+#define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)

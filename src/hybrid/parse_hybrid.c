@@ -582,9 +582,6 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
                                  QueryError *status) {
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
-  //do not optimize the subqueries
-  searchRequest->optimizer->type = Q_OPT_NONE;
-  vectorRequest->optimizer->type = Q_OPT_NONE;
 
   HybridPipelineParams *hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
@@ -607,7 +604,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   AREQ **requests = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
-  vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
+  vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
