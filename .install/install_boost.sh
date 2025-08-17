@@ -10,7 +10,7 @@ if [[ -d ${BOOST_DIR} ]]; then
     exit 0
 fi
 
-wget https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}-cmake.tar.gz -O ${BOOST_NAME}.tar.gz
+wget https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}-b2-nodocs.tar.gz -O ${BOOST_NAME}.tar.gz
 
 tar -xzf ${BOOST_NAME}.tar.gz
 mv boost-${VERSION} ${BOOST_DIR}
