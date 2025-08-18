@@ -24,6 +24,25 @@ pub struct RSOffsetVectorRaw<'index> {
     _phantom: PhantomData<&'index ()>,
 }
 
+impl<'index> From<RSOffsetVectorRaw<'index>> for super::RSOffsetVectorRef<'index> {
+    fn from(value: RSOffsetVectorRaw<'index>) -> Self {
+        Self {
+            data: value.data,
+            len: value.len,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'index> From<RSOffsetVectorRaw<'index>> for super::RSOffsetVectorOwned {
+    fn from(value: RSOffsetVectorRaw<'index>) -> Self {
+        Self {
+            data: value.data,
+            len: value.len,
+        }
+    }
+}
+
 /// Represents a single record of a document inside a term in the inverted index
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
@@ -36,6 +55,22 @@ pub struct RSTermRecordRaw<'index> {
 
     /// The encoded offsets in which the term appeared in the document
     pub offsets: RSOffsetVectorRaw<'index>,
+}
+
+impl<'index> From<RSTermRecordRaw<'index>> for super::RSTermRecord<'index> {
+    fn from(value: RSTermRecordRaw<'index>) -> Self {
+        if value.is_copy {
+            Self::Owned(super::RSTermRecordOwned {
+                term: value.term,
+                offsets: value.offsets.into(),
+            })
+        } else {
+            Self::Borrowed(super::RSTermRecordRef {
+                term: value.term,
+                offsets: value.offsets.into(),
+            })
+        }
+    }
 }
 
 /// Represents an aggregate array of values in an index record.
@@ -64,6 +99,42 @@ pub struct RSAggregateResultRaw<'index, 'children> {
     /// field. But since these are stored as a pointers which do not support lifetimes, we need to
     /// use a PhantomData to carry the lifetime for each child record instead.
     _phantom: PhantomData<&'children ()>,
+}
+
+impl<'index, 'children> From<RSAggregateResultRaw<'index, 'children>>
+    for super::RSAggregateResult<'index, 'children>
+{
+    fn from(value: RSAggregateResultRaw<'index, 'children>) -> Self {
+        if value.is_copy {
+            Self::Owned(super::RSAggregateResultOwned {
+                records: value
+                    .records
+                    .into_iter()
+                    .map(|ptr| {
+                        let result_raw = unsafe { &*ptr };
+                        let result: &super::RSIndexResult = result_raw.into();
+                        todo!()
+                    })
+                    .collect(),
+                kind_mask: value.kind_mask,
+            })
+        } else {
+            Self::Borrowed(super::RSAggregateResultRef {
+                records: value
+                    .records
+                    .into_iter()
+                    .map(|ptr| {
+                        let result_raw = unsafe { &*ptr };
+                        let result: &super::RSIndexResult = result_raw.into();
+                        result as *const _
+                    })
+                    .collect(),
+
+                kind_mask: value.kind_mask,
+                _phantom: PhantomData,
+            })
+        }
+    }
 }
 
 impl<'index, 'children> RSAggregateResultRaw<'index, 'children> {
@@ -187,6 +258,22 @@ pub enum RSResultDataRaw<'index, 'aggregate_children> {
     HybridMetric(RSAggregateResultRaw<'index, 'aggregate_children>) = 64,
 }
 
+impl<'index, 'aggregate_children> From<RSResultDataRaw<'index, 'aggregate_children>>
+    for super::RSResultData<'index, 'aggregate_children>
+{
+    fn from(value: RSResultDataRaw<'index, 'aggregate_children>) -> Self {
+        match value {
+            RSResultDataRaw::Union(agg) => Self::Union(agg.into()),
+            RSResultDataRaw::Intersection(agg) => Self::Intersection(agg.into()),
+            RSResultDataRaw::Term(term) => Self::Term(term.into()),
+            RSResultDataRaw::Virtual(_) => Self::Virtual,
+            RSResultDataRaw::Numeric(num) => Self::Numeric(num.0),
+            RSResultDataRaw::Metric(num) => Self::Metric(num.0),
+            RSResultDataRaw::HybridMetric(agg) => Self::HybridMetric(agg.into()),
+        }
+    }
+}
+
 impl RSResultDataRaw<'_, '_> {
     pub fn kind(&self) -> RSResultKind {
         match self {
@@ -229,6 +316,14 @@ pub struct RSIndexResultRaw<'index, 'aggregate_children> {
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
+}
+
+impl<'index, 'aggregate_children> From<&RSIndexResultRaw<'index, 'aggregate_children>>
+    for &super::RSIndexResult<'index, 'aggregate_children>
+{
+    fn from(value: &RSIndexResultRaw<'index, 'aggregate_children>) -> Self {
+        todo!();
+    }
 }
 
 impl<'index, 'aggregate_children> RSIndexResultRaw<'index, 'aggregate_children> {
