@@ -454,10 +454,6 @@ impl IntoIterator for RSAggregateResultOwned {
     }
 }
 
-/// Represents a virtual result in an index record.
-#[derive(Debug, PartialEq)]
-pub struct RSVirtualResult;
-
 /// A C-style discriminant for [`RSResultData`].
 ///
 /// # Implementation notes
@@ -496,7 +492,7 @@ pub enum RSResultData<'index, 'aggregate_children> {
     Union(RSAggregateResult<'index, 'aggregate_children>) = 1,
     Intersection(RSAggregateResult<'index, 'aggregate_children>) = 2,
     Term(RSTermRecord<'index>) = 4,
-    Virtual(RSVirtualResult) = 8,
+    Virtual = 8,
     Numeric(f64) = 16,
     Metric(f64) = 32,
     HybridMetric(RSAggregateResult<'index, 'aggregate_children>) = 64,
@@ -508,7 +504,7 @@ impl RSResultData<'_, '_> {
             RSResultData::Union(_) => RSResultKind::Union,
             RSResultData::Intersection(_) => RSResultKind::Intersection,
             RSResultData::Term(_) => RSResultKind::Term,
-            RSResultData::Virtual(_) => RSResultKind::Virtual,
+            RSResultData::Virtual => RSResultKind::Virtual,
             RSResultData::Numeric(_) => RSResultKind::Numeric,
             RSResultData::Metric(_) => RSResultKind::Metric,
             RSResultData::HybridMetric(_) => RSResultKind::HybridMetric,
@@ -560,7 +556,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             field_mask: 0,
             freq: 1,
             offsets_sz: 0,
-            data: RSResultData::Virtual(RSVirtualResult),
+            data: RSResultData::Virtual,
             metrics: ptr::null_mut(),
             weight: 0.0,
         }
@@ -684,7 +680,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             | RSResultData::Union(_)
             | RSResultData::Intersection(_)
             | RSResultData::Term(_)
-            | RSResultData::Virtual(_) => None,
+            | RSResultData::Virtual => None,
         }
     }
 
@@ -697,7 +693,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             | RSResultData::Union(_)
             | RSResultData::Intersection(_)
             | RSResultData::Term(_)
-            | RSResultData::Virtual(_) => None,
+            | RSResultData::Virtual => None,
         }
     }
 
@@ -708,7 +704,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             RSResultData::Term(term) => Some(term),
             RSResultData::Union(_)
             | RSResultData::Intersection(_)
-            | RSResultData::Virtual(_)
+            | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_)
             | RSResultData::HybridMetric(_) => None,
@@ -722,7 +718,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             RSResultData::Term(term) => Some(term),
             RSResultData::Union(_)
             | RSResultData::Intersection(_)
-            | RSResultData::Virtual(_)
+            | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_)
             | RSResultData::HybridMetric(_) => None,
@@ -737,7 +733,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             | RSResultData::Intersection(agg)
             | RSResultData::HybridMetric(agg) => Some(agg),
             RSResultData::Term(_)
-            | RSResultData::Virtual(_)
+            | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_) => None,
         }
@@ -753,7 +749,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             | RSResultData::Intersection(agg)
             | RSResultData::HybridMetric(agg) => Some(agg),
             RSResultData::Term(_)
-            | RSResultData::Virtual(_)
+            | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_) => None,
         }
@@ -804,7 +800,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
                 }
             }
             RSResultData::Term(_)
-            | RSResultData::Virtual(_)
+            | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_) => {}
         }
@@ -818,7 +814,7 @@ impl<'index, 'aggregate_children> RSIndexResult<'index, 'aggregate_children> {
             | RSResultData::Intersection(agg)
             | RSResultData::HybridMetric(agg) => agg.get(index),
             RSResultData::Term(_)
-            | RSResultData::Virtual(_)
+            | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_) => None,
         }
@@ -836,7 +832,7 @@ impl Drop for RSIndexResult<'_, '_> {
         // Take ownership of the internal data to be able to call `into_iter()` below.
         // `into_iter()` will convert each pointer back to a `Box` to allow it to be cleaned up
         // correctly.
-        let mut data = RSResultData::Virtual(RSVirtualResult);
+        let mut data = RSResultData::Virtual;
         std::mem::swap(&mut self.data, &mut data);
 
         match data {
@@ -863,7 +859,7 @@ impl Drop for RSIndexResult<'_, '_> {
                 }
             }
             RSResultData::Numeric(_numeric) | RSResultData::Metric(_numeric) => {}
-            RSResultData::Virtual(_virtual) => {}
+            RSResultData::Virtual => {}
         }
     }
 }
