@@ -58,16 +58,17 @@ class BenchDiskVsRam(object):
     def create_indexes(self, index_type: str=None):
         """
         Creates a RediSearch index
+        If index_type is None, creates both indexes.
         """
         try:
             if not index_type or index_type == 'disk':
                 print('Creating disk index')
                 # 
-                self.redis.execute_command('FT.CREATE', 'idx-disk', 'NOHL', 'NOOFFSETS', 'NOFREQS', 'STOPWORDS', '0', 'SCHEMA', 'title', 'TEXT', 'NOSTEM', 'description', 'TEXT', 'NOSTEM')
+                self.redis.execute_command('FT.CREATE', IDX_NAME_DISK, 'NOHL', 'NOOFFSETS', 'NOFREQS', 'STOPWORDS', '0', 'SCHEMA', 'title', 'TEXT', 'NOSTEM', 'description', 'TEXT', 'NOSTEM')
             if not index_type or index_type == 'ram':
                 print('Creating ram index')
                 # Add the 'RAM' argument (temporarily supported for benchmarking).
-                self.redis.execute_command('FT.CREATE', 'idx', 'RAM', 'NOHL', 'NOOFFSETS', 'NOFREQS', 'STOPWORDS', '0', 'SCHEMA', 'title', 'TEXT', 'NOSTEM', 'description', 'TEXT', 'NOSTEM')
+                self.redis.execute_command('FT.CREATE', IDX_NAME, 'RAM', 'NOHL', 'NOOFFSETS', 'NOFREQS', 'STOPWORDS', '0', 'SCHEMA', 'title', 'TEXT', 'NOSTEM', 'description', 'TEXT', 'NOSTEM')
         except redis.exceptions.ResponseError as e:
             if str(e) != 'Index already exists':
                 raise e
