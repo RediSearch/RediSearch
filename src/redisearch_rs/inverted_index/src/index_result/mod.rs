@@ -41,13 +41,13 @@ unsafe extern "C" {
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSIndexResult_IterateOffsets
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum RSOffsetVector<'index> {
     Borrowed(RSOffsetVectorRef<'index>),
     Owned(RSOffsetVectorOwned),
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(PartialEq)]
 pub struct RSOffsetVectorRef<'index> {
     /// At this point the data ownership is still managed by the caller.
     data: *mut c_char,
@@ -57,7 +57,7 @@ pub struct RSOffsetVectorRef<'index> {
     _phantom: PhantomData<&'index ()>,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(PartialEq)]
 pub struct RSOffsetVectorOwned {
     /// At this point the data ownership is still managed by the caller.
     data: *mut c_char,
@@ -136,13 +136,13 @@ impl RSOffsetVectorOwned {
 }
 
 /// Represents a single record of a document inside a term in the inverted index
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum RSTermRecord<'index> {
     Borrowed(RSTermRecordRef<'index>),
     Owned(RSTermRecordOwned),
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(PartialEq)]
 pub struct RSTermRecordRef<'index> {
     /// The term that brought up this record
     term: *mut RSQueryTerm,
@@ -151,7 +151,7 @@ pub struct RSTermRecordRef<'index> {
     offsets: RSOffsetVectorRef<'index>,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(PartialEq)]
 pub struct RSTermRecordOwned {
     /// The term that brought up this record
     term: *mut RSQueryTerm,
@@ -253,13 +253,13 @@ pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 /// using Rust since the internals cannot be constructed directly in C. The reason is because of
 /// the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
 /// managed correctly.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum RSAggregateResult<'index, 'children> {
     Borrowed(RSAggregateResultRef<'index, 'children>),
     Owned(RSAggregateResultOwned),
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct RSAggregateResultRef<'index, 'children> {
     /// The records making up this aggregate result
     ///
@@ -277,7 +277,7 @@ pub struct RSAggregateResultRef<'index, 'children> {
     _phantom: PhantomData<&'children ()>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct RSAggregateResultOwned {
     /// The records making up this aggregate result
     ///
@@ -471,7 +471,7 @@ pub struct RSVirtualResult;
 /// on [`RSResultData`].
 #[bitflags]
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RSResultKind {
     Union = 1,
     Intersection = 2,
