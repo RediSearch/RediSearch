@@ -34,15 +34,7 @@ typedef struct blockedClientHybridCtx {
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
 int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params, QueryError *status);
-void HREQ_Execute(HybridRequest *req, RedisModuleCtx *ctx, RedisSearchCtx *sctx);
 void HybridRequest_Free(HybridRequest *req);
-
-// Background execution functions
-blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
-                                                   RedisModuleBlockedClient *blockedClient,
-                                                   StrongRef spec);
-void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx);
-void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
 
 #ifdef __cplusplus
 }

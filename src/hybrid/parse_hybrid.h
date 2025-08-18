@@ -27,9 +27,6 @@ extern "C" {
 
 #define HYBRID_DEFAULT_KNN_K 10
 
-
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
 // Function for parsing hybrid command arguments - exposed for testing
 HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                   RedisSearchCtx *sctx, const char* indexname,

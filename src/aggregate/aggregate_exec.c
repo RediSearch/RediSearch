@@ -25,7 +25,6 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
-#include "hybrid/hybrid_request.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -278,98 +277,6 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   return RedisModule_Reply_LocalCount(reply) - count0;
 }
 
-
-static inline RedisSearchCtx *HREQ_SearchCtx(struct HybridRequest *hreq) {
-  return hreq->hybridParams->aggregationParams.common.sctx;
-}
-
-static inline uint32_t HREQ_RequestFlags(HybridRequest *hreq) {
-  return hreq->hybridParams->aggregationParams.common.reqflags;
-}
-
-// Serializes a result for the `FT.HYBRID` command.
-// The format is consistent, i.e., does not change according to the values of
-// the reply, or the RESP protocol used.
-static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r,
-                              const cachedVars *cv) {
-  const uint32_t options = HREQ_RequestFlags(hreq);
-  const RSDocumentMetadata *dmd = r->dmd;
-
-  RedisModule_Reply_Map(reply); // >result
-
-  // Reply should have the same structure of an FT.AGGREGATE reply
-
-  if (options & QEXEC_F_SEND_SCORES) {
-    RedisModule_Reply_SimpleString(reply, "score");
-    if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
-      // This will become a string in RESP2
-      RedisModule_Reply_Double(reply, r->score);
-    } else {
-      RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Double(reply, r->score);
-      SEReply(reply, r->scoreExplain);
-      RedisModule_Reply_ArrayEnd(reply);
-    }
-  }
-
-  if (!(options & QEXEC_F_SEND_NOFIELDS)) {
-    const RLookup *lk = cv->lastLk;
-
-    RedisModule_ReplyKV_Map(reply, "attributes"); // >attributes
-
-    if (r->flags & Result_ExpiredDoc) {
-      RedisModule_Reply_Null(reply);
-    } else {
-      RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
-      // Get the number of fields in the reply.
-      // Excludes hidden fields, fields not included in RETURN and, score and language fields.
-      SchemaRule *rule = (sctx && sctx->spec) ? sctx->spec->rule : NULL;
-      int excludeFlags = RLOOKUP_F_HIDDEN;
-      int requiredFlags = RLOOKUP_F_NOFLAGS;  //Hybrid does not use RETURN fields; it uses LOAD fields instead
-      int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
-      memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
-
-      RedisModule_Reply_Map(reply);
-      int i = 0;
-      for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        if (!kk->name || !skipFieldIndex[i++]) {
-          continue;
-        }
-        const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
-        RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
-
-        RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
-
-        SendReplyFlags flags = (options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0;
-        flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
-
-        unsigned int apiVersion = sctx->apiVersion;
-        if (v && v->t == RSValue_Duo) {
-          // Which value to use for duo value
-          if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-            // STRING
-            if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
-              // Multi
-              v = RS_DUOVAL_OTHERVAL(*v);
-            } else {
-              // Single
-              v = RS_DUOVAL_VAL(*v);
-            }
-          } else {
-            // EXPAND
-            v = RS_DUOVAL_OTHER2VAL(*v);
-          }
-        }
-        RSValue_SendReply(reply, v, flags);
-      }
-      RedisModule_Reply_MapEnd(reply);
-    }
-    RedisModule_Reply_MapEnd(reply); // >attributes
-  }
-  RedisModule_Reply_MapEnd(reply); // >result
-}
-
 static size_t getResultsFactor(AREQ *req) {
   size_t count = 0;
   QEFlags reqFlags = AREQ_RequestFlags(req);
@@ -480,31 +387,12 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
                       rp, results, r, rc);
 }
 
-static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  startPipelineCommon(hreq->reqConfig.timeoutPolicy,
-          &hreq->hybridParams->aggregationParams.common.sctx->time.timeout,
-          rp, results, r, rc);
-}
-
 static int populateReplyWithResults(RedisModule_Reply *reply,
   SearchResult **results, AREQ *req, cachedVars *cv) {
     // populate the reply with an array containing the serialized results
     int len = array_len(results);
     array_foreach(results, res, {
       serializeResult(req, reply, res, cv);
-      SearchResult_Destroy(res);
-      rm_free(res);
-    });
-    array_free(results);
-    return len;
-}
-
-static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
-  SearchResult **results, HybridRequest *hreq, cachedVars *cv) {
-    // populate the reply with an array containing the serialized results
-    int len = array_len(results);
-    array_foreach(results, res, {
-      serializeResult_hybrid(hreq, reply, res, cv);
       SearchResult_Destroy(res);
       rm_free(res);
     });
@@ -549,118 +437,6 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   // Reset the total results length:
   qctx->totalResults = 0;
   QueryError_ClearError(qctx->err);
-}
-
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {
-  if (results) {
-    destroyResults(results);
-  } else {
-    SearchResult_Destroy(r);
-  }
-
-  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
-    uint32_t reqflags = HREQ_RequestFlags(hreq);
-    TotalGlobalStats_CountQuery(reqflags, duration);
-  }
-
-  // Reset the total results length
-  qctx->totalResults = 0;
-  QueryError_ClearError(qctx->err);
-}
-
-/**
- * Activates the pipeline embedded in `req`, and serializes the appropriate
- * response to the client, according to the RESP protocol used (2/3).
- *
- * Note: Currently this is used only by the `FT.HYBRID` command, that does
- * not support cursors and profiling, thus this function does not handle
- * those cases. Support should be added as these features are added.
- */
-void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
-    SearchResult r = {0};
-    int rc = RS_RESULT_EOF;
-    QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-    ResultProcessor *rp = qctx->endProc;
-    SearchResult **results = NULL;
-
-    // Set the chunk size limit for the query
-    rp->parent->resultLimit = limit;
-
-    startPipelineHybrid(hreq, rp, &results, &r, &rc);
-
-    // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp->parent->err, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
-      RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
-      goto done_err;
-    } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
-      ReplyWithTimeoutError(reply);
-      goto done_err;
-    }
-
-    RedisModule_Reply_Map(reply);
-
-    // <format>
-    QEFlags reqFlags = HREQ_RequestFlags(hreq);
-    if (reqFlags & QEXEC_FORMAT_EXPAND) {
-      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
-    } else {
-      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
-    }
-
-    RedisModule_ReplyKV_Array(reply, "results"); // >results
-
-    if (results != NULL) {
-      HREQ_populateReplyWithResults(reply, results, hreq, &cv);
-      results = NULL;
-    } else {
-      if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
-        serializeResult_hybrid(hreq, reply, &r, &cv);
-      }
-
-      SearchResult_Clear(&r);
-      if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
-        goto done;
-      }
-
-      while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-        serializeResult_hybrid(hreq, reply, &r, &cv);
-        // Serialize it as a search result
-        SearchResult_Clear(&r);
-      }
-    }
-
-done:
-    RedisModule_Reply_ArrayEnd(reply); // >results
-
-    // <total_results>
-    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
-
-    // warnings
-    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
-    RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
-    if (sctx->spec && sctx->spec->scan_failed_OOM) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
-    }
-    if (rc == RS_RESULT_TIMEDOUT) {
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-    } else if (rc == RS_RESULT_ERROR) {
-      // Non-fatal error
-      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
-    } else if (qctx->err->reachedMaxPrefixExpansions) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
-    }
-    RedisModule_Reply_ArrayEnd(reply); // >warnings
-
-    // execution_time
-    clock_t duration = clock() - hreq->initClock;
-    double executionTime = (double)duration / CLOCKS_PER_MILLISEC;
-    RedisModule_ReplyKV_Double(reply, "execution_time", executionTime);
-
-    RedisModule_Reply_MapEnd(reply);
-
-done_err:
-    finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
 }
 
 /**

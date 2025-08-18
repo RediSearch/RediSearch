@@ -178,7 +178,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         AGPLN_PopStep(&loadStep->base);
     }
 
-
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
@@ -198,30 +197,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         AGPLN_AddStep(&req->tailPipeline->ap, &loadStep->base);
     }
     return REDISMODULE_OK;
-}
-
-/**
- * Execute the hybrid search pipeline and send results to the client.
- * This function uses the hybrid-specific result serialization functions.
- *
- * @param req The HybridRequest with built pipeline
- * @param ctx Redis module context for sending the reply
- */
-void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx,
-                            RedisSearchCtx *sctx) {
-    // Set the chunk size limit for the query
-    hreq->tailPipeline->qctx.resultLimit = UINT64_MAX;
-
-    AGGPlan *plan = &hreq->tailPipeline->ap;
-    cachedVars cv = {
-        .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-        .lastAstp = AGPLN_GetArrangeStep(plan)
-    };
-
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-    RedisModule_EndReply(reply);
-    HybridRequest_Free(hreq);
 }
 
 /**
@@ -315,64 +290,6 @@ void HybridRequest_Free(HybridRequest *req) {
     }
 
     rm_free(req);
-}
-
-// Background execution functions implementation
-blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
-                                                   RedisModuleBlockedClient *blockedClient,
-                                                   StrongRef spec) {
-  blockedClientHybridCtx *ret = rm_new(blockedClientHybridCtx);
-  ret->hreq = hreq;
-  ret->blockedClient = blockedClient;
-  ret->spec_ref = StrongRef_Demote(spec);
-  return ret;
-}
-
-void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
-  if (BCHCtx->hreq) {
-    HybridRequest_Free(BCHCtx->hreq);
-  }
-  RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
-  void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
-  RedisModule_UnblockClient(BCHCtx->blockedClient, privdata);
-  WeakRef_Release(BCHCtx->spec_ref);
-  rm_free(BCHCtx);
-}
-
-void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
-  HybridRequest *hreq = BCHCtx->hreq;
-  RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
-  QueryError status = {0};
-
-  StrongRef execution_ref = IndexSpecRef_Promote(BCHCtx->spec_ref);
-  if (!StrongRef_Get(execution_ref)) {
-    // The index was dropped while the query was in the job queue.
-    // Notify the client that the query was aborted
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    QueryError_ReplyAndClear(outctx, &status);
-    RedisModule_FreeThreadSafeContext(outctx);
-    blockedClientHybridCtx_destroy(BCHCtx);
-    return;
-  }
-
-  // Update the main search context with the thread-safe context
-  RedisSearchCtx *sctx = hreq->hybridParams->aggregationParams.common.sctx;
-  sctx->redisCtx = outctx;
-
-  // Build the pipeline and execute
-  if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams, &status) != REDISMODULE_OK) {
-    QueryError_ReplyAndClear(outctx, &status);
-    // hreq will be freed by blockedClientHybridCtx_destroy since execution failed
-  } else {
-    // Hybrid query doesn't support cursors.
-    HREQ_Execute(hreq, outctx, sctx);
-    // Set hreq to NULL so it won't be freed in destroy (it was freed by HREQ_Execute)
-    BCHCtx->hreq = NULL;
-  }
-
-  RedisModule_FreeThreadSafeContext(outctx);
-  IndexSpecRef_Release(execution_ref);
-  blockedClientHybridCtx_destroy(BCHCtx);
 }
 
 #ifdef __cplusplus
