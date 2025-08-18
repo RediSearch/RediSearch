@@ -138,7 +138,7 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams);
 
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, NULL);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -146,7 +146,7 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewRRF(k, window, false);
 
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, NULL);
 }
 
 

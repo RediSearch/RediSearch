@@ -333,7 +333,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       RedisModule_Reply_Map(reply);
       int i = 0;
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-        if (!kk->name || !skipFieldIndex[i++]) {
+        if (!kk->name) {
           continue;
         }
         const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
