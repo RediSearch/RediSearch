@@ -254,7 +254,7 @@ pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 /// using Rust since the internals cannot be constructed directly in C. The reason is because of
 /// the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
 /// managed correctly.
-#[repr(C)]
+#[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum RSAggregateResult<'index, 'children> {
     Borrowed(RSAggregateResultRef<'index, 'children>),
