@@ -842,6 +842,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
+  CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
 
 error:
@@ -849,5 +850,6 @@ error:
     HybridRequest_Free(hybridRequest);
   }
 
+  CurrentThread_ClearIndexSpec();
   return QueryError_ReplyAndClear(ctx, &status);
 }
