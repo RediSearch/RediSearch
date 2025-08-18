@@ -81,7 +81,7 @@ impl<'index> From<RSTermRecordRaw<'index>> for super::RSTermRecord<'index> {
 /// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-pub struct RSAggregateResultRaw<'index, 'children> {
+pub struct RSAggregateResultRaw<'index> {
     /// We mark copied aggregates so we can treat them a bit differently on delete.
     is_copy: bool,
 
@@ -90,21 +90,14 @@ pub struct RSAggregateResultRaw<'index, 'children> {
     /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<*const RSIndexResultRaw<'index, 'children>>,
+    records: LowMemoryThinVec<*const RSIndexResultRaw<'index>>,
 
     /// A map of the aggregate kind of the underlying records
     kind_mask: RSResultKindMask,
-
-    /// The lifetime is actually on the `*const RSIndexResult` children stored in the `records`
-    /// field. But since these are stored as a pointers which do not support lifetimes, we need to
-    /// use a PhantomData to carry the lifetime for each child record instead.
-    _phantom: PhantomData<&'children ()>,
 }
 
-impl<'index, 'children> From<RSAggregateResultRaw<'index, 'children>>
-    for super::RSAggregateResult<'index, 'children>
-{
-    fn from(value: RSAggregateResultRaw<'index, 'children>) -> Self {
+impl<'index> From<RSAggregateResultRaw<'index>> for super::RSAggregateResult<'index> {
+    fn from(value: RSAggregateResultRaw<'index>) -> Self {
         if value.is_copy {
             Self::Owned(super::RSAggregateResultOwned {
                 records: value
@@ -131,20 +124,18 @@ impl<'index, 'children> From<RSAggregateResultRaw<'index, 'children>>
                     .collect(),
 
                 kind_mask: value.kind_mask,
-                _phantom: PhantomData,
             })
         }
     }
 }
 
-impl<'index, 'children> RSAggregateResultRaw<'index, 'children> {
+impl<'index> RSAggregateResultRaw<'index> {
     /// Create a new empty aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             is_copy: false,
             records: LowMemoryThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
-            _phantom: PhantomData,
         }
     }
 
@@ -169,7 +160,7 @@ impl<'index, 'children> RSAggregateResultRaw<'index, 'children> {
     }
 
     /// Get an iterator over the children of this aggregate result
-    pub fn iter(&'index self) -> RSAggregateResultRawIter<'index, 'children> {
+    pub fn iter(&'index self) -> RSAggregateResultRawIter<'index> {
         RSAggregateResultRawIter {
             agg: self,
             index: 0,
@@ -180,7 +171,7 @@ impl<'index, 'children> RSAggregateResultRaw<'index, 'children> {
     ///
     /// # Safety
     /// The caller must ensure that the memory at the given index is still valid
-    pub fn get(&self, index: usize) -> Option<&RSIndexResultRaw<'index, 'children>> {
+    pub fn get(&self, index: usize) -> Option<&RSIndexResultRaw<'index>> {
         if let Some(result_addr) = self.records.get(index) {
             // SAFETY: The caller is to guarantee that the memory at `result_addr` is still valid.
             Some(unsafe { &**result_addr })
@@ -211,15 +202,13 @@ impl<'index, 'children> RSAggregateResultRaw<'index, 'children> {
 }
 
 /// An iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultRawIter<'index, 'aggregate_children> {
-    agg: &'index RSAggregateResultRaw<'index, 'aggregate_children>,
+pub struct RSAggregateResultRawIter<'index> {
+    agg: &'index RSAggregateResultRaw<'index>,
     index: usize,
 }
 
-impl<'index, 'aggregate_children> Iterator
-    for RSAggregateResultRawIter<'index, 'aggregate_children>
-{
-    type Item = &'index RSIndexResultRaw<'index, 'aggregate_children>;
+impl<'index> Iterator for RSAggregateResultRawIter<'index> {
+    type Item = &'index RSIndexResultRaw<'index>;
 
     /// Get the next item in the iterator
     ///
@@ -234,6 +223,7 @@ impl<'index, 'aggregate_children> Iterator
         }
     }
 }
+
 /// Represents a virtual result in an index record.
 #[repr(C)]
 pub struct RSVirtualResultRaw;
@@ -248,20 +238,18 @@ pub struct RSVirtualResultRaw;
 /// raw pointers to results.
 #[repr(u8)]
 /// cbindgen:prefix-with-name=true
-pub enum RSResultDataRaw<'index, 'aggregate_children> {
-    Union(RSAggregateResultRaw<'index, 'aggregate_children>) = 1,
-    Intersection(RSAggregateResultRaw<'index, 'aggregate_children>) = 2,
+pub enum RSResultDataRaw<'index> {
+    Union(RSAggregateResultRaw<'index>) = 1,
+    Intersection(RSAggregateResultRaw<'index>) = 2,
     Term(RSTermRecordRaw<'index>) = 4,
     Virtual(RSVirtualResultRaw) = 8,
     Numeric(RSNumericRecordRaw) = 16,
     Metric(RSNumericRecordRaw) = 32,
-    HybridMetric(RSAggregateResultRaw<'index, 'aggregate_children>) = 64,
+    HybridMetric(RSAggregateResultRaw<'index>) = 64,
 }
 
-impl<'index, 'aggregate_children> From<RSResultDataRaw<'index, 'aggregate_children>>
-    for super::RSResultData<'index, 'aggregate_children>
-{
-    fn from(value: RSResultDataRaw<'index, 'aggregate_children>) -> Self {
+impl<'index> From<RSResultDataRaw<'index>> for super::RSResultData<'index> {
+    fn from(value: RSResultDataRaw<'index>) -> Self {
         match value {
             RSResultDataRaw::Union(agg) => Self::Union(agg.into()),
             RSResultDataRaw::Intersection(agg) => Self::Intersection(agg.into()),
@@ -274,7 +262,7 @@ impl<'index, 'aggregate_children> From<RSResultDataRaw<'index, 'aggregate_childr
     }
 }
 
-impl RSResultDataRaw<'_, '_> {
+impl RSResultDataRaw<'_> {
     pub fn kind(&self) -> RSResultKind {
         match self {
             RSResultDataRaw::Union(_) => RSResultKind::Union,
@@ -291,7 +279,7 @@ impl RSResultDataRaw<'_, '_> {
 /// The result of an inverted index
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-pub struct RSIndexResultRaw<'index, 'aggregate_children> {
+pub struct RSIndexResultRaw<'index> {
     /// The document ID of the result
     pub doc_id: t_docId,
 
@@ -309,7 +297,7 @@ pub struct RSIndexResultRaw<'index, 'aggregate_children> {
     pub offsets_sz: u32,
 
     /// The actual data of the result
-    pub data: RSResultDataRaw<'index, 'aggregate_children>,
+    pub data: RSResultDataRaw<'index>,
 
     /// Holds an array of metrics yielded by the different iterators in the AST
     pub metrics: *mut RSYieldableMetric,
@@ -318,15 +306,13 @@ pub struct RSIndexResultRaw<'index, 'aggregate_children> {
     pub weight: f64,
 }
 
-impl<'index, 'aggregate_children> From<&RSIndexResultRaw<'index, 'aggregate_children>>
-    for &super::RSIndexResult<'index, 'aggregate_children>
-{
-    fn from(value: &RSIndexResultRaw<'index, 'aggregate_children>) -> Self {
+impl<'index> From<&RSIndexResultRaw<'index>> for &super::RSIndexResult<'index> {
+    fn from(value: &RSIndexResultRaw<'index>) -> Self {
         todo!();
     }
 }
 
-impl<'index, 'aggregate_children> RSIndexResultRaw<'index, 'aggregate_children> {
+impl<'index> RSIndexResultRaw<'index> {
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
     /// `None`.
     pub fn as_numeric(&self) -> Option<&RSNumericRecordRaw> {
@@ -383,7 +369,7 @@ impl<'index, 'aggregate_children> RSIndexResultRaw<'index, 'aggregate_children> 
 
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
-    pub fn as_aggregate(&self) -> Option<&RSAggregateResultRaw<'index, 'aggregate_children>> {
+    pub fn as_aggregate(&self) -> Option<&RSAggregateResultRaw<'index>> {
         match &self.data {
             RSResultDataRaw::Union(agg)
             | RSResultDataRaw::Intersection(agg)
@@ -397,9 +383,7 @@ impl<'index, 'aggregate_children> RSIndexResultRaw<'index, 'aggregate_children> 
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
-    pub fn as_aggregate_mut(
-        &mut self,
-    ) -> Option<&mut RSAggregateResultRaw<'index, 'aggregate_children>> {
+    pub fn as_aggregate_mut(&mut self) -> Option<&mut RSAggregateResultRaw<'index>> {
         match &mut self.data {
             RSResultDataRaw::Union(agg)
             | RSResultDataRaw::Intersection(agg)
