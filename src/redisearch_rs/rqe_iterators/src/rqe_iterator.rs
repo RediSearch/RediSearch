@@ -25,6 +25,7 @@ pub enum RQEIteratorError {
     TimedOut,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 /// The status of the iterator after a call to `revalidate`
 pub enum RQEValidateStatus {
     /// The iterator is still valid and at the same position.
