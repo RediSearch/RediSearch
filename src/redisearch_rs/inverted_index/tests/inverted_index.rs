@@ -19,7 +19,7 @@ fn pushing_to_aggregate_result() {
     assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
 
     let num_first = RSIndexResult::numeric(10.0).doc_id(2);
-    agg.push(&num_first);
+    agg.push_borrowed(&num_first);
 
     assert_eq!(
         agg.kind_mask(),
@@ -31,7 +31,7 @@ fn pushing_to_aggregate_result() {
     assert_eq!(agg.get(1), None, "This record does not exist yet");
 
     let num_second = RSIndexResult::numeric(100.0).doc_id(3);
-    agg.push(&num_second);
+    agg.push_borrowed(&num_second);
 
     assert_eq!(agg.kind_mask(), RSResultKind::Numeric);
 
@@ -40,7 +40,49 @@ fn pushing_to_aggregate_result() {
     assert_eq!(agg.get(2), None, "This record does not exist yet");
 
     let virt_first = RSIndexResult::virt().doc_id(4);
-    agg.push(&virt_first);
+    agg.push_borrowed(&virt_first);
+
+    assert_eq!(
+        agg.kind_mask(),
+        RSResultKind::Numeric | RSResultKind::Virtual,
+        "types should be combined"
+    );
+
+    assert_eq!(agg.get(0), Some(&RSIndexResult::numeric(10.0).doc_id(2)));
+    assert_eq!(agg.get(1), Some(&RSIndexResult::numeric(100.0).doc_id(3)));
+    assert_eq!(agg.get(2), Some(&RSIndexResult::virt().doc_id(4)));
+    assert_eq!(agg.get(3), None, "This record does not exist yet");
+}
+
+#[test]
+fn pushing_to_owned_aggregate_result() {
+    let mut agg = RSAggregateResult::with_capacity_owned(2);
+
+    assert_eq!(agg.kind_mask(), RSResultKindMask::empty());
+
+    let num_first = RSIndexResult::numeric(10.0).doc_id(2);
+    agg.push_owned(num_first);
+
+    assert_eq!(
+        agg.kind_mask(),
+        RSResultKind::Numeric,
+        "type mask should be ORed"
+    );
+
+    assert_eq!(agg.get(0), Some(&RSIndexResult::numeric(10.0).doc_id(2)));
+    assert_eq!(agg.get(1), None, "This record does not exist yet");
+
+    let num_second = RSIndexResult::numeric(100.0).doc_id(3);
+    agg.push_owned(num_second);
+
+    assert_eq!(agg.kind_mask(), RSResultKind::Numeric);
+
+    assert_eq!(agg.get(0), Some(&RSIndexResult::numeric(10.0).doc_id(2)));
+    assert_eq!(agg.get(1), Some(&RSIndexResult::numeric(100.0).doc_id(3)));
+    assert_eq!(agg.get(2), None, "This record does not exist yet");
+
+    let virt_first = RSIndexResult::virt().doc_id(4);
+    agg.push_owned(virt_first);
 
     assert_eq!(
         agg.kind_mask(),
