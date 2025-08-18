@@ -51,7 +51,7 @@ impl Decoder for FreqsOffsets {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, offsets_sz] = decoded_values;
 

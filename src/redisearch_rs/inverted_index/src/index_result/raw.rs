@@ -169,7 +169,7 @@ const _: () = {
 /// managed correctly.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-pub struct RSAggregateResultRaw<'index, 'children> {
+pub struct RSAggregateResultRaw<'index> {
     /// We mark copied aggregates so we can treat them a bit differently on delete.
     pub is_copy: bool,
 
@@ -178,15 +178,10 @@ pub struct RSAggregateResultRaw<'index, 'children> {
     /// The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    pub records: LowMemoryThinVec<*const RSIndexResultRaw<'index, 'children>>,
+    pub records: LowMemoryThinVec<*const RSIndexResultRaw<'index>>,
 
     /// A map of the aggregate kind of the underlying records
     pub kind_mask: RSResultKindMask,
-
-    /// The lifetime is actually on the `*const RSIndexResult` children stored in the `records`
-    /// field. But since these are stored as a pointers which do not support lifetimes, we need to
-    /// use a PhantomData to carry the lifetime for each child record instead.
-    pub _phantom: PhantomData<&'children ()>,
 }
 
 // Check at compile-time if `RSAggregateResultRaw` and `super::RSAggregateResult` have the same representation.
@@ -197,9 +192,9 @@ const _: () = {
 
     // Struct size and alignment check
     const SIZE_MATCHES: bool =
-        size_of::<RSAggregateResultRaw<'_, '_>>() == size_of::<super::RSAggregateResult<'_, '_>>();
-    const ALIGN_MATCHES: bool = align_of::<RSAggregateResultRaw<'_, '_>>()
-        == align_of::<super::RSAggregateResult<'_, '_>>();
+        size_of::<RSAggregateResultRaw<'_>>() == size_of::<super::RSAggregateResult<'_>>();
+    const ALIGN_MATCHES: bool =
+        align_of::<RSAggregateResultRaw<'_>>() == align_of::<super::RSAggregateResult<'_>>();
 
     if !SIZE_MATCHES {
         panic!("Size mismatch between RSAggregateResultRaw and super::RSAggregateResult");
@@ -211,28 +206,28 @@ const _: () = {
 
     // Check offset of each field
     const RECORDS_REF_OFFSET_MATCHES: bool =
-        std::mem::offset_of!(RSAggregateResultRaw<'_, '_>, records)
-            == std::mem::offset_of!(super::RSAggregateResultRef<'_, '_>, records) + 8;
+        std::mem::offset_of!(RSAggregateResultRaw<'_>, records)
+            == std::mem::offset_of!(super::RSAggregateResultRef<'_>, records) + 8;
     if !RECORDS_REF_OFFSET_MATCHES {
         panic!("Field 'records' does not match offset in super::RSAggregateResultRef");
     }
 
     const RECORDS_OWNED_OFFSET_MATCHES: bool =
-        std::mem::offset_of!(RSAggregateResultRaw<'_, '_>, records)
+        std::mem::offset_of!(RSAggregateResultRaw<'_>, records)
             == std::mem::offset_of!(super::RSAggregateResultOwned, records) + 8;
     if !RECORDS_REF_OFFSET_MATCHES {
         panic!("Field 'records' does not match offset in super::RSAggregateResultOwned");
     }
 
     const KIND_MASK_REF_OFFSET_MATCHES: bool =
-        std::mem::offset_of!(RSAggregateResultRaw<'_, '_>, kind_mask)
-            == std::mem::offset_of!(super::RSAggregateResultRef<'_, '_>, kind_mask) + 8;
+        std::mem::offset_of!(RSAggregateResultRaw<'_>, kind_mask)
+            == std::mem::offset_of!(super::RSAggregateResultRef<'_>, kind_mask) + 8;
     if !KIND_MASK_REF_OFFSET_MATCHES {
         panic!("Field 'kind_mask' does not match offset in super::RSAggregateResultRef");
     }
 
     const KIND_MASK_OWNED_OFFSET_MATCHES: bool =
-        std::mem::offset_of!(RSAggregateResultRaw<'_, '_>, kind_mask)
+        std::mem::offset_of!(RSAggregateResultRaw<'_>, kind_mask)
             == std::mem::offset_of!(super::RSAggregateResultOwned, kind_mask) + 8;
     if !KIND_MASK_OWNED_OFFSET_MATCHES {
         panic!("Field 'kind_mask' does not match offset in super::RSAggregateResultOwned");
@@ -240,15 +235,13 @@ const _: () = {
 };
 
 /// An iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultRawIter<'index, 'aggregate_children> {
-    pub agg: &'index RSAggregateResultRaw<'index, 'aggregate_children>,
+pub struct RSAggregateResultRawIter<'index> {
+    pub agg: &'index RSAggregateResultRaw<'index>,
     pub index: usize,
 }
 
-impl<'index, 'aggregate_children> Iterator
-    for RSAggregateResultRawIter<'index, 'aggregate_children>
-{
-    type Item = &'index RSIndexResultRaw<'index, 'aggregate_children>;
+impl<'index> Iterator for RSAggregateResultRawIter<'index> {
+    type Item = &'index RSIndexResultRaw<'index>;
 
     /// Get the next item in the iterator
     ///
@@ -278,14 +271,14 @@ pub struct RSVirtualResultRaw;
 /// raw pointers to results.
 #[repr(u8)]
 /// cbindgen:prefix-with-name=true
-pub enum RSResultDataRaw<'index, 'aggregate_children> {
-    Union(RSAggregateResultRaw<'index, 'aggregate_children>) = 1,
-    Intersection(RSAggregateResultRaw<'index, 'aggregate_children>) = 2,
+pub enum RSResultDataRaw<'index> {
+    Union(RSAggregateResultRaw<'index>) = 1,
+    Intersection(RSAggregateResultRaw<'index>) = 2,
     Term(RSTermRecordRaw<'index>) = 4,
     Virtual(RSVirtualResultRaw) = 8,
     Numeric(RSNumericRecordRaw) = 16,
     Metric(RSNumericRecordRaw) = 32,
-    HybridMetric(RSAggregateResultRaw<'index, 'aggregate_children>) = 64,
+    HybridMetric(RSAggregateResultRaw<'index>) = 64,
 }
 
 // Check at compile-time if `RSResultDataRaw` and `super::RSResultData` have the same representation.
@@ -296,9 +289,9 @@ const _: () = {
 
     // Struct size and alignment check
     const SIZE_MATCHES: bool =
-        size_of::<RSResultDataRaw<'_, '_>>() == size_of::<super::RSResultData<'_, '_>>();
+        size_of::<RSResultDataRaw<'_>>() == size_of::<super::RSResultData<'_>>();
     const ALIGN_MATCHES: bool =
-        align_of::<RSResultDataRaw<'_, '_>>() == align_of::<super::RSResultData<'_, '_>>();
+        align_of::<RSResultDataRaw<'_>>() == align_of::<super::RSResultData<'_>>();
 
     if !SIZE_MATCHES {
         panic!("Size mismatch between RSResultDataRaw and super::RSResultData");
@@ -312,7 +305,7 @@ const _: () = {
 /// The result of an inverted index
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-pub struct RSIndexResultRaw<'index, 'aggregate_children> {
+pub struct RSIndexResultRaw<'index> {
     /// The document ID of the result
     pub doc_id: t_docId,
 
@@ -330,7 +323,7 @@ pub struct RSIndexResultRaw<'index, 'aggregate_children> {
     pub offsets_sz: u32,
 
     /// The actual data of the result
-    pub data: RSResultDataRaw<'index, 'aggregate_children>,
+    pub data: RSResultDataRaw<'index>,
 
     /// Holds an array of metrics yielded by the different iterators in the AST
     pub metrics: *mut RSYieldableMetric,
@@ -359,52 +352,50 @@ const _: () = {
     }
 
     // Check offset of each field
-    const DOC_ID_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_, '_>, doc_id)
-        == std::mem::offset_of!(super::RSIndexResult<'_, '_>, doc_id);
+    const DOC_ID_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_>, doc_id)
+        == std::mem::offset_of!(super::RSIndexResult<'_>, doc_id);
     if !DOC_ID_OFFSET_MATCHES {
         panic!("Field 'doc_id' does not match offset in super::RSIndexResult");
     }
 
-    const DMD_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_, '_>, dmd)
-        == std::mem::offset_of!(super::RSIndexResult<'_, '_>, dmd);
+    const DMD_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_>, dmd)
+        == std::mem::offset_of!(super::RSIndexResult<'_>, dmd);
     if !DMD_OFFSET_MATCHES {
         panic!("Field 'dmd' does not match offset in super::RSIndexResult");
     }
 
-    const FIELD_MASK_OFFSET_MATCHES: bool =
-        std::mem::offset_of!(RSIndexResultRaw<'_, '_>, field_mask)
-            == std::mem::offset_of!(super::RSIndexResult<'_, '_>, field_mask);
+    const FIELD_MASK_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_>, field_mask)
+        == std::mem::offset_of!(super::RSIndexResult<'_>, field_mask);
     if !FIELD_MASK_OFFSET_MATCHES {
         panic!("Field 'field_mask' does not match offset in super::RSIndexResult");
     }
 
-    const FREQ_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_, '_>, freq)
-        == std::mem::offset_of!(super::RSIndexResult<'_, '_>, freq);
+    const FREQ_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_>, freq)
+        == std::mem::offset_of!(super::RSIndexResult<'_>, freq);
     if !FREQ_OFFSET_MATCHES {
         panic!("Field 'freq' does not match offset in super::RSIndexResult");
     }
 
-    const OFFSETS_SZ_OFFSET_MATCHES: bool =
-        std::mem::offset_of!(RSIndexResultRaw<'_, '_>, offsets_sz)
-            == std::mem::offset_of!(super::RSIndexResult<'_, '_>, offsets_sz);
+    const OFFSETS_SZ_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_>, offsets_sz)
+        == std::mem::offset_of!(super::RSIndexResult<'_>, offsets_sz);
     if !OFFSETS_SZ_OFFSET_MATCHES {
         panic!("Field 'offsets_sz' does not match offset in super::RSIndexResult");
     }
 
-    const DATA_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_, '_>, data)
-        == std::mem::offset_of!(super::RSIndexResult<'_, '_>, data);
+    const DATA_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_>, data)
+        == std::mem::offset_of!(super::RSIndexResult<'_>, data);
     if !DATA_OFFSET_MATCHES {
         panic!("Field 'data' does not match offset in super::RSIndexResult");
     }
 
-    const METRICS_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_, '_>, metrics)
-        == std::mem::offset_of!(super::RSIndexResult<'_, '_>, metrics);
+    const METRICS_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_>, metrics)
+        == std::mem::offset_of!(super::RSIndexResult<'_>, metrics);
     if !METRICS_OFFSET_MATCHES {
         panic!("Field 'metrics' does not match offset in super::RSIndexResult");
     }
 
-    const WEIGHT_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_, '_>, weight)
-        == std::mem::offset_of!(super::RSIndexResult<'_, '_>, weight);
+    const WEIGHT_OFFSET_MATCHES: bool = std::mem::offset_of!(RSIndexResultRaw<'_>, weight)
+        == std::mem::offset_of!(super::RSIndexResult<'_>, weight);
     if !WEIGHT_OFFSET_MATCHES {
         panic!("Field 'weight' does not match offset in super::RSIndexResult");
     }
