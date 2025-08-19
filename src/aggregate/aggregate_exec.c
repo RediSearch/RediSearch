@@ -10,6 +10,7 @@
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "aggregate.h"
+#include "aggregate_exec_common.h"
 #include "cursor.h"
 #include "rmutil/util.h"
 #include "util/timeout.h"
@@ -314,74 +315,6 @@ static size_t getResultsFactor(AREQ *req) {
   return count;
 }
 
-/**
- * Aggregates all the results from the pipeline into a single array, and returns
- * it. rc is populated with the latest return code.
-*/
-static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
-  SearchResult **results = array_new(SearchResult *, 8);
-  SearchResult r = {0};
-  while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
-    // Decrement the result limit, now that we got a valid result.
-    rp->parent->resultLimit--;
-
-    array_append(results, SearchResult_Copy(&r));
-
-    // clean the search result
-    r = (SearchResult){0};
-  }
-
-  if (rc != RS_RESULT_OK) {
-    SearchResult_Destroy(&r);
-  }
-
-  return results;
-}
-
-// Free's the results array and all the results inside it
-static void destroyResults(SearchResult **results) {
-  if (results) {
-    for (size_t i = 0; i < array_len(results); i++) {
-      SearchResult_Destroy(results[i]);
-      rm_free(results[i]);
-    }
-    array_free(results);
-  }
-}
-
-static bool ShouldReplyWithError(QueryError *status, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
-  return QueryError_HasError(status)
-      && (status->code != QUERY_ETIMEDOUT
-          || (status->code == QUERY_ETIMEDOUT
-              && timeoutPolicy == TimeoutPolicy_Fail
-              && !isProfile));
-}
-
-static bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
-  return rc == RS_RESULT_TIMEDOUT
-         && timeoutPolicy == TimeoutPolicy_Fail
-         && !isProfile;
-}
-
-static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
-  RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-}
-
-static void startPipelineCommon(RSTimeoutPolicy timeoutPolicy, struct timespec *timeout,
-                               ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  if (timeoutPolicy == TimeoutPolicy_Fail) {
-    // Aggregate all results before populating the response
-    *results = AggregateResults(rp, rc);
-    // Check timeout after aggregation
-    if (TimedOut(timeout) == TIMED_OUT) {
-      *rc = RS_RESULT_TIMEDOUT;
-    }
-  } else {
-    // Send the results received from the pipeline as they come (no need to aggregate)
-    *rc = rp->Next(rp, r);
-  }
-}
-
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   startPipelineCommon(req->reqConfig.timeoutPolicy, &req->sctx->time.timeout,
                       rp, results, r, rc);
@@ -412,10 +345,6 @@ long calc_results_len(AREQ *req, size_t limit) {
   size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
-}
-
-static bool hasTimeoutError(QueryError *err) {
-  return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
 }
 
 static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done, clock_t duration) {
