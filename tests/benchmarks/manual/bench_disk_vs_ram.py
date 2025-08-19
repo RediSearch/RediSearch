@@ -21,8 +21,8 @@ class BenchDiskVsRam(object):
             self.result_file += '.txt'
         self.result_file = self.result_file.replace('.txt', f'_{self.num_docs}.txt')
         self.redis = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-        self.redis.execute_command('hello', '3') # Set RESP3, such that we avoid incorrect result count in ft.aggregate.
         self.redis.execute_command('debug', 'mark-internal-client')
+        self.redis.execute_command('hello', '3') # Set RESP3, such that we avoid incorrect result count in ft.aggregate.
         
         # Set configurations
         self.redis.execute_command('_FT.CONFIG', 'SET', 'on_timeout', 'fail')
@@ -382,8 +382,8 @@ if __name__ == '__main__':
     parser.add_argument('--disk_files_path', type=str, default='redisearch', help='Path to disk files')
     args = parser.parse_args()
 
-    if not args.result_file.startswith('tests/benchmarks/manual/results/'):
-        args.result_file = 'tests/benchmarks/manual/results/' + args.result_file
+    # if not args.result_file.startswith('tests/benchmarks/manual/results/'):
+    #     args.result_file = 'tests/benchmarks/manual/results/' + args.result_file
 
     bench = BenchDiskVsRam(num_docs=args.num_docs, data_path=args.data_path,
                            result_file=args.result_file, iters=args.iters,

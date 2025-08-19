@@ -1,23 +1,26 @@
 #!/bin/bash
 
+# Base path to the Redisearch directory
+BASE_PATH=/home/ubuntu/rsdisk/RediSearchDisk
+
 # Add a 'loop/' prefix to the result file name,
 # Use 'results.txt' as default if no argument provided
-RESULT_FILE=loop/${1:-results.txt}
+RESULT_FILE=$BASE_PATH/tests/benchmarks/manual/loop/${1:-results.txt}
 
 # Calculate total iterations for progress tracking
-total_iterations=$(seq 100000 300000 3000000 | wc -l)
+total_iterations=$(seq 100000 300000 4000000 | wc -l)
 
 echo "=========================================="
 echo "🚀 Starting RediSearch Benchmark Loop"
 echo "=========================================="
-echo "📊 Document range: 100,000 to 3,000,000 (step: 300,000)"
+echo "📊 Document range: 100,000 to 4,000,000 (step: 300,000)"
 echo "📁 Result file: $RESULT_FILE"
 echo ""
 
 current_iteration=0
 
-# Loop from 100,000 to 3,000,000 with steps of 300,000
-for num_docs in $(seq 100000 300000 3000000); do
+# Loop from 100,000 to 5,000,000 with steps of 300,000
+for num_docs in $(seq 100000 300000 4000000); do
   current_iteration=$((current_iteration + 1))
 
   echo "🔄 ITERATION $current_iteration/$total_iterations"
@@ -27,13 +30,13 @@ for num_docs in $(seq 100000 300000 3000000); do
 
   # Clean up previous files
   echo "🧹 Cleaning up previous files..."
-  rm -f dump.rdb
-  rm -rf redisearch
+  rm -f $BASE_PATH/dump.rdb
+  rm -rf $BASE_PATH/redisearch
   echo "   ✅ Removed dump.rdb and redisearch directory"
 
   # Start Redis server with module in background
   echo "🔧 Starting Redis server with RediSearch module..."
-  redis-server --loadmodule bin/linux-x64-release/search-community/redisearch.so DEFAULT_DIALECT 2 ON_TIMEOUT FAIL TIMEOUT 1000000 &
+  redis-server ~/rsdisk/Redis/redis.conf --loadmodule $BASE_PATH/build/redisearch.so DEFAULT_DIALECT 2 ON_TIMEOUT FAIL TIMEOUT 1000000 --enable-debug-command yes &
 
   # Store the PID of Redis server
   REDIS_PID=$!
@@ -47,8 +50,8 @@ for num_docs in $(seq 100000 300000 3000000); do
 
   # Run the benchmark script
   echo "🏃 Running benchmark script..."
-  echo "   Command: python3 tests/benchmarks/manual/bench_disk_vs_ram.py --num_docs $num_docs --result_file $RESULT_FILE"
-  python3 tests/benchmarks/manual/bench_disk_vs_ram.py --num_docs $num_docs --result_file $RESULT_FILE
+  echo "   Command: python3 $BASE_PATH/tests/benchmarks/manual/bench_disk_vs_ram.py --num_docs $num_docs --result_file $RESULT_FILE"
+  python3 $BASE_PATH/tests/benchmarks/manual/bench_disk_vs_ram.py --num_docs $num_docs --result_file $RESULT_FILE
   benchmark_exit_code=$?
 
   if [ $benchmark_exit_code -eq 0 ]; then

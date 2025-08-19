@@ -254,7 +254,7 @@ def create_benchmark_plots(data: Dict[int, Dict[str, Dict[str, float]]]):
     plt.tight_layout()
 
     # Save the plot as an image file
-    output_filename = "tests/benchmarks/manual/results/benchmark_results.png"
+    output_filename = "tests/benchmarks/manual/loop/benchmark_results.png"
     plt.savefig(output_filename, dpi=300, bbox_inches='tight')
     print(f"\nPlot saved as: {output_filename}")
 
@@ -314,7 +314,7 @@ def create_benchmark_plots(data: Dict[int, Dict[str, Dict[str, float]]]):
 
 def main():
     """Main function to run the benchmark visualization."""
-    results_dir = "tests/benchmarks/manual/results/loop"
+    results_dir = "/home/ubuntu/rsdisk/RediSearchDisk/tests/benchmarks/manual/loop"
 
     print("Loading benchmark data...")
     try:
