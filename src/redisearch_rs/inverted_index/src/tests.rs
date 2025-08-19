@@ -519,7 +519,7 @@ fn synced_discriminants() {
         // first field, which we can read here without offsetting the pointer.
         //
         // For more see https://doc.rust-lang.org/std/mem/fn.discriminant.html#accessing-the-numeric-value-of-the-discriminant
-        let data_discriminant = unsafe { *<*const _>::from(&data).cast::<u8>() };
+        let data_discriminant = unsafe { *<*const RSResultData>::from(&data).cast::<u8>() };
         let kind_discriminant = kind as u8;
 
         assert_eq!(data_discriminant, kind_discriminant, "for {kind:?}");

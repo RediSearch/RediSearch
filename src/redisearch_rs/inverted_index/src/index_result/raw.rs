@@ -234,29 +234,6 @@ const _: () = {
     }
 };
 
-/// An iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultRawIter<'index> {
-    pub agg: &'index RSAggregateResultRaw<'index>,
-    pub index: usize,
-}
-
-impl<'index> Iterator for RSAggregateResultRawIter<'index> {
-    type Item = &'index RSIndexResultRaw<'index>;
-
-    /// Get the next item in the iterator
-    ///
-    /// # Safety
-    /// The caller must ensure that all memory pointers in the aggregate result are still valid.
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(result) = self.agg.records.get(self.index) {
-            self.index += 1;
-            Some(unsafe { &**result })
-        } else {
-            None
-        }
-    }
-}
-
 /// Represents a virtual result in an index record.
 #[repr(C)]
 pub struct RSVirtualResultRaw;

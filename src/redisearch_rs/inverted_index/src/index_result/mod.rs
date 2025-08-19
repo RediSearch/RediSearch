@@ -139,6 +139,18 @@ pub enum RSTermRecord<'index> {
     Owned(RSTermRecordOwned),
 }
 
+impl<'index> From<&RSTermRecord<'index>> for *const raw::RSTermRecordRaw<'index> {
+    fn from(value: &RSTermRecord<'index>) -> Self {
+        value as *const RSTermRecord<'index> as *const raw::RSTermRecordRaw<'index>
+    }
+}
+
+impl<'index> From<&mut RSTermRecord<'index>> for *mut raw::RSTermRecordRaw<'index> {
+    fn from(value: &mut RSTermRecord<'index>) -> Self {
+        value as *mut RSTermRecord<'index> as *mut raw::RSTermRecordRaw<'index>
+    }
+}
+
 #[repr(C)]
 #[derive(PartialEq)]
 pub struct RSTermRecordRef<'index> {
@@ -261,6 +273,21 @@ pub enum RSAggregateResult<'index> {
     Owned(RSAggregateResultOwned),
 }
 
+impl<'index> From<&RSAggregateResult<'index>> for *const raw::RSAggregateResultRaw<'index> {
+    fn from(value: &RSAggregateResult<'index>) -> Self {
+        // Direct cast is safe due to repr(u8) and matching layouts
+        value as *const RSAggregateResult<'index> as *const raw::RSAggregateResultRaw<'index>
+    }
+}
+
+impl<'index> From<*const raw::RSAggregateResultRaw<'index>> for &RSAggregateResult<'index> {
+    fn from(value: *const raw::RSAggregateResultRaw<'index>) -> Self {
+        // SAFETY: Layout compatibility is verified by compile-time checks
+        // The caller must ensure the pointer is valid and properly aligned
+        unsafe { &*(value as *const RSAggregateResult<'index>) }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSAggregateResultRef<'index> {
@@ -330,14 +357,6 @@ impl<'index> RSAggregateResult<'index> {
         }
     }
 
-    /// Get an iterator over the children of this aggregate result
-    pub fn iter(&'index self) -> RSAggregateResultIter<'index> {
-        RSAggregateResultIter {
-            agg: self,
-            index: 0,
-        }
-    }
-
     /// Get the child at the given index, if it exists
     ///
     /// # Safety
@@ -402,29 +421,6 @@ impl RSAggregateResult<'static> {
                 a.kind_mask |= child.data.kind();
                 a.records.push(child);
             }
-        }
-    }
-}
-
-/// An iterator over the results in an [`RSAggregateResult`].
-pub struct RSAggregateResultIter<'index> {
-    agg: &'index RSAggregateResult<'index>,
-    index: usize,
-}
-
-impl<'index> Iterator for RSAggregateResultIter<'index> {
-    type Item = &'index RSIndexResult<'index>;
-
-    /// Get the next item in the iterator
-    ///
-    /// # Safety
-    /// The caller must ensure that all memory pointers in the aggregate result are still valid.
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(result) = self.agg.get(self.index) {
-            self.index += 1;
-            Some(result)
-        } else {
-            None
         }
     }
 }
@@ -839,5 +835,27 @@ impl Drop for RSIndexResult<'_> {
             RSResultData::Numeric(_numeric) | RSResultData::Metric(_numeric) => {}
             RSResultData::Virtual => {}
         }
+    }
+}
+
+impl<'index> From<*const raw::RSIndexResultRaw<'index>> for &RSIndexResult<'index> {
+    fn from(value: *const raw::RSIndexResultRaw<'index>) -> Self {
+        // SAFETY: Layout compatibility is verified by compile-time checks
+        // The caller must ensure the pointer is valid, properly aligned, and has unique access
+        unsafe { &*(value as *const RSIndexResult<'index>) }
+    }
+}
+
+impl<'index> From<*mut raw::RSIndexResultRaw<'index>> for &mut RSIndexResult<'index> {
+    fn from(value: *mut raw::RSIndexResultRaw<'index>) -> Self {
+        // SAFETY: Layout compatibility is verified by compile-time checks
+        // The caller must ensure the pointer is valid, properly aligned, and has unique access
+        unsafe { &mut *(value as *mut RSIndexResult<'index>) }
+    }
+}
+
+impl<'index> From<&RSIndexResult<'index>> for *const raw::RSIndexResultRaw<'index> {
+    fn from(value: &RSIndexResult<'index>) -> Self {
+        value as *const RSIndexResult<'index> as *const raw::RSIndexResultRaw<'index>
     }
 }

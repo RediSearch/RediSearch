@@ -477,7 +477,7 @@ void AggregateResult_Free(struct RSAggregateResult agg);
  * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
  * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
+void AggregateResult_AddChild(struct RSIndexResult *parent, const struct RSIndexResult *child);
 
 /**
  * Create an iterator over the aggregate result. This iterator should be freed
@@ -487,7 +487,7 @@ void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-struct RSAggregateResultIter *AggregateResult_Iter(const struct RSAggregateResult *agg);
+RSAggregateResultIter *AggregateResult_Iter(const struct RSAggregateResult *agg);
 
 /**
  * Get the next item in the aggregate result iterator and put it into the provided `value`
@@ -502,7 +502,7 @@ struct RSAggregateResultIter *AggregateResult_Iter(const struct RSAggregateResul
  * - All the memory addresses of the `RSAggregateResult` should still be valid and not have
  *   been deallocated.
  */
-bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndexResult **value);
+bool AggregateResultIter_Next(RSAggregateResultIter *iter, struct RSIndexResult **value);
 
 /**
  * Free the aggregate result iterator. This function will deallocate the memory used by the iterator.
@@ -513,7 +513,7 @@ bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndex
  * - `iter` must point to a valid `RSAggregateResultIter`.
  * - The iterator must have been created using [`AggregateResult_Iter`].
  */
-void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
+void AggregateResultIter_Free(RSAggregateResultIter *iter);
 
 /**
  * Retrieve the offsets array from [`RSOffsetVector`].
