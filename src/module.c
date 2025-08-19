@@ -64,7 +64,7 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
-#include "hybrid/hybrid_execution.h"
+#include "hybrid/hybrid_exec.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \

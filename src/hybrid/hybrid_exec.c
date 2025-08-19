@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "hybrid_execution.h"
+#include "hybrid_exec.h"
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate_exec_common.h"
