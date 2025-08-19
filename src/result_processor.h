@@ -357,9 +357,7 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
-                                     const RLookupKey *scoreKey,
-                                     const RLookupKey *searchRankKey,
-                                     const RLookupKey *vectorRankKey);
+                                     const RLookupKey *scoreKey);
 
  /*
   * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

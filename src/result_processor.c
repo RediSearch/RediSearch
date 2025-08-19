@@ -59,7 +59,7 @@ void SearchResult_Clear(SearchResult *r) {
   }
 
   r->flags = 0;
-  // RLookupRow_Wipe(&r->rowdata);
+  RLookupRow_Wipe(&r->rowdata);
   if (r->dmd) {
     DMD_Return(r->dmd);
     r->dmd = NULL;
@@ -78,7 +78,7 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
   if (!src) return;
   RLookupRow oldrow = dst->rowdata;
   *dst = *src;
-  // RLookupRow_Cleanup(&oldrow);
+  RLookupRow_Cleanup(&oldrow);
 }
 
 
@@ -1696,8 +1696,6 @@ dictType dictTypeHybridSearchResult = {
    bool timedOut;
    bool error;
    const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
-   const RLookupKey *searchRankKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
-   const RLookupKey *vectorRankKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
  } RPHybridMerger;
 
  /* Helper function to store a result from an upstream into the hybrid merger's dictionary
@@ -1760,8 +1758,6 @@ dictType dictTypeHybridSearchResult = {
    void *key = dictGetKey(entry);
    HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
    RS_ASSERT(hybridResult);
-   RSValue* searchRank = hybridResult->hasResults[0] ? RS_NumVal(hybridResult->searchResults[0]->score) : RS_StringVal("-", 1);
-   RSValue* vectorRank = hybridResult->hasResults[1] ? RS_NumVal(hybridResult->searchResults[1]->score) : RS_StringVal("-", 1);
 
    SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx);
    if (!mergedResult) {
@@ -1771,8 +1767,6 @@ dictType dictTypeHybridSearchResult = {
    // Override the output result with merged data
    SearchResult_Override(r, mergedResult);
    rm_free(mergedResult);
-   RLookup_WriteOwnKey(self->searchRankKey, &r->rowdata, searchRank);
-   RLookup_WriteOwnKey(self->vectorRankKey, &r->rowdata, vectorRank);
 
    // Add score as field if scoreKey is provided
    if (self->scoreKey) {
@@ -1873,9 +1867,7 @@ dictType dictTypeHybridSearchResult = {
  ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
-                                     const RLookupKey *scoreKey,
-                                     const RLookupKey *searchRankKey,
-                                     const RLookupKey *vectorRankKey) {
+                                     const RLookupKey *scoreKey) {
    RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
    RS_ASSERT(numUpstreams > 0);
@@ -1886,8 +1878,6 @@ dictType dictTypeHybridSearchResult = {
 
    // Store the scoreKey for writing scores as fields when QEXEC_F_SEND_SCORES_AS_FIELD is set
    ret->scoreKey = scoreKey;
-   ret->searchRankKey = searchRankKey;
-   ret->vectorRankKey = vectorRankKey;
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;

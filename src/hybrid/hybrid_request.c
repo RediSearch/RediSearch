@@ -20,7 +20,7 @@ extern "C" {
  */
 static PLN_LoadStep *createImplicitLoadStep(void) {
     // Use a static array for the field name - no memory management needed
-    static const char *implicitArgv[] = {HYBRID_IMPLICIT_KEY_FIELD, "SEARCH_RANK", "VECTOR_RANK"};
+    static const char *implicitArgv[] = {HYBRID_IMPLICIT_KEY_FIELD};
 
     PLN_LoadStep *implicitLoadStep = rm_calloc(1, sizeof(PLN_LoadStep));
 
@@ -31,7 +31,7 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     implicitLoadStep->base.dtor = loadDtor; // Use standard destructor
 
     // Create ArgsCursor with static array - no memory management needed
-    ArgsCursor_InitCString(&implicitLoadStep->args, implicitArgv, 3);
+    ArgsCursor_InitCString(&implicitLoadStep->args, implicitArgv, 1);
 
     // Pre-allocate keys array for the number of fields to load
     implicitLoadStep->nkeys = 0;
@@ -130,10 +130,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         // implicit load score as well as key
         scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     }
-    const RLookupKey *searchRankKey = RLookup_GetKey_Write(lookup, "SEARCH_RANK", RLOOKUP_F_OVERRIDE);
-    const RLookupKey *vectorRankKey = RLookup_GetKey_Write(lookup, "VECTOR_RANK", RLOOKUP_F_OVERRIDE);
-
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, searchRankKey, vectorRankKey);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
     // Add implicit sorting by score
