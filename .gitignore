@@ -52,3 +52,6 @@ CMakeFiles/
 # Dependency directories that might be generated
 deps/readies/
 hiredis/
+
+# Manual benchmark results
+tests/benchmarks/manual/
