@@ -58,26 +58,6 @@ fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
         // Don't generate the Rust exported types else we'll have a compiler issue about the wrong
         // type being used
         .blocklist_file(".*/types_rs.h")
-        // Those APIs require a type carying a lifetime, such as RSIndexResult<'a>,
-        // which cannot be handled by bindgen because of their lifetime.
-        // We do not actually need them so let's just skip generating their bindings.
-        .blocklist_item("indexIterator")
-        .blocklist_item("IndexIterator")
-        .blocklist_item("NewReadIterator")
-        .blocklist_item("IndexReader")
-        .blocklist_item("IndexDecoder")
-        .blocklist_item("IndexSeeker")
-        .blocklist_item("IR_Free")
-        .blocklist_item("NewGenericIndexReader")
-        .blocklist_item("NewTermIndexReader")
-        .blocklist_item("NewTermIndexReaderEx")
-        .blocklist_item("IndexReader_OnReopen")
-        .blocklist_item("NewMinimalNumericReader")
-        .blocklist_item("NewNumericReader")
-        .blocklist_item("IndexDecoderProcs")
-        .blocklist_item("InvertedIndex_GetDecoder")
-        .blocklist_item("RSByteOffsets")
-        .blocklist_item("RSDocumentMetadata_s")
         .generate()?
         .write_to_file(out_dir.join("bindings.rs"))?;
 

@@ -22,7 +22,11 @@ mod bindings {
     #![allow(improper_ctypes)]
     #![allow(dead_code)]
 
-    use inverted_index::{RSIndexResult, t_docId, t_fieldMask};
+    use inverted_index::{t_docId, t_fieldMask};
+
+    // Type aliases for C bindings - types without lifetimes for C interop
+    pub type RSIndexResult = inverted_index::RSIndexResult<'static, 'static>;
+    pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -60,7 +64,7 @@ impl std::fmt::Debug for TestBuffer {
 
 pub fn encode_numeric(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
 ) -> usize {
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
@@ -85,7 +89,7 @@ pub fn read_numeric(
 
 pub fn encode_full(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
     wide: bool,
 ) -> usize {
@@ -100,7 +104,7 @@ pub fn encode_full(
 
 pub fn encode_freqs_only(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
 ) -> usize {
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
@@ -145,7 +149,7 @@ pub fn read_freqs(
 
 pub fn encode_freqs_fields(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
     wide: bool,
 ) -> usize {
@@ -182,7 +186,7 @@ pub fn read_freqs_flags(
 
 pub fn encode_fields_only(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
     wide: bool,
 ) -> usize {
@@ -217,7 +221,7 @@ pub fn read_flags(
 
 pub fn encode_doc_ids_only(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
 ) -> usize {
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
@@ -241,7 +245,7 @@ pub fn read_doc_ids_only(
 
 pub fn encode_fields_offsets(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
     wide: bool,
 ) -> usize {
@@ -278,7 +282,7 @@ pub fn read_fields_offsets(
 
 pub fn encode_offsets_only(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
 ) -> usize {
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
@@ -303,7 +307,7 @@ pub fn read_offsets_only(
 
 pub fn encode_freqs_offsets(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
 ) -> usize {
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
@@ -329,7 +333,7 @@ pub fn read_freqs_offsets(
 
 pub fn encode_raw_doc_ids_only(
     buffer: &mut TestBuffer,
-    record: &mut inverted_index::RSIndexResult,
+    record: &mut bindings::RSIndexResult,
     delta: u64,
 ) -> usize {
     let mut buffer_writer = BufferWriter::new(&mut buffer.0);
