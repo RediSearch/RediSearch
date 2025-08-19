@@ -267,6 +267,41 @@ void HybridRequest_Free(HybridRequest *req) {
     rm_free(req);
 }
 
+/**
+ * Get error information from a HybridRequest.
+ * This function checks for errors in priority order:
+ * 1. Tail pipeline errors (affects final result processing)
+ * 2. Individual AREQ errors (sub-query failures)
+ *
+ * @param hreq The HybridRequest to check for errors
+ * @param status QueryError pointer to store error information on failure
+ * @return REDISMODULE_OK if no errors found, REDISMODULE_ERR if error found
+ */
+int HREQ_GetError(HybridRequest *hreq, QueryError *status) {
+    if (!hreq || !status) {
+        return REDISMODULE_ERR;
+    }
+
+    // Priority 1: Tail pipeline error (affects final result processing)
+    if (hreq->tailPipelineError.code != QUERY_OK) {
+        QueryError_SetError(status, hreq->tailPipelineError.code,
+                           hreq->tailPipelineError.detail);
+        return REDISMODULE_ERR;
+    }
+
+    // Priority 2: Individual AREQ errors (sub-query failures)
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+        if (hreq->errors[i].code != QUERY_OK) {
+            QueryError_SetError(status, hreq->errors[i].code,
+                               hreq->errors[i].detail);
+            return REDISMODULE_ERR;
+        }
+    }
+
+    // No errors found
+    return REDISMODULE_OK;
+}
+
 #ifdef __cplusplus
 }
 #endif

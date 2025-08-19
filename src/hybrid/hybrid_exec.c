@@ -313,8 +313,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx) != REDISMODULE_OK) {
-    // TODO: use HREQ_GetError() to get the error from hybridRequest
-    QueryError_SetError(&status, hybridRequest->tailPipelineError.code, hybridRequest->tailPipelineError.detail);
+    HREQ_GetError(hybridRequest, &status);
     goto error;
   }
 
@@ -397,8 +396,8 @@ void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
 
   // Build the pipeline and execute
   if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
-    // TODO: use HREQ_GetError() to get the error from hybridRequest
-    QueryError_ReplyAndClear(outctx, &hreq->tailPipelineError);
+    HREQ_GetError(hreq, &status);
+    QueryError_ReplyAndClear(outctx, &status);
     // hreq will be freed by blockedClientHybridCtx_destroy since execution failed
   } else {
     // Hybrid query doesn't support cursors.

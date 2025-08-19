@@ -34,6 +34,7 @@ typedef struct blockedClientHybridCtx {
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
 int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params);
+int HREQ_GetError(HybridRequest *hreq, QueryError *status);
 void HybridRequest_Free(HybridRequest *req);
 
 #ifdef __cplusplus
