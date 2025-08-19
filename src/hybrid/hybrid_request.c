@@ -60,10 +60,9 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
  *
  * @param req The HybridRequest containing multiple AREQ search requests
  * @param params Pipeline parameters including aggregation settings and scoring context
- * @param status QueryError pointer to store detailed error information on failure
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params, QueryError *status) {
+int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params) {
     // Find any LOAD step in the tail pipeline that specifies which fields to load
     // This step will be temporarily removed and re-added after merger setup
     PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&req->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
@@ -165,13 +164,6 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     uint32_t stateFlags = 0;
     int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
     if (rc != REDISMODULE_OK) {
-        // Check if there's a detailed error in the tail pipeline's query context
-        QueryError *pipelineError = req->tailPipeline->qctx.err;
-        RS_ASSERT(pipelineError);
-        if (pipelineError->code != QUERY_OK) {
-            // Copy the detailed error to the provided status
-            QueryError_SetError(status, pipelineError->code, pipelineError->detail);
-        }
         return rc;
     };
 

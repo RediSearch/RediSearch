@@ -152,7 +152,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
 }
 
 static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
-                    RedisSearchCtx *sctx, QueryError *status) {
+                    RedisSearchCtx *sctx) {
   RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
   RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
 
@@ -179,7 +179,7 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     // Single-threaded execution path
 
     // Build the pipeline and execute
-    if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams, status) != REDISMODULE_OK) {
+    if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     } else {
       HREQ_Execute(hreq, ctx, sctx);
@@ -312,7 +312,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx, &status) != REDISMODULE_OK) {
+  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx) != REDISMODULE_OK) {
+    // TODO: use HREQ_GetError() to get the error from hybridRequest
+    QueryError_SetError(&status, hybridRequest->tailPipelineError.code, hybridRequest->tailPipelineError.detail);
     goto error;
   }
 
@@ -394,8 +396,9 @@ void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   sctx->redisCtx = outctx;
 
   // Build the pipeline and execute
-  if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams, &status) != REDISMODULE_OK) {
-    QueryError_ReplyAndClear(outctx, &status);
+  if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
+    // TODO: use HREQ_GetError() to get the error from hybridRequest
+    QueryError_ReplyAndClear(outctx, &hreq->tailPipelineError);
     // hreq will be freed by blockedClientHybridCtx_destroy since execution failed
   } else {
     // Hybrid query doesn't support cursors.
