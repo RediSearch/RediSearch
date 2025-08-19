@@ -32,7 +32,7 @@
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
 typedef struct {
-  const char *FTConfigName; //
+  const char *FTConfigName;
   const char *ConfigName;
 } configPair_t;
 
