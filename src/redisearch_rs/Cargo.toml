@@ -20,6 +20,7 @@ members = [
     "rlookup", 
     "build_utils",
     "rqe_iterators",
+    "rqe_iterators_bencher",
     "varint_bencher",
     "wildcard",
 ]
@@ -68,6 +69,7 @@ value = { path = "./value" }
 varint = { path = "./varint" }
 qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
+rqe_iterators = { path = "./rqe_iterators" }
 
 cbindgen = "0.28.0"
 cc = "1"
