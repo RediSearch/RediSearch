@@ -310,7 +310,7 @@ pub struct RSAggregateResultOwned {
     /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
     /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
     /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<RSIndexResult<'static>>,
+    records: LowMemoryThinVec<Box<RSIndexResult<'static>>>,
 
     /// A map of the aggregate kind of the underlying records
     kind_mask: RSResultKindMask,
@@ -364,7 +364,7 @@ impl<'index> RSAggregateResult<'index> {
     pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index>> {
         match self {
             RSAggregateResult::Borrowed(a) => a.records.get(index).copied(),
-            RSAggregateResult::Owned(a) => a.records.get(index),
+            RSAggregateResult::Owned(a) => a.records.get(index).map(AsRef::as_ref),
         }
     }
 
@@ -419,16 +419,16 @@ impl RSAggregateResult<'static> {
             }
             RSAggregateResult::Owned(a) => {
                 a.kind_mask |= child.data.kind();
-                a.records.push(child);
+                a.records.push(Box::new(child));
             }
         }
     }
 }
 
 impl IntoIterator for RSAggregateResultOwned {
-    type Item = RSIndexResult<'static>;
+    type Item = Box<RSIndexResult<'static>>;
 
-    type IntoIter = IntoIter<RSIndexResult<'static>>;
+    type IntoIter = IntoIter<Box<RSIndexResult<'static>>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.records.into_iter()
