@@ -94,7 +94,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         QEFlags reqFlags = AREQ_RequestFlags(areq);
         size_t limit = UINT64_MAX;  // Default for most cases
-        if (!(reqFlags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)) {
+        if (reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
             // This is an aggregate request - use maxAggregateResults
             limit = areq->maxAggregateResults;
         }
@@ -167,7 +167,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     if (rc != REDISMODULE_OK) {
         // Check if there's a detailed error in the tail pipeline's query context
         QueryError *pipelineError = req->tailPipeline->qctx.err;
-        if (pipelineError && pipelineError->code != QUERY_OK) {
+        RS_ASSERT(pipelineError);
+        if (pipelineError->code != QUERY_OK) {
             // Copy the detailed error to the provided status
             QueryError_SetError(status, pipelineError->code, pipelineError->detail);
         }
