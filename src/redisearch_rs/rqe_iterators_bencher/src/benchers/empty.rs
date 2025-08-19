@@ -20,6 +20,8 @@ use criterion::{
 };
 use rqe_iterators::{empty::Empty, rqe_iterator::RQEIterator};
 
+use crate::ffi;
+
 #[derive(Default)]
 pub struct Bencher;
 
@@ -45,14 +47,26 @@ impl Bencher {
 
     fn read(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Empty - Read");
+        self.c_read(&mut group);
         self.rust_read(&mut group);
         group.finish();
     }
 
     fn skip_to(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Iterator - Empty - SkipTo");
+        self.c_skip_to(&mut group);
         self.rust_skip_to(&mut group);
         group.finish();
+    }
+
+    fn c_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
+        group.bench_function("C", |b| {
+            b.iter(|| {
+                let it = ffi::QueryIterator::new_empty();
+                it.read();
+                it.free();
+            });
+        });
     }
 
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
@@ -60,6 +74,16 @@ impl Bencher {
             b.iter(|| {
                 let mut it = Empty::default();
                 let _ = it.read();
+            });
+        });
+    }
+
+    fn c_skip_to<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
+        group.bench_function("c", |b| {
+            b.iter(|| {
+                let it = ffi::QueryIterator::new_empty();
+                it.skip_to(0);
+                it.free();
             });
         });
     }
