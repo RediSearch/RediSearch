@@ -25,7 +25,7 @@ extern "C" {
  */
 static PLN_LoadStep *createImplicitLoadStep(void) {
     // Use a static array for the field name - no memory management needed
-    static const char *implicitArgv[] = {HYBRID_IMPLICIT_KEY_FIELD};
+    static const char *implicitArgv[] = {HYBRID_IMPLICIT_KEY_FIELD, UNDERSCORE_SCORE};
 
     PLN_LoadStep *implicitLoadStep = rm_calloc(1, sizeof(PLN_LoadStep));
 
@@ -36,32 +36,13 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     implicitLoadStep->base.dtor = loadDtor; // Use standard destructor
 
     // Create ArgsCursor with static array - no memory management needed
-    ArgsCursor_InitCString(&implicitLoadStep->args, implicitArgv, 1);
+    ArgsCursor_InitCString(&implicitLoadStep->args, implicitArgv, 2);
 
     // Pre-allocate keys array for the number of fields to load
     implicitLoadStep->nkeys = 0;
     implicitLoadStep->keys = rm_calloc(implicitLoadStep->args.argc, sizeof(RLookupKey*));
 
     return implicitLoadStep;
-}
-
-static bool containScoresAsField(const PLN_LoadStep *step) {
-  // Create a temporary ArgsCursor to iterate over the original arguments
-  ArgsCursor tempArgs = step->args;
-
-  while (!AC_IsAtEnd(&tempArgs)) {
-    const char *fieldName = AC_GetStringNC(&tempArgs, NULL);
-
-    // Handle path prefix (@) if present
-    if (fieldName && *fieldName == '@') {
-      fieldName++;
-    }
-
-    if (fieldName && strcmp(fieldName, UNDERSCORE_SCORE) == 0) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**
@@ -158,11 +139,12 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     RLookup *searchLookup = AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_CloneInto(lookup, searchLookup);
 
-    const RLookupKey *scoreKey = NULL;
-    if (!loadStep || containScoresAsField(loadStep)) {
-        // implicit load score as well as key
-        scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
+    // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
+    const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+    if (scoreKey) {
+      scoreKey = RLookup_GetKey_Write(lookup, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
     }
+
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 

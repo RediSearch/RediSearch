@@ -545,11 +545,11 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
     AREQ *areq = hybridReq->requests[i];
     PLN_LoadStep *requestLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&areq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
     EXPECT_NE(nullptr, requestLoadStep) << "Request " << i << " should have PLN_LoadStep for implicit load";
-    EXPECT_EQ(1, requestLoadStep->nkeys) << "Request " << i << " should have 1 key for implicit load";
+    EXPECT_EQ(2, requestLoadStep->nkeys) << "Request " << i << " should have 2 keys for implicit load: " << HYBRID_IMPLICIT_KEY_FIELD << " and " << UNDERSCORE_SCORE;
     std::string pipelineName = "Request " + std::to_string(i) + " pipeline with implicit LOAD";
     VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedPipelines[i], pipelineName);
 
-    // Verify implicit load creates "key" field with path "__key"
+    // Verify implicit load creates "__key" field with path "__key"
     RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
     ASSERT_NE(nullptr, lookup);
 
