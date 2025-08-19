@@ -31,37 +31,6 @@
 
 #include <time.h>
 
-// Forward declarations for static functions
-static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const SearchResult *r, const cachedVars *cv);
-static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
-static int HREQ_populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, HybridRequest *hreq, cachedVars *cv);
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration);
-static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status);
-
-static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  startPipelineCommon(hreq->reqConfig.timeoutPolicy,
-          &hreq->hybridParams->aggregationParams.common.sctx->time.timeout,
-          rp, results, r, rc);
-}
-
-static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {
-  if (results) {
-    destroyResults(results);
-  } else {
-    SearchResult_Destroy(r);
-  }
-
-  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
-  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
-    uint32_t reqflags = HREQ_RequestFlags(hreq);
-    TotalGlobalStats_CountQuery(reqflags, duration);
-  }
-
-  // Reset the total results length
-  qctx->totalResults = 0;
-  QueryError_ClearError(qctx->err);
-}
-
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.
@@ -145,6 +114,30 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   RedisModule_Reply_MapEnd(reply); // >result
 }
 
+static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+  startPipelineCommon(hreq->reqConfig.timeoutPolicy,
+          &hreq->hybridParams->aggregationParams.common.sctx->time.timeout,
+          rp, results, r, rc);
+}
+
+static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {
+  if (results) {
+    destroyResults(results);
+  } else {
+    SearchResult_Destroy(r);
+  }
+
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
+    uint32_t reqflags = HREQ_RequestFlags(hreq);
+    TotalGlobalStats_CountQuery(reqflags, duration);
+  }
+
+  // Reset the total results length
+  qctx->totalResults = 0;
+  QueryError_ClearError(qctx->err);
+}
+
 static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
   SearchResult **results, HybridRequest *hreq, cachedVars *cv) {
     // populate the reply with an array containing the serialized results
@@ -156,6 +149,43 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
     });
     array_free(results);
     return len;
+}
+
+static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
+                    RedisSearchCtx *sctx, QueryError *status) {
+  RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
+  RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
+
+  if (RunInThread()) {
+    // Multi-threaded execution path
+    StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
+
+    // Create a dummy AREQ for BlockQueryClient (it expects an AREQ but we'll use the first one)
+    AREQ *dummy_req = hreq->requests[0];
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, 0);
+
+    blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, blockedClient, spec_ref);
+
+    // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
+    }
+
+    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
+    RS_ASSERT(rc == 0);
+
+    return REDISMODULE_OK;
+    } else {
+    // Single-threaded execution path
+
+    // Build the pipeline and execute
+    if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    } else {
+      HREQ_Execute(hreq, ctx, sctx);
+      return REDISMODULE_OK;
+    }
+  }
 }
 
 /**
@@ -250,43 +280,6 @@ done:
 
 done_err:
     finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
-}
-
-static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
-                    RedisSearchCtx *sctx, QueryError *status) {
-  RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
-  RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
-
-  if (RunInThread()) {
-    // Multi-threaded execution path
-    StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-
-    // Create a dummy AREQ for BlockQueryClient (it expects an AREQ but we'll use the first one)
-    AREQ *dummy_req = hreq->requests[0];
-    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, 0);
-
-    blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, blockedClient, spec_ref);
-
-    // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
-    }
-
-    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
-    RS_ASSERT(rc == 0);
-
-    return REDISMODULE_OK;
-    } else {
-    // Single-threaded execution path
-
-    // Build the pipeline and execute
-    if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams, status) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
-    } else {
-      HREQ_Execute(hreq, ctx, sctx);
-      return REDISMODULE_OK;
-    }
-  }
 }
 
 /**
