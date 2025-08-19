@@ -14,16 +14,17 @@ def testHybridDisablesTagScoring(env):
 
     env.cmd('HSET', 'doc:1',
                'title', 'hello world',
-               'category', 'hello',
-               'vector', 'BEUGBwgJCg==')
+               'category', 'hello')
 
-    hybrid_res_no_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello @category:{hello}',
+    hybrid_res_no_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello',
                         'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '1.0', '0.0')
     hybrid_res_with_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello @category:{hello}',
                          'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '1.0', '0.0')
 
     # Extract scores from both hybrid results
     env.assertTrue(recursive_contains(hybrid_res_no_tag, '__score'))
+    env.assertTrue(recursive_contains(hybrid_res_with_tag, '__score'))
+
     score_index = recursive_index(hybrid_res_no_tag, '__score')
     score_index[-1] += 1
 
@@ -31,10 +32,10 @@ def testHybridDisablesTagScoring(env):
     score_with_tag = float(access_nested_list(hybrid_res_with_tag, score_index))
 
     # Assert scores are equal (tag scoring disabled for hybrid)
-    env.assertEqual(score_no_tag, score_with_tag)
+    env.assertAlmostEqual(score_no_tag, score_with_tag, delta=1E-6)
 
-    # To compare, in FT.SEARCH:
-    # ft.search idx 'hello @category:{hello}' WITHSCORES
-    # ft.search idx 'hello'
-    # will have different scores
+    search_res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES')
+    search_res_score = float(search_res[2])
+    env.assertAlmostEqual(search_res_score, score_no_tag, delta=1E-6)
+
 

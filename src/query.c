@@ -1388,7 +1388,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   // For hybrid queries, use weight 0.0 to disable tag scoring
   // Use IsHybrid-like logic adapted for QueryEvalCtx (which has reqFlags, not reqflags)
-  int is_hybrid = (q->reqFlags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) ||
+  bool is_hybrid = (q->reqFlags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) ||
                   (q->reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
   double effective_weight = is_hybrid ? 0.0 : weight;
 
