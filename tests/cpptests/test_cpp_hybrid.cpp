@@ -52,6 +52,14 @@ protected:
 
 using RS::addDocument;
 
+// Helper function to get error message from HybridRequest for test assertions
+std::string HREQ_GetUserError(HybridRequest* req) {
+  QueryError error;
+  QueryError_Init(&error);
+  HREQ_GetError(req, &error);
+  return QueryError_GetUserError(&error);
+}
+
 // Helper function to create a test index spec
 IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, QueryError *status) {
   RMCK::ArgvList args(ctx, "FT.CREATE", indexName, "ON", "HASH", "SKIPINITIALSCAN",
@@ -278,12 +286,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify individual request pipeline structures
   // First request should have implicit scorer and sorter added
@@ -354,12 +357,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify individual request pipeline structures
   // First request should have implicit scorer and sorter added
@@ -420,12 +418,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   // Should handle missing LOAD step gracefully
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build should handle missing LOAD step: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build should handle missing LOAD step: " << HREQ_GetUserError(hybridReq);
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -483,12 +476,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Complex pipeline build failed: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Complex pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify individual request pipeline structures (should include filter for field queries)
   // First request should have implicit scorer and sorter added
@@ -550,12 +538,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify that implicit LOAD functionality is implemented via RPLoader result processors
   // (not PLN_LoadStep aggregation plan steps) in individual request pipelines
@@ -648,12 +631,7 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify that the explicit LOAD step is preserved in individual AREQ pipelines (processed with 3 keys)
   // The tail pipeline should still have the unprocessed LOAD step
@@ -729,12 +707,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitSort) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify tail pipeline structure: should have explicit sorter from aggregation, NOT implicit sort-by-score
   // The pipeline should be: SORTER (from aggregation) -> HYBRID_MERGER
@@ -795,12 +768,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify tail pipeline structure: should have implicit sort-by-score added
   // The pipeline should be: SORTER (implicit sort-by-score) -> HYBRID_MERGER
@@ -863,12 +831,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  if (rc != REDISMODULE_OK) {
-    QueryError error;
-    QueryError_Init(&error);
-    HREQ_GetError(hybridReq, &error);
-    EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&error);
-  }
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify that the first request's plan still has exactly ONE arrange step (the explicit one)
   // and that no additional implicit score sorter was added
