@@ -274,7 +274,7 @@ impl Decoder for Dummy {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         prev_doc_id: u64,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let mut buffer = [0; 4];
         cursor.read_exact(&mut buffer)?;
 
@@ -386,7 +386,7 @@ fn read_using_the_first_block_id_as_the_base() {
             &self,
             cursor: &mut Cursor<&'index [u8]>,
             prev_doc_id: u64,
-        ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+        ) -> std::io::Result<RSIndexResult<'index>> {
             let mut buffer = [0; 4];
             cursor.read_exact(&mut buffer)?;
 

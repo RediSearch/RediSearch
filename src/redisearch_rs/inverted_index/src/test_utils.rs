@@ -16,14 +16,14 @@ use crate::{RSIndexResult, RSOffsetVector, RSResultData};
 /// Wrapper around `inverted_index::RSIndexResult` ensuring the term and offsets
 /// pointers used internally stay valid for the duration of the test or bench.
 #[derive(Debug)]
-pub struct TestTermRecord<'index, 'aggregate_children> {
-    pub record: RSIndexResult<'index, 'aggregate_children>,
+pub struct TestTermRecord<'index> {
+    pub record: RSIndexResult<'index>,
     // both term and offsets need to stay alive during the test
     _term: Box<ffi::RSQueryTerm>,
     _offsets: Vec<i8>,
 }
 
-impl TestTermRecord<'_, '_> {
+impl TestTermRecord<'_> {
     /// Create a new `TestTermRecord` with the given parameters.
     pub fn new(doc_id: u64, field_mask: t_fieldMask, freq: u32, offsets: Vec<i8>) -> Self {
         const TEST_STR: &str = "test";
@@ -55,11 +55,9 @@ impl TestTermRecord<'_, '_> {
 /// Helper to compare only the fields of a term record that are actually encoded.
 /// Only used in tests.
 #[derive(Debug)]
-pub struct TermRecordCompare<'index, 'aggregate_children>(
-    pub &'index RSIndexResult<'index, 'aggregate_children>,
-);
+pub struct TermRecordCompare<'index>(pub &'index RSIndexResult<'index>);
 
-impl<'a, 'aggregate_children> PartialEq for TermRecordCompare<'a, 'aggregate_children> {
+impl<'a> PartialEq for TermRecordCompare<'a> {
     fn eq(&self, other: &Self) -> bool {
         assert!(matches!(self.0.data, RSResultData::Term(_)));
 
