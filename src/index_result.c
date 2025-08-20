@@ -76,9 +76,9 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
                          .data = {
                           .term_tag = RSResultData_Term,
                           .term = (RSTermRecord){
-                              .term = term,
-                              .offsets = (RSOffsetVector){},
-                             .isCopy = false,
+                              .borrowed.tag = RSTermRecord_Borrowed,
+                              .borrowed.term = term,
+                              .borrowed.offsets = (RSOffsetVector){},
                           }
                          }};
   return res;
@@ -170,8 +170,8 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
     // copy term results
     case RSResultData_Term:
       // copy the offset vectors
-      RSOffsetVector_CopyData(&IndexResult_TermRefMut(ret)->offsets, &IndexResult_TermRef(src)->offsets);
-      ret->data.term.isCopy = true;
+      RSOffsetVector_CopyData(IndexResult_TermOffsetsRefMut(ret), IndexResult_TermOffsetsRef(src));
+      ret->data.term.tag = RSTermRecord_Owned;
       break;
 
     // the rest have no dynamic stuff, we can just copy the base result
@@ -201,7 +201,7 @@ void Term_Free(RSQueryTerm *t) {
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
   switch (res->data.tag) {
     case RSResultData_Term:
-      return RSOffsetVector_Len(&IndexResult_TermRef(res)->offsets) > 0;
+      return RSOffsetVector_Len(IndexResult_TermOffsetsRef(res)) > 0;
     case RSResultData_Intersection:
     case RSResultData_Union:
     {
@@ -238,15 +238,15 @@ void IndexResult_Free(RSIndexResult *r) {
     }
     AggregateResult_Free(r->data.union_);
   } else if (r->data.tag == RSResultData_Term) {
-    if (r->data.term.isCopy) {
-      RSOffsetVector_FreeData(&IndexResult_TermRefMut(r)->offsets);
+    if (r->data.term.tag == RSTermRecord_Owned) {
+      RSOffsetVector_FreeData(IndexResult_TermOffsetsRefMut(r));
 
     } else {  // non copy result...
 
       // we only free up terms for non copy results
-      const RSTermRecord *term = IndexResult_TermRefMut(r);
-      if (term->term != NULL) {
-        Term_Free(term->term);
+      RSQueryTerm *term = IndexResult_QueryTermRef(r);
+      if (term != NULL) {
+        Term_Free(term);
       }
     }
   }
@@ -335,12 +335,12 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
     }
     case RSResultData_Term:
     {
-      const RSTermRecord *term = IndexResult_TermRef(r);
-      if (term->term) {
-        const char *s = term->term->str;
+      RSQueryTerm *term = IndexResult_QueryTermRef(r);
+      if (term) {
+        const char *s = term->str;
         // make sure we have a term string and it's not an expansion
         if (s) {
-          arr[(*len)++] = term->term;
+          arr[(*len)++] = term;
         }
       }
     }
