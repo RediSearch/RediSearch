@@ -75,8 +75,7 @@ extern "C" {
   X(QUERY_EHYBRID_SEARCH_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID SEARCH subquery")                          \
   X(QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM")                                                       \
   X(QUERY_EHYBRID_AGGREGATE_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID AGGREGATE subquery")                    \
-  X(QUERY_EHYBRID_AGGREGATE_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID AGGREGATE subquery")                    \
-//TODO: remove QUERY_EHYBRID_HYBRID_ALIAS after YIELD_DISTANCE_AS is enabled
+  //TODO: remove QUERY_EHYBRID_HYBRID_ALIAS after YIELD_DISTANCE_AS is enabled
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
