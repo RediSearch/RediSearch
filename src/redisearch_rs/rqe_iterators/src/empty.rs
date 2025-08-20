@@ -20,14 +20,11 @@ use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 pub struct Empty;
 
 impl RQEIterator for Empty {
-    fn read(&mut self) -> Result<Option<RSIndexResult<'_, '_>>, RQEIteratorError> {
+    fn read(&mut self) -> Result<Option<RSIndexResult<'_>>, RQEIteratorError> {
         Ok(None)
     }
 
-    fn skip_to(
-        &mut self,
-        _doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    fn skip_to(&mut self, _doc_id: t_docId) -> Result<Option<SkipToOutcome<'_>>, RQEIteratorError> {
         Ok(None)
     }
 

@@ -283,8 +283,6 @@ typedef union RSTermRecord {
  * the bitflags on [`RSResultKindMask`]
  *
  * The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
- * While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
- * raw pointers to results.
  */
 enum RSResultData_Tag
 #ifdef __cplusplus

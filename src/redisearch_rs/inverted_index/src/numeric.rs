@@ -409,7 +409,7 @@ impl Decoder for Numeric {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let mut header = [0; 1];
         cursor.read_exact(&mut header)?;
 

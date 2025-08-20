@@ -81,8 +81,8 @@ pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, val
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_QueryTermRef<'index, 'aggregate_children>(
-    result: *const RSIndexResult<'index, 'aggregate_children>,
+pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
+    result: *const RSIndexResult<'index>,
 ) -> *mut RSQueryTerm {
     debug_assert!(!result.is_null(), "result must not be null");
 
@@ -104,12 +104,9 @@ pub unsafe extern "C" fn IndexResult_QueryTermRef<'index, 'aggregate_children>(
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index, 'aggregate_children>(
-    result: *const RSIndexResult<'index, 'aggregate_children>,
-) -> Option<&'result RSOffsetVector<'index>>
-where
-    'aggregate_children: 'result,
-{
+pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index>(
+    result: *const RSIndexResult<'index>,
+) -> Option<&'result RSOffsetVector<'index>> {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -130,12 +127,9 @@ where
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_TermOffsetsRefMut<'result, 'aggregate_children>(
-    result: *mut RSIndexResult<'static, 'aggregate_children>,
-) -> Option<&'result mut RSOffsetVector<'static>>
-where
-    'aggregate_children: 'result,
-{
+pub unsafe extern "C" fn IndexResult_TermOffsetsRefMut<'result>(
+    result: *mut RSIndexResult<'static>,
+) -> Option<&'result mut RSOffsetVector<'static>> {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -156,9 +150,9 @@ where
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_AggregateRef<'result, 'index, 'aggregate_children>(
-    result: *const RSIndexResult<'index, 'aggregate_children>,
-) -> Option<&'result RSAggregateResult<'index, 'aggregate_children>> {
+pub unsafe extern "C" fn IndexResult_AggregateRef<'result, 'index>(
+    result: *const RSIndexResult<'index>,
+) -> Option<&'result RSAggregateResult<'index>> {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -198,10 +192,10 @@ pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) 
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 /// - The memory address at `index` should still be valid and not have been deallocated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_Get<'result, 'index, 'aggregate_children>(
-    agg: *const RSAggregateResult<'index, 'aggregate_children>,
+pub unsafe extern "C" fn AggregateResult_Get<'result, 'index>(
+    agg: *const RSAggregateResult<'index>,
     index: usize,
-) -> Option<&'result RSIndexResult<'index, 'aggregate_children>> {
+) -> Option<&'result RSIndexResult<'index>> {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
@@ -266,7 +260,7 @@ pub unsafe extern "C" fn AggregateResult_KindMask(agg: *const RSAggregateResult)
 /// in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
 /// should return to Rust to free up any heap memory using [`AggregateResult_Free`].
 #[unsafe(no_mangle)]
-pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static, 'static> {
+pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static> {
     RSAggregateResult::with_capacity(cap)
 }
 
@@ -303,8 +297,8 @@ pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
 /// - `child` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_AddChild(
-    parent: *mut RSIndexResult<'static, 'static>,
-    child: *mut RSIndexResult<'static, 'static>,
+    parent: *mut RSIndexResult<'static>,
+    child: *mut RSIndexResult<'static>,
 ) {
     debug_assert!(!parent.is_null(), "parent must not be null");
     debug_assert!(!child.is_null(), "child must not be null");
@@ -331,8 +325,8 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_Iter(
-    agg: *const RSAggregateResult<'static, 'static>,
-) -> *mut RSAggregateResultIter<'static, 'static> {
+    agg: *const RSAggregateResult<'static>,
+) -> *mut RSAggregateResultIter<'static> {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
@@ -357,7 +351,7 @@ pub unsafe extern "C" fn AggregateResult_Iter(
 ///   been deallocated.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResultIter_Next(
-    iter: *mut RSAggregateResultIter<'static, 'static>,
+    iter: *mut RSAggregateResultIter<'static>,
     value: *mut *mut RSIndexResult,
 ) -> bool {
     debug_assert!(!iter.is_null(), "iter must not be null");
@@ -386,9 +380,7 @@ pub unsafe extern "C" fn AggregateResultIter_Next(
 /// - `iter` must point to a valid `RSAggregateResultIter`.
 /// - The iterator must have been created using [`AggregateResult_Iter`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResultIter_Free(
-    iter: *mut RSAggregateResultIter<'static, 'static>,
-) {
+pub unsafe extern "C" fn AggregateResultIter_Free(iter: *mut RSAggregateResultIter<'static>) {
     // Don't free if the pointer is `NULL` - just like the C free function
     if iter.is_null() {
         return;

@@ -100,7 +100,7 @@ pub trait Decoder {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>>;
+    ) -> std::io::Result<RSIndexResult<'index>>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
@@ -110,7 +110,7 @@ pub trait Decoder {
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index, 'static>>> {
+    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
         loop {
             match self.decode(cursor, base) {
                 Ok(record) if record.doc_id >= target => {
@@ -361,7 +361,7 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
     }
 
     /// Read the next record from the index. If there are no more records to read, then `None` is returned.
-    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult<'index, 'static>>> {
+    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult<'index>>> {
         // Check if the current buffer is empty. The GC might clean out a block so we have to
         // continue checking until we find a block with data.
         while self.current_buffer.fill_buf()?.is_empty() {
@@ -398,7 +398,7 @@ pub struct SkipDuplicatesReader<I> {
     inner: I,
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> SkipDuplicatesReader<I> {
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> SkipDuplicatesReader<I> {
     /// Create a new skip duplicates reader over the given inner iterator.
     pub fn new(inner: I) -> Self {
         Self {
@@ -408,10 +408,8 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> SkipDuplicatesR
     }
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> Iterator
-    for SkipDuplicatesReader<I>
-{
-    type Item = RSIndexResult<'index, 'static>;
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for SkipDuplicatesReader<I> {
+    type Item = RSIndexResult<'index>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -439,15 +437,15 @@ pub struct FilterMaskReader<I> {
     inner: I,
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> FilterMaskReader<I> {
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> FilterMaskReader<I> {
     /// Create a new filter mask reader with the given mask and inner iterator
     pub fn new(mask: t_fieldMask, inner: I) -> Self {
         Self { mask, inner }
     }
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index, 'static>>> Iterator for FilterMaskReader<I> {
-    type Item = RSIndexResult<'index, 'static>;
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskReader<I> {
+    type Item = RSIndexResult<'index>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {

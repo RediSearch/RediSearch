@@ -13,12 +13,12 @@ use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 /// The outcome of [`RQEIterator::skip_to`].
-pub enum SkipToOutcome<'index, 'aggregate_children> {
+pub enum SkipToOutcome<'index> {
     /// The iterator has a valid entry for the requested `doc_id`.
-    Found(RSIndexResult<'index, 'aggregate_children>),
+    Found(RSIndexResult<'index>),
 
     /// The iterator doesn't have an entry for the requested `doc_id`, but there are entries with an id greater than the requested one.
-    NotFound(RSIndexResult<'index, 'aggregate_children>),
+    NotFound(RSIndexResult<'index>),
 }
 
 /// An iterator failure indications
@@ -44,7 +44,7 @@ pub trait RQEIterator {
     /// On a successful read, the iterator must set its `last_doc_id` property to the new current result id
     /// This function returns Ok with the current result for valid results, or None if the iterator is depleted.
     /// The function will return Err(RQEIteratorError) for any error.
-    fn read(&mut self) -> Result<Option<RSIndexResult<'_, '_>>, RQEIteratorError>;
+    fn read(&mut self) -> Result<Option<RSIndexResult<'_>>, RQEIteratorError>;
 
     /// Skip to the next record in the iterator with an ID greater or equal to the given `docId`.
     ///
@@ -54,10 +54,7 @@ pub trait RQEIterator {
     ///
     /// Return `Ok(SkipToOutcome::Found)` if the iterator has found a record with the `docId` and `Ok(SkipToOutcome::NotFound)`
     /// if the iterator found a result greater than `docId`. 'None" will be returned if the iterator has reached the end of the index.
-    fn skip_to(
-        &mut self,
-        doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError>;
+    fn skip_to(&mut self, doc_id: t_docId) -> Result<Option<SkipToOutcome<'_>>, RQEIteratorError>;
 
     /// Called when the iterator is being revalidated after a concurrent index change.
     ///
