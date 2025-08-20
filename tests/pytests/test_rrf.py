@@ -2,11 +2,8 @@ from RLTest import Env
 from includes import *
 from common import *
 
-def testHybridDisablesTagScoring(env):
-    """
-    Test that FT.HYBRID disables tag scoring.
-    """
-
+def setup_hybrid_tag_scoring_index(env):
+    """Setup index and populate test data"""
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                'title', 'TEXT',
                'category', 'TAG',
@@ -15,11 +12,21 @@ def testHybridDisablesTagScoring(env):
     env.cmd('HSET', 'doc:1',
                'title', 'hello world',
                'category', 'hello')
+    env.cmd('HSET', 'doc:2',
+               'title', 'hello world',
+               'category', 'world')
+    env.cmd('HSET', 'doc:3',
+               'title', 'hello world',
+               'category', 'hello,world')
+    env.cmd('HSET', 'doc:4',
+               'title', 'foo bar',
+               'category', 'foo')
 
-    hybrid_res_no_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello',
-                        'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '1.0', '0.0')
-    hybrid_res_with_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'hello @category:{hello}',
-                         'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '1.0', '0.0')
+def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
+    """Test hybrid tag scoring for a specific query scenario"""
+    # Hybrid searches
+    hybrid_res_no_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', no_tag_search_query, 'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '1.0', '0.0')
+    hybrid_res_with_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', with_tag_search_query, 'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '1.0', '0.0')
 
     # Extract scores from both hybrid results
     env.assertTrue(recursive_contains(hybrid_res_no_tag, '__score'))
@@ -34,8 +41,24 @@ def testHybridDisablesTagScoring(env):
     # Assert scores are equal (tag scoring disabled for hybrid)
     env.assertAlmostEqual(score_no_tag, score_with_tag, delta=1E-6)
 
-    search_res = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES')
-    search_res_score = float(search_res[2])
-    env.assertAlmostEqual(search_res_score, score_no_tag, delta=1E-6)
+    # Compare with regular search
+    search_res = env.cmd('FT.SEARCH', 'idx', no_tag_search_query, 'WITHSCORES')
+    search_score = float(search_res[2])
+    env.assertAlmostEqual(search_score, score_no_tag, delta=1E-6)
+
+def testHybridTagScoring(env):
+    """Test hybrid tag scoring with various query scenarios"""
+    setup_hybrid_tag_scoring_index(env)
+
+    # Test scenarios: (no_tag_search_query, with_tag_search_query)
+    scenarios = [
+        ('hello', 'hello @category:{hello}'),
+        ('hello world', 'hello world @category:{world}'),
+        ('hello', 'hello @category:{hello|world}'),
+        ('hello', 'hello ~@category:{foo}')
+    ]
+
+    for no_tag_query, with_tag_query in scenarios:
+        run_test_scenario(env, no_tag_query, with_tag_query)
 
 
