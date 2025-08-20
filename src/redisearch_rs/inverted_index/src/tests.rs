@@ -34,11 +34,6 @@ pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Offset_Data_Free(_tr: *mut ffi::RSTermRecord) {
-    panic!("Nothing should have copied the term record to require this call");
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
     panic!("No test created a term record");
 }

@@ -47,10 +47,6 @@ void ResultMetrics_Free(RSIndexResult *r) {
   r->metrics = NULL;
 }
 
-void Term_Offset_Data_Free(RSTermRecord *tr) {
-  RSOffsetVector_FreeData(&tr->offsets);
-}
-
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight) {
   return __newAggregateResult(cap, RSResultData_Intersection, weight);

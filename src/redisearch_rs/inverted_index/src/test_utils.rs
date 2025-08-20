@@ -82,19 +82,10 @@ impl<'a, 'aggregate_children> PartialEq for TermRecordCompare<'a, 'aggregate_chi
         let b_term_record = other.0.as_term().unwrap();
 
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let a_offsets = unsafe {
-            std::slice::from_raw_parts(
-                a_term_record.offsets.data as *const i8,
-                a_term_record.offsets.len as usize,
-            )
-        };
+        let a_offsets = a_term_record.offsets();
+
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let b_offsets = unsafe {
-            std::slice::from_raw_parts(
-                b_term_record.offsets.data as *const i8,
-                b_term_record.offsets.len as usize,
-            )
-        };
+        let b_offsets = b_term_record.offsets();
 
         if a_offsets != b_offsets {
             return false;
@@ -102,6 +93,6 @@ impl<'a, 'aggregate_children> PartialEq for TermRecordCompare<'a, 'aggregate_chi
 
         // do not compare `RSTermRecord` as it's not encoded
 
-        a_term_record.is_copy == b_term_record.is_copy
+        a_term_record.is_copy() == b_term_record.is_copy()
     }
 }
