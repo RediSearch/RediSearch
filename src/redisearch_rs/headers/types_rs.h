@@ -196,11 +196,20 @@ typedef struct RSOffsetVector {
 /**
  * Represents a single record of a document inside a term in the inverted index
  */
-typedef struct RSTermRecord {
-  /**
-   * We mark copied terms so we can treat them a bit differently on drop.
-   */
-  bool isCopy;
+enum RSTermRecord_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  borrowed,
+  owned,
+};
+#ifndef __cplusplus
+typedef uint8_t RSTermRecord_Tag;
+#endif // __cplusplus
+
+typedef struct Borrowed_Body {
+  RSTermRecord_Tag tag;
   /**
    * The term that brought up this record
    */
@@ -209,6 +218,24 @@ typedef struct RSTermRecord {
    * The encoded offsets in which the term appeared in the document
    */
   struct RSOffsetVector offsets;
+} Borrowed_Body;
+
+typedef struct Owned_Body {
+  RSTermRecord_Tag tag;
+  /**
+   * The term that brought up this record
+   */
+  RSQueryTerm *term;
+  /**
+   * The encoded offsets in which the term appeared in the document
+   */
+  struct RSOffsetVector offsets;
+} Owned_Body;
+
+typedef union RSTermRecord {
+  RSTermRecord_Tag tag;
+  Borrowed_Body borrowed;
+  Owned_Body owned;
 } RSTermRecord;
 
 /**
@@ -264,7 +291,7 @@ typedef union RSResultData {
   };
   struct {
     RSResultData_Tag term_tag;
-    struct RSTermRecord term;
+    union RSTermRecord term;
   };
   struct {
     RSResultData_Tag virtual_tag;
@@ -368,7 +395,7 @@ void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-const struct RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *result);
+const union RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *result);
 
 /**
  * Get the mutable term of the result if it is a term result. If the result is not a term,
@@ -379,7 +406,7 @@ const struct RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *resul
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-struct RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
+union RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
 
 /**
  * Get the aggregate result reference if the result is an aggregate result. If the result is
