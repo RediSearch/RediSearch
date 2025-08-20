@@ -34,7 +34,7 @@ pub enum RQEValidateStatus {
     Ok,
     /// The iterator is still valid but its internal state has changed.
     Moved,
-    /// The iterator is no longer valid, and should not be used or should be rewound.
+    /// The iterator is no longer valid, and should not be used or rewound. Should be dropped.
     Aborted,
 }
 
