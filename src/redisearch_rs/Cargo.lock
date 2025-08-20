@@ -1474,6 +1474,7 @@ dependencies = [
  "inverted_index",
  "pretty_assertions",
  "proptest",
+ "thiserror",
 ]
 
 [[package]]
