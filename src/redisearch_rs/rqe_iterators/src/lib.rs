@@ -7,14 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::t_docId;
+use thiserror::Error;
+
+use ::inverted_index::RSIndexResult;
+
 pub mod empty;
 pub mod id_list;
+pub mod inverted_index;
 pub mod wildcard;
-
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
-
-use thiserror::Error;
 
 #[derive(Debug, PartialEq)]
 /// The outcome of [`RQEIterator::skip_to`].
@@ -32,6 +33,9 @@ pub enum RQEIteratorError {
     /// The iterator has reached the time limit for execution.
     #[error("reached time limit")]
     TimedOut,
+    /// Iterator failed to read from the inverted index.
+    #[error("failed to read from inverted index")]
+    IoError(#[from] std::io::Error),
 }
 
 #[derive(Debug, PartialEq)]
