@@ -873,13 +873,18 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
   ASSERT_TRUE(test_sctx != NULL);
 
+  HybridRequest* hybridReq = MakeDefaultHyabridRequest();
+  ParseHybridCommandCtx cmd = {0};
+  cmd.search = hybridReq->requests[0];
+  cmd.vector = hybridReq->requests[1];
+  cmd.tailPlan = &hybridReq->tailPipeline->ap;
   // Parse the hybrid command
-  HybridRequest* hybridReq = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &status);
-  ASSERT_TRUE(hybridReq != NULL) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
+  int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &cmd, &status);
+  ASSERT_TRUE(rc == REDISMODULE_OK) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Build the pipeline using the parsed hybrid parameters
-  int rc = HybridRequest_BuildPipeline(hybridReq, hybridReq->hybridParams);
+  rc = HybridRequest_BuildPipeline(hybridReq, &cmd.hybridParams);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
 
   // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
@@ -972,13 +977,19 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
   ASSERT_TRUE(test_sctx != NULL);
 
+  HybridRequest* hybridReq = MakeDefaultHyabridRequest();
+  ParseHybridCommandCtx cmd = {0};
+  cmd.search = hybridReq->requests[0];
+  cmd.vector = hybridReq->requests[1];
+  cmd.tailPlan = &hybridReq->tailPipeline->ap;
+
   // Parse the hybrid command
-  HybridRequest* hybridReq = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &status);
-  ASSERT_TRUE(hybridReq != NULL) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
+  int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &cmd,&status);
+  ASSERT_TRUE(rc == REDISMODULE_OK) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Build the pipeline using the parsed hybrid parameters
-  int rc = HybridRequest_BuildPipeline(hybridReq, hybridReq->hybridParams);
+  rc = HybridRequest_BuildPipeline(hybridReq, &cmd.hybridParams);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
 
   // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
