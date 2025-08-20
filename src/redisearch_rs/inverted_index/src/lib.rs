@@ -1049,6 +1049,12 @@ impl<E: Encoder> InvertedIndex<E> {
             )
         }
     }
+
+    /// Create a new [`IndexReader`] for this inverted index.
+    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
+        let decoder = E::decoder();
+        IndexReader::new(&self.blocks, decoder)
+    }
 }
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
