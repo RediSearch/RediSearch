@@ -103,11 +103,11 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
   tr1->docId = 1;
-  IndexResult_TermRefMut(tr1)->offsets = offsetsFromVVW(vw);
+  IndexResult_TermRefMut(tr1)->borrowed.offsets = offsetsFromVVW(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
   tr2->docId = 1;
-  IndexResult_TermRefMut(tr2)->offsets = offsetsFromVVW(vw2);
+  IndexResult_TermRefMut(tr2)->borrowed.offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
   AggregateResult_AddChild(res, tr1);
@@ -129,7 +129,7 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
-  IndexResult_TermRefMut(tr3)->offsets = offsetsFromVVW(vw3);
+  IndexResult_TermRefMut(tr3)->borrowed.offsets = offsetsFromVVW(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
@@ -355,7 +355,7 @@ TEST_F(IndexTest, testUnion) {
       RSIndexResult *copy = IndexResult_DeepCopy(ui->current);
       ASSERT_TRUE(copy != NULL);
       ASSERT_TRUE(copy != ui->current);
-      ASSERT_TRUE(copy->data.term.isCopy);
+      ASSERT_TRUE(copy->data.term.tag == RSTermRecord_Owned);
 
       ASSERT_EQ(copy->docId, ui->current->docId);
       ASSERT_EQ(copy->data.tag, ui->current->data.tag);
@@ -715,7 +715,7 @@ TEST_F(IndexTest, testIntersection) {
     RSIndexResult *copy = IndexResult_DeepCopy(h);
     ASSERT_TRUE(copy != NULL);
     ASSERT_TRUE(copy != h);
-    ASSERT_TRUE(copy->data.term.isCopy == 1);
+    ASSERT_TRUE(copy->data.term.tag == RSTermRecord_Owned);
 
     ASSERT_TRUE(copy->docId == h->docId);
     ASSERT_TRUE(copy->data.tag == RSResultData_Intersection);
@@ -1526,7 +1526,7 @@ TEST_F(IndexTest, testRawDocId) {
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    RSIndexResult rec = {.docId = id, .data = {.virtual_tag = RSResultData_Virtual}};
+    RSIndexResult rec = {.docId = id, .data = {.tag = RSResultData_Virtual}};
     InvertedIndex_WriteEntryGeneric(idx, enc, &rec);
   }
 

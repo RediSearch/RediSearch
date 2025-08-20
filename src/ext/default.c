@@ -53,7 +53,7 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
                              RSScoreExplain *scrExp) {
   if (r->data.tag == RSResultData_Term) {
     const RSTermRecord *term = IndexResult_TermRef(r);
-    double idf = term->term ? term->term->idf : 0;
+    double idf = term->borrowed.term ? term->borrowed.term->idf : 0;
     double res = r->weight * ((double)r->freq) * idf;
     EXPLAIN(scrExp, "(TFIDF %.2f = Weight %.2f * TF %d * IDF %.2f)", res, r->weight, r->freq, idf);
     return res;
@@ -160,7 +160,7 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   double ret = 0;
   if (r->data.tag == RSResultData_Term) {
     const RSTermRecord *term = IndexResult_TermRef(r);
-    double idf = (term->term ? term->term->idf : 0);
+    double idf = (term->borrowed.term ? term->borrowed.term->idf : 0);
     ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(scrExp,
             "(%.2f = Weight %.2f * IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
@@ -258,9 +258,9 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   if (r->data.tag == RSResultData_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
     const RSTermRecord *term = IndexResult_TermRef(r);
-    double idf = term->term->bm25_idf;
+    double idf = term->borrowed.term->bm25_idf;
     ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
-                           term->term->str);
+                           term->borrowed.term->str);
   } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     if (!scrExp) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(r);

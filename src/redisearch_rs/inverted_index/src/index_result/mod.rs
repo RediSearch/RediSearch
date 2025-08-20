@@ -14,9 +14,7 @@ use ffi::{
     FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId,
     t_fieldMask,
 };
-use low_memory_thin_vec::{IntoIter, LowMemoryThinVec};
-
-pub mod raw;
+use low_memory_thin_vec::LowMemoryThinVec;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
@@ -39,7 +37,7 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// The caller must ensure that the `tr` pointer is valid and points to an `RSTermRecord`.
-    unsafe fn Term_Offset_Data_Free(tr: *mut RSTermRecordOwned);
+    unsafe fn Term_Offset_Data_Free(tr: *mut RSTermRecord);
 
     /// Free a [`RSQueryTerm`]
     ///
@@ -52,52 +50,29 @@ unsafe extern "C" {
 /// over it with RSIndexResult_IterateOffsets
 #[repr(C)]
 #[derive(PartialEq)]
-pub struct RSOffsetVectorRef<'index> {
+pub struct RSOffsetVector<'index> {
     /// At this point the data ownership is still managed by the caller.
-    data: *mut c_char,
-    len: u32,
+    pub data: *mut c_char,
+    pub len: u32,
     /// data may be borrowed from the reader.
     /// The data pointer does not allow lifetime so use a PhantomData to carry the lifetime for it instead.
     _phantom: PhantomData<&'index ()>,
 }
 
-/// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
-/// over it with RSIndexResult_IterateOffsets
-#[repr(C)]
-#[derive(PartialEq)]
-pub struct RSOffsetVectorOwned {
-    /// At this point the data ownership is still managed by the caller.
-    data: *mut c_char,
-    len: u32,
-}
-
-impl Debug for RSOffsetVectorRef<'_> {
+impl Debug for RSOffsetVector<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.data.is_null() {
-            return write!(f, "RSOffsetVectorRef(null)");
+            return write!(f, "RSOffsetVector(null)");
         }
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
         let offsets =
             unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
 
-        write!(f, "RSOffsetVectorRef {offsets:?}")
+        write!(f, "RSOffsetVector {offsets:?}")
     }
 }
 
-impl Debug for RSOffsetVectorOwned {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.data.is_null() {
-            return write!(f, "RSOffsetVectorOwned(null)");
-        }
-        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let offsets =
-            unsafe { std::slice::from_raw_parts(self.data as *const i8, self.len as usize) };
-
-        write!(f, "RSOffsetVectorOwned {offsets:?}")
-    }
-}
-
-impl RSOffsetVectorRef<'_> {
+impl RSOffsetVector<'_> {
     /// Create a new, empty offset vector ready to receive data
     pub fn empty() -> Self {
         Self {
@@ -123,82 +98,55 @@ impl RSOffsetVectorRef<'_> {
     }
 }
 
-impl RSOffsetVectorOwned {
-    /// Get a slice of the offsets in this vector.
-    fn offsets(&self) -> &[u8] {
-        // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        unsafe { std::slice::from_raw_parts(self.data as *const u8, self.len as usize) }
-    }
-}
-
 /// Represents a single record of a document inside a term in the inverted index
+/// cbindgen:prefix-with-name=true
 #[repr(u8)]
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum RSTermRecord<'index> {
-    Borrowed(RSTermRecordRef<'index>),
-    Owned(RSTermRecordOwned),
-}
+    Borrowed {
+        /// The term that brought up this record
+        term: *mut RSQueryTerm,
 
-impl<'index> From<&RSTermRecord<'index>> for *const raw::RSTermRecordRaw<'index> {
-    fn from(value: &RSTermRecord<'index>) -> Self {
-        value as *const RSTermRecord<'index> as *const raw::RSTermRecordRaw<'index>
-    }
-}
+        /// The encoded offsets in which the term appeared in the document
+        offsets: RSOffsetVector<'index>,
+    },
+    Owned {
+        /// The term that brought up this record
+        term: *mut RSQueryTerm,
 
-impl<'index> From<&mut RSTermRecord<'index>> for *mut raw::RSTermRecordRaw<'index> {
-    fn from(value: &mut RSTermRecord<'index>) -> Self {
-        value as *mut RSTermRecord<'index> as *mut raw::RSTermRecordRaw<'index>
-    }
-}
-
-#[repr(C)]
-#[derive(PartialEq)]
-pub struct RSTermRecordRef<'index> {
-    /// The term that brought up this record
-    term: *mut RSQueryTerm,
-
-    /// The encoded offsets in which the term appeared in the document
-    offsets: RSOffsetVectorRef<'index>,
-}
-
-#[repr(C)]
-#[derive(PartialEq)]
-pub struct RSTermRecordOwned {
-    /// The term that brought up this record
-    term: *mut RSQueryTerm,
-
-    /// The encoded offsets in which the term appeared in the document
-    offsets: RSOffsetVectorOwned,
+        /// The encoded offsets in which the term appeared in the document
+        offsets: RSOffsetVector<'static>,
+    },
 }
 
 impl<'index> RSTermRecord<'index> {
     /// Create a new term record without term pointer and offsets.
     pub fn new() -> Self {
-        Self::Borrowed(RSTermRecordRef {
+        Self::Borrowed {
             term: ptr::null_mut(),
-            offsets: RSOffsetVectorRef::empty(),
-        })
+            offsets: RSOffsetVector::empty(),
+        }
     }
 
     /// Create a new term with the given term pointer and offsets.
     pub fn with_term(
         term: *mut RSQueryTerm,
-        offsets: RSOffsetVectorRef<'index>,
+        offsets: RSOffsetVector<'index>,
     ) -> RSTermRecord<'index> {
-        Self::Borrowed(RSTermRecordRef { term, offsets })
+        Self::Borrowed { term, offsets }
     }
 
     /// Get a slice of the term offsets.
     pub fn offsets(&self) -> &[u8] {
         match self {
-            RSTermRecord::Borrowed(t) => t.offsets.offsets(),
-            RSTermRecord::Owned(t) => t.offsets.offsets(),
+            RSTermRecord::Borrowed { offsets, .. } => offsets.offsets(),
+            RSTermRecord::Owned { offsets, .. } => offsets.offsets(),
         }
     }
 
     /// Is this term record an owned copy or a borrow?
     pub fn is_copy(&self) -> bool {
-        matches!(self, Self::Owned(_))
+        matches!(self, Self::Owned { .. })
     }
 }
 
@@ -234,21 +182,20 @@ impl Debug for QueryTermDebug {
     }
 }
 
-impl Debug for RSTermRecordRef<'_> {
+impl Debug for RSTermRecord<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RSTermRecordRef")
-            .field("term", &QueryTermDebug(self.term))
-            .field("offsets", &self.offsets)
-            .finish()
-    }
-}
-
-impl Debug for RSTermRecordOwned {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RSTermRecordOwned")
-            .field("term", &QueryTermDebug(self.term))
-            .field("offsets", &self.offsets)
-            .finish()
+        match self {
+            RSTermRecord::Borrowed { term, offsets } => f
+                .debug_struct("RSTermRecordRef")
+                .field("term", &QueryTermDebug(*term))
+                .field("offsets", &offsets)
+                .finish(),
+            RSTermRecord::Owned { term, offsets } => f
+                .debug_struct("RSTermRecordOwned")
+                .field("term", &QueryTermDebug(*term))
+                .field("offsets", &offsets)
+                .finish(),
+        }
     }
 }
 
@@ -266,94 +213,72 @@ pub type RSResultKindMask = BitFlags<RSResultKind, u8>;
 /// using Rust since the internals cannot be constructed directly in C. The reason is because of
 /// the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
 /// managed correctly.
+/// cbindgen:prefix-with-name=true
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum RSAggregateResult<'index> {
-    Borrowed(RSAggregateResultRef<'index>),
-    Owned(RSAggregateResultOwned),
-}
+    Borrowed {
+        /// The records making up this aggregate result
+        ///
+        /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+        /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+        /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+        records: LowMemoryThinVec<&'index RSIndexResult<'index>>,
 
-impl<'index> From<&RSAggregateResult<'index>> for *const raw::RSAggregateResultRaw<'index> {
-    fn from(value: &RSAggregateResult<'index>) -> Self {
-        // Direct cast is safe due to repr(u8) and matching layouts
-        value as *const RSAggregateResult<'index> as *const raw::RSAggregateResultRaw<'index>
-    }
-}
+        /// A map of the aggregate kind of the underlying records
+        kind_mask: RSResultKindMask,
+    },
+    Owned {
+        /// The records making up this aggregate result
+        ///
+        /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+        /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+        /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+        records: LowMemoryThinVec<Box<RSIndexResult<'static>>>,
 
-impl<'index> From<*const raw::RSAggregateResultRaw<'index>> for &RSAggregateResult<'index> {
-    fn from(value: *const raw::RSAggregateResultRaw<'index>) -> Self {
-        // SAFETY: Layout compatibility is verified by compile-time checks
-        // The caller must ensure the pointer is valid and properly aligned
-        unsafe { &*(value as *const RSAggregateResult<'index>) }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, PartialEq)]
-pub struct RSAggregateResultRef<'index> {
-    /// The records making up this aggregate result
-    ///
-    /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
-    /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-    /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<&'index RSIndexResult<'index>>,
-
-    /// A map of the aggregate kind of the underlying records
-    kind_mask: RSResultKindMask,
-}
-
-#[repr(C)]
-#[derive(Debug, PartialEq)]
-pub struct RSAggregateResultOwned {
-    /// The records making up this aggregate result
-    ///
-    /// The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
-    /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-    /// own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
-    records: LowMemoryThinVec<Box<RSIndexResult<'static>>>,
-
-    /// A map of the aggregate kind of the underlying records
-    kind_mask: RSResultKindMask,
+        /// A map of the aggregate kind of the underlying records
+        kind_mask: RSResultKindMask,
+    },
 }
 
 impl<'index> RSAggregateResult<'index> {
     /// Create a new empty aggregate result with the given capacity
     pub fn with_capacity(cap: usize) -> Self {
-        Self::Borrowed(RSAggregateResultRef {
+        Self::Borrowed {
             records: LowMemoryThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
-        })
+        }
     }
 
     /// The number of results in this aggregate result
     pub fn len(&self) -> usize {
         match self {
-            RSAggregateResult::Borrowed(a) => a.records.len(),
-            RSAggregateResult::Owned(a) => a.records.len(),
+            RSAggregateResult::Borrowed { records, .. } => records.len(),
+            RSAggregateResult::Owned { records, .. } => records.len(),
         }
     }
 
     /// Check whether this aggregate result is empty
     pub fn is_empty(&self) -> bool {
         match self {
-            RSAggregateResult::Borrowed(a) => a.records.is_empty(),
-            RSAggregateResult::Owned(a) => a.records.is_empty(),
+            RSAggregateResult::Borrowed { records, .. } => records.is_empty(),
+            RSAggregateResult::Owned { records, .. } => records.is_empty(),
         }
     }
 
     /// The capacity of the aggregate result
     pub fn capacity(&self) -> usize {
         match self {
-            RSAggregateResult::Borrowed(a) => a.records.capacity(),
-            RSAggregateResult::Owned(a) => a.records.capacity(),
+            RSAggregateResult::Borrowed { records, .. } => records.capacity(),
+            RSAggregateResult::Owned { records, .. } => records.capacity(),
         }
     }
 
     /// The current type mask of the aggregate result
     pub fn kind_mask(&self) -> RSResultKindMask {
         match self {
-            RSAggregateResult::Borrowed(a) => a.kind_mask,
-            RSAggregateResult::Owned(a) => a.kind_mask,
+            RSAggregateResult::Borrowed { kind_mask, .. } => *kind_mask,
+            RSAggregateResult::Owned { kind_mask, .. } => *kind_mask,
         }
     }
 
@@ -363,8 +288,8 @@ impl<'index> RSAggregateResult<'index> {
     /// The caller must ensure that the memory at the given index is still valid
     pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index>> {
         match self {
-            RSAggregateResult::Borrowed(a) => a.records.get(index).copied(),
-            RSAggregateResult::Owned(a) => a.records.get(index).map(AsRef::as_ref),
+            RSAggregateResult::Borrowed { records, .. } => records.get(index).copied(),
+            RSAggregateResult::Owned { records, .. } => records.get(index).map(AsRef::as_ref),
         }
     }
 
@@ -374,13 +299,13 @@ impl<'index> RSAggregateResult<'index> {
     /// mask. The owner of the children pointers is responsible for deallocating them when needed.
     pub fn reset(&mut self) {
         match self {
-            RSAggregateResult::Borrowed(a) => {
-                a.records.clear();
-                a.kind_mask = RSResultKindMask::empty();
+            RSAggregateResult::Borrowed { records, kind_mask } => {
+                records.clear();
+                *kind_mask = RSResultKindMask::empty();
             }
-            RSAggregateResult::Owned(a) => {
-                a.records.clear();
-                a.kind_mask = RSResultKindMask::empty();
+            RSAggregateResult::Owned { records, kind_mask } => {
+                records.clear();
+                *kind_mask = RSResultKindMask::empty();
             }
         }
     }
@@ -392,46 +317,79 @@ impl<'index> RSAggregateResult<'index> {
     /// the child with [`Self::get()`] will cause undefined behavior.
     pub fn push_borrowed(&mut self, child: &'index RSIndexResult) {
         match self {
-            RSAggregateResult::Borrowed(a) => {
-                a.records.push(child);
+            RSAggregateResult::Borrowed { records, kind_mask } => {
+                records.push(child);
 
-                a.kind_mask |= child.data.kind();
+                *kind_mask |= child.data.kind();
             }
-            RSAggregateResult::Owned(_) => {
+            RSAggregateResult::Owned { .. } => {
                 panic!("Cannot push a borrowed reference to an owned aggregate result");
             }
+        }
+    }
+
+    pub fn iter(&self) -> RSAggregateResultIter {
+        RSAggregateResultIter {
+            agg: self,
+            index: 0,
         }
     }
 }
 
 impl RSAggregateResult<'static> {
     pub fn with_capacity_owned(cap: usize) -> Self {
-        Self::Owned(RSAggregateResultOwned {
+        Self::Owned {
             records: LowMemoryThinVec::with_capacity(cap),
             kind_mask: RSResultKindMask::empty(),
-        })
+        }
     }
 
     pub fn push_owned(&mut self, child: RSIndexResult<'static>) {
         match self {
-            RSAggregateResult::Borrowed(_) => {
+            RSAggregateResult::Borrowed { .. } => {
                 panic!("Cannot push an owned result to a borrowed aggregate result");
             }
-            RSAggregateResult::Owned(a) => {
-                a.kind_mask |= child.data.kind();
-                a.records.push(Box::new(child));
+            RSAggregateResult::Owned { records, kind_mask } => {
+                *kind_mask |= child.data.kind();
+                records.push(Box::new(child));
+            }
+        }
+    }
+
+    pub fn push_boxed(&mut self, child: Box<RSIndexResult<'static>>) {
+        match self {
+            RSAggregateResult::Borrowed { .. } => {
+                panic!("Cannot push a boxed result to a borrowed aggregate result");
+            }
+            RSAggregateResult::Owned { records, kind_mask } => {
+                *kind_mask |= child.data.kind();
+                records.push(child);
             }
         }
     }
 }
 
-impl IntoIterator for RSAggregateResultOwned {
-    type Item = Box<RSIndexResult<'static>>;
+/// An iterator over the results in an [`RSAggregateResult`].
+pub struct RSAggregateResultIter<'index> {
+    agg: &'index RSAggregateResult<'index>,
+    index: usize,
+}
 
-    type IntoIter = IntoIter<Box<RSIndexResult<'static>>>;
+impl<'index> Iterator for RSAggregateResultIter<'index> {
+    type Item = &'index RSIndexResult<'index>;
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.records.into_iter()
+    fn next(&mut self) -> Option<Self::Item> {
+        let result = match self.agg {
+            RSAggregateResult::Borrowed { records, .. } => records.get(self.index).copied(),
+            RSAggregateResult::Owned { records, .. } => records.get(self.index).map(AsRef::as_ref),
+        };
+
+        if let Some(result) = result {
+            self.index += 1;
+            Some(result)
+        } else {
+            None
+        }
     }
 }
 
@@ -467,6 +425,7 @@ pub enum RSResultKind {
 /// The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
 /// While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
 /// raw pointers to results.
+/// cbindgen:prefix-with-name=true
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
 pub enum RSResultData<'index> {
@@ -494,6 +453,7 @@ impl RSResultData<'_> {
 }
 
 /// The result of an inverted index
+/// cbindgen:rename-all=CamelCase
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct RSIndexResult<'index> {
@@ -602,7 +562,7 @@ impl<'index> RSIndexResult<'index> {
     /// Create a new `RSIndexResult` with a given `term`, `offsets`, `doc_id`, `field_mask`, and `freq`.
     pub fn term_with_term_ptr(
         term: *mut RSQueryTerm,
-        offsets: RSOffsetVectorRef<'index>,
+        offsets: RSOffsetVector<'index>,
         doc_id: t_docId,
         field_mask: t_fieldMask,
         freq: u32,
@@ -810,52 +770,30 @@ impl Drop for RSIndexResult<'_> {
         std::mem::swap(&mut self.data, &mut data);
 
         match data {
-            RSResultData::Union(RSAggregateResult::Owned(agg))
-            | RSResultData::Intersection(RSAggregateResult::Owned(agg))
-            | RSResultData::HybridMetric(RSAggregateResult::Owned(agg)) => {
-                for child in agg.into_iter() {
+            RSResultData::Union(RSAggregateResult::Owned { records, .. })
+            | RSResultData::Intersection(RSAggregateResult::Owned { records, .. })
+            | RSResultData::HybridMetric(RSAggregateResult::Owned { records, .. }) => {
+                for child in records.into_iter() {
                     drop(child);
                 }
             }
-            RSResultData::Union(_)
-            | RSResultData::Intersection(RSAggregateResult::Borrowed(_))
-            | RSResultData::HybridMetric(RSAggregateResult::Borrowed(_)) => {}
-            RSResultData::Term(RSTermRecord::Owned(mut term)) => {
+            RSResultData::Union(RSAggregateResult::Borrowed { .. })
+            | RSResultData::Intersection(RSAggregateResult::Borrowed { .. })
+            | RSResultData::HybridMetric(RSAggregateResult::Borrowed { .. }) => {}
+            RSResultData::Term(RSTermRecord::Borrowed { term, .. }) => {
+                // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
+                unsafe {
+                    Term_Free(term);
+                }
+            }
+            RSResultData::Term(mut term) => {
                 // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
                 unsafe {
                     Term_Offset_Data_Free(&mut term);
                 }
             }
-            RSResultData::Term(RSTermRecord::Borrowed(term)) => {
-                // SAFETY: we know the C type is the same because it was autogenerated from the Rust type
-                unsafe {
-                    Term_Free(term.term);
-                }
-            }
             RSResultData::Numeric(_numeric) | RSResultData::Metric(_numeric) => {}
             RSResultData::Virtual => {}
         }
-    }
-}
-
-impl<'index> From<*const raw::RSIndexResultRaw<'index>> for &RSIndexResult<'index> {
-    fn from(value: *const raw::RSIndexResultRaw<'index>) -> Self {
-        // SAFETY: Layout compatibility is verified by compile-time checks
-        // The caller must ensure the pointer is valid, properly aligned, and has unique access
-        unsafe { &*(value as *const RSIndexResult<'index>) }
-    }
-}
-
-impl<'index> From<*mut raw::RSIndexResultRaw<'index>> for &mut RSIndexResult<'index> {
-    fn from(value: *mut raw::RSIndexResultRaw<'index>) -> Self {
-        // SAFETY: Layout compatibility is verified by compile-time checks
-        // The caller must ensure the pointer is valid, properly aligned, and has unique access
-        unsafe { &mut *(value as *mut RSIndexResult<'index>) }
-    }
-}
-
-impl<'index> From<&RSIndexResult<'index>> for *const raw::RSIndexResultRaw<'index> {
-    fn from(value: &RSIndexResult<'index>) -> Self {
-        value as *const RSIndexResult<'index> as *const raw::RSIndexResultRaw<'index>
     }
 }

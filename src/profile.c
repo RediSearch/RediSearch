@@ -34,9 +34,9 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
   RedisModule_Reply_Map(reply);
   if (InvertedIndex_Flags(it->idx) == Index_DocIdsOnly) {
     const RSTermRecord *term = IndexResult_TermRef(root->current);
-    if (term->term != NULL) {
+    if (term->borrowed.term != NULL) {
       printProfileType("TAG");
-      REPLY_KVSTR_SAFE("Term", term->term->str);
+      REPLY_KVSTR_SAFE("Term", term->borrowed.term->str);
     }
   } else if (InvertedIndex_Flags(it->idx) & Index_StoreNumeric) {
     const NumericFilter *flt = it->decoderCtx.filter;
@@ -56,7 +56,7 @@ void printInvIdxIt(RedisModule_Reply *reply, QueryIterator *root, ProfileCounter
   } else {
     printProfileType("TEXT");
     const RSTermRecord *term = IndexResult_TermRef(root->current);
-    REPLY_KVSTR_SAFE("Term", term->term->str);
+    REPLY_KVSTR_SAFE("Term", term->borrowed.term->str);
   }
 
   // print counter and clock

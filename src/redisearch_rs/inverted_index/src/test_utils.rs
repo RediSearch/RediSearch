@@ -11,7 +11,7 @@
 
 use ffi::t_fieldMask;
 
-use crate::{RSIndexResult, RSOffsetVectorRef, RSResultData};
+use crate::{RSIndexResult, RSOffsetVector, RSResultData};
 
 /// Wrapper around `inverted_index::RSIndexResult` ensuring the term and offsets
 /// pointers used internally stay valid for the duration of the test or bench.
@@ -38,7 +38,7 @@ impl TestTermRecord<'_> {
         });
 
         let offsets_ptr = offsets.as_ptr() as *mut _;
-        let rs_offsets = RSOffsetVectorRef::with_data(offsets_ptr, offsets.len() as _);
+        let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
         let record =
             RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets, doc_id, field_mask, freq)
