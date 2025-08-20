@@ -82,31 +82,47 @@ impl IdDelta for u32 {
 #[repr(C)]
 pub struct NumericFilter {
     /// The field specification which this filter is acting on
-    field_spec: *const FieldSpec,
+    pub field_spec: *const FieldSpec,
 
     /// Beginning of the range
-    min: f64,
+    pub min: f64,
 
     /// End of the range
-    max: f64,
+    pub max: f64,
 
     /// Geo filter, if any
-    geo_filter: *const c_void,
+    pub geo_filter: *const c_void,
 
     /// Range includes the min value
-    min_inclusive: bool,
+    pub min_inclusive: bool,
 
     /// Range includes the max value
-    max_inclusive: bool,
+    pub max_inclusive: bool,
 
     /// Order of SORTBY (ascending/descending)
-    ascending: bool,
+    pub ascending: bool,
 
     /// Minimum number of results needed
-    limit: usize,
+    pub limit: usize,
 
     /// Number of results to skip
-    offset: usize,
+    pub offset: usize,
+}
+
+impl Default for NumericFilter {
+    fn default() -> Self {
+        Self {
+            min: 0.0,
+            max: f64::MAX,
+            min_inclusive: true,
+            max_inclusive: true,
+            field_spec: std::ptr::null(),
+            geo_filter: std::ptr::null(),
+            ascending: true,
+            limit: 0,
+            offset: 0,
+        }
+    }
 }
 
 impl NumericFilter {
