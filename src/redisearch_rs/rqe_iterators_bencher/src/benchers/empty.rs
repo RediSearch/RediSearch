@@ -18,7 +18,7 @@ use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use rqe_iterators::{empty::Empty, rqe_iterator::RQEIterator};
+use rqe_iterators::{RQEIterator, empty::Empty};
 
 use crate::ffi;
 

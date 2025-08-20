@@ -9,7 +9,7 @@
 
 use rqe_iterators::{
     empty::Empty,
-    rqe_iterator::{RQEIterator, RQEValidateStatus},
+    {RQEIterator, RQEValidateStatus},
 };
 
 mod c_mocks;
