@@ -91,9 +91,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         // Set resultLimit for individual AREQ pipelines using the same logic as sendChunk()
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-        QEFlags reqFlags = AREQ_RequestFlags(areq);
         size_t limit = UINT64_MAX;  // Default for most cases
-        if (reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
+        if (IsHybridVectorSubquery(areq)) {
             // This is an aggregate request - use maxAggregateResults
             limit = areq->maxAggregateResults;
         }

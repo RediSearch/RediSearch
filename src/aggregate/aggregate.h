@@ -128,7 +128,7 @@ typedef struct {
 // Context structure for parseAggPlan to reduce parameter count
 typedef struct {
   AGGPlan *plan;                    // Aggregation plan
-  uint32_t *reqflags;               // Request flags
+  QEFlags *reqflags;                // Request flags
   RequestConfig *reqConfig;         // Request configuration
   RSSearchOptions *searchopts;      // Search options
   size_t *prefixesOffset;           // Prefixes offset
@@ -203,7 +203,7 @@ typedef struct AREQ {
   Pipeline pipeline;
 
   /** Flags controlling query output */
-  uint32_t reqflags;
+  QEFlags reqflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;
@@ -316,11 +316,11 @@ static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
 }
 
 static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
-  req->reqflags |= flags;
+  req->reqflags = (QEFlags)(req->reqflags | flags);
 }
 
 static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
-  req->reqflags &= ~flags;
+  req->reqflags = (QEFlags)(req->reqflags & ~flags);
 }
 
 /**
