@@ -11,7 +11,7 @@
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
-use crate::rqe_iterator::{RQEIterator, RQEIteratorError, SkipToOutcome};
+use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
 /// An iterator that yields no results.
 ///
