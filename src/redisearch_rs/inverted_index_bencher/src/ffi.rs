@@ -71,7 +71,7 @@ pub fn encode_numeric(
 pub fn read_numeric(
     buffer: &mut Buffer,
     base_id: u64,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -112,7 +112,7 @@ pub fn read_freq_offsets_flags(
     buffer: &mut Buffer,
     base_id: u64,
     wide: bool,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -128,10 +128,7 @@ pub fn read_freq_offsets_flags(
     (returned, result)
 }
 
-pub fn read_freqs(
-    buffer: &mut Buffer,
-    base_id: u64,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+pub fn read_freqs(buffer: &mut Buffer, base_id: u64) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -164,7 +161,7 @@ pub fn read_freqs_flags(
     buffer: &mut Buffer,
     base_id: u64,
     wide: bool,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -199,7 +196,7 @@ pub fn read_flags(
     buffer: &mut Buffer,
     base_id: u64,
     wide: bool,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -228,7 +225,7 @@ pub fn encode_doc_ids_only(
 pub fn read_doc_ids_only(
     buffer: &mut Buffer,
     base_id: u64,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -260,7 +257,7 @@ pub fn read_fields_offsets(
     buffer: &mut Buffer,
     base_id: u64,
     wide: bool,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -289,7 +286,7 @@ pub fn encode_offsets_only(
 pub fn read_offsets_only(
     buffer: &mut Buffer,
     base_id: u64,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -314,7 +311,7 @@ pub fn encode_freqs_offsets(
 pub fn read_freqs_offsets(
     buffer: &mut Buffer,
     base_id: u64,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -340,7 +337,7 @@ pub fn encode_raw_doc_ids_only(
 pub fn read_raw_doc_ids_only(
     buffer: &mut Buffer,
     base_id: u64,
-) -> (bool, inverted_index::RSIndexResult<'_, '_>) {
+) -> (bool, inverted_index::RSIndexResult<'_>) {
     let mut buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(buffer_reader.as_mut_ptr() as _, base_id) };
@@ -723,11 +720,9 @@ mod tests {
 
     /// Helper to compare only the fields of a term record that are actually encoded.
     #[derive(Debug)]
-    struct TermRecordCompare<'index, 'aggregate_children>(
-        &'index inverted_index::RSIndexResult<'index, 'aggregate_children>,
-    );
+    struct TermRecordCompare<'index>(&'index inverted_index::RSIndexResult<'index>);
 
-    impl<'index, 'aggregate_children> PartialEq for TermRecordCompare<'index, 'aggregate_children> {
+    impl<'index> PartialEq for TermRecordCompare<'index> {
         fn eq(&self, other: &Self) -> bool {
             assert!(matches!(self.0.kind(), inverted_index::RSResultKind::Term));
 

@@ -34,7 +34,7 @@ pub struct Full;
 ///
 /// record must have `result_type` set to `RSResultType::Term`.
 #[inline(always)]
-pub fn offsets<'a>(record: &'a RSIndexResult<'_, '_>) -> &'a [u8] {
+pub fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = record.as_term().unwrap();
 
@@ -82,7 +82,7 @@ pub fn decode_term_record_offsets<'index>(
     field_mask: t_fieldMask,
     freq: u32,
     offsets_sz: u32,
-) -> std::io::Result<RSIndexResult<'index, 'static>> {
+) -> std::io::Result<RSIndexResult<'index>> {
     // borrow the offsets vector from the cursor
     let start = cursor.position() as usize;
     let end = start + offsets_sz as usize;
@@ -120,7 +120,7 @@ impl Decoder for Full {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
         let [delta, freq, field_mask, offsets_sz] = decoded_values;
 
@@ -180,7 +180,7 @@ impl Decoder for FullWide {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, offsets_sz] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;

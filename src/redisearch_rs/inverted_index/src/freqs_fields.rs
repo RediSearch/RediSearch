@@ -54,7 +54,7 @@ impl Decoder for FreqsFields {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, field_mask] = decoded_values;
 
@@ -102,7 +102,7 @@ impl Decoder for FreqsFieldsWide {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
