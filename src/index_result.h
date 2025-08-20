@@ -30,8 +30,6 @@ void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
 /* Clear / free the metrics of a result */
 void ResultMetrics_Free(RSIndexResult *r);
 
-void Term_Offset_Data_Free(RSTermRecord *tr);
-
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
   r->metrics = array_ensure_append_1(r->metrics, new_element);

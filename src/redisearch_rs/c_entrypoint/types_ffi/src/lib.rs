@@ -425,17 +425,7 @@ pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
     // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
     let offsets = unsafe { &mut *offsets };
 
-    if offsets.data.is_null() {
-        return;
-    }
-
-    let layout = Layout::array::<c_char>(offsets.len as usize).unwrap();
-    // SAFETY: Caller is to ensure data has been allocated via the global allocator
-    // and points to an array matching the length of `offsets`.
-    unsafe { std::alloc::dealloc(offsets.data.cast(), layout) };
-
-    offsets.data = std::ptr::null_mut();
-    offsets.len = 0;
+    offsets.free_data();
 }
 
 /// Copy the data from one offset vector to another.
