@@ -61,12 +61,12 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
     // and contain only keys from the loading step
     // Init lookup since we dont call buildQueryPart
-    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
+    RLookup *lookup = AGPLN_GetLookup(req->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    RLookup_Init(lookup, IndexSpec_GetSpecCache(params->aggregationParams.common.sctx->spec));
     RLookup_CloneInto(lookup, AGPLN_GetLookup(AREQ_AGGPlan(req->requests[SEARCH_INDEX]), NULL, AGPLN_GETLOOKUP_FIRST));
 
-    // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
-    const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+    // Itzik said he will fix score key
+    const RLookupKey *scoreKey = NULL;
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
@@ -79,13 +79,42 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
 }
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
+      // move the context to the hybrid request
+    req->sctx = params->aggregationParams.common.sctx;
+    params->aggregationParams.common.sctx = NULL;
     // Build the depletion pipeline for extracting results from individual search requests
     arrayof(ResultProcessor*) depleters = HybridRequest_BuildDepletionPipeline(req, params);
     if (!depleters) {
-      return REDISMODULE_ERR;
+        return REDISMODULE_ERR;
     }
     // Build the merge pipeline for combining and processing results from the depletion pipeline
     return HybridRequest_BuildMergePipeline(req, params, depleters);
+}
+
+arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req) {
+    arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
+    /*for (size_t i = 0; i < req->nrequests; i++) {
+      AREQ *areq = req->requests[i];
+      Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, areq->cursorConfig.maxIdle, err);
+      if (!cursor) {
+        break;
+      }
+      cursor->execState = ;
+      r->cursor_id = cursor->id;
+      array_ensure_append_1(cursors, cursor);
+    }
+    for (size_t i = 0; i < req->nrequests; i++) {
+        
+        if (cursor == NULL) {
+          goto error;
+        }
+
+        AREQ *areq = req->requests[i];
+
+        Cursor *cursor = AREQ_StartCursor(areq, NULL, NULL, NULL, false);
+        array_ensure_append_1(cursors, cursor);
+    }*/
+    return cursors;
 }
 
 /**
@@ -108,7 +137,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
-    AGPLN_Init(&hybridReq->tailPipeline->ap);
+    //AGPLN_Init(&hybridReq->tailPipeline->ap);
     QueryError_Init(&hybridReq->tailPipelineError);
     Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
 
