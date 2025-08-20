@@ -9,6 +9,8 @@
 
 pub mod empty;
 pub mod id_list;
+// suffixed with '_it' to prevent nameclash with the inverted_index crate
+pub mod inverted_index_it;
 pub mod wildcard;
 
 use ffi::t_docId;
@@ -32,6 +34,9 @@ pub enum RQEIteratorError {
     /// The iterator has reached the time limit for execution.
     #[error("reached time limit")]
     TimedOut,
+    /// Iterator failed to read from the inverted index.
+    #[error("failed to read from inverted index")]
+    IoError(#[from] std::io::Error),
 }
 
 #[derive(Debug, PartialEq, Eq)]
