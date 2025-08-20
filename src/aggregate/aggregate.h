@@ -39,9 +39,6 @@ typedef struct {
 typedef struct Grouper Grouper;
 struct QOptimizer;
 
-// Forward declaration
-typedef struct HybridRequest HybridRequest;
-
 /*
  * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL,
  * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, and QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
@@ -402,7 +399,6 @@ void Grouper_AddReducer(Grouper *g, Reducer *r, RLookupKey *dst);
 void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 int prepareExecutionPlan(AREQ *req, QueryError *status);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
-void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv);
 void AREQ_Free(AREQ *req);
 
 /**

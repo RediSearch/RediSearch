@@ -127,6 +127,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
     SearchResult_Destroy(r);
   }
 
+  // TODO: take to error using HREQ_GetError
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
     uint32_t reqflags = HREQ_RequestFlags(hreq);
@@ -160,12 +161,14 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
+    // TODO: Dump the entire hreq when explain is implemented
     // Create a dummy AREQ for BlockQueryClient (it expects an AREQ but we'll use the first one)
     AREQ *dummy_req = hreq->requests[0];
     RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, dummy_req, 0);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, blockedClient, spec_ref);
 
+    // TODO mark the hreq as running in the background
     // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
@@ -210,6 +213,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp->parent->err, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
+      // TODO: take to error using HREQ_GetError
       RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
@@ -338,9 +342,6 @@ error:
  * @param sctx Redis search context
  */
 void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
-    // Set the chunk size limit for the query
-    hreq->tailPipeline->qctx.resultLimit = UINT64_MAX;
-
     AGGPlan *plan = &hreq->tailPipeline->ap;
     cachedVars cv = {
         .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
