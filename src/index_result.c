@@ -33,11 +33,11 @@ RSIndexResult *__newAggregateResult(size_t cap, RSResultData_Tag t, double weigh
   return res;
 }
 
-void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child) {
-  if (child->metrics) {
+void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {
+  if (child) {
     // Passing ownership over the RSValues in the child metrics, but not on the array itself
-    parent->metrics = array_ensure_append_n(parent->metrics, child->metrics, array_len(child->metrics));
-    array_clear(child->metrics);
+    *parent = array_ensure_append_n(*parent, child, array_len(child));
+    array_clear(child);
   }
 }
 
@@ -152,7 +152,7 @@ RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(src);
       size_t numChildren = AggregateResult_NumChildren(agg);
       ret->data.union_ = AggregateResult_New(numChildren);
-      ret->data.union_.isCopy = true;
+      ret->data.union_.tag = RSAggregateResult_Owned;
 
       // deep copy recursively all children
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
@@ -225,7 +225,7 @@ void IndexResult_Free(RSIndexResult *r) {
   ResultMetrics_Free(r);
   if (r->data.tag == RSResultData_Intersection || r->data.tag == RSResultData_Union || r->data.tag == RSResultData_HybridMetric) {
     // for deep-copy results we also free the children
-    if (r->data.union_.isCopy) {
+    if (r->data.union_.tag == RSAggregateResult_Owned) {
       const RSAggregateResult *agg = IndexResult_AggregateRef(r);
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
       RSIndexResult *child = NULL;
