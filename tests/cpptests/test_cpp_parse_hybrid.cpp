@@ -110,17 +110,17 @@ class ParseHybridTest : public ::testing::Test {
 
 
 #define assertLinearScoringCtx(Weight0, Weight1) { \
-  ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
-  ASSERT_EQ(result.hybridParams->scoringCtx->linearCtx.numWeights, HYBRID_REQUEST_NUM_SUBQUERIES); \
-  ASSERT_TRUE(result.hybridParams->scoringCtx->linearCtx.linearWeights != NULL); \
-  ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[0], Weight0); \
-  ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[1], Weight1); \
+  ASSERT_EQ(result.hybridParams.scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
+  ASSERT_EQ(result.hybridParams.scoringCtx->linearCtx.numWeights, HYBRID_REQUEST_NUM_SUBQUERIES); \
+  ASSERT_TRUE(result.hybridParams.scoringCtx->linearCtx.linearWeights != NULL); \
+  ASSERT_DOUBLE_EQ(result.hybridParams.scoringCtx->linearCtx.linearWeights[0], Weight0); \
+  ASSERT_DOUBLE_EQ(result.hybridParams.scoringCtx->linearCtx.linearWeights[1], Weight1); \
 }
 
 #define assertRRFScoringCtx(K, Window) { \
-  ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
-  ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->rrfCtx.k, K); \
-  ASSERT_EQ(result.hybridParams->scoringCtx->rrfCtx.window, Window); \
+  ASSERT_EQ(result.hybridParams.scoringCtx->scoringType, HYBRID_SCORING_RRF); \
+  ASSERT_DOUBLE_EQ(result.hybridParams.scoringCtx->rrfCtx.k, K); \
+  ASSERT_EQ(result.hybridParams.scoringCtx->rrfCtx.window, Window); \
 }
 
 
@@ -224,7 +224,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
   assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW not specified)
-  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_FALSE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
@@ -237,7 +237,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
@@ -250,7 +250,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
   assertRRFScoringCtx(160, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
@@ -263,7 +263,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
   assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW was not specified)
-  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_FALSE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 
@@ -290,7 +290,7 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 30);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 
   // Verify KNN K follows LIMIT value (15) since K was not explicitly set
   AREQ* vecReq = result.vector;

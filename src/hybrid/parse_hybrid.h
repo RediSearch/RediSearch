@@ -31,9 +31,8 @@ typedef struct ParseHybridCommandCtx {
     AREQ *search;
     AREQ *vector;
     AGGPlan *tailPlan;
-    HybridPipelineParams* hybridParams;
-    RequestConfig* reqConfig;
-    CursorConfig* cursorConfig;
+    HybridPipelineParams hybridParams;
+    CursorConfig cursorConfig;
 } ParseHybridCommandCtx;
 
 // Function for parsing hybrid command arguments - exposed for testing
