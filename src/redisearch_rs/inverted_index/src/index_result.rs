@@ -10,9 +10,9 @@
 use std::{alloc::Layout, ffi::c_char, fmt::Debug, marker::PhantomData, ptr};
 
 use enumflags2::{BitFlags, bitflags};
+pub use ffi::RSQueryTerm;
 use ffi::{
-    FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId,
-    t_fieldMask,
+    FieldMask, RS_FIELDMASK_ALL, RSDocumentMetadata, RSYieldableMetric, t_docId, t_fieldMask,
 };
 use low_memory_thin_vec::LowMemoryThinVec;
 
@@ -103,7 +103,7 @@ impl RSOffsetVector<'_> {
 }
 
 /// Represents a single record of a document inside a term in the inverted index
-/// cbindgen:rename-all=CamelCase
+/// cbindgen:prefix-with-name=true
 #[repr(u8)]
 #[derive(Eq, PartialEq)]
 pub enum RSTermRecord<'index> {

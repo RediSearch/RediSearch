@@ -9,10 +9,11 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
-use std::{alloc::Layout, ffi::c_char};
+use std::{alloc::Layout, ffi::c_char, ptr};
 
 use inverted_index::{
-    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSTermRecord,
+    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
+    RSTermRecord,
 };
 
 pub use inverted_index::debug::{BlockSummary, Summary};
@@ -72,17 +73,40 @@ pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, val
     }
 }
 
-/// Get the term of the result if it is a term result. If the result is not a term, this function
-/// will return a `NULL` pointer.
+/// Get the query term from a result if it is a term result. If the result is not a term, then
+/// this function will return a `NULL` pointer.
 ///
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_TermRef<'result, 'index, 'aggregate_children>(
+pub unsafe extern "C" fn IndexResult_QueryTermRef<'index, 'aggregate_children>(
     result: *const RSIndexResult<'index, 'aggregate_children>,
-) -> Option<&'result RSTermRecord<'index>>
+) -> *mut RSQueryTerm {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
+    // an `RSIndexResult`.
+    let result = unsafe { &*result };
+
+    result.as_term().map_or(ptr::null_mut(), |term| match term {
+        RSTermRecord::Borrowed { term, .. } => *term,
+        RSTermRecord::Owned { term, .. } => *term,
+    })
+}
+
+/// Get the term offsets from a result if it is a term result. If the result is not a term, then
+/// this function will return a `NULL` pointer.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_TermOffsetsRef<'result, 'index, 'aggregate_children>(
+    result: *const RSIndexResult<'index, 'aggregate_children>,
+) -> Option<&'result RSOffsetVector<'index>>
 where
     'aggregate_children: 'result,
 {
@@ -92,20 +116,23 @@ where
     // an `RSIndexResult`.
     let result: &'result _ = unsafe { &*result };
 
-    result.as_term()
+    result.as_term().map(|term| match term {
+        RSTermRecord::Borrowed { offsets, .. } => offsets,
+        RSTermRecord::Owned { offsets, .. } => offsets,
+    })
 }
 
-/// Get the mutable term of the result if it is a term result. If the result is not a term,
-/// this function will return a `NULL` pointer.
+/// Get a mutable term offsets from a result if it is a term result. If the result is not a term,
+/// then this function will return a `NULL` pointer.
 ///
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
 /// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_TermRefMut<'result, 'index, 'aggregate_children>(
-    result: *mut RSIndexResult<'index, 'aggregate_children>,
-) -> Option<&'result mut RSTermRecord<'index>>
+pub unsafe extern "C" fn IndexResult_TermOffsetsRefMut<'result, 'aggregate_children>(
+    result: *mut RSIndexResult<'static, 'aggregate_children>,
+) -> Option<&'result mut RSOffsetVector<'static>>
 where
     'aggregate_children: 'result,
 {
@@ -115,7 +142,10 @@ where
     // an `RSIndexResult`.
     let result: &'result mut _ = unsafe { &mut *result };
 
-    result.as_term_mut()
+    result.as_term_mut().map(move |term| match term {
+        RSTermRecord::Borrowed { offsets, .. } => offsets,
+        RSTermRecord::Owned { offsets, .. } => offsets,
+    })
 }
 
 /// Get the aggregate result reference if the result is an aggregate result. If the result is

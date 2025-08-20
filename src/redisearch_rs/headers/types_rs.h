@@ -201,14 +201,14 @@ enum RSTermRecord_Tag
   : uint8_t
 #endif // __cplusplus
  {
-  borrowed,
-  owned,
+  RSTermRecord_Borrowed,
+  RSTermRecord_Owned,
 };
 #ifndef __cplusplus
 typedef uint8_t RSTermRecord_Tag;
 #endif // __cplusplus
 
-typedef struct Borrowed_Body {
+typedef struct RSTermRecord_Borrowed_Body {
   RSTermRecord_Tag tag;
   /**
    * The term that brought up this record
@@ -218,9 +218,9 @@ typedef struct Borrowed_Body {
    * The encoded offsets in which the term appeared in the document
    */
   struct RSOffsetVector offsets;
-} Borrowed_Body;
+} RSTermRecord_Borrowed_Body;
 
-typedef struct Owned_Body {
+typedef struct RSTermRecord_Owned_Body {
   RSTermRecord_Tag tag;
   /**
    * The term that brought up this record
@@ -230,12 +230,12 @@ typedef struct Owned_Body {
    * The encoded offsets in which the term appeared in the document
    */
   struct RSOffsetVector offsets;
-} Owned_Body;
+} RSTermRecord_Owned_Body;
 
 typedef union RSTermRecord {
   RSTermRecord_Tag tag;
-  Borrowed_Body borrowed;
-  Owned_Body owned;
+  RSTermRecord_Borrowed_Body borrowed;
+  RSTermRecord_Owned_Body owned;
 } RSTermRecord;
 
 /**
@@ -391,18 +391,7 @@ double IndexResult_NumValue(const struct RSIndexResult *result);
 void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
 
 /**
- * Get the term of the result if it is a term result. If the result is not a term, this function
- * will return a `NULL` pointer.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
- */
-const union RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *result);
-
-/**
- * Get the mutable term of the result if it is a term result. If the result is not a term,
+ * Get the query term from a result if it is a term result. If the result is not a term, then
  * this function will return a `NULL` pointer.
  *
  * # Safety
@@ -410,7 +399,29 @@ const union RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *result
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-union RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
+RSQueryTerm *IndexResult_QueryTermRef(const struct RSIndexResult *result);
+
+/**
+ * Get the term offsets from a result if it is a term result. If the result is not a term, then
+ * this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+const struct RSOffsetVector *IndexResult_TermOffsetsRef(const struct RSIndexResult *result);
+
+/**
+ * Get a mutable term offsets from a result if it is a term result. If the result is not a term,
+ * then this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+struct RSOffsetVector *IndexResult_TermOffsetsRefMut(struct RSIndexResult *result);
 
 /**
  * Get the aggregate result reference if the result is an aggregate result. If the result is
