@@ -69,7 +69,7 @@ static IteratorStatus HR_ReadInBatch(HybridIterator *hr, RSIndexResult *out) {
 
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
-  IndexResult_ConcatMetrics(*vec_res, child_res); // Pass child metrics, if there are any
+  RSYieldableMetric_Concat((*vec_res)->metrics, child_res->metrics); // Pass child metrics, if there are any
   ResultMetrics_Add(*vec_res, hr->ownKey, RS_NumVal(IndexResult_NumValue(*vec_res)));
 
   if (hr->topResults->count < hr->query.k) {
@@ -92,7 +92,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   RSIndexResult *res = NewHybridResult();
   AggregateResult_AddChild(res, IndexResult_DeepCopy(vec_res));
   AggregateResult_AddChild(res, IndexResult_DeepCopy(child_res));
-  res->data.hybrid_metric.isCopy = true; // Mark as copy, so when we free it, it will also free its children.
+  res->data.hybrid_metric.tag = RSAggregateResult_Owned; // Mark as copy, so when we free it, it will also free its children.
   ResultMetrics_Add(res, hr->ownKey, RS_NumVal(IndexResult_NumValue(vec_res)));
 
   if (hr->topResults->count < hr->query.k) {

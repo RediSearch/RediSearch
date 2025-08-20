@@ -25,7 +25,7 @@ RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
 /* Add the metrics of a child to a parent index result. */
-void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
+void RSYieldableMetric_Concat(RSYieldableMetric *parent, RSYieldableMetric *child);
 
 /* Clear / free the metrics of a result */
 void ResultMetrics_Free(RSIndexResult *r);

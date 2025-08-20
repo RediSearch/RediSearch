@@ -276,7 +276,15 @@ pub extern "C" fn AggregateResult_New(cap: usize) -> RSAggregateResult<'static, 
 /// The `agg` parameter should have been created with [`AggregateResult_New`].
 #[unsafe(no_mangle)]
 pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
-    drop(agg); // Explicit for clarity - automatically frees LowMemoryThinVec buffer
+    match agg {
+        RSAggregateResult::Borrowed { .. } => {}
+        RSAggregateResult::Owned { records, .. } => {
+            for record in records.into_iter() {
+                // C still manages this memory so don't free the heap pointers
+                std::mem::forget(record);
+            }
+        }
+    }
 }
 
 /// Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
@@ -292,8 +300,8 @@ pub extern "C" fn AggregateResult_Free(agg: RSAggregateResult) {
 /// - `child` must point to a valid `RSIndexResult` and cannot be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_AddChild(
-    parent: *mut RSIndexResult,
-    child: *mut RSIndexResult,
+    parent: *mut RSIndexResult<'static, 'static>,
+    child: *mut RSIndexResult<'static, 'static>,
 ) {
     debug_assert!(!parent.is_null(), "parent must not be null");
     debug_assert!(!child.is_null(), "child must not be null");
@@ -301,10 +309,14 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
     // SAFETY: Caller is to ensure that `parent` is a valid, non-null pointer to an `RSIndexResult`
     let parent = unsafe { &mut *parent };
 
-    // SAFETY: Caller is to ensure that `child` is a valid, non-null pointer to an `RSIndexResult`
-    let child = unsafe { &*child };
-
-    parent.push(child);
+    if parent.is_copy() {
+        let child = unsafe { Box::from_raw(child) };
+        parent.push_boxed(child);
+    } else {
+        // SAFETY: Caller is to ensure that `child` is a valid, non-null pointer to an `RSIndexResult`
+        let child = unsafe { &*child };
+        parent.push_borrowed(child);
+    }
 }
 
 /// Create an iterator over the aggregate result. This iterator should be freed

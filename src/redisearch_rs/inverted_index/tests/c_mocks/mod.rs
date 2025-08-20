@@ -17,7 +17,7 @@
 //! mod c_mocks;
 //! ```
 
-use ffi::RSQueryTerm;
+use ffi::{RSQueryTerm, RSYieldableMetric};
 use inverted_index::RSIndexResult;
 
 #[unsafe(no_mangle)]
@@ -38,9 +38,9 @@ pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexResult_ConcatMetrics(
-    _parent: *mut RSIndexResult,
-    _child: *const RSIndexResult,
+pub extern "C" fn RSYieldableMetric_Concat(
+    _parent: *mut RSYieldableMetric,
+    _child: *const RSYieldableMetric,
 ) {
     // Do nothing since the code will call this
 }

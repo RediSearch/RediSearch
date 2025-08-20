@@ -33,3 +33,4 @@ exclude = ["Header"]
 
 [export.rename]
 "LowMemoryThinVec______RSIndexResult" = "LowMemoryThinVecRSIndexResult"
+"LowMemoryThinVec_____RSIndexResult" = "LowMemoryThinVecRSIndexResultOwned"
