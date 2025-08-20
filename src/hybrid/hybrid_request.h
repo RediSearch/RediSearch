@@ -21,9 +21,10 @@ typedef struct HybridRequest {
     size_t nrequests;
     QueryError tailPipelineError;
     QueryError *errors;
+    AGGPlan *ap;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
-    CursorConfig cursorConfig;
+    RedisSearchCtx *sctx;
     clock_t initClock;  // For timing execution
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;

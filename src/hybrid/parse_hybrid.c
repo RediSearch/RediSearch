@@ -565,7 +565,7 @@ static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
 
 // Helper function to get LIMIT value from parsed aggregation pipeline
 static size_t getLimitFromPlan(AGGPlan *plan) {
-  RS_ASSERT(plan);
+  RS_ASSERT(pipeline);
 
   PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(plan);
   if (arrangeStep && arrangeStep->isLimited && arrangeStep->limit > 0) {
@@ -669,6 +669,15 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
     return implicitLoadStep;
 }
 
+HybridRequest *MakeDefaultHyabridRequest() {
+  AREQ *search = AREQ_New();
+  AREQ *vector = AREQ_New();
+  arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
+  requests = array_ensure_append_1(requests, search);
+  requests = array_ensure_append_1(requests, vector);
+  return HybridRequest_New(requests, array_len(requests));
+}
+
 /**
  * Parse FT.HYBRID command arguments and build a complete HybridRequest structure.
  *
@@ -686,7 +695,13 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
 int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                        RedisSearchCtx *sctx, const char *indexname, ParseHybridCommandCtx *parsedCmdCtx,
                        QueryError *status) {
-  HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
+
+  /*foosome initializeAREQ(searchRequest);
+  initializeAREQ(vectorRequest);
+  searchRequest->sctx = createDetachedSearchContext(ctx, indexname);
+  vectorRequest->sctx = createDetachedSearchContext(ctx, indexname);*/
+
+  HybridPipelineParams *hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
   // Individual variables used for parsing the tail of the command
@@ -713,11 +728,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  if (parseSearchSubquery(&ac, searchRequest, status) != REDISMODULE_OK) {
+  if (parseSearchSubquery(&ac, parsedCmdCtx->search, status) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (parseVectorSubquery(&ac, vectorRequest, status) != REDISMODULE_OK) {
+  if (parseVectorSubquery(&ac, parsedCmdCtx->vector, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -760,10 +775,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     ParseAggPlanContext papCtx = {
       .plan = parsedCmdCtx->tailPlan,
       .reqflags = mergeReqflags,
-      .reqConfig = parsedCmdCtx->reqConfig,
+      .reqConfig = &mergeReqConfig,
       .searchopts = &mergeSearchopts,
       .prefixesOffset = NULL,               // Invalid in FT.HYBRID
-      .cursorConfig = parsedCmdCtx->cursorConfig,
+      .cursorConfig = &parsedCmdCtx->cursorConfig,
       .requiredFields = NULL,               // Invalid in FT.HYBRID
       .maxSearchResults = &mergeMaxSearchResults,
       .maxAggregateResults = &mergeMaxAggregateResults
@@ -772,27 +787,40 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       goto error;
     }
 
+    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
+    if (!loadStep) {
+      loadStep = createImplicitLoadStep();
+    } else {
+      AGPLN_PopStep(&loadStep->base);
+    }
+
+    AGPLN_AddStep(&parsedCmdCtx->search->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
+    AGPLN_AddStep(&parsedCmdCtx->vector->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
+    // Free the source load step
+    loadStep->base.dtor(&loadStep->base);
+    loadStep = NULL;
+
     if (mergeSearchopts.params) {
-      searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
-      vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+      parsedCmdCtx->search->searchopts.params = Param_DictClone(mergeSearchopts.params);
+      parsedCmdCtx->vector->searchopts.params = Param_DictClone(mergeSearchopts.params);
       Param_DictFree(mergeSearchopts.params);
     }
 
     // Copy request configuration using the helper function
-    copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
-    copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
+    copyRequestConfig(&parsedCmdCtx->search->reqConfig, &mergeReqConfig);
+    copyRequestConfig(&parsedCmdCtx->vector->reqConfig, &mergeReqConfig);
 
     // Copy max results limits
-    searchRequest->maxSearchResults = mergeMaxSearchResults;
-    searchRequest->maxAggregateResults = mergeMaxAggregateResults;
-    vectorRequest->maxSearchResults = mergeMaxSearchResults;
-    vectorRequest->maxAggregateResults = mergeMaxAggregateResults;
+    parsedCmdCtx->search->maxSearchResults = mergeMaxSearchResults;
+    parsedCmdCtx->search->maxAggregateResults = mergeMaxAggregateResults;
+    parsedCmdCtx->vector->maxSearchResults = mergeMaxSearchResults;
+    parsedCmdCtx->vector->maxAggregateResults = mergeMaxAggregateResults;
 
-    if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
+    if (QAST_EvalParams(&parsedCmdCtx->vector->ast, &parsedCmdCtx->vector->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
 
-    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, vectorRequest->parsedVectorData, hybridParams);
+    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, parsedCmdCtx->vector->parsedVectorData, hybridParams);
   }
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
@@ -842,7 +870,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
           },
       .outFields = NULL,
       .maxResultsLimit = mergeMaxAggregateResults,
-      .language = searchRequest->searchopts.language,
+      .language = parsedCmdCtx->search->searchopts.language,
   };
 
   hybridParams->aggregationParams = params;
@@ -856,4 +884,114 @@ error:
     hybridParams->scoringCtx = NULL;
   }
   return REDISMODULE_ERR;
+}
+
+#define SEARCH_INDEX 0
+#define VECTOR_INDEX 1
+
+/**
+ * Main command handler for FT.HYBRID command.
+ *
+ * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
+ * and prepares for hybrid search execution.
+ */
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal) {
+  // Index name is argv[1]
+  if (argc < 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
+  if (!sctx) {
+    QueryError status = {0};
+    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
+  CurrentThread_SetIndexSpec(spec_ref);
+
+  QueryError status = {0};
+
+  HybridRequest *hybridRequest = MakeDefaultHyabridRequest();
+  ParseHybridCommandCtx cmd = {0};
+  cmd.search = hybridRequest->requests[SEARCH_INDEX];
+  cmd.vector = hybridRequest->requests[VECTOR_INDEX];
+  cmd.tailPlan = &hybridRequest->tailPipeline->ap;
+  RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
+  cmd.search->sctx = NewSearchCtxC(ctx1, indexname, true);
+  RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
+  cmd.vector->sctx = NewSearchCtxC(ctx2, indexname, true);
+
+  int rc = parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status);
+  if (rc != REDISMODULE_OK) {
+    goto error;
+  }
+
+  bool isCursor = cmd.hybridParams.aggregationParams.common.reqflags & QEXEC_F_IS_CURSOR;
+  // for internal command we 
+  if (internal) {
+    RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
+    isCursor = true;
+    if (HybridRequest_BuildDepletionPipeline(hybridRequest, &cmd.hybridParams) != REDISMODULE_OK) {
+      goto error;
+    }
+  } else {
+    if (HybridRequest_BuildPipeline(hybridRequest, &cmd.hybridParams) != REDISMODULE_OK) {
+      goto error;
+    }
+  }
+
+  // TODO: Add execute command here
+
+  StrongRef_Release(spec_ref);
+  HybridRequest_Free(hybridRequest);
+  return REDISMODULE_OK;
+
+error:
+  RS_LOG_ASSERT(QueryError_HasError(&status), "Hybrid query parsing error");
+
+  if (cmd.search) {
+    if (cmd.search->sctx) {
+      RedisModuleCtx *thctx = cmd.search->sctx->redisCtx;
+      SearchCtx_Free(cmd.search->sctx);
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+      cmd.search->sctx = NULL;
+    }
+    AREQ_Free(cmd.search);
+  }
+
+  if (cmd.vector) {
+    if (cmd.vector->sctx) {
+      RedisModuleCtx *thctx = cmd.vector->sctx->redisCtx;
+      SearchCtx_Free(cmd.vector->sctx);
+      if (thctx) {
+        RedisModule_FreeThreadSafeContext(thctx);
+      }
+      cmd.vector->sctx = NULL;
+    }
+    AREQ_Free(cmd.vector);
+  }
+
+  if (hybridRequest) {
+    HybridRequest_Free(hybridRequest);
+  }
+
+  // Clear the current thread's index spec if it was set
+  CurrentThread_ClearIndexSpec();
+
+  // Release our strong reference to the spec if it was acquired
+  if (spec_ref.rm) {
+    StrongRef_Release(spec_ref);
+  }
+
+  // Free the search context
+  SearchCtx_Free(sctx);
+
+  return QueryError_ReplyAndClear(ctx, &status);
 }

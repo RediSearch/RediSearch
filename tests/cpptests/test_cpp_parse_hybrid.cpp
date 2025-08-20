@@ -234,7 +234,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithConstant) {
   assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW not specified)
-  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_FALSE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
@@ -247,7 +247,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithConstantAndWindow) {
@@ -263,7 +263,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithConstantAndWindow) {
   assertRRFScoringCtx(160, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithFloatConstant) {
@@ -279,7 +279,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithFloatConstant) {
   assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW was not specified)
-  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_FALSE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 
@@ -306,7 +306,7 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, 30);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
 
   // Verify KNN K follows LIMIT value (15) since K was not explicitly set
   AREQ* vecReq = result.vector;
