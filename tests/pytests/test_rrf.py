@@ -46,6 +46,8 @@ def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
     search_score = float(search_res[2])
     env.assertAlmostEqual(search_score, score_no_tag, delta=1E-6)
 
+#TODO: remove once FY.HYBRID for cluster is NotImplemented
+@skip(cluster=True)
 def testHybridTagScoring(env):
     """Test hybrid tag scoring with various query scenarios"""
     setup_hybrid_tag_scoring_index(env)
