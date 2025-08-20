@@ -277,10 +277,11 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask};
 
-  RSTermRecord *term = IndexResult_TermRefMut(&rec);
-  term->term = NULL;
+  RSQueryTerm *term = IndexResult_QueryTermRef(&rec);
+  term = NULL;
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(&rec);
   if (ent->vw) {
-    RSOffsetVector_SetData(&term->offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));
+    RSOffsetVector_SetData(offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));
   }
   return InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
 }
