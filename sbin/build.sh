@@ -8,8 +8,8 @@ set -e
 # It supports various build configurations and test types.
 #-----------------------------------------------------------------------------
 
-# Get the absolute path to script directory
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+# Get the absolute path to script directory whose expected path is sbin/build.sh
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BINROOT="$ROOT/bin"
 
 #-----------------------------------------------------------------------------
