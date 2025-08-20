@@ -34,5 +34,6 @@ include = ["BlockSummary", "Summary"]
 
 [export.rename]
 "LowMemoryThinVec______RSIndexResult" = "LowMemoryThinVecRSIndexResult"
+"LowMemoryThinVec_____RSIndexResult" = "LowMemoryThinVecRSIndexResultOwned"
 "BlockSummary" = "IIBlockSummary"
 "Summary" = "IISummary"
