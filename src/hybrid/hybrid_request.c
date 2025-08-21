@@ -102,10 +102,12 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
-        int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+        QueryError* areqError = &req->errors[i];
+        int rc = AREQ_BuildPipeline(areq, areqError);
         if (rc != REDISMODULE_OK) {
             StrongRef_Release(sync_ref);
             array_free(depleters);
+            QueryError_SetWithUserDataFmt(status, QUERY_EBUILDPLAN, "Failed to build sub-query pipeline: ", QueryError_GetDisplayableError(areqError, true));
             return rc;
         }
 
@@ -133,6 +135,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         if (req->errors[i].code != QUERY_OK) {
             StrongRef_Release(sync_ref);
             array_free(depleters);
+            QueryError_SetError(status, QUERY_EBUILDPLAN, "Failed to process sub-query load step");
             // Note: HybridRequest_Free is called by the caller on failure
             return REDISMODULE_ERR;
         }
@@ -184,10 +187,11 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
     if (rc != REDISMODULE_OK) {
         // Check if there's a detailed error in the tail pipeline's query context
-        QueryError *pipelineError = req->tailPipeline->qctx.err;
-        if (pipelineError && pipelineError->code != QUERY_OK) {
-            // Copy the detailed error to the provided status
-            QueryError_SetError(status, pipelineError->code, pipelineError->detail);
+        if (req->tailPipelineError.code != QUERY_OK) {
+          // Copy the detailed error to the provided status
+          QueryError_SetError(status, req->tailPipelineError.code, QueryError_GetDisplayableError(&req->tailPipelineError, true));
+        } else {
+          QueryError_SetError(status, QUERY_EGENERIC, "Unknown error during pipeline aggregation construction");
         }
         return rc;
     };

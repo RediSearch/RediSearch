@@ -344,7 +344,7 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     RS_ASSERT(rc == 0);
 
     return REDISMODULE_OK;
-    } else {
+  } else {
     // Single-threaded execution path
 
     // Build the pipeline and execute
@@ -451,14 +451,13 @@ void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
 void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   HybridRequest *hreq = BCHCtx->hreq;
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
-  QueryError status = {0};
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCHCtx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    QueryError_ReplyAndClear(outctx, &status);
+    QueryError_SetCode(&hreq->tailPipelineError, QUERY_EDROPPEDBACKGROUND);
+    QueryError_ReplyAndClear(outctx, &hreq->tailPipelineError);
     RedisModule_FreeThreadSafeContext(outctx);
     blockedClientHybridCtx_destroy(BCHCtx);
     return;
@@ -469,8 +468,8 @@ void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   sctx->redisCtx = outctx;
 
   // Build the pipeline and execute
-  if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams, &status) != REDISMODULE_OK) {
-    QueryError_ReplyAndClear(outctx, &status);
+  if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams, &hreq->tailPipelineError) != REDISMODULE_OK) {
+    QueryError_ReplyAndClear(outctx, &hreq->tailPipelineError);
     // hreq will be freed by blockedClientHybridCtx_destroy since execution failed
   } else {
     // Hybrid query doesn't support cursors.
