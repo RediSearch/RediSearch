@@ -32,5 +32,7 @@ include = ["enumflags2", "inverted_index", "low_memory_thin_vec"]
 exclude = ["Header"]
 
 [export.rename]
+# For `LowMemoryThinVec<&'index RSIndexResult<'index>>`
 "LowMemoryThinVec______RSIndexResult" = "LowMemoryThinVecRSIndexResult"
+# For `LowMemoryThinVec<Box<RSIndexResult<'static>>>`
 "LowMemoryThinVec_____RSIndexResult" = "LowMemoryThinVecRSIndexResultOwned"
