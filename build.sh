@@ -608,7 +608,7 @@ run_python_tests() {
   export FULL_VARIANT
   export BINDIR
   export REJSON="${REJSON:-1}"
-  export REJSON_BRANCH="${REJSON_BRANCH:-master}"
+  export REJSON_BRANCH="${REJSON_BRANCH:-8.2}"
   export REJSON_PATH
   export REJSON_ARGS
   export TEST

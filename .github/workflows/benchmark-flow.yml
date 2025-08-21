@@ -10,7 +10,7 @@ on:
         default: bin/linux-x64-release/search-community/redisearch.so
       rejson_branch:
         type: string
-        default: master
+        default: '8.2'
       rejson_module_path:
         type: string
         default: bin/linux-x64-release/RedisJSON/master/rejson.so

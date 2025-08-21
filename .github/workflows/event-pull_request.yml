@@ -35,7 +35,7 @@ jobs:
     with:
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
+      rejson-branch: '8.2'
     secrets: inherit
 
   coverage:
@@ -49,7 +49,7 @@ jobs:
     with:
       coverage: true
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
+      rejson-branch: '8.2'
       test-config: QUICK=1
     secrets: inherit
 
@@ -65,7 +65,7 @@ jobs:
     with:
       san: address
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: master
+      rejson-branch: '8.2'
       test-config: QUICK=1
 
   pr-validation:
