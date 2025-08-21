@@ -24,6 +24,8 @@ ExternalProject_Add(speedb
                -DWITH_TESTS=OFF
                -DWITH_BENCHMARK_TOOLS=OFF
                -DWITH_TOOLS=OFF
+               -DWITH_GFLAGS=OFF
+               -DWITH_LIBURING=ON
                -DCMAKE_CXX_FLAGS=-frtti
                -DUSE_RTTI=ON
     BUILD_COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}/speedb-build --target speedb -j6

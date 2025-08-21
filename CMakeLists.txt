@@ -20,6 +20,9 @@ else()
     message(STATUS "Release build: Using -O3 optimization")
 endif()
 
+# Option to build C++ tests in this repository
+option(BUILD_DISK_TESTS "Build C++ tests under tests/cpptests" OFF)
+
 # Platform-specific linker flags for shared library
 if(APPLE)
     set(SHARED_LINKER_FLAGS "-undefined dynamic_lookup")
@@ -54,6 +57,14 @@ add_subdirectory(disk)
 # Create the final Redis module
 add_library(redisearch-module SHARED redisearch_module.c)
 
+#----------------------------------------------------------------------------------------------
+# 4. Tests
+#----------------------------------------------------------------------------------------------
+if(BUILD_DISK_TESTS)
+    enable_testing()
+    add_subdirectory(tests/cpptests)
+endif()
+
 # Set output name to redisearch.so
 set_target_properties(redisearch-module PROPERTIES
     OUTPUT_NAME "redisearch"
@@ -62,10 +73,14 @@ set_target_properties(redisearch-module PROPERTIES
     LINK_FLAGS "${SHARED_LINKER_FLAGS}"
 )
 
+# Find liburing if available
+find_package(uring)
+
 # Ensure external dependencies are built before linking
 add_dependencies(redisearch-module speedb croaring)
 
 # Link the static libraries with selective whole-archive
+# Also link liburing (via imported target if found, else fall back to -luring)
 target_link_libraries(redisearch-module
     -Wl,--whole-archive
     redisearch          # RediSearch static library (contains RedisModule_OnLoad and all its dependencies)
@@ -76,6 +91,7 @@ target_link_libraries(redisearch-module
     stdc++              # C++ standard library for Speedb
     pthread             # Threading library
     dl                  # Dynamic loading library
+    $<IF:$<BOOL:${uring_FOUND}>,uring::uring,uring>
 )
 
 # Ensure dependencies are built first

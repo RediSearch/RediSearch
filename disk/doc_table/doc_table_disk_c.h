@@ -79,23 +79,6 @@ t_docId DocTableDisk_GetId(DiskIndex* handle, const char* key);
  */
 bool DocTableDisk_DocIdDeleted(DiskIndex* handle, t_docId docId);
 
-/**
- * @brief Checks if a document ID exists
- *
- * @param handle Handle to the document table
- * @param docId Document ID to check
- * @return 1 if exists, 0 if not exists or on error
- */
-int DocTableDisk_Exists(DiskIndex* handle, t_docId docId);
-
-/**
- * @brief Checks if a document key exists
- *
- * @param handle Handle to the document table
- * @param key Document key to check
- * @return 1 if exists, 0 if not exists or on error
- */
-int DocTableDisk_ExistsKey(DiskIndex* handle, const char* key);
 
 /**
  * @brief Deletes a document by key

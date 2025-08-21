@@ -1,0 +1,85 @@
+name: Task Tests
+
+on:
+  workflow_call:
+  # Temporary - to be replaced with shared actions/workflows or something of
+  # that sort, since the organization secrets are not passed to the called workflow.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  ci:
+    name: Test on Ubuntu with Redis-Flex
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    permissions:
+      contents: read
+    steps:
+      # Generate repo App token
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.GH_CI_APP_ID }}
+          private-key: ${{ secrets.GH_CI_PRIVATE_KEY }}
+          owner: redislabsdev
+          repositories: |
+            Redis
+            speedb-ent
+            RediSearchDisk
+
+      # Full checkout, with the above token for private repos (and current)
+      - name: Checkout repository (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ steps.app-token.outputs.token }}
+
+      # Get Installation Mode (sudo when not in container), like RS
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          echo "mode=sudo" >> $GITHUB_OUTPUT
+
+      # Setup via RediSearch install scripts
+      - name: Setup
+        working-directory: deps/RediSearch/.install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+
+      - name: Setup tests dependencies
+        working-directory: deps/RediSearch
+        run: |
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+
+      - name: Install speedb related packages (for async API enablement)
+        run: |
+          ${{ steps.mode.outputs.mode }} apt install -y liburing-dev
+
+      # Checkout private fork big redis branch
+      - name: Checkout Redis with the app token
+        uses: actions/checkout@v4
+        with:
+          repository: redislabsdev/Redis
+          path: Redis
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+          ref: rl_big2_8.0
+
+      # Build and install Redis
+      - name: Build Redis (install)
+        working-directory: Redis
+        run: |
+          ${{ steps.mode.outputs.mode }} make install \
+            BUILD_TLS=yes \
+            SANITIZER=${{ env.SAN }}
+
+      # Build this module's tests
+      - name: Build
+        run: ./build.sh tests
+
+      # Run unit-tests
+      - name: Run unit-tests
+        run: ./build.sh run_unit_tests -v
