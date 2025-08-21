@@ -555,7 +555,7 @@ run_rust_tests() {
   # Pin a specific working version of nightly to prevent breaking the CI because
   # regressions in a nightly build.
   # Make sure to synchronize updates across all modules: Redis and RedisJSON.
-  NIGHTLY_VERSION="nightly-2025-07-30"
+  NIGHTLY_VERSION="nightly-2025-08-20"
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
