@@ -506,11 +506,21 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
+  # Set up RUSTFLAGS for warnings
+  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
+  fi
+
+  # Pin a specific working version of nightly to prevent breaking the CI because
+  # regressions in a nightly build.
+  # Make sure to synchronize updates across all modules: Redis and RedisJSON.
+  NIGHTLY_VERSION="nightly-2025-07-30"
+
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+nightly llvm-cov"
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
     RUST_TEST_OPTIONS="
       --doctests
       --codecov
@@ -521,8 +531,8 @@ run_rust_tests() {
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
-  elif [[ -n "$SAN" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+nightly miri"
+  elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
   fi
 
   # Run cargo test with the appropriate filter
