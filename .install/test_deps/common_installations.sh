@@ -20,6 +20,8 @@ activate_venv() {
 	fi
 }
 
+# retrieve nightly version from build.sh
+NIGHTLY_VERSION=$(grep "NIGHTLY_VERSION=" build.sh | cut -d'=' -f2 | tr -d '"')
 # --allow-downgrade:
 #   Allow `rustup` to install an older `nightly` if the latest one
 #   is missing one of the components we need.
@@ -29,7 +31,7 @@ activate_venv() {
 #   Required to run `cargo miri test` for UB detection
 # rust-src:
 #   Required to build RedisJSON with address sanitizer
-rustup toolchain install nightly \
+rustup toolchain install $NIGHTLY_VERSION \
     --allow-downgrade \
     --component llvm-tools-preview \
     --component miri \
@@ -40,7 +42,7 @@ cargo install cargo-llvm-cov --locked
 # Make sure `miri` is fully operational before running tests with it.
 # See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
 # for more details.
-cargo +nightly miri setup
+cargo +$NIGHTLY_VERSION miri setup
 
 python3 -m venv venv
 activate_venv
