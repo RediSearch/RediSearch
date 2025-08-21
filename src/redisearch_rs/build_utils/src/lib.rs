@@ -9,7 +9,11 @@
 
 //! build.rs utilities.
 
-use std::{env, fs::read_dir, path::Path};
+use std::{
+    env,
+    fs::read_dir,
+    path::{Path, PathBuf},
+};
 
 /// Return the root folder of the project containing the `.git` directory.
 pub fn git_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
@@ -133,4 +137,52 @@ fn link_static_lib(
     } else {
         Err(format!("Static library not found: {}", lib.display()).into())
     }
+}
+
+/// Generates Rust FFI bindings from C header files using bindgen.
+///
+/// # Arguments
+/// * `headers` - A vector of paths to C header files to generate bindings for.
+/// * `allowlist_file` - A file path pattern used to filter which files bindgen should generate bindings for.
+///
+/// # Generated Output
+/// The function writes the generated bindings to `bindings.rs` in the cargo build output directory.
+pub fn generate_c_bindings(
+    headers: Vec<PathBuf>,
+    allowlist_file: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = git_root().expect("Could not find git root for static library linking");
+
+    let includes = [
+        root.join("deps").join("RedisModulesSDK"),
+        root.join("src"),
+        root.join("deps"),
+        root.join("src").join("redisearch_rs").join("headers"),
+        root.join("deps").join("VectorSimilarity").join("src"),
+        root.join("src").join("buffer"),
+    ];
+
+    let headers = headers
+        .into_iter()
+        .map(|h| h.into_os_string().into_string().unwrap())
+        .collect::<Vec<_>>();
+    let mut bindings = bindgen::Builder::default().headers(headers);
+
+    for include in includes {
+        bindings = bindings.clang_arg(format!("-I{}", include.display()));
+        // Re-run the build script if any of the C files in the included
+        // directory changes
+        let _ = rerun_if_c_changes(&include);
+    }
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    bindings
+        .allowlist_file(allowlist_file)
+        // Don't generate the Rust exported types else we'll have a compiler issue about the wrong
+        // type being used
+        .blocklist_file(".*/types_rs.h")
+        .generate()?
+        .write_to_file(out_dir.join("bindings.rs"))?;
+
+    Ok(())
 }
