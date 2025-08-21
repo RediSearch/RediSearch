@@ -189,6 +189,14 @@ typedef struct RSAggregateResult_Borrowed_Body {
    * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+   *
+   * This requires `'index` on the reference because adding a new lifetime will cause the
+   * type to be `LowMemoryThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
+   * `'index: 'refs` else it would mean the `'index` can be cleaned up while some reference
+   * will still try to access it (ie a dangling pointer). Now the decoders will never return
+   * any aggregate results so `'refs == 'static` when decoding. Because of the requirement
+   * above, this means `'index: 'static` which is just incorrect since the index data will
+   * never be `'static` when decoding.
    */
   struct LowMemoryThinVecRSIndexResult records;
   /**
@@ -250,10 +258,15 @@ typedef struct RSTermRecord_Borrowed_Body {
   RSTermRecord_Tag tag;
   /**
    * The term that brought up this record
+   *
+   * This term was created using `NewQueryTerm`, and in the borrowed case, it is actually
+   * the owner of the memory. So it should be freed when this record is dropped.
    */
   RSQueryTerm *term;
   /**
    * The encoded offsets in which the term appeared in the document
+   *
+   * A decoder can choose to borrow this data from the index block, hence the `'index` lifetime.
    */
   struct RSOffsetVector offsets;
 } RSTermRecord_Borrowed_Body;
@@ -262,10 +275,15 @@ typedef struct RSTermRecord_Owned_Body {
   RSTermRecord_Tag tag;
   /**
    * The term that brought up this record
+   *
+   * The owned version points to the original borrowed term, and should therefore never clean
+   * up this memory.
    */
   RSQueryTerm *term;
   /**
    * The encoded offsets in which the term appeared in the document
+   *
+   * The owned version will make a copy of the offsets data, hence that `'static` lifetime.
    */
   struct RSOffsetVector offsets;
 } RSTermRecord_Owned_Body;
