@@ -46,3 +46,5 @@ sudo ./llvm.sh 20
 sudo ln -s /usr/bin/clang-20 /usr/bin/clang
 sudo ln -s /usr/bin/clang++-20 /usr/bin/clang++
 sudo ln -s /usr/bin/lld-20 /usr/bin/lld
+sudo ls -l /usr/bin/clang*
+sudo ls -l /usr/bin/lib*
