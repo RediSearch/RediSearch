@@ -41,7 +41,7 @@ impl RQEIterator for Empty {
         0
     }
 
-    fn has_next(&self) -> bool {
+    fn at_eof(&self) -> bool {
         false
     }
 }
