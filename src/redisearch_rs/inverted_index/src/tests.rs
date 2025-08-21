@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use core::panic;
 use std::io::{Cursor, Read};
 
 use crate::{
@@ -58,6 +59,10 @@ impl Encoder for Dummy {
         writer.write_all(&delta.to_be_bytes())?;
 
         Ok(8)
+    }
+
+    fn decoder() -> impl Decoder {
+        Dummy
     }
 }
 
@@ -137,6 +142,13 @@ fn adding_same_record_twice() {
 
             Ok(1)
         }
+
+        fn decoder() -> impl Decoder {
+            panic!("AllowDupsDummy should not be used for decoding");
+            // need to return something to satisfy the compiler
+            #[allow(unreachable_code)]
+            Dummy
+        }
     }
 
     let mut ii = InvertedIndex::new(AllowDupsDummy);
@@ -182,6 +194,13 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
             writer.write_all(&[1])?;
 
             Ok(1)
+        }
+
+        fn decoder() -> impl Decoder {
+            panic!("SmallBlocksDummy should not be used for decoding");
+            // need to return something to satisfy the compiler
+            #[allow(unreachable_code)]
+            Dummy
         }
     }
 

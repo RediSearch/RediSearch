@@ -31,6 +31,10 @@ impl Encoder for DocIdsOnly {
         let bytes_written = delta.write_as_varint(&mut writer)?;
         Ok(bytes_written)
     }
+
+    fn decoder() -> impl Decoder {
+        Self
+    }
 }
 
 impl Decoder for DocIdsOnly {

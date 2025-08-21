@@ -75,6 +75,10 @@ impl Encoder for Full {
 
         Ok(bytes_written)
     }
+
+    fn decoder() -> impl Decoder {
+        Self
+    }
 }
 
 /// Create a [`RSIndexResult`] from the given parameters and read its offsets from the reader.
@@ -172,6 +176,10 @@ impl Encoder for FullWide {
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
+    }
+
+    fn decoder() -> impl Decoder {
+        Self
     }
 }
 

@@ -833,6 +833,9 @@ pub trait Encoder {
     fn delta_base(block: &IndexBlock) -> t_docId {
         block.last_doc_id
     }
+
+    /// Create a new decoder that can be used to decode records encoded by this encoder.
+    fn decoder() -> impl Decoder;
 }
 
 /// Decoder to read records from an index

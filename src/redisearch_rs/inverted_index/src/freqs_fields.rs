@@ -43,6 +43,10 @@ impl Encoder for FreqsFields {
 
         Ok(bytes_written)
     }
+
+    fn decoder() -> impl Decoder {
+        Self
+    }
 }
 
 impl Decoder for FreqsFields {
@@ -86,6 +90,10 @@ impl Encoder for FreqsFieldsWide {
         let mut bytes_written = qint_encode(&mut writer, [delta, record.freq])?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;
         Ok(bytes_written)
+    }
+
+    fn decoder() -> impl Decoder {
+        Self
     }
 }
 

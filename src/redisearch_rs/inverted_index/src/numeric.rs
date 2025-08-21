@@ -232,6 +232,10 @@ impl NumericDelta {
 impl Encoder for Numeric {
     type Delta = NumericDelta;
 
+    fn decoder() -> impl Decoder {
+        Self::default()
+    }
+
     fn encode<W: Write + std::io::Seek>(
         &mut self,
         mut writer: W,

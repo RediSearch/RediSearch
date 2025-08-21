@@ -31,6 +31,10 @@ impl Encoder for FreqsOnly {
         let bytes_written = qint_encode(&mut writer, [delta, record.freq])?;
         Ok(bytes_written)
     }
+
+    fn decoder() -> impl Decoder {
+        Self
+    }
 }
 
 impl Decoder for FreqsOnly {

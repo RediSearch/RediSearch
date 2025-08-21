@@ -53,6 +53,10 @@ impl Encoder for FieldsOffsets {
 
         Ok(bytes_written)
     }
+
+    fn decoder() -> impl Decoder {
+        Self
+    }
 }
 
 impl Decoder for FieldsOffsets {
@@ -106,6 +110,10 @@ impl Encoder for FieldsOffsetsWide {
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
+    }
+
+    fn decoder() -> impl Decoder {
+        Self
     }
 }
 

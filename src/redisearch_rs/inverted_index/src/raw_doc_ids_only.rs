@@ -33,6 +33,10 @@ impl Encoder for RawDocIdsOnly {
         // Wrote delta as raw 4-bytes word
         Ok(4)
     }
+
+    fn decoder() -> impl Decoder {
+        Self
+    }
 }
 
 impl Decoder for RawDocIdsOnly {
