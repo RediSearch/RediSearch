@@ -79,5 +79,5 @@ pub trait RQEIterator {
     fn last_doc_id(&self) -> t_docId;
 
     /// Returns true if the iterator has more results to read, meaning, not at EOF.
-    fn has_next(&self) -> bool;
+    fn at_eof(&self) -> bool;
 }
