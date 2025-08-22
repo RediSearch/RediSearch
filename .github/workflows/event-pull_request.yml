@@ -34,7 +34,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       test-config: QUICK=1
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: "e6c261f3fb77fe6325f232a96c4bef87671d3a3a"
       rejson-branch: master
     secrets: inherit
 
