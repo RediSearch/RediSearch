@@ -41,6 +41,13 @@ unsafe extern "C" {
     /// # Safety
     /// The caller must ensure that the `t` pointer is valid and points to an `RSQueryTerm`.
     unsafe fn Term_Free(t: *mut RSQueryTerm);
+
+    /// Make a complete clone of the metrics array and increment the reference count of each value
+    ///
+    /// # Safety
+    /// The caller must ensure that the `src` pointer is valid and points to an `RSYieldableMetric`.
+    /// The caller must also not free the returned pointer.
+    unsafe fn RSYieldableMetrics_Clone(src: *mut RSYieldableMetric) -> *mut RSYieldableMetric;
 }
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
@@ -92,8 +99,7 @@ impl RSOffsetVector<'_> {
     /// Free the data inside this offset
     ///
     /// # Safety
-    /// The caller must ensure that the `data` pointer was allocated via the global allocator
-    /// and points to an array matching the length of `offsets`.
+    /// The caller must ensure that the `data` pointer was allocated using [`Self::deep_copy()`].
     pub fn free_data(&mut self) {
         if self.data.is_null() {
             return;
@@ -106,6 +112,34 @@ impl RSOffsetVector<'_> {
 
         self.data = std::ptr::null_mut();
         self.len = 0;
+    }
+
+    /// Create a deep copy of this offset vector, allocating new memory for the data. This data
+    /// should be freed using [`Self::free_data()`].
+    pub fn deep_copy(&self) -> RSOffsetVector<'static> {
+        let data = if self.len > 0 {
+            debug_assert!(!self.data.is_null(), "data must not be null");
+            let layout = Layout::array::<c_char>(self.len as usize).unwrap();
+            // SAFETY: we just checked that len > 0
+            let data = unsafe { std::alloc::alloc(layout).cast() };
+            // SAFETY:
+            // - The source buffer and the destination buffer don't overlap because
+            //   they belong to distinct non-overlapping allocations.
+            // - The destination buffer is valid for writes of `src.len` elements
+            //   since it was just allocated with capacity `src.len`.
+            // - The source buffer is valid for reads of `src.len` elements as a call invariant.
+            unsafe { std::ptr::copy_nonoverlapping(self.data, data, self.len as usize) };
+
+            data
+        } else {
+            ptr::null_mut()
+        };
+
+        RSOffsetVector {
+            data,
+            len: self.len,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -194,6 +228,42 @@ impl<'index> RSTermRecord<'index> {
         } else {
             // SAFETY: We checked that data is not NULL and `len` is guaranteed to be a valid length for the data pointer.
             unsafe { std::slice::from_raw_parts(offsets.data as *const u8, offsets.len as usize) }
+        }
+    }
+
+    /// Get the query term pointer of this term record.
+    pub fn query_term(&self) -> *mut RSQueryTerm {
+        match self {
+            RSTermRecord::Borrowed { term, .. } => *term,
+            RSTermRecord::Owned { term, .. } => *term,
+        }
+    }
+
+    /// Create a deep copy of this term record, allocating new memory for the offsets, but reusing the term.
+    pub fn deep_copy(&self) -> RSTermRecord<'static> {
+        match self {
+            RSTermRecord::Borrowed { term, offsets } => RSTermRecord::Owned {
+                term: *term,
+                offsets: offsets.deep_copy(),
+            },
+            RSTermRecord::Owned { term, offsets } => RSTermRecord::Owned {
+                term: *term,
+                offsets: offsets.deep_copy(),
+            },
+        }
+    }
+}
+
+impl RSTermRecord<'static> {
+    /// Clear the offsets of this term record, freeing the memory used by the offsets.
+    pub fn clear_offsets(&mut self) {
+        match self {
+            RSTermRecord::Borrowed { .. } => {
+                panic!("Cannot clear offsets of a borrowed term record");
+            }
+            RSTermRecord::Owned { offsets, .. } => {
+                offsets.free_data();
+            }
         }
     }
 }
@@ -395,6 +465,32 @@ impl<'index> RSAggregateResult<'index> {
             }
         }
     }
+
+    /// Create a deep copy of this aggregate result, allocating new memory for the records.
+    pub fn deep_copy(&self) -> RSAggregateResult<'static> {
+        match self {
+            RSAggregateResult::Borrowed { records, kind_mask } => {
+                let mut new_records = LowMemoryThinVec::with_capacity(records.len());
+
+                new_records.extend(records.iter().map(|c| c.deep_copy()).map(Box::new));
+
+                RSAggregateResult::Owned {
+                    records: new_records,
+                    kind_mask: *kind_mask,
+                }
+            }
+            RSAggregateResult::Owned { records, kind_mask } => {
+                let mut new_records = LowMemoryThinVec::with_capacity(records.len());
+
+                new_records.extend(records.iter().map(|c| c.deep_copy()).map(Box::new));
+
+                RSAggregateResult::Owned {
+                    records: new_records,
+                    kind_mask: *kind_mask,
+                }
+            }
+        }
+    }
 }
 
 impl RSAggregateResult<'static> {
@@ -408,6 +504,16 @@ impl RSAggregateResult<'static> {
                 *kind_mask |= child.data.kind();
                 records.push(child);
             }
+        }
+    }
+
+    /// Get a mutable reference to the child at the given index, if it exists
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut RSIndexResult<'static>> {
+        match self {
+            RSAggregateResult::Borrowed { .. } => {
+                panic!("Cannot get a mutable reference to a borrowed aggregate result");
+            }
+            RSAggregateResult::Owned { records, .. } => records.get_mut(index).map(AsMut::as_mut),
         }
     }
 }
@@ -488,6 +594,19 @@ impl RSResultData<'_> {
             RSResultData::Numeric(_) => RSResultKind::Numeric,
             RSResultData::Metric(_) => RSResultKind::Metric,
             RSResultData::HybridMetric(_) => RSResultKind::HybridMetric,
+        }
+    }
+
+    /// Create a deep copy of this result data, allocating new memory for the contained data.
+    pub fn deep_copy(&self) -> RSResultData<'static> {
+        match self {
+            Self::Union(agg) => RSResultData::Union(agg.deep_copy()),
+            Self::Intersection(agg) => RSResultData::Intersection(agg.deep_copy()),
+            Self::Term(term) => RSResultData::Term(term.deep_copy()),
+            Self::Virtual => RSResultData::Virtual,
+            Self::Numeric(num) => RSResultData::Numeric(*mum),
+            Self::Metric(num) => RSResultData::Metric(*mum),
+            Self::HybridMetric(agg) => RSResultData::HybridMetric(agg.deep_copy()),
         }
     }
 }
@@ -810,6 +929,28 @@ impl<'index> RSIndexResult<'index> {
             | RSResultData::Metric(_) => None,
         }
     }
+
+    /// Create a deep copy of this index result, allocating new memory for the contained data.
+    pub fn deep_copy(&self) -> RSIndexResult<'static> {
+        let metrics = if !self.metrics.is_null() {
+            // SAFETY: we know metric is a valid pointer to `RSYieldableMetric` because we created
+            // it in a constructor. We also know it is not NULL because of the check above.
+            unsafe { RSYieldableMetrics_Clone(self.metrics) }
+        } else {
+            ptr::null_mut()
+        };
+
+        RSIndexResult {
+            doc_id: self.doc_id,
+            dmd: self.dmd,
+            field_mask: self.field_mask,
+            freq: self.freq,
+            offsets_sz: self.offsets_sz,
+            data: self.data.deep_copy(),
+            metrics,
+            weight: self.weight,
+        }
+    }
 }
 
 impl RSIndexResult<'static> {
@@ -842,6 +983,20 @@ impl RSIndexResult<'static> {
             | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_) => {}
+        }
+    }
+
+    /// Get a mutable reference to the child at the given index, if it is an aggregate record.
+    /// `None` is returned if this is not an aggregate record or if the index is out-of-bounds.
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Self> {
+        match &mut self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => agg.get_mut(index),
+            RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => None,
         }
     }
 }
