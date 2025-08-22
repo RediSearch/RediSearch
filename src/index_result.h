@@ -30,6 +30,9 @@ void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *chi
 /* Clear / free the metrics of a result */
 void ResultMetrics_Free(RSIndexResult *r);
 
+/* Make a complete clone of the metrics array and increment the reference count of each value  */
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src);
+
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
   r->metrics = array_ensure_append_1(r->metrics, new_element);
