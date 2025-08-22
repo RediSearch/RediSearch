@@ -1526,7 +1526,7 @@ TEST_F(IndexTest, testRawDocId) {
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    RSIndexResult rec = {.docId = id, .data = {.virtual_tag = RSResultData_Virtual}};
+    RSIndexResult rec = {.docId = id, .data = {.tag = RSResultData_Virtual}};
     InvertedIndex_WriteEntryGeneric(idx, enc, &rec);
   }
 

@@ -99,7 +99,7 @@ RSIndexResult *NewNumericResult() {
                          .metrics = NULL,
                          .data = {
                           .numeric_tag = RSResultData_Numeric,
-                          .numeric = (RSNumericRecord){.value = 0}
+                          .numeric = 0
                          }};
   return res;
 }
@@ -108,7 +108,7 @@ RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask) {
   RSIndexResult *res = rm_new(RSIndexResult);
 
   *res = (RSIndexResult){
-      .data.virtual_tag = RSResultData_Virtual,
+      .data.tag = RSResultData_Virtual,
       .docId = 0,
       .fieldMask = fieldMask,
       .freq = 0,
@@ -129,7 +129,7 @@ RSIndexResult *NewMetricResult() {
                          .metrics = NULL,
                          .data = {
                           .metric_tag = RSResultData_Metric,
-                          .metric = (RSNumericRecord){.value = 0}
+                          .metric = 0
                          }};
   return res;
 }
