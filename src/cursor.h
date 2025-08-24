@@ -39,9 +39,6 @@ typedef struct Cursor {
   /** Execution state. Opaque to the cursor - managed by consumer */
   AREQ *execState;
 
-  /** True if this is a hybrid cursor */
-  bool isHybrid;
-
   /** Time when this cursor will no longer be valid, in nanos */
   uint64_t nextTimeoutNs;
 
