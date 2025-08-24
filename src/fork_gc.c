@@ -1329,6 +1329,8 @@ static int periodicCb(void *privdata) {
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
     IndexSpecRef_Release(early_check);
     RedisModule_ThreadSafeContextUnlock(ctx);
+    close(gc->pipe_read_fd);
+    close(gc->pipe_write_fd);
     return 1;
   }
 
