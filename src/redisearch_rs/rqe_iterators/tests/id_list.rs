@@ -139,21 +139,45 @@ fn skip_to() {
 }
 
 #[test]
-fn rewind() {
-    let mut it = Empty::default();
+fn skip_between_any_pair() {
+    for (ci, &case) in CASES.iter().filter(|&&case| case.len() >= 2).enumerate() {
+        let mut it = IdList::new(case.to_vec());
 
-    assert!(matches!(it.read(), Ok(None)));
-    assert!(!it.at_eof());
+        for from_idx in 0..case.len() - 1 {
+            for to_idx in from_idx + 1..case.len() {
+                it.rewind();
+                assert_eq!(it.last_doc_id(), 0, "Case {ci} pair ({from_idx},{to_idx}) last_doc_id not reset after rewind");
+                assert!(!it.at_eof(), "Case {ci} pair ({from_idx},{to_idx}) at EOF after rewind");
 
-    it.rewind();
-    assert!(!it.at_eof());
+                let from_id = case[from_idx];
+                let to_id = case[to_idx];
 
-    assert!(matches!(it.read(), Ok(None)));
-    assert!(!it.at_eof());
+                // Skip to from_id
+                let res = it.skip_to(from_id);
+                let Ok(Some(SkipToOutcome::Found(doc_from))) = res else {
+                    panic!("Case {ci} pair ({from_idx},{to_idx}) skip_to({from_id}) expected Found, got {res:?}");
+                };
+                assert_eq!(doc_from.doc_id, from_id, "Case {ci} pair ({from_idx},{to_idx}) wrong doc_from id");
+                drop(doc_from);
+                assert_eq!(it.last_doc_id(), from_id, "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after from_id");
+                assert!(!it.at_eof(), "Case {ci} pair ({from_idx},{to_idx}) EOF after from_id");
+
+                // Skip forward to to_id
+                let res = it.skip_to(to_id);
+                let Ok(Some(SkipToOutcome::Found(doc_to))) = res else {
+                    panic!("Case {ci} pair ({from_idx},{to_idx}) skip_to({to_id}) expected Found, got {res:?}");
+                };
+                assert_eq!(doc_to.doc_id, to_id, "Case {ci} pair ({from_idx},{to_idx}) wrong doc_to id");
+                drop(doc_to);
+                assert_eq!(it.last_doc_id(), to_id, "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after to_id");
+                assert!(!it.at_eof(), "Case {ci} pair ({from_idx},{to_idx}) EOF after to_id");
+            }
+        }
+    }
 }
 
 #[test]
 fn revalidate() {
-    let mut it = Empty::default();
+    let mut it = IdList::new(vec![1, 2, 3]);
     assert_eq!(it.revalidate(), RQEValidateStatus::Ok);
 }
