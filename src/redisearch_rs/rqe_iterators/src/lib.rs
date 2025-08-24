@@ -8,6 +8,7 @@
 */
 
 pub mod empty;
+pub mod id_list;
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
