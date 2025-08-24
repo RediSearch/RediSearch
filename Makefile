@@ -104,21 +104,23 @@ ifneq ($(REDIS_STANDALONE),)
 endif
 
 # Package variables (used by pack target)
-MODULE_NAME := search
-PACKAGE_NAME ?=
-RAMP_VARIANT ?=
-RAMP_ARGS ?=
-
-# Set RAMP_VARIANT and PACKAGE_NAME based on COORD if not explicitly set
-ifeq ($(RAMP_VARIANT),)
 ifeq ($(COORD),rlec)
-	override RAMP_VARIANT := enterprise
-	override PACKAGE_NAME := redisearch
-else
-	override RAMP_VARIANT := community
-	override PACKAGE_NAME := redisearch-community
+	TARGET_NAME=module-enterprise.so
+	MODULE_NAME=search
+	PACKAGE_NAME=redisearch
+	RAMP_YAML=coord/pack/ramp.yml
+else ifeq ($(LITE),1)
+	TARGET_NAME=redisearch.so
+	MODULE_NAME=searchlight
+	PACKAGE_NAME=redisearch-light
+	RAMP_YAML=pack/ramp-light.yml
+else  # Default to OSS
+	TARGET_NAME=redisearch.so
+	MODULE_NAME=search
+	PACKAGE_NAME=redisearch-oss
+	RAMP_YAML=pack/ramp.yml
 endif
-endif
+
 
 #-----------------------------------------------------------------------------
 # Main targets
@@ -235,15 +237,15 @@ endif
 run:
 	@find_module() { \
 		if [ "$(COORD)" = "rlec" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
+			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
 			if [ -z "$$MODULE_PATH" ]; then \
 				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
 				exit 1; \
 			fi; \
 		else \
-			MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
 			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
+				echo "Error: No OSS/Lite module found. Please build first with 'make build COORD=oss'"; \
 				exit 1; \
 			fi; \
 		fi; \
@@ -292,15 +294,15 @@ pack: build
 	@echo "Creating installation packages..."
 	@if [ -z "$(MODULE_PATH)" ]; then \
 		if [ "$(COORD)" = "rlec" ]; then \
-			MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
+			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
 			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
+				echo "Error: No enterprise module found for $(TARGET_NAME). Please build first with 'make build COORD=rlec'"; \
 				exit 1; \
 			fi; \
 		else \
-			MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
 			if [ -z "$$MODULE_PATH" ]; then \
-				echo "Error: No community module found. Please build first with 'make build COORD=oss'"; \
+				echo "Error: OSS/Lite module found for $(TARGET_NAME). Please build first with 'make build"; \
 				exit 1; \
 			fi; \
 		fi; \
@@ -312,7 +314,7 @@ pack: build
 	if command -v python3 >/dev/null 2>&1 && python3 -c "import RAMP.ramp" >/dev/null 2>&1; then \
 		echo "RAMP is available, creating RAMP packages..."; \
 		RAMP=1 COORD=$(COORD) PACKAGE_NAME=$(PACKAGE_NAME) MODULE_NAME=$(MODULE_NAME) \
-		RAMP_VARIANT=$(RAMP_VARIANT) RAMP_ARGS=$(RAMP_ARGS) \
+		RAMP_YAML=$(RAMP_YAML) \
 		$(ROOT)/sbin/pack.sh "$$MODULE_PATH"; \
 	else \
 		echo "RAMP not available, skipping RAMP package creation..."; \
