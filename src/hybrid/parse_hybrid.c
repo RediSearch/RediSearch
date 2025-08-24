@@ -41,6 +41,23 @@ static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, con
   };
 }
 
+/**
+ * Initialize basic AREQ structure with search options and aggregation plan.
+ */
+static void initializeAREQ(AREQ *areq) {
+  RSSearchOptions_Init(&areq->searchopts);
+  AGPLN_Init(AREQ_AGGPlan(areq));
+}
+
+/**
+ * Create a detached thread-safe search context.
+ */
+static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const char *indexname) {
+  RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
+  return NewSearchCtxC(detachedCtx, indexname, true);
+}
+
 static void addVectorQueryParam(VectorQuery *vq, const char *name, size_t nameLen, const char *value, size_t valueLen) {
   VecSimRawParam rawParam = createVecSimRawParam(name, nameLen, value, valueLen);
   vq->params.params = array_ensure_append_1(vq->params.params, rawParam);
@@ -55,10 +72,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   }
 
   sreq->query = AC_GetStringNC(ac, NULL);
-  AGPLN_Init(AREQ_AGGPlan(sreq));
-
   RSSearchOptions *searchOpts = &sreq->searchopts;
-  RSSearchOptions_Init(searchOpts);
 
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
   ACArgSpec querySpecs[] = {
@@ -280,8 +294,6 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
     return REDISMODULE_ERR;
   }
-  // Initialize aggregation plan for vector request
-  AGPLN_Init(AREQ_AGGPlan(vreq));
 
   // Create ParsedVectorData struct at the beginning for cleaner error handling
   ParsedVectorData *pvd = rm_calloc(1, sizeof(ParsedVectorData));
@@ -580,15 +592,14 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   AREQ *searchRequest = AREQ_New();
   AREQ *vectorRequest = AREQ_New();
 
+  initializeAREQ(searchRequest);
+  initializeAREQ(vectorRequest);
+
   HybridPipelineParams *hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
-  RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
-  RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
-  searchRequest->sctx = NewSearchCtxC(ctx1, indexname, true);
-  RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
-  RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
-  vectorRequest->sctx = NewSearchCtxC(ctx2, indexname, true);
+  searchRequest->sctx = createDetachedSearchContext(ctx, indexname);
+  vectorRequest->sctx = createDetachedSearchContext(ctx, indexname);
 
   // Individual variables used for parsing the tail of the command
   Pipeline *tailPipeline = NULL;
@@ -599,7 +610,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   size_t mergeMaxSearchResults = RSGlobalConfig.maxSearchResults;
   size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
 
-  AREQ **requests = NULL;
+  arrayof(AREQ*) requests = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 
