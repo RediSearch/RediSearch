@@ -742,7 +742,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (AREQ_ApplyContext(parsedCmdCtx->search, parsedCmdCtx->search->sctx, status) != REDISMODULE_OK) {
     goto error;
   }
-  if (AREQ_ApplyContext(parsedCmdCtx->search, parsedCmdCtx->vector->sctx, status) != REDISMODULE_OK) {
+  if (AREQ_ApplyContext(parsedCmdCtx->vector, parsedCmdCtx->vector->sctx, status) != REDISMODULE_OK) {
     goto error;
   }
 
