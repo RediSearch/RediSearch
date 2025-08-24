@@ -63,7 +63,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
 /**
  * Initialize basic AREQ structure with search options and aggregation plan.
  */
-static void initializeAREQ(AREQ *req) {
+void initializeAREQ(AREQ *req) {
   AGPLN_Init(AREQ_AGGPlan(req));
   RSSearchOptions_Init(&req->searchopts);
 }
