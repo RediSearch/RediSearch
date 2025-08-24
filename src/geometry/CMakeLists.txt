@@ -56,5 +56,9 @@ else()
 		message(STATUS "Boost headers built successfully")
 	endif()
 
+	# Set BOOST_DIR and include it for header access
+	set(BOOST_DIR ${boost_SOURCE_DIR})
+	include_directories(${BOOST_DIR})
+
 	target_link_libraries(redisearch-geometry PUBLIC Boost::headers Boost::geometry)
 endif()
