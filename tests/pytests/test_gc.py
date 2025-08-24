@@ -4,21 +4,15 @@ import platform
 from time import sleep
 import threading
 import time
-import subprocess
+import psutil
+
 
 def get_open_file_count(pid):
-    """Get open file count using lsof command"""
+    """Get open file count using psutil library"""
     try:
-        result = subprocess.run(
-            ['lsof', '-p', str(pid)],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode == 0:
-            return len(result.stdout.split('\n')[1:])  # Skip header
-        return 0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        p = psutil.Process(pid)
+        return p.num_fds()
+    except psutil.NoSuchProcess:
         return 0
 
 @skip(cluster=True)
