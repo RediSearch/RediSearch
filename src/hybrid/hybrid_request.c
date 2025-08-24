@@ -214,7 +214,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
-    //AGPLN_Init(&hybridReq->tailPipeline->ap);
+    AGPLN_Init(&hybridReq->tailPipeline->ap);
     QueryError_Init(&hybridReq->tailPipelineError);
     Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
 
