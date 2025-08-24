@@ -46,6 +46,7 @@ impl RQEIterator for IdList {
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &_doc_id {
+            self.current = self.ids.len(); // Move to EOF
             return Ok(None);
         }
         debug_assert!(self.last_doc_id() < _doc_id);
@@ -59,10 +60,12 @@ impl RQEIterator for IdList {
         let pos = self.ids[self.current..top].binary_search(&_doc_id);
         match pos {
             Ok(pos) => {
+                let pos = self.current + pos; // Convert relative to absolute index
                 self.current = pos + 1;
                 Ok(Some(SkipToOutcome::Found(RSIndexResult::virt().doc_id(self.ids[pos]))))
             }
             Err(pos) => {
+                let pos = self.current + pos; // Convert relative to absolute index
                 self.current = pos + 1;
                 Ok(Some(SkipToOutcome::NotFound(RSIndexResult::virt().doc_id(self.ids[pos]))))
             }
