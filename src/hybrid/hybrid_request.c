@@ -106,6 +106,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
         // Add the load step to the aggplan for proper cleanup
         AGPLN_AddStep(&areq->pipeline.ap, &subqueryLoadStep->base);
 
+        // TODO: MOD-11033 - add the load step to te aggplan before AREQ_BuildPipeline is called,
         // Process the LOAD step (explicit or implicit) using the unified function
         ResultProcessor *loader = processLoadStep(subqueryLoadStep, lookup, AREQ_SearchCtx(areq), AREQ_RequestFlags(areq),
                                                  RLOOKUP_F_NOFLAGS, false, &areq->stateflags, &req->errors[i]);
