@@ -26,7 +26,7 @@ static CASES: &[&[u64]] = &[
 ];
 
 #[test]
-#[should_panic(expected = "IDs list must not be empty")]
+#[should_panic(expected = "assertion failed: !ids.is_empty()")]
 fn empty_initialization() {
     let _ = IdList::new(vec![]);
 }
@@ -75,7 +75,7 @@ fn skip_to() {
         assert_eq!(first_doc.doc_id, first_id, "Case {ci}");
         drop(first_doc); // Drop the result so we can immutable borrow the iterator (TODO: is this expected?)
         assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
-        assert!(!it.at_eof(), "Case {ci}");
+        assert_eq!(it.at_eof(), first_id == case.last().copied().unwrap(), "Case {ci}");
 
         // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
         let last = *case.last().unwrap();
@@ -83,7 +83,7 @@ fn skip_to() {
         assert!(matches!(res, Ok(None)), "Case {ci}");
         drop(res);
         assert!(it.at_eof(), "Case {ci}");
-        assert_eq!(it.last_doc_id(), first_id, "Case {ci} last_doc_id changed after EOF skip");
+        assert_eq!(it.last_doc_id(), case.last().copied().unwrap(), "Case {ci}");
 
         // Rewind
         it.rewind();
@@ -95,26 +95,24 @@ fn skip_to() {
             // Probe all gaps before this id
             while probe < id {
                 it.rewind();
-                let res = it.skip_to(probe);
-                let Ok(Some(SkipToOutcome::NotFound(res))) = res else {
-                    panic!("Case {ci} probe {probe} -> Expected `NotFound`, got {res:?}");
+                let Ok(Some(SkipToOutcome::NotFound(res))) = it.skip_to(probe) else {
+                    panic!("Case {ci} probe {probe} -> Expected `Some`");
                 };
                 assert_eq!(res.doc_id, id, "Case {ci} probe {probe} expected landing on {id}");
                 drop(res);
                 // Should land on next existing id
-                assert!(!it.at_eof(), "Case {ci} probe {probe} -> unexpected EOF");
+                assert_eq!(it.at_eof(), id == case.last().copied().unwrap(), "Case {ci} probe {probe} -> unexpected EOF");
                 assert_eq!(it.last_doc_id(), id, "Case {ci} probe {probe} expected landing on {id}");
                 probe += 1;
             }
             // Exact match
             it.rewind();
-            let res = it.skip_to(probe);
-            let Ok(Some(SkipToOutcome::Found(res))) = res else {
-                panic!("Case {ci} probe {probe} -> Expected `Found`, got {res:?}");
+            let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(probe) else {
+                panic!("Case {ci} probe {probe} -> Expected `Found`");
             };
             assert_eq!(res.doc_id, id, "Case {ci} probe {probe} expected landing on {id}");
             drop(res);
-            assert!(!it.at_eof(), "Case {ci} exact {id} unexpected EOF");
+            assert_eq!(it.at_eof(), id == case.last().copied().unwrap(), "Case {ci} exact {id} unexpected EOF");
             assert_eq!(it.last_doc_id(), id, "Case {ci} exact {id}");
             probe += 1;
         }
@@ -126,14 +124,13 @@ fn skip_to() {
         // Rewind and test direct skips to every existing id
         it.rewind();
         for &id in case {
-            let res = it.skip_to(id);
-            let Ok(Some(SkipToOutcome::Found(res))) = res else {
-                panic!("Case {ci} second pass skip_to {id} -> Expected `Found`, got {res:?}");
+            let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(id) else {
+                panic!("Case {ci} second pass skip_to {id} -> Expected `Found`");
             };
             assert_eq!(res.doc_id, id, "Case {ci} second pass skip_to {id}");
             drop(res);
             assert_eq!(it.last_doc_id(), id, "Case {ci} second pass skip_to {id}");
-            assert!(!it.at_eof(), "Case {ci} premature EOF on second pass id {id}");
+            assert_eq!(it.at_eof(), id == case.last().copied().unwrap(), "Case {ci} premature EOF on second pass id {id}");
         }
     }
 }
@@ -153,9 +150,8 @@ fn skip_between_any_pair() {
                 let to_id = case[to_idx];
 
                 // Skip to from_id
-                let res = it.skip_to(from_id);
-                let Ok(Some(SkipToOutcome::Found(doc_from))) = res else {
-                    panic!("Case {ci} pair ({from_idx},{to_idx}) skip_to({from_id}) expected Found, got {res:?}");
+                let Ok(Some(SkipToOutcome::Found(doc_from))) = it.skip_to(from_id) else {
+                    panic!("Case {ci} pair ({from_idx},{to_idx}) skip_to({from_id}) expected Found");
                 };
                 assert_eq!(doc_from.doc_id, from_id, "Case {ci} pair ({from_idx},{to_idx}) wrong doc_from id");
                 drop(doc_from);
@@ -163,14 +159,13 @@ fn skip_between_any_pair() {
                 assert!(!it.at_eof(), "Case {ci} pair ({from_idx},{to_idx}) EOF after from_id");
 
                 // Skip forward to to_id
-                let res = it.skip_to(to_id);
-                let Ok(Some(SkipToOutcome::Found(doc_to))) = res else {
-                    panic!("Case {ci} pair ({from_idx},{to_idx}) skip_to({to_id}) expected Found, got {res:?}");
+                let Ok(Some(SkipToOutcome::Found(doc_to))) = it.skip_to(to_id) else {
+                    panic!("Case {ci} pair ({from_idx},{to_idx}) skip_to({to_id}) expected Found");
                 };
                 assert_eq!(doc_to.doc_id, to_id, "Case {ci} pair ({from_idx},{to_idx}) wrong doc_to id");
                 drop(doc_to);
                 assert_eq!(it.last_doc_id(), to_id, "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after to_id");
-                assert!(!it.at_eof(), "Case {ci} pair ({from_idx},{to_idx}) EOF after to_id");
+                assert_eq!(it.at_eof(), to_id == case.last().copied().unwrap(), "Case {ci} pair ({from_idx},{to_idx}) EOF after to_id");
             }
         }
     }
