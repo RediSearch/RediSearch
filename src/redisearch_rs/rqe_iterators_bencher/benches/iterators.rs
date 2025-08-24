@@ -17,6 +17,11 @@ fn benchmark_empty(c: &mut Criterion) {
     bencher.bench(c);
 }
 
-criterion_group!(benches, benchmark_empty,);
+fn benchmark_id_list(c: &mut Criterion) {
+    let bencher = benchers::id_list::Bencher::default();
+    bencher.bench(c);
+}
+
+criterion_group!(benches, benchmark_empty, benchmark_id_list,);
 
 criterion_main!(benches);

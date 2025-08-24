@@ -30,3 +30,23 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 pub extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
     // RSQueryTerm used by the benchers are created on the stack so we don't need to free them.
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn NewVirtualResult(
+    weight: f64,
+    field_mask: ::ffi::t_fieldMask,
+) -> *mut inverted_index::RSIndexResult<'static> {
+    let result = inverted_index::RSIndexResult::virt()
+        .field_mask(field_mask)
+        .weight(weight);
+    Box::into_raw(Box::new(result))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_Free(result: *mut inverted_index::RSIndexResult) {
+    debug_assert!(!result.is_null(), "result cannot be NULL");
+
+    // SAFETY: caller is to ensure `result` points to a valid RSIndexResult created by one of the
+    // constructors
+    let _ = unsafe { Box::from_raw(result) };
+}
