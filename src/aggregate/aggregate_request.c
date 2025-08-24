@@ -60,6 +60,14 @@ static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *
 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, ParseAggPlanContext *papCtx);
 
+/**
+ * Initialize basic AREQ structure with search options and aggregation plan.
+ */
+static void initializeAREQ(AREQ *req) {
+  AGPLN_Init(AREQ_AGGPlan(req));
+  RSSearchOptions_Init(&req->searchopts);
+}
+
 static void ReturnedField_Free(ReturnedField *field) {
   rm_free(field->highlightSettings.openTag);
   rm_free(field->highlightSettings.closeTag);
@@ -995,10 +1003,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   }
 
   req->query = AC_GetStringNC(&ac, NULL);
-  AGPLN_Init(AREQ_AGGPlan(req));
-
+  initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
-  RSSearchOptions_Init(searchOpts);
   if (parseQueryArgs(&ac, req, searchOpts, &req->ast, AREQ_AGGPlan(req), status) != REDISMODULE_OK) {
     goto error;
   }
