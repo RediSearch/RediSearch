@@ -25,8 +25,8 @@ on:
         description: 'Enable tests with RedisJSON'
       rejson-branch:
         type: string
-        default: master
-        description: 'Branch to use when building RedisJSON for tests (default: master)'
+        default: '8.2'
+        description: 'Branch to use when building RedisJSON for tests (default: 8.2)'
   workflow_call:
     inputs:
       test-config:
@@ -46,7 +46,7 @@ on:
         description: 'Enable tests with RedisJSON'
       rejson-branch:
         type: string
-        default: master
+        default: '8.2'
         description: 'Branch to use when building RedisJSON for tests'
 
 jobs:

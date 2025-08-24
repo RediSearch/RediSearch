@@ -36,7 +36,7 @@ on:
         description: 'Enable tests with RedisJSON'
       rejson-branch:
         type: string
-        default: master
+        default: '8.2'
         description: 'Branch to use when building RedisJSON for tests'
       test-timeout:
         type: number
