@@ -42,14 +42,6 @@ static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, con
 }
 
 /**
- * Initialize basic AREQ structure with search options and aggregation plan.
- */
-static void initializeAREQ(AREQ *areq) {
-  RSSearchOptions_Init(&areq->searchopts);
-  AGPLN_Init(AREQ_AGGPlan(areq));
-}
-
-/**
  * Create a detached thread-safe search context.
  */
 static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const char *indexname) {
