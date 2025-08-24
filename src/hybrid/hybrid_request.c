@@ -123,29 +123,67 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     return HybridRequest_BuildMergePipeline(req, params, depleters);
 }
 
-arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req) {
+arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultProcessor*) depleters, bool coord) {
+    if (req->nrequests == 0 || req->nrequests != array_len(depleters)) {
+      return NULL;
+    }
+    StrongRef hybrid_ref = StrongRef_New(req, &(HybridRequest_Free));
+    if (!depleters) {
+      arrayof(Cursor*) cursors = array_new(Cursor*, 1);
+      // We don't have depleters, we will create a single cursor just for the hybrid request
+      // This is needed for client facing API, client expects a single cursor id to receive the merged result set
+      AREQ *first = req->requests[0];
+      Cursor *cursor = Cursors_Reserve(getCursorList(coord), first->sctx->spec->own_ref, first->cursorConfig.maxIdle, &req->tailPipelineError);
+      if (!cursor) {
+        return NULL;
+      }
+      cursor->hybrid_ref = hybrid_ref;
+      array_ensure_append_1(cursors, cursor);
+      return cursors;
+    }
+
     arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
-    /*for (size_t i = 0; i < req->nrequests; i++) {
+    for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
-      Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, areq->cursorConfig.maxIdle, err);
+      if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+         break;
+      }
+      Cursor *cursor = Cursors_Reserve(getCursorList(coord), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, &req->tailPipelineError);
       if (!cursor) {
         break;
       }
-      cursor->execState = ;
-      r->cursor_id = cursor->id;
+      // transfer ownership of the request to the cursor
+      cursor->execState = areq;
+      cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
+      areq->cursor_id = cursor->id;
       array_ensure_append_1(cursors, cursor);
     }
-    for (size_t i = 0; i < req->nrequests; i++) {
-        
-        if (cursor == NULL) {
-          goto error;
-        }
+    // Release the hybrid reference as cursors now hold their own references
+    StrongRef_Release(hybrid_ref);
 
-        AREQ *areq = req->requests[i];
+    if (array_len(cursors) != req->nrequests) {
+      for (size_t i = 0; i < array_len(cursors); i++) {
+        Cursor_Free(cursors[i]);
+      }
+      array_free(cursors);
+      QueryError_SetError(&req->tailPipelineError, QUERY_ELIMIT, "Failed to allocate enough cursors");
+      return NULL;
+    }
 
-        Cursor *cursor = AREQ_StartCursor(areq, NULL, NULL, NULL, false);
-        array_ensure_append_1(cursors, cursor);
-    }*/
+    int rc = RPDepleter_DepleteAll(depleters, req->nrequests);
+    array_free(depleters);
+    if (rc != RS_RESULT_OK) {
+      for (size_t i = 0; i < array_len(cursors); i++) {
+        Cursor_Free(cursors[i]);
+      }
+      array_free(cursors);
+      if (rc == RS_RESULT_TIMEDOUT) {
+        QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_ETIMEDOUT, "Depleting timed out");
+      } else {
+        QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
+      }
+      return NULL;
+    }
     return cursors;
 }
 
@@ -195,9 +233,10 @@ void HybridRequest_Free(HybridRequest *req) {
     for (size_t i = 0; i < req->nrequests; i++) {
 
       // Check if we need to manually free the thread-safe context
-      if (req->requests[i]->sctx && req->requests[i]->sctx->redisCtx) {
-        RedisModuleCtx *thctx = req->requests[i]->sctx->redisCtx;
-        RedisSearchCtx *sctx = req->requests[i]->sctx;
+      AREQ *areq = req->requests[i];
+      if (areq && areq->sctx && areq->sctx->redisCtx) {
+        RedisModuleCtx *thctx = areq->sctx->redisCtx;
+        RedisSearchCtx *sctx = areq->sctx;
 
         // Check if we're running in background thread
         if (RunInThread()) {
@@ -211,7 +250,7 @@ void HybridRequest_Free(HybridRequest *req) {
           }
         }
 
-        req->requests[i]->sctx = NULL;
+        areq->sctx = NULL;
       }
 
       AREQ_Free(req->requests[i]);
