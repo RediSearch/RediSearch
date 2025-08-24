@@ -26,6 +26,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
+#include "hybrid/hybrid_request.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -1099,11 +1100,26 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
 
   QueryError status = {0};
+  QueryProcessingCtx *qctx = NULL;
+  QEFlags reqFlags = 0;
+  bool hasLoader = false;
   AREQ *req = cursor->execState;
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  bool initClock = false;
+  if (req) {
+    qctx = AREQ_QueryProcessingCtx(cursor->execState);
+    AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
+    reqFlags = AREQ_RequestFlags(req);
+    hasLoader = HasLoader(req);
+    initClock = IsProfile(req) || !IsInternal(req);
+  } else {
+    HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
+    qctx = &hreq->tailPipeline->qctx;
+    // If we don't have an AREQ then this is a coordinator cursor going directly to the client
+    // We can't have a loader in the coordinator
+    hasLoader = false;
+  }
+  
   qctx->err = &status;
-  AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
-
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
@@ -1116,8 +1132,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
       return;
     }
 
-    if (HasLoader(req)) { // Quick check if the cursor has loaders.
-      QEFlags reqFlags = AREQ_RequestFlags(req);
+    if (hasLoader) { // Quick check if the cursor has loaders.
       bool isSetForBackground = reqFlags & QEXEC_F_RUN_IN_BACKGROUND;
       if (bg && !isSetForBackground) {
         // Reset loaders to run in background
@@ -1133,11 +1148,15 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
     }
   }
 
-  if (IsProfile(req) || !IsInternal(req)) {
+  if (initClock) {
     req->initClock = clock(); // Reset the clock for the current cursor read
   }
 
-  runCursor(reply, cursor, count);
+  if (req) {
+    runCursor(reply, cursor, count);
+  } else {
+    // TODO: run hybrid cursor - this needs to be implemented for the coordinator
+  }
   if (has_spec) {
     IndexSpecRef_Release(execution_ref);
   }

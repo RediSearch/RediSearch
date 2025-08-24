@@ -895,7 +895,7 @@ error:
  * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
  * and prepares for hybrid search execution.
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal) {
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, bool coordinator) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -932,11 +932,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   bool isCursor = cmd.hybridParams.aggregationParams.common.reqflags & QEXEC_F_IS_CURSOR;
-  // for internal command we 
+  arrayof(ResultProcessor*) depleters = NULL;
+  // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    if (HybridRequest_BuildDepletionPipeline(hybridRequest, &cmd.hybridParams) != REDISMODULE_OK) {
+    depleters = HybridRequest_BuildDepletionPipeline(hybridRequest, &cmd.hybridParams);
+    if (!depleters) {
       goto error;
     }
   } else {
@@ -945,10 +947,23 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   }
 
-  // TODO: Add execute command here
+  if (isCursor) {
+    arrayof(Cursor*) cursors = HybridRequest_StartCursor(hybridRequest, depleters, coordinator);
+    if (!cursors) {
+      goto error;
+    }
 
+    // Send array of cursor IDs as response
+    RedisModule_ReplyWithArray(ctx, array_len(cursors));
+    for (size_t i = 0; i < array_len(cursors); i++) {
+      RedisModule_ReplyWithLongLong(ctx, cursors[i]->id);
+    }
+    array_free(cursors);
+  } else {
+    // TODO: Add execute command here
+  }
+  
   StrongRef_Release(spec_ref);
-  HybridRequest_Free(hybridRequest);
   return REDISMODULE_OK;
 
 error:
