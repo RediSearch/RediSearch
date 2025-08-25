@@ -848,3 +848,229 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
   HybridRequest_Free(hybridReq);
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
+
+
+
+// Test that verifies key correspondence between search subqueries and tail pipeline
+// This test uses a complex hybrid query with LOAD and APPLY steps to ensure that
+// RLookup_CloneInto properly handles both loaded fields and computed fields
+TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx_keys", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
+
+  // Create a hybrid query with SEARCH and VSIM subqueries, plus LOAD and APPLY steps
+  RMCK::ArgvList args(ctx, "FT.HYBRID", specName,
+                      "SEARCH", "@title:machine",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "LOAD", "3", "@title", "@vector", "@category");
+
+  // Create a fresh sctx for this test since parseHybridCommand takes ownership
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  // Parse the hybrid command
+  HybridRequest* hybridReq = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &status);
+  ASSERT_TRUE(hybridReq != NULL) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Build the pipeline using the parsed hybrid parameters
+  int rc = HybridRequest_BuildPipeline(hybridReq, hybridReq->hybridParams);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
+
+  // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
+  RLookup *tailLookup = AGPLN_GetLookup(&hybridReq->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+  ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
+
+  // Verify that the tail lookup has been properly initialized and populated
+  ASSERT_GE(tailLookup->rowlen, 3) << "Tail lookup should have 3 keys: 'title', 'vector',and 'category'";
+
+  int tailKeyCount = 0;
+  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
+    if (key->name) {
+      tailKeyCount++;
+    }
+  }
+  ASSERT_EQ(tailKeyCount, 3) << "Tail lookup should have 3 keys: 'title', 'vector',and 'category'";
+
+  // Test all upstream subqueries in the hybrid request
+  for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
+    AREQ *upstreamReq = hybridReq->requests[reqIdx];
+    RLookup *upstreamLookup = AGPLN_GetLookup(&upstreamReq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
+
+    // Verify that the upstream lookup has been properly populated
+    ASSERT_GE(upstreamLookup->rowlen, 3) << "Upstream request " << reqIdx << " should have at least  3 keys: 'title', 'vector',and 'category'";
+
+    // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
+    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
+      if (!upstreamKey->name) {
+        continue; // Skip overridden keys
+      }
+
+      // Find corresponding key in tail lookup by name
+      RLookupKey *tailKey = NULL;
+      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
+          tailKey = tk;
+          break;
+        }
+      }
+
+      ASSERT_TRUE(tailKey != NULL)
+        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+
+      // Verify that the keys point to the same indices
+      EXPECT_EQ(upstreamKey->dstidx, tailKey->dstidx)
+        << "Key '" << upstreamKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
+        << upstreamKey->dstidx << ") vs tail (" << tailKey->dstidx << ")";
+
+      EXPECT_EQ(upstreamKey->svidx, tailKey->svidx)
+        << "Key '" << upstreamKey->name << "' has different svidx in upstream request " << reqIdx << " ("
+        << upstreamKey->svidx << ") vs tail (" << tailKey->svidx << ")";
+
+      // Verify path matches
+      if (upstreamKey->path && tailKey->path) {
+        EXPECT_STREQ(upstreamKey->path, tailKey->path)
+          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+      } else {
+        EXPECT_EQ(upstreamKey->path, tailKey->path)
+          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+      }
+
+      // Verify name length matches
+      EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
+        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+    }
+  }
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
+
+// Test key correspondence between search and tail pipelines with implicit loading (no LOAD clause)
+TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImplicit) {
+  QueryError status = {QueryErrorCode(0)};
+
+  // Create test index spec
+  IndexSpec *spec = CreateTestIndexSpec(ctx, "test_idx_keys_implicit", &qerr);
+  ASSERT_TRUE(spec != nullptr) << "Failed to create index spec: " << QueryError_GetUserError(&qerr);
+
+  const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
+
+  // Create a hybrid query with SEARCH and VSIM subqueries, but NO LOAD clause (implicit loading)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", specName,
+                      "SEARCH", "@title:machine",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA);
+
+  // Create a fresh sctx for this test since parseHybridCommand takes ownership
+  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
+  ASSERT_TRUE(test_sctx != NULL);
+
+  // Parse the hybrid command
+  HybridRequest* hybridReq = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &status);
+  ASSERT_TRUE(hybridReq != NULL) << "Failed to parse hybrid command: " << QueryError_GetUserError(&status);
+  ASSERT_EQ(status.code, QUERY_OK);
+
+  // Build the pipeline using the parsed hybrid parameters
+  int rc = HybridRequest_BuildPipeline(hybridReq, hybridReq->hybridParams);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
+
+  // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
+  RLookup *tailLookup = AGPLN_GetLookup(&hybridReq->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+  ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
+
+  // Verify that the tail lookup has been properly initialized and populated
+  ASSERT_GE(tailLookup->rowlen, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
+
+  int tailKeyCount = 0;
+  for (RLookupKey *key = tailLookup->head; key; key = key->next) {
+    if (key->name) {
+      tailKeyCount++;
+    }
+  }
+  ASSERT_EQ(tailKeyCount, 2) << "Tail lookup should have at least two keys: '__key' and '__score'";
+
+  // Verify that implicit loading creates the "key" field in the tail pipeline
+  RLookupKey *tailKeyField = NULL;
+  for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+    const char *keyName = HYBRID_IMPLICIT_KEY_FIELD;
+    if (tk->name && strcmp(tk->name, keyName) == 0) {
+      tailKeyField = tk;
+      break;
+    }
+  }
+  ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit '__key' field";
+  EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, tailKeyField->path) << "Implicit key field should have path '__key'";
+
+  // Test all upstream subqueries in the hybrid request
+  for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
+    AREQ *upstreamReq = hybridReq->requests[reqIdx];
+    RLookup *upstreamLookup = AGPLN_GetLookup(&upstreamReq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
+
+    // Verify that the upstream lookup has been properly populated
+    ASSERT_GT(upstreamLookup->rowlen, 0) << "Upstream request " << reqIdx << " should have a non-zero rowlen";
+
+    // Verify that the upstream subquery also has the implicit "__key" field
+    RLookupKey *upstreamKeyField = NULL;
+    for (RLookupKey *uk = upstreamLookup->head; uk; uk = uk->next) {
+      if (uk->name && strcmp(uk->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
+        upstreamKeyField = uk;
+        break;
+      }
+    }
+    ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit 'key' field";
+    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
+
+    // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
+    for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
+      if (!upstreamKey->name) {
+        continue; // Skip overridden keys
+      }
+
+      // Find corresponding key in tail lookup by name
+      RLookupKey *tailKey = NULL;
+      for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
+        if (tk->name && strcmp(tk->name, upstreamKey->name) == 0) {
+          tailKey = tk;
+          break;
+        }
+      }
+
+      ASSERT_TRUE(tailKey != NULL)
+        << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
+
+      // Verify that the keys point to the same indices
+      EXPECT_EQ(upstreamKey->dstidx, tailKey->dstidx)
+        << "Key '" << upstreamKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
+        << upstreamKey->dstidx << ") vs tail (" << tailKey->dstidx << ")";
+
+      EXPECT_EQ(upstreamKey->svidx, tailKey->svidx)
+        << "Key '" << upstreamKey->name << "' has different svidx in upstream request " << reqIdx << " ("
+        << upstreamKey->svidx << ") vs tail (" << tailKey->svidx << ")";
+
+      // Verify path matches
+      if (upstreamKey->path && tailKey->path) {
+        EXPECT_STREQ(upstreamKey->path, tailKey->path)
+          << "Key '" << upstreamKey->name << "' has different path in upstream request " << reqIdx << " vs tail";
+      } else {
+        EXPECT_EQ(upstreamKey->path, tailKey->path)
+          << "Key '" << upstreamKey->name << "' path nullness differs between upstream request " << reqIdx << " and tail";
+      }
+
+      // Verify name length matches
+      EXPECT_EQ(upstreamKey->name_len, tailKey->name_len)
+        << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
+    }
+  }
+
+  // Clean up
+  HybridRequest_Free(hybridReq);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, false);
+}
