@@ -35,13 +35,11 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		Argument variables:
 		RAMP=0|1            Build RAMP package
 
-		MODULE_NAME=name    Module name (default: redisearch)
+		MODULE_NAME=name    Module name (default: search)
 		PACKAGE_NAME=name   Package stem name
 
 		BRANCH=name         Branch name for snapshot packages
 		WITH_GITSHA=1       Append Git SHA to snapshot package names
-		VARIANT=name        Build variant
-		RAMP_VARIANT=name   RAMP variant (e.g. ramp-{name}.yml)
 
 		ARTDIR=dir          Directory in which packages are created (default: bin/artifacts)
 
@@ -82,8 +80,8 @@ ARTDIR=$(cd $ARTDIR && pwd)
 
 #----------------------------------------------------------------------------------------------
 
-MODULE_NAME=${MODULE_NAME:-redisearch}
-PACKAGE_NAME=${PACKAGE_NAME:-redisearch-oss}
+MODULE_NAME=${MODULE_NAME:-search}
+PACKAGE_NAME=${PACKAGE_NAME:-redisearch}
 
 RAMP_CMD="python3 -m RAMP.ramp"
 
@@ -121,7 +119,7 @@ pack_ramp() {
 	local stem=${PACKAGE_NAME}.${PLATFORM}
 	local stem_debug=${PACKAGE_NAME}.debug.${PLATFORM}
 
-	local verspec=${BRANCH}${VARIANT}
+	local verspec=${BRANCH}
 	local packdir=snapshots
 	local s3base=snapshots/
 
@@ -132,18 +130,6 @@ pack_ramp() {
 
 	local packfile=$ARTDIR/$packdir/$fq_package
 	local packfile_debug=$ARTDIR/$packdir/$fq_package_debug
-
-	if [[ -n $RAMP_YAML ]]; then
-		RAMP_YAML="$(realpath $RAMP_YAML)"
-	elif [[ -z $RAMP_VARIANT ]]; then
-		RAMP_YAML="$ROOT/pack/ramp.yml"
-	else
-		RAMP_YAML="$ROOT/pack/ramp${RAMP_VARIANT:+-$RAMP_VARIANT}.yml"
-	fi
-
-	if [[ $VERBOSE == 1 ]]; then
-		echo "# ramp.yml:"
-	fi
 
 	rm -f /tmp/ramp.fname $packfile
 
@@ -185,7 +171,7 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
-SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.zip
+SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}.zip
 
 #----------------------------------------------------------------------------------------------
 
@@ -204,7 +190,9 @@ if [[ $RAMP == 1 ]]; then
 		exit 1
 	fi
 
-	echo "# Building RAMP $RAMP_VARIANT files ..."
+  [[ -z $RAMP_YAML ]] && { eprint "RAMP_YAML is not set. Aborting."; exit 1; }
+
+	echo "# Building RAMP files from $RAMP_YAML for $PACKAGE_NAME..."
 
 	[[ -z $MODULE ]] && { eprint "Nothing to pack. Aborting."; exit 1; }
 	[[ ! -f $MODULE ]] && { eprint "$MODULE does not exist. Aborting."; exit 1; }
