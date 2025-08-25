@@ -1572,8 +1572,11 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
     return self->last_rc;
   }
   // Return the next result in the array.
-  SearchResult *current = self->results[self->cur_idx++];
+  SearchResult *current = self->results[self->cur_idx];
   SearchResult_Override(r, current);    // Copy result data to output
+  rm_free(current);
+  self->results[self->cur_idx] = NULL;
+  self->cur_idx++;
   return RS_RESULT_OK;
 }
 
@@ -1822,6 +1825,10 @@ dictType dictTypeHybridSearchResult = {
 
   // Initialize iterator for yield phase
   self->iterator = dictGetIterator(self->hybridResults);
+
+  // Update total results to reflect the number of unique documents we'll yield
+  rp->parent->totalResults = dictSize(self->hybridResults);
+
   // Switch to yield phase
   rp->Next = RPHybridMerger_Yield;
   return rp->Next(rp, r);

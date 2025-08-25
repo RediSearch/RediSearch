@@ -8,6 +8,7 @@
 */
 
 #include "parse_hybrid.h"
+#include "query_optimizer.h"
 
 #include <string.h>
 #include <strings.h>
@@ -24,7 +25,11 @@
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
 #include "util/references.h"
+#include "util/workers.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "cursor.h"
+#include "info/info_redis/block_client.h"
+#include "hybrid/hybrid_request.h"
 
 
 static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
@@ -141,6 +146,9 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
+      // TODO: Remove this once we support YIELD_DISTANCE_AS (not part of phase 1)
+      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
+      return REDISMODULE_ERR;
       if (hasYieldDistanceAs) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
@@ -224,6 +232,9 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
+      // TODO: Remove this once we support YIELD_DISTANCE_AS (not part of phase 1)
+      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
+      return REDISMODULE_ERR;
       if (hasYieldDistanceAs) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
@@ -355,9 +366,6 @@ final:
       vq->range.vecLen = strlen(vectorParam);
       break;
   }
-
-  // Set default scoreField using vector field name (can be done during parsing)
-  VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
 
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
@@ -593,7 +601,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   AREQ **requests = NULL;
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
-  vectorRequest->reqflags |= QEXEC_F_IS_AGGREGATE;
+  vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
@@ -692,8 +700,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       .common =
           {
               .sctx = sctx,  // should be a separate context?
-              .reqflags = hasMerge ? mergeReqflags : 0,
-              .optimizer = NULL,  // is it?
+              .reqflags = (hasMerge ? mergeReqflags : 0) | QEXEC_F_IS_HYBRID_TAIL,
+              .optimizer = NULL,
           },
       .outFields = NULL,
       .maxResultsLimit = mergeMaxAggregateResults,
@@ -704,6 +712,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   hybridParams->synchronize_read_locks = true;
 
   if (hasMerge) {
+    Pipeline_Initialize(tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridRequest->tailPipelineError);
+
     // Create and transfer the pipeline
     if (hybridRequest->tailPipeline) {
       Pipeline_Clean(hybridRequest->tailPipeline);
@@ -756,61 +766,4 @@ error:
   }
 
   return NULL;
-}
-
-/**
- * Main command handler for FT.HYBRID command.
- *
- * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
- * and prepares for hybrid search execution.
- */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  // Index name is argv[1]
-  if (argc < 2) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-  if (!sctx) {
-    QueryError status = {0};
-    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
-  CurrentThread_SetIndexSpec(spec_ref);
-
-  QueryError status = {0};
-
-  HybridRequest *hybridRequest = parseHybridCommand(ctx, argv, argc, sctx, indexname, &status);
-  if (!hybridRequest) {
-    goto error;
-  }
-
-  if (HybridRequest_BuildPipeline(hybridRequest, hybridRequest->hybridParams) != REDISMODULE_OK) {
-    goto error;
-  }
-
-  // TODO: Add execute command here
-
-  StrongRef_Release(spec_ref);
-  HybridRequest_Free(hybridRequest);
-  return REDISMODULE_OK;
-
-error:
-  RS_LOG_ASSERT(QueryError_HasError(&status), "Hybrid query parsing error");
-
-  // Clear the current thread's index spec if it was set
-  CurrentThread_ClearIndexSpec();
-
-  // Release our strong reference to the spec if it was acquired
-  if (spec_ref.rm) {
-    StrongRef_Release(spec_ref);
-  }
-
-  // Free the search context
-  SearchCtx_Free(sctx);
-
-  return QueryError_ReplyAndClear(ctx, &status);
 }

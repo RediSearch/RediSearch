@@ -30,12 +30,18 @@ extern "C" {
 
 #define DEFAULT_LIMIT 10
 
+/** Cached variables to avoid serializeResult retrieving these each time */
+typedef struct {
+  RLookup *lastLk;
+  const PLN_ArrangeStep *lastAstp;
+} cachedVars;
+
 typedef struct Grouper Grouper;
 struct QOptimizer;
 
 /*
- * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL
- * and QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY are mutually exclusive (Only one can be set).
+ * A query can be of one type. So QEXEC_F_IS_AGGREGATE, QEXEC_F_IS_SEARCH, QEXEC_F_IS_HYBRID_TAIL,
+ * QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY, and QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY are mutually exclusive (Only one can be set).
  */
 typedef enum {
   QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
@@ -105,6 +111,9 @@ typedef enum {
   // The query is a Search Subquery of a Hybrid Request
   QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY = 0x1000000,
 
+  // The query is a Vector Subquery of a Hybrid Request (aggregate equivalent)
+  QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY = 0x2000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
@@ -119,7 +128,7 @@ typedef struct {
 // Context structure for parseAggPlan to reduce parameter count
 typedef struct {
   AGGPlan *plan;                    // Aggregation plan
-  uint32_t *reqflags;               // Request flags
+  QEFlags *reqflags;                // Request flags
   RequestConfig *reqConfig;         // Request configuration
   RSSearchOptions *searchopts;      // Search options
   size_t *prefixesOffset;           // Prefixes offset
@@ -133,6 +142,8 @@ typedef struct {
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsHybridTail(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_TAIL)
 #define IsHybridSearchSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY)
+#define IsHybridVectorSubquery(r) ((r)->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY)
+#define IsHybrid(r) (IsHybridTail(r) || IsHybridSearchSubquery(r) || IsHybridVectorSubquery(r))
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsOptimized(r) ((r)->reqflags & QEXEC_OPTIMIZE)
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
@@ -192,7 +203,7 @@ typedef struct AREQ {
   Pipeline pipeline;
 
   /** Flags controlling query output */
-  uint32_t reqflags;
+  QEFlags reqflags;
 
   /** Flags indicating current execution state */
   uint32_t stateflags;
@@ -305,11 +316,11 @@ static inline QEFlags AREQ_RequestFlags(const AREQ *req) {
 }
 
 static inline void AREQ_AddRequestFlags(AREQ *req, QEFlags flags) {
-  req->reqflags |= flags;
+  req->reqflags = (QEFlags)(req->reqflags | flags);
 }
 
 static inline void AREQ_RemoveRequestFlags(AREQ *req, QEFlags flags) {
-  req->reqflags &= ~flags;
+  req->reqflags = (QEFlags)(req->reqflags & ~flags);
 }
 
 /**

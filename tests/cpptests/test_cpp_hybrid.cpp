@@ -23,6 +23,7 @@
 #include "common.h"
 #include "module.h"
 #include "version.h"
+#include "query_optimizer.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -50,6 +51,14 @@ protected:
 };
 
 using RS::addDocument;
+
+// Helper function to get error message from HybridRequest for test assertions
+std::string HREQ_GetUserError(HybridRequest* req) {
+  QueryError error;
+  QueryError_Init(&error);
+  HREQ_GetError(req, &error);
+  return QueryError_GetUserError(&error);
+}
 
 // Helper function to create a test index spec
 IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, QueryError *status) {
@@ -277,7 +286,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify individual request pipeline structures
   // First request should have implicit scorer and sorter added
@@ -348,7 +357,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify individual request pipeline structures
   // First request should have implicit scorer and sorter added
@@ -409,7 +418,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
   // Should handle missing LOAD step gracefully
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build should handle missing LOAD step: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build should handle missing LOAD step: " << HREQ_GetUserError(hybridReq);
 
   // Clean up
   HybridRequest_Free(hybridReq);
@@ -467,7 +476,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Complex pipeline build failed: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Complex pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify individual request pipeline structures (should include filter for field queries)
   // First request should have implicit scorer and sorter added
@@ -529,7 +538,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify that implicit LOAD functionality is implemented via RPLoader result processors
   // (not PLN_LoadStep aggregation plan steps) in individual request pipelines
@@ -544,18 +553,18 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
     AREQ *areq = hybridReq->requests[i];
     PLN_LoadStep *requestLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&areq->pipeline.ap, NULL, NULL, PLN_T_LOAD);
     EXPECT_NE(nullptr, requestLoadStep) << "Request " << i << " should have PLN_LoadStep for implicit load";
-    EXPECT_EQ(1, requestLoadStep->nkeys) << "Request " << i << " should have 1 key for implicit load";
+    EXPECT_EQ(2, requestLoadStep->nkeys) << "Request " << i << " should have 2 keys for implicit load: " << HYBRID_IMPLICIT_KEY_FIELD << " and " << UNDERSCORE_SCORE;
     std::string pipelineName = "Request " + std::to_string(i) + " pipeline with implicit LOAD";
     VerifyPipelineChain(areq->pipeline.qctx.endProc, expectedPipelines[i], pipelineName);
 
-    // Verify implicit load creates "key" field with path "key"
+    // Verify implicit load creates "__key" field with path "__key"
     RLookup *lookup = AGPLN_GetLookup(&areq->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
     ASSERT_NE(nullptr, lookup);
 
     bool foundKeyField = false;
     for (RLookupKey *key = lookup->head; key != nullptr; key = key->next) {
-      if (key->name && strcmp(key->name, "key") == 0) {
-        EXPECT_STREQ("key", key->path);
+      if (key->name && strcmp(key->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
+        EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, key->path);
         foundKeyField = true;
         break;
       }
@@ -622,7 +631,7 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify that the explicit LOAD step is preserved in individual AREQ pipelines (processed with 3 keys)
   // The tail pipeline should still have the unprocessed LOAD step
@@ -698,7 +707,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitSort) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify tail pipeline structure: should have explicit sorter from aggregation, NOT implicit sort-by-score
   // The pipeline should be: SORTER (from aggregation) -> HYBRID_MERGER
@@ -759,7 +768,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify tail pipeline structure: should have implicit sort-by-score added
   // The pipeline should be: SORTER (implicit sort-by-score) -> HYBRID_MERGER
@@ -822,7 +831,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
   };
 
   int rc = HybridRequest_BuildPipeline(hybridReq, &params);
-  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << QueryError_GetUserError(&qerr);
+  EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed: " << HREQ_GetUserError(hybridReq);
 
   // Verify that the first request's plan still has exactly ONE arrange step (the explicit one)
   // and that no additional implicit score sorter was added
@@ -840,9 +849,11 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
   IndexSpec_RemoveFromGlobals(spec->own_ref, false);
 }
 
+
+
 // Test that verifies key correspondence between search subqueries and tail pipeline
-// This test uses a complex hybrid query with LOAD and APPLY steps to ensure that
-// RLookup_CloneInto properly handles both loaded fields and computed fields
+// This test uses a hybrid query with LOAD clause to ensure that
+// RLookup_CloneInto properly handles loaded fields
 TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -876,7 +887,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GT(tailLookup->rowlen, 0) << "Tail lookup should have a non-zero rowlen";
+  ASSERT_GE(tailLookup->rowlen, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
 
   int tailKeyCount = 0;
   for (RLookupKey *key = tailLookup->head; key; key = key->next) {
@@ -884,7 +895,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
       tailKeyCount++;
     }
   }
-  ASSERT_GT(tailKeyCount, 0) << "Tail lookup should have at least one key";
+  ASSERT_GE(tailKeyCount, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
@@ -893,7 +904,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GT(upstreamLookup->rowlen, 0) << "Upstream request " << reqIdx << " should have a non-zero rowlen";
+    ASSERT_GE(upstreamLookup->rowlen, 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
     for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
@@ -975,7 +986,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GT(tailLookup->rowlen, 0) << "Tail lookup should have a non-zero rowlen";
+  ASSERT_GE(tailLookup->rowlen, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
   int tailKeyCount = 0;
   for (RLookupKey *key = tailLookup->head; key; key = key->next) {
@@ -983,18 +994,19 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
       tailKeyCount++;
     }
   }
-  ASSERT_GT(tailKeyCount, 0) << "Tail lookup should have at least one key";
+  ASSERT_GE(tailKeyCount, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
-  // Verify that implicit loading creates the "key" field in the tail pipeline
+  // Verify that implicit loading creates the "__key" field in the tail pipeline
   RLookupKey *tailKeyField = NULL;
   for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
-    if (tk->name && strcmp(tk->name, "key") == 0) {
+    const char *keyName = HYBRID_IMPLICIT_KEY_FIELD;
+    if (tk->name && strcmp(tk->name, keyName) == 0) {
       tailKeyField = tk;
       break;
     }
   }
-  ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit 'key' field";
-  EXPECT_STREQ("key", tailKeyField->path) << "Implicit key field should have path 'key'";
+  ASSERT_TRUE(tailKeyField != NULL) << "Tail pipeline should have implicit '__key' field";
+  EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, tailKeyField->path) << "Implicit key field should have path '__key'";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
@@ -1003,18 +1015,18 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GT(upstreamLookup->rowlen, 0) << "Upstream request " << reqIdx << " should have a non-zero rowlen";
+    ASSERT_GE(upstreamLookup->rowlen, 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
 
-    // Verify that the upstream subquery also has the implicit "key" field
+    // Verify that the upstream subquery also has the implicit "__key" field
     RLookupKey *upstreamKeyField = NULL;
     for (RLookupKey *uk = upstreamLookup->head; uk; uk = uk->next) {
-      if (uk->name && strcmp(uk->name, "key") == 0) {
+      if (uk->name && strcmp(uk->name, HYBRID_IMPLICIT_KEY_FIELD) == 0) {
         upstreamKeyField = uk;
         break;
       }
     }
-    ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit 'key' field";
-    EXPECT_STREQ("key", upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
+    ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit '__key' field";
+    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, upstreamKeyField->path) << "Implicit key field should have path '__key' in request " << reqIdx;
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
     for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
