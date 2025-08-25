@@ -7,10 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::{
-    id_list::IdList,
-    RQEIterator, RQEValidateStatus, SkipToOutcome
-};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdList};
 
 mod c_mocks;
 
@@ -22,7 +19,10 @@ static CASES: &[&[u64]] = &[
     &[42],
     &[1000000, 2000000, 3000000],
     &[10, 20, 30, 40, 50],
-    &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40],
+    &[
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+    ],
 ];
 
 #[test]
@@ -36,7 +36,11 @@ fn read() {
     for (i, &case) in CASES.iter().enumerate() {
         let mut it = IdList::new(case.to_vec());
 
-        assert_eq!(it.num_estimated(), case.len(), "Case {i} has incorrect estimated count");
+        assert_eq!(
+            it.num_estimated(),
+            case.len(),
+            "Case {i} has incorrect estimated count"
+        );
         assert!(!it.at_eof(), "Case {i} is at EOF before reading");
 
         for &expected_id in case {
@@ -75,7 +79,11 @@ fn skip_to() {
         assert_eq!(first_doc.doc_id, first_id, "Case {ci}");
         drop(first_doc); // Drop the result so we can immutable borrow the iterator (TODO: is this expected?)
         assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
-        assert_eq!(it.at_eof(), first_id == case.last().copied().unwrap(), "Case {ci}");
+        assert_eq!(
+            it.at_eof(),
+            first_id == case.last().copied().unwrap(),
+            "Case {ci}"
+        );
 
         // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
         let last = *case.last().unwrap();
@@ -98,11 +106,22 @@ fn skip_to() {
                 let Ok(Some(SkipToOutcome::NotFound(res))) = it.skip_to(probe) else {
                     panic!("Case {ci} probe {probe} -> Expected `Some`");
                 };
-                assert_eq!(res.doc_id, id, "Case {ci} probe {probe} expected landing on {id}");
+                assert_eq!(
+                    res.doc_id, id,
+                    "Case {ci} probe {probe} expected landing on {id}"
+                );
                 drop(res);
                 // Should land on next existing id
-                assert_eq!(it.at_eof(), id == case.last().copied().unwrap(), "Case {ci} probe {probe} -> unexpected EOF");
-                assert_eq!(it.last_doc_id(), id, "Case {ci} probe {probe} expected landing on {id}");
+                assert_eq!(
+                    it.at_eof(),
+                    id == case.last().copied().unwrap(),
+                    "Case {ci} probe {probe} -> unexpected EOF"
+                );
+                assert_eq!(
+                    it.last_doc_id(),
+                    id,
+                    "Case {ci} probe {probe} expected landing on {id}"
+                );
                 probe += 1;
             }
             // Exact match
@@ -110,9 +129,16 @@ fn skip_to() {
             let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(probe) else {
                 panic!("Case {ci} probe {probe} -> Expected `Found`");
             };
-            assert_eq!(res.doc_id, id, "Case {ci} probe {probe} expected landing on {id}");
+            assert_eq!(
+                res.doc_id, id,
+                "Case {ci} probe {probe} expected landing on {id}"
+            );
             drop(res);
-            assert_eq!(it.at_eof(), id == case.last().copied().unwrap(), "Case {ci} exact {id} unexpected EOF");
+            assert_eq!(
+                it.at_eof(),
+                id == case.last().copied().unwrap(),
+                "Case {ci} exact {id} unexpected EOF"
+            );
             assert_eq!(it.last_doc_id(), id, "Case {ci} exact {id}");
             probe += 1;
         }
@@ -130,7 +156,11 @@ fn skip_to() {
             assert_eq!(res.doc_id, id, "Case {ci} second pass skip_to {id}");
             drop(res);
             assert_eq!(it.last_doc_id(), id, "Case {ci} second pass skip_to {id}");
-            assert_eq!(it.at_eof(), id == case.last().copied().unwrap(), "Case {ci} premature EOF on second pass id {id}");
+            assert_eq!(
+                it.at_eof(),
+                id == case.last().copied().unwrap(),
+                "Case {ci} premature EOF on second pass id {id}"
+            );
         }
     }
 }
@@ -143,29 +173,59 @@ fn skip_between_any_pair() {
         for from_idx in 0..case.len() - 1 {
             for to_idx in from_idx + 1..case.len() {
                 it.rewind();
-                assert_eq!(it.last_doc_id(), 0, "Case {ci} pair ({from_idx},{to_idx}) last_doc_id not reset after rewind");
-                assert!(!it.at_eof(), "Case {ci} pair ({from_idx},{to_idx}) at EOF after rewind");
+                assert_eq!(
+                    it.last_doc_id(),
+                    0,
+                    "Case {ci} pair ({from_idx},{to_idx}) last_doc_id not reset after rewind"
+                );
+                assert!(
+                    !it.at_eof(),
+                    "Case {ci} pair ({from_idx},{to_idx}) at EOF after rewind"
+                );
 
                 let from_id = case[from_idx];
                 let to_id = case[to_idx];
 
                 // Skip to from_id
                 let Ok(Some(SkipToOutcome::Found(doc_from))) = it.skip_to(from_id) else {
-                    panic!("Case {ci} pair ({from_idx},{to_idx}) skip_to({from_id}) expected Found");
+                    panic!(
+                        "Case {ci} pair ({from_idx},{to_idx}) skip_to({from_id}) expected Found"
+                    );
                 };
-                assert_eq!(doc_from.doc_id, from_id, "Case {ci} pair ({from_idx},{to_idx}) wrong doc_from id");
+                assert_eq!(
+                    doc_from.doc_id, from_id,
+                    "Case {ci} pair ({from_idx},{to_idx}) wrong doc_from id"
+                );
                 drop(doc_from);
-                assert_eq!(it.last_doc_id(), from_id, "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after from_id");
-                assert!(!it.at_eof(), "Case {ci} pair ({from_idx},{to_idx}) EOF after from_id");
+                assert_eq!(
+                    it.last_doc_id(),
+                    from_id,
+                    "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after from_id"
+                );
+                assert!(
+                    !it.at_eof(),
+                    "Case {ci} pair ({from_idx},{to_idx}) EOF after from_id"
+                );
 
                 // Skip forward to to_id
                 let Ok(Some(SkipToOutcome::Found(doc_to))) = it.skip_to(to_id) else {
                     panic!("Case {ci} pair ({from_idx},{to_idx}) skip_to({to_id}) expected Found");
                 };
-                assert_eq!(doc_to.doc_id, to_id, "Case {ci} pair ({from_idx},{to_idx}) wrong doc_to id");
+                assert_eq!(
+                    doc_to.doc_id, to_id,
+                    "Case {ci} pair ({from_idx},{to_idx}) wrong doc_to id"
+                );
                 drop(doc_to);
-                assert_eq!(it.last_doc_id(), to_id, "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after to_id");
-                assert_eq!(it.at_eof(), to_id == case.last().copied().unwrap(), "Case {ci} pair ({from_idx},{to_idx}) EOF after to_id");
+                assert_eq!(
+                    it.last_doc_id(),
+                    to_id,
+                    "Case {ci} pair ({from_idx},{to_idx}) last_doc_id after to_id"
+                );
+                assert_eq!(
+                    it.at_eof(),
+                    to_id == case.last().copied().unwrap(),
+                    "Case {ci} pair ({from_idx},{to_idx}) EOF after to_id"
+                );
             }
         }
     }

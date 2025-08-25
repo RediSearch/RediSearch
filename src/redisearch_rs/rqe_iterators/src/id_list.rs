@@ -24,7 +24,10 @@ pub struct IdList {
 impl IdList {
     pub fn new(ids: Vec<t_docId>) -> Self {
         debug_assert!(!ids.is_empty());
-        debug_assert!(ids.windows(2).all(|w| w[0] < w[1]), "IDs must be sorted and unique");
+        debug_assert!(
+            ids.windows(2).all(|w| w[0] < w[1]),
+            "IDs must be sorted and unique"
+        );
         IdList { ids, current: 0 }
     }
 }
@@ -62,12 +65,16 @@ impl RQEIterator for IdList {
             Ok(pos) => {
                 let pos = self.current + pos; // Convert relative to absolute index
                 self.current = pos + 1;
-                Ok(Some(SkipToOutcome::Found(RSIndexResult::virt().doc_id(self.ids[pos]))))
+                Ok(Some(SkipToOutcome::Found(
+                    RSIndexResult::virt().doc_id(self.ids[pos]),
+                )))
             }
             Err(pos) => {
                 let pos = self.current + pos; // Convert relative to absolute index
                 self.current = pos + 1;
-                Ok(Some(SkipToOutcome::NotFound(RSIndexResult::virt().doc_id(self.ids[pos]))))
+                Ok(Some(SkipToOutcome::NotFound(
+                    RSIndexResult::virt().doc_id(self.ids[pos]),
+                )))
             }
         }
     }
