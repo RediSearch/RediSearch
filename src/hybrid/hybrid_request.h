@@ -22,22 +22,28 @@ typedef struct HybridRequest {
     AGGPlan *ap;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
-    RedisSearchCtx *sctx;
+    CursorConfig cursorConfig;
     clock_t initClock;  // For timing execution
+    RedisSearchCtx *sctx;
+    QEFlags reqflags;
 } HybridRequest;
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
   HybridRequest *hreq;
+  HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
+  bool internal;
+  bool coordinator;
 } blockedClientHybridCtx;
 
 HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
 arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const HybridPipelineParams *params, arrayof(ResultProcessor*) depleters);
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params);
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, QueryError *status);
 void HybridRequest_Free(HybridRequest *req);
+HybridRequest *MakeDefaultHybridRequest();
 
 #ifdef __cplusplus
 }

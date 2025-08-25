@@ -110,24 +110,29 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const HybridPipelinePar
     return REDISMODULE_OK;
 }
 
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, QueryError *status) {
       // move the context to the hybrid request
     req->sctx = params->aggregationParams.common.sctx;
     params->aggregationParams.common.sctx = NULL;
     // Build the depletion pipeline for extracting results from individual search requests
     arrayof(ResultProcessor*) depleters = HybridRequest_BuildDepletionPipeline(req, params);
     if (!depleters) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Failed to build depletion pipeline");
         return REDISMODULE_ERR;
     }
     // Build the merge pipeline for combining and processing results from the depletion pipeline
     return HybridRequest_BuildMergePipeline(req, params, depleters);
 }
 
-arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultProcessor*) depleters, bool coord) {
+static void FreeHybridRequest(void *ptr) {
+  HybridRequest_Free((HybridRequest *)ptr);
+}
+
+arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord) {
     if (req->nrequests == 0 || req->nrequests != array_len(depleters)) {
       return NULL;
     }
-    StrongRef hybrid_ref = StrongRef_New(req, &(HybridRequest_Free));
+    StrongRef hybrid_ref = StrongRef_New(req, &FreeHybridRequest);
     if (!depleters) {
       arrayof(Cursor*) cursors = array_new(Cursor*, 1);
       // We don't have depleters, we will create a single cursor just for the hybrid request
@@ -166,7 +171,7 @@ arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultPro
         Cursor_Free(cursors[i]);
       }
       array_free(cursors);
-      QueryError_SetError(&req->tailPipelineError, QUERY_ELIMIT, "Failed to allocate enough cursors");
+      QueryError_SetError(status, QUERY_ELIMIT, "Failed to allocate enough cursors");
       return NULL;
     }
 
@@ -178,9 +183,9 @@ arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultPro
       }
       array_free(cursors);
       if (rc == RS_RESULT_TIMEDOUT) {
-        QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_ETIMEDOUT, "Depleting timed out");
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ETIMEDOUT, "Depleting timed out");
       } else {
-        QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
       }
       return NULL;
     }
@@ -307,6 +312,15 @@ int HREQ_GetError(HybridRequest *hreq, QueryError *status) {
 
     // No errors found
     return REDISMODULE_OK;
+}
+
+HybridRequest *MakeDefaultHybridRequest() {
+  AREQ *search = AREQ_New();
+  AREQ *vector = AREQ_New();
+  arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
+  requests = array_ensure_append_1(requests, search);
+  requests = array_ensure_append_1(requests, vector);
+  return HybridRequest_New(requests, array_len(requests));
 }
 
 #ifdef __cplusplus
