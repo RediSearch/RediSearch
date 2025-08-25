@@ -310,6 +310,12 @@ pack: build
 				echo "Error: No enterprise module found for $(TARGET_NAME). Please build first with 'make build COORD=rlec'"; \
 				exit 1; \
 			fi; \
+		elif [ "$(COORD)" = "oss" ]; then \
+			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No Coord-OSS module found for $(TARGET_NAME). Please build first with 'make build COORD=oss'"; \
+				exit 1; \
+			fi; \
 		else \
 			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
 			if [ -z "$$MODULE_PATH" ]; then \
