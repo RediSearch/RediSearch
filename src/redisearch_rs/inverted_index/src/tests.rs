@@ -35,11 +35,6 @@ pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Offset_Data_Free(_tr: *mut ffi::RSTermRecord) {
-    panic!("Nothing should have copied the term record to require this call");
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
     panic!("No test created a term record");
 }
@@ -298,7 +293,7 @@ impl Decoder for Dummy {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         prev_doc_id: u64,
-    ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let mut buffer = [0; 4];
         cursor.read_exact(&mut buffer)?;
 
@@ -410,7 +405,7 @@ fn read_using_the_first_block_id_as_the_base() {
             &self,
             cursor: &mut Cursor<&'index [u8]>,
             prev_doc_id: u64,
-        ) -> std::io::Result<RSIndexResult<'index, 'static>> {
+        ) -> std::io::Result<RSIndexResult<'index>> {
             let mut buffer = [0; 4];
             cursor.read_exact(&mut buffer)?;
 

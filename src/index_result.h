@@ -24,13 +24,11 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-/* Add the metrics of a child to a parent index result. */
-void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
+/* Add the metrics of a child to a parent. */
+void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child);
 
 /* Clear / free the metrics of a result */
 void ResultMetrics_Free(RSIndexResult *r);
-
-void Term_Offset_Data_Free(RSTermRecord *tr);
 
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
