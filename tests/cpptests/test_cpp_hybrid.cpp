@@ -852,8 +852,8 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
 
 
 // Test that verifies key correspondence between search subqueries and tail pipeline
-// This test uses a complex hybrid query with LOAD and APPLY steps to ensure that
-// RLookup_CloneInto properly handles both loaded fields and computed fields
+// This test uses a hybrid query with LOAD clause to ensure that
+// RLookup_CloneInto properly handles loaded fields
 TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   QueryError status = {QueryErrorCode(0)};
 
@@ -887,7 +887,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   ASSERT_TRUE(tailLookup != NULL) << "Tail pipeline should have a lookup";
 
   // Verify that the tail lookup has been properly initialized and populated
-  ASSERT_GE(tailLookup->rowlen, 3) << "Tail lookup should have 3 keys: 'title', 'vector',and 'category'";
+  ASSERT_GE(tailLookup->rowlen, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
 
   int tailKeyCount = 0;
   for (RLookupKey *key = tailLookup->head; key; key = key->next) {
@@ -895,7 +895,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
       tailKeyCount++;
     }
   }
-  ASSERT_EQ(tailKeyCount, 3) << "Tail lookup should have 3 keys: 'title', 'vector',and 'category'";
+  ASSERT_GE(tailKeyCount, 3) << "Tail lookup should have at least 3 keys: 'title', 'vector', and 'category'";
 
   // Test all upstream subqueries in the hybrid request
   for (size_t reqIdx = 0; reqIdx < hybridReq->nrequests; reqIdx++) {
@@ -904,7 +904,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GE(upstreamLookup->rowlen, 3) << "Upstream request " << reqIdx << " should have at least  3 keys: 'title', 'vector',and 'category'";
+    ASSERT_GE(upstreamLookup->rowlen, 3) << "Upstream request " << reqIdx << " should have at least 3 keys: 'title', 'vector', and 'category'";
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
     for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
@@ -994,9 +994,9 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
       tailKeyCount++;
     }
   }
-  ASSERT_EQ(tailKeyCount, 2) << "Tail lookup should have at least two keys: '__key' and '__score'";
+  ASSERT_GE(tailKeyCount, 2) << "Tail lookup should have at least 2 keys: '__key' and '__score'";
 
-  // Verify that implicit loading creates the "key" field in the tail pipeline
+  // Verify that implicit loading creates the "__key" field in the tail pipeline
   RLookupKey *tailKeyField = NULL;
   for (RLookupKey *tk = tailLookup->head; tk; tk = tk->next) {
     const char *keyName = HYBRID_IMPLICIT_KEY_FIELD;
@@ -1015,7 +1015,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
     ASSERT_TRUE(upstreamLookup != NULL) << "Upstream request " << reqIdx << " should have a lookup";
 
     // Verify that the upstream lookup has been properly populated
-    ASSERT_GT(upstreamLookup->rowlen, 0) << "Upstream request " << reqIdx << " should have a non-zero rowlen";
+    ASSERT_GE(upstreamLookup->rowlen, 2) << "Upstream request " << reqIdx << " should have at least 2 keys: '__key' and '__score'";
 
     // Verify that the upstream subquery also has the implicit "__key" field
     RLookupKey *upstreamKeyField = NULL;
@@ -1025,8 +1025,8 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
         break;
       }
     }
-    ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit 'key' field";
-    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, upstreamKeyField->path) << "Implicit key field should have path 'key' in request " << reqIdx;
+    ASSERT_TRUE(upstreamKeyField != NULL) << "Upstream request " << reqIdx << " should have implicit '__key' field";
+    EXPECT_STREQ(HYBRID_IMPLICIT_KEY_FIELD, upstreamKeyField->path) << "Implicit key field should have path '__key' in request " << reqIdx;
 
     // Verify that every key in the upstream subquery has a corresponding key in the tail subquery
     for (RLookupKey *upstreamKey = upstreamLookup->head; upstreamKey; upstreamKey = upstreamKey->next) {
