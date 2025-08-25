@@ -37,6 +37,15 @@ impl QueryIterator {
     }
 
     #[inline(always)]
+    pub fn new_id_list(vec: Vec<u64>) -> Self {
+        let len = vec.len() as u64;
+        // Prevent the Vec from being dropped so C can use its allocation.
+        let mut vec = std::mem::ManuallyDrop::new(vec);
+        let ptr = vec.as_mut_ptr();
+        Self(unsafe { bindings::NewIdListIterator(ptr, len, 1f64) })
+    }
+
+    #[inline(always)]
     pub fn num_estimated(&self) -> usize {
         unsafe { (*self.0).NumEstimated.unwrap()(self.0) }
     }
@@ -44,6 +53,11 @@ impl QueryIterator {
     #[inline(always)]
     pub fn at_eof(&self) -> bool {
         unsafe { (*self.0).atEOF }
+    }
+
+    #[inline(always)]
+    pub fn last_doc_id(&self) -> u64 {
+        unsafe { (*self.0).lastDocId }
     }
 
     #[inline(always)]
