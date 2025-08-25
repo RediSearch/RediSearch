@@ -12,7 +12,7 @@ use crate::bindings::{
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
 use std::{
-    borrow::Borrow,
+    borrow::{Borrow, Cow},
     cell::UnsafeCell,
     ffi::{CStr, c_char},
     mem,
@@ -313,7 +313,7 @@ pub struct RLookupKey<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
-    keys: KeyList<'a>,
+    pub(crate) keys: KeyList<'a>,
 
     // Flags/options
     options: RLookupOptions,
@@ -325,7 +325,7 @@ pub struct RLookup<'a> {
 
 #[derive(Debug)]
 #[repr(C)]
-struct KeyList<'a> {
+pub(crate) struct KeyList<'a> {
     // The head and tail nodes of this linked-list.
     // FIXME [MOD-10314] make this more type-safe when we no longer have direct field access from C
     head: Option<NonNull<RLookupKey<'a>>>,
@@ -365,11 +365,18 @@ impl<'a> RLookupKey<'a> {
     /// will simply borrow the provided string.
     pub fn new(name: &'a CStr, flags: RLookupKeyFlags) -> Self {
         let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
-            CBCow::Owned(name.to_owned())
+            Cow::Owned(name.to_owned())
         } else {
-            CBCow::Borrowed(name)
+            Cow::Borrowed(name)
         };
+        Self::new_with_cow(name, flags)
+    }
 
+    /// Constructs a new `RLookupKey` using the provided `Cow<CStr>` and flags.
+    ///
+    /// This is a lower-level constructor that allows you to pass in a `Cow` directly and thus
+    /// let's you bypass the lifetime restrictions of the `name` parameter in [`RLookupKey::new`].
+    pub(crate) fn new_with_cow(name: Cow<'a, CStr>, flags: RLookupKeyFlags) -> Self {
         Self {
             dstidx: 0,
             svidx: 0,
@@ -377,10 +384,21 @@ impl<'a> RLookupKey<'a> {
             name: name.as_ptr(),
             path: name.as_ptr(),
             name_len: name.count_bytes(),
-            _name: name,
+            _name: match name {
+                Cow::Borrowed(v) => CBCow::Borrowed(v),
+                Cow::Owned(v) => CBCow::Owned(v),
+            },
             _path: CBOption::None,
             next: UnsafeCell::new(None),
         }
+    }
+
+    /// Returns the name of this key as a `&CStr`.
+    ///
+    /// This is used internally (load_document code paths) to access a reference with the correct lifetime.
+    pub(crate) fn name(&self) -> &CStr {
+        // Safety: We assume the pointer is valid and points to a null-terminated C string.
+        &self._name
     }
 
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
@@ -608,7 +626,7 @@ impl<'a> KeyList<'a> {
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
     ///
     /// The key will be owned by the list and freed when dropping the list.
-    fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
+    pub(crate) fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push before");
 
@@ -681,7 +699,7 @@ impl<'a> KeyList<'a> {
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`Cursor`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
-    fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
+    pub(crate) fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find_by_name");
 
@@ -698,7 +716,7 @@ impl<'a> KeyList<'a> {
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`CursorMut`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
-    fn find_by_name_mut(&mut self, name: &CStr) -> Option<CursorMut<'_, 'a>> {
+    pub(crate) fn find_by_name_mut(&mut self, name: &CStr) -> Option<CursorMut<'_, 'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find_by_name_mut");
 
@@ -1122,8 +1140,8 @@ impl<'a> RLookup<'a> {
 
     pub fn get_key_load(
         &mut self,
-        name: &'a CStr,
-        field_name: &'a CStr,
+        name: Cow<'a, CStr>,
+        field_name: Cow<'a, CStr>,
         mut flags: RLookupKeyFlags,
     ) -> Option<&RLookupKey<'a>> {
         // remove all flags that are not relevant to getting a key
@@ -1136,7 +1154,7 @@ impl<'a> RLookup<'a> {
         //    (no need to load it from the document).
 
         // Ensure the key is available, if it is check for flags and return None or override the key depending on flags, if key not available insert it.
-        if let Some(mut c) = self.keys.find_by_name_mut(name) {
+        if let Some(mut c) = self.keys.find_by_name_mut(&name) {
             let key = c.current().unwrap();
 
             if (key.flags.contains(RLookupKeyFlag::ValAvailable)
@@ -1166,8 +1184,8 @@ impl<'a> RLookup<'a> {
                     .unwrap();
             }
         } else {
-            self.keys.push(RLookupKey::new(
-                name,
+            self.keys.push(RLookupKey::new_with_cow(
+                name.clone(),
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
             ));
         };
@@ -1176,9 +1194,9 @@ impl<'a> RLookup<'a> {
         // See <https://github.com/rust-lang/rust/issues/54663>
         let mut cursor = self
             .keys
-            .find_by_name_mut(name)
+            .find_by_name_mut(&name)
             .expect("key should have been created above");
-        let key = if let Some(fs) = self.index_spec_cache.as_ref()?.find_field(name) {
+        let key = if let Some(fs) = self.index_spec_cache.as_ref()?.find_field(&name) {
             let key = cursor.into_current().unwrap();
             key.update_from_field_spec(fs);
 
@@ -1199,9 +1217,13 @@ impl<'a> RLookup<'a> {
             // We assume `field_name` is the path to load from in the document.
             if is_borrowed {
                 *key.path = field_name.as_ptr();
-                *key._path = CBOption::Some(CBCow::Borrowed(field_name));
+                if let Cow::Borrowed(field_name) = field_name {
+                    *key._path = CBOption::Some(CBCow::Borrowed(field_name));
+                } else {
+                    panic!("field_name is not actually borrowed");
+                }
             } else if name != field_name {
-                let field_name: CBCow<'_, CStr> = CBCow::Owned(field_name.to_owned());
+                let field_name: CBCow<'_, CStr> = CBCow::Owned(field_name.into_owned());
                 *key.path = field_name.as_ptr();
                 *key._path = CBOption::Some(field_name);
             } // else
@@ -1963,8 +1985,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -2004,8 +2026,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -2048,8 +2070,8 @@ mod tests {
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup.get_key_load(
-            key_name,
-            field_name,
+            key_name.into(),
+            field_name.into(),
             make_bitflags!(RLookupKeyFlag::Override),
         );
 
@@ -2085,8 +2107,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::{Override | ForceLoad}),
             )
             .expect("expected to find key by name");
@@ -2126,7 +2148,7 @@ mod tests {
             rlookup.keys.push(key);
 
             let retrieved_key =
-                rlookup.get_key_load(key_name, field_name, RLookupKeyFlags::empty());
+                rlookup.get_key_load(key_name.into(), field_name.into(), RLookupKeyFlags::empty());
             assert!(retrieved_key.is_none());
             if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
                 assert!(!key.flags.contains(RLookupKeyFlag::ExplicitReturn));
@@ -2135,8 +2157,11 @@ mod tests {
             }
 
             // let's use the load to tag explicit return
-            let opt =
-                rlookup.get_key_load(key_name, field_name, RLookupKeyFlag::ExplicitReturn.into());
+            let opt = rlookup.get_key_load(
+                key_name.into(),
+                field_name.into(),
+                RLookupKeyFlag::ExplicitReturn.into(),
+            );
             assert!(opt.is_none(), "expected None, got {opt:?}");
 
             if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
@@ -2162,8 +2187,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -2191,8 +2216,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name,
-                field_name,
+                key_name.into(),
+                field_name.into(),
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
