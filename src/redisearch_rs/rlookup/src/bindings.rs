@@ -79,16 +79,35 @@ pub enum RLookupLoadMode {
 
     /// Load all keys from both the [sorting_vector::RSSortingVector] and from the [crate::row::RLookupRow]
     AllKeys = 2,
+
+    /// Load all the keys in the RLookup object
+    // TODO: possible unused, Not used in RLookup but listed for completeness with C-side, candidate for removal
+    LkKeys = 3,
 }
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RLookupCoerceType {
+    /// Type is a string
     Str = 0,
-    #[expect(unused, reason = "Don't used in RLookup but listed for completeness")]
+
+    #[expect(
+        unused,
+        reason = "Not used in RLookup but listed for completeness with C-side, candidate for removal"
+    )]
+    /// Type is an integer
+    // TODO: possible unused, Not used in RLookup but listed for completeness with C-side, candidate for removal
     Int = 1,
+
+    /// Type is a floating point number of double precision
     Dbl = 2,
-    #[expect(unused, reason = "Don't used in RLookup but listed for completeness")]
+
+    #[expect(
+        unused,
+        reason = "Not used in RLookup but listed for completeness with C-side, candidate for removal"
+    )]
+    /// Type is a boolean
+    // TODO: possible unused, Not used in RLookup but listed for completeness with C-side, candidate for removal
     Bool = 3,
 }
 
@@ -96,7 +115,11 @@ pub enum RLookupCoerceType {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DocumentType {
     Hash = 0,
+
+    #[expect(unused, reason = "Used by follow-up PRs")]
     Json = 1,
+
+    #[expect(unused, reason = "Used by follow-up PRs")]
     Unsupported = 2,
 }
 
@@ -548,6 +571,9 @@ impl RedisScanCursor {
     }
 }
 
+// Implements an iterator for RedisScanCursor that yields (RedisKey, *mut RedisModuleString, *mut RedisModuleString) in a Rust for loop.
+// This is a wrapper around the RedisModule_ScanKey function from the C API and uses a pattern to get the values from the callback that
+// is also used in stack unwinding scenarios. There is not common term for that but here we can think of it as a "stack slot" pattern.
 impl Iterator for RedisScanCursor {
     type Item = (RedisKey, *mut RedisModuleString, *mut RedisModuleString);
 
