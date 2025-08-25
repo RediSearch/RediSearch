@@ -44,6 +44,10 @@ impl Encoder for OffsetsOnly {
 
         Ok(bytes_written)
     }
+
+    fn decoder() -> impl Decoder {
+        Self
+    }
 }
 
 impl Decoder for OffsetsOnly {

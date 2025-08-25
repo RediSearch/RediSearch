@@ -42,6 +42,10 @@ impl Encoder for FieldsOnly {
         let bytes_written = qint_encode(&mut writer, [delta, field_mask])?;
         Ok(bytes_written)
     }
+
+    fn decoder() -> impl Decoder {
+        Self
+    }
 }
 
 impl Decoder for FieldsOnly {
@@ -83,6 +87,10 @@ impl Encoder for FieldsOnlyWide {
         let mut bytes_written = delta.write_as_varint(&mut writer)?;
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;
         Ok(bytes_written)
+    }
+
+    fn decoder() -> impl Decoder {
+        Self
     }
 }
 

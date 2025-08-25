@@ -86,6 +86,9 @@ pub trait Encoder {
     fn delta_base(block: &IndexBlock) -> t_docId {
         block.last_doc_id
     }
+
+    /// Create a new decoder that can be used to decode records encoded by this encoder.
+    fn decoder() -> impl Decoder;
 }
 
 /// Decoder to read records from an index
@@ -298,6 +301,12 @@ impl<E: Encoder> InvertedIndex<E> {
                 0,
             )
         }
+    }
+
+    /// Create a new [`IndexReader`] for this inverted index.
+    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
+        let decoder = E::decoder();
+        IndexReader::new(&self.blocks, decoder)
     }
 }
 
