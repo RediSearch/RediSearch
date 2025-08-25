@@ -164,9 +164,13 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
  */
 typedef struct RSAggregateResult {
   /**
+   * We mark copied aggregates so we can treat them a bit differently on drop.
+   */
+  bool isCopy;
+  /**
    * The records making up this aggregate result
    *
-   * The `RSAggregateResult` is part of a union in [`RSIndexResultData`], so it needs to have a
+   * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
@@ -193,6 +197,10 @@ typedef struct RSOffsetVector {
  * Represents a single record of a document inside a term in the inverted index
  */
 typedef struct RSTermRecord {
+  /**
+   * We mark copied terms so we can treat them a bit differently on drop.
+   */
+  bool isCopy;
   /**
    * The term that brought up this record
    */
@@ -223,7 +231,7 @@ typedef struct RSNumericRecord {
  * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
  * the bitflags on [`RSResultKindMask`]
  *
- * The `'index` lifetime is linked to the [`IndexBlock`] when decoding borrows from the block.
+ * The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
  * While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
  * raw pointers to results.
  */
@@ -305,11 +313,6 @@ typedef struct RSIndexResult {
    * The actual data of the result
    */
   union RSResultData data;
-  /**
-   * We mark copied results so we can treat them a bit differently on deletion, and pool them if
-   * we want
-   */
-  bool isCopy;
   /**
    * Holds an array of metrics yielded by the different iterators in the AST
    */
