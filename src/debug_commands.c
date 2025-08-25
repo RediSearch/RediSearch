@@ -135,13 +135,13 @@ static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *inv
   InvertedIndexSummary summary = InvertedIndex_Summary(invidx);
   size_t invIdxBulkLen = 0;
 
-  REPLY_WITH_LONG_LONG("numDocs", summary.numDocs, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numEntries", summary.numEntries, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("lastId", summary.lastId, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numDocs", summary.number_of_docs, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numEntries", summary.number_of_entries, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("lastId", summary.last_doc_id, invIdxBulkLen);
   REPLY_WITH_LONG_LONG("flags", summary.flags, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numberOfBlocks", summary.numberOfBlocks, invIdxBulkLen);
-  if (summary.hasEfficiency) {
-    REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/numberOfBlocks)", summary.blocksEfficiency, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numberOfBlocks", summary.number_of_blocks, invIdxBulkLen);
+  if (summary.has_efficiency) {
+    REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/numberOfBlocks)", summary.block_efficiency, invIdxBulkLen);
   }
   return invIdxBulkLen;
 }
@@ -175,9 +175,9 @@ DEBUG_COMMAND(InvertedIndexSummaryCmd) {
     size_t blockBulkLen = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-    REPLY_WITH_LONG_LONG("firstId", blockSummary->firstId, blockBulkLen);
-    REPLY_WITH_LONG_LONG("lastId", blockSummary->lastId, blockBulkLen);
-    REPLY_WITH_LONG_LONG("numEntries", blockSummary->numEntries, blockBulkLen);
+    REPLY_WITH_LONG_LONG("firstId", blockSummary->first_doc_id, blockBulkLen);
+    REPLY_WITH_LONG_LONG("lastId", blockSummary->last_doc_id, blockBulkLen);
+    REPLY_WITH_LONG_LONG("numEntries", blockSummary->number_of_entries, blockBulkLen);
 
     RedisModule_ReplySetArrayLength(ctx, blockBulkLen);
   }
@@ -359,14 +359,14 @@ DEBUG_COMMAND(DumpPrefixTrie) {
 
 InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
   InvertedIndexSummary summary = InvertedIndex_Summary(idx);
-  InvertedIndexStats indexStats = {.blocks_efficiency = summary.blocksEfficiency};
+  InvertedIndexStats indexStats = {.blocks_efficiency = summary.block_efficiency};
   START_POSTPONED_LEN_ARRAY(invertedIndexDump);
 
-  REPLY_WITH_LONG_LONG("numDocs", summary.numDocs, ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("numEntries", summary.numEntries, ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("lastId", summary.lastId, ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("size", summary.numberOfBlocks, ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", summary.blocksEfficiency, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("numDocs", summary.number_of_docs, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("numEntries", summary.number_of_entries, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("lastId", summary.last_doc_id, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("size", summary.number_of_blocks, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", summary.block_efficiency, ARRAY_LEN_VAR(invertedIndexDump));
 
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);

@@ -320,6 +320,28 @@ typedef struct RSIndexResult {
   double weight;
 } RSIndexResult;
 
+/**
+ * Summary information about the key metrics of a block in an inverted index
+ */
+typedef struct InvertedIndexBlockSummary {
+  t_docId first_doc_id;
+  t_docId last_doc_id;
+  uintptr_t number_of_entries;
+} InvertedIndexBlockSummary;
+
+/**
+ * Summary information about an inverted index containing all key metrics
+ */
+typedef struct InvertedIndexSummary {
+  uintptr_t number_of_docs;
+  uintptr_t number_of_entries;
+  t_docId last_doc_id;
+  uint64_t flags;
+  uintptr_t number_of_blocks;
+  double block_efficiency;
+  bool has_efficiency;
+} InvertedIndexSummary;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus

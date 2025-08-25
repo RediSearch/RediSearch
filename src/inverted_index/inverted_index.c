@@ -1225,34 +1225,34 @@ double InvertedIndex_GetEfficiency(const InvertedIndex *idx) {
 
 /* Retrieve comprehensive summary information about an inverted index.
  * Returns a stack-allocated struct containing all key metrics including:
- * - numDocs: Number of documents in the index
- * - numEntries: Total number of entries
- * - lastId: Last document ID
+ * - number_of_docs: Number of documents in the index
+ * - number_of_entries: Total number of entries
+ * - last_doc_id: Last document ID
  * - flags: Index configuration flags
- * - numberOfBlocks: Number of index blocks
- * - blocksEfficiency: Efficiency ratio (only for numeric indexes)
- * - hasEfficiency: Whether efficiency calculation is applicable */
+ * - number_of_blocks: Number of index blocks
+ * - block_efficiency: Efficiency ratio (only for numeric indexes)
+ * - has_efficiency: Whether efficiency calculation is applicable */
 InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx) {
   IndexFlags flags = InvertedIndex_Flags(idx);
   bool hasEfficiency = (flags & Index_StoreNumeric) ? true : false;
 
   InvertedIndexSummary summary = {
-    .numDocs = InvertedIndex_NumDocs(idx),
-    .numEntries = InvertedIndex_NumEntries(idx),
-    .lastId = InvertedIndex_LastId(idx),
+    .number_of_docs = InvertedIndex_NumDocs(idx),
+    .number_of_entries = InvertedIndex_NumEntries(idx),
+    .last_doc_id = InvertedIndex_LastId(idx),
     .flags = flags,
-    .numberOfBlocks = InvertedIndex_NumBlocks(idx),
-    .blocksEfficiency = hasEfficiency ? InvertedIndex_GetEfficiency(idx) : 0.0,
-    .hasEfficiency = hasEfficiency
+    .number_of_blocks = InvertedIndex_NumBlocks(idx),
+    .block_efficiency = hasEfficiency ? InvertedIndex_GetEfficiency(idx) : 0.0,
+    .has_efficiency = hasEfficiency
   };
   return summary;
 }
 
 /* Retrieve basic information about the blocks in an inverted index.
  * Returns an array with `count` entries. Each entry includes:
- * - firstId: The frist document ID in the block
- * - lastId: The last document ID in the block
- * - numEntries: The number of endries in the block */
+ * - first_doc_id: The first document ID in the block
+ * - last_doc_id: The last document ID in the block
+ * - number_of_entries: The number of endries in the block */
 InvertedIndexBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count) {
   *count = InvertedIndex_NumBlocks(idx);
   if (*count == 0) {
@@ -1263,9 +1263,9 @@ InvertedIndexBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx,
   for (size_t i = 0; i < *count; i++) {
     IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
     summaries[i] = (InvertedIndexBlockSummary){
-      .firstId = IndexBlock_FirstId(blk),
-      .lastId = IndexBlock_LastId(blk),
-      .numEntries = IndexBlock_NumEntries(blk),
+      .first_doc_id = IndexBlock_FirstId(blk),
+      .last_doc_id = IndexBlock_LastId(blk),
+      .number_of_entries = IndexBlock_NumEntries(blk),
     };
   }
 

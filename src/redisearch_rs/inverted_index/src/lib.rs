@@ -20,6 +20,7 @@ use ffi::{FieldMask, RS_FIELDMASK_ALL};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 use low_memory_thin_vec::LowMemoryThinVec;
 
+pub mod debug;
 pub mod doc_ids_only;
 pub mod fields_offsets;
 pub mod fields_only;
