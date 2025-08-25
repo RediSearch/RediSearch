@@ -449,7 +449,7 @@ fn encode_f64_with_compression() {
         .decode(&mut buf, 0)
         .expect("to decode numeric record");
 
-    let diff = record_decoded.as_numeric().unwrap().0 - record.as_numeric().unwrap().0;
+    let diff = record_decoded.as_numeric().unwrap() - record.as_numeric().unwrap();
     let diff = diff.abs();
 
     assert!(diff < 0.01);

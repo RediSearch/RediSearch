@@ -47,7 +47,7 @@ pub unsafe extern "C" fn IndexResult_NumValue(result: *const RSIndexResult) -> f
     // an `RSIndexResult`.
     let result = unsafe { &*result };
 
-    result.as_numeric().map_or(0.0, |num| num.0)
+    result.as_numeric().unwrap_or_default()
 }
 
 /// Set the numeric value of the result if it is a numeric result. If the result is not numeric,
@@ -66,7 +66,7 @@ pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, val
     let result = unsafe { &mut *result };
 
     if let Some(num) = result.as_numeric_mut() {
-        num.0 = value;
+        *num = value;
     }
 }
 

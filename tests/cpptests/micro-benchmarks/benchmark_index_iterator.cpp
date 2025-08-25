@@ -97,7 +97,7 @@ public:
         } else if (flags == Index_DocIdsOnly) {
             // Populate the index with document IDs only
             for (size_t i = 0; i < ids.size(); ++i) {
-                RSIndexResult rec = {.docId = ids[i], .data = {.virtual_tag = RSResultData_Virtual}};
+                RSIndexResult rec = {.docId = ids[i], .data = {.tag = RSResultData_Virtual}};
                 InvertedIndex_WriteEntryGeneric(index, encoder, &rec);
             }
         } else if (flags == (Index_DocIdsOnly | Index_Temporary)) {
@@ -106,7 +106,7 @@ public:
             RS_ASSERT_ALWAYS(encoder != InvertedIndex_GetEncoder(Index_DocIdsOnly)); // Ensure we are using the raw doc ID encoder
             encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
             for (size_t i = 0; i < ids.size(); ++i) {
-                RSIndexResult rec = {.docId = ids[i], .data = {.virtual_tag = RSResultData_Virtual}};
+                RSIndexResult rec = {.docId = ids[i], .data = {.tag = RSResultData_Virtual}};
                 InvertedIndex_WriteEntryGeneric(index, encoder, &rec);
             }
         } else {
