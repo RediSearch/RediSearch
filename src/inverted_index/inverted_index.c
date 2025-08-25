@@ -1248,25 +1248,30 @@ InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx) {
   return summary;
 }
 
-/* Initialize an iterator for traversing index blocks.
- * Returns a stack-allocated iterator positioned at the beginning. */
-InvertedIndexBlockIterator InvertedIndex_BlockIterator(const InvertedIndex *idx) {
-  InvertedIndexBlockIterator iter = {
-    .index = idx,
-    .currentBlock = 0,
-    .totalBlocks = InvertedIndex_NumBlocks(idx)
-  };
-  return iter;
-}
-
-/* Get the next block from the iterator and advance the position.
- * Returns NULL if no more blocks are available. */
-IndexBlock *InvertedIndex_BlockIterator_Next(InvertedIndexBlockIterator *iter) {
-  if (iter->currentBlock >= iter->totalBlocks) {
+/* Retrieve basic information about the blocks in an inverted index.
+ * Returns an array with `count` entries. Each entry includes:
+ * - firstId: The frist document ID in the block
+ * - lastId: The last document ID in the block
+ * - numEntries: The number of endries in the block */
+InvertedIndexBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count) {
+  *count = InvertedIndex_NumBlocks(idx);
+  if (*count == 0) {
     return NULL;
   }
 
-  IndexBlock *block = InvertedIndex_BlockRef(iter->index, iter->currentBlock);
-  iter->currentBlock++;
-  return block;
+  InvertedIndexBlockSummary *summaries = rm_calloc(*count, sizeof(InvertedIndexBlockSummary));
+  for (size_t i = 0; i < *count; i++) {
+    IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
+    summaries[i] = (InvertedIndexBlockSummary){
+      .firstId = IndexBlock_FirstId(blk),
+      .lastId = IndexBlock_LastId(blk),
+      .numEntries = IndexBlock_NumEntries(blk),
+    };
+  }
+
+  return summaries;
+}
+
+void InvertedIndex_BlocksSummaryFree(InvertedIndexBlockSummary *summaries) {
+  rm_free(summaries);
 }

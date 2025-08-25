@@ -136,24 +136,22 @@ typedef struct {
   bool hasEfficiency;         /* Whether efficiency calculation has been set */
 } InvertedIndexSummary;
 
+/* Summary information about the key metrics of a block in an inverted index */
+typedef struct {
+  t_docId firstId;            /* First document ID in block */
+  t_docId lastId;             /* Last document ID in block */
+  uint64_t numEntries;        /* Total number of entries in block */
+} InvertedIndexBlockSummary;
+
 /* Retrieve comprehensive summary information about an inverted index */
 InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx);
 
-/* Calculate efficiency ratio of the inverted index: numEntries / numBlocks */
-double InvertedIndex_GetEfficiency(const InvertedIndex *idx);
+/* Retrieve basic summary information about an inverted index's blocks. The returned array should
+ * be freed using `InvertedIndex_BlocksSummaryFree` */
+InvertedIndexBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count);
 
-/* Iterator for traversing index blocks in an inverted index */
-typedef struct {
-  const InvertedIndex *index;   /* The inverted index being iterated */
-  uint32_t currentBlock;        /* Current block index */
-  uint32_t totalBlocks;         /* Total number of blocks */
-} InvertedIndexBlockIterator;
-
-/* Initialize an iterator for traversing index blocks */
-InvertedIndexBlockIterator InvertedIndex_BlockIterator(const InvertedIndex *idx);
-
-/* Get the next block from the iterator and advance it */
-IndexBlock *InvertedIndex_BlockIterator_Next(InvertedIndexBlockIterator *iter);
+/* Free the blocks summary */
+void InvertedIndex_BlocksSummaryFree(InvertedIndexBlockSummary *summaries);
 
 t_docId IndexBlock_FirstId(const IndexBlock *b);
 t_docId IndexBlock_LastId(const IndexBlock *b);
