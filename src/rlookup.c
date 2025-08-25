@@ -905,6 +905,7 @@ done:
 
 int RLookup_LoadDocument(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   int rv = REDISMODULE_ERR;
+  // TODO: We check this but later assume it is not NULL (dmd) - handle.
   if (options->dmd) {
     RLookupRow_SetSortingVector(dst, options->dmd->sortVector);
   }

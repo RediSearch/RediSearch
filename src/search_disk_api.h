@@ -35,33 +35,16 @@ typedef struct BasicDiskAPI {
 typedef struct IndexDiskAPI {
   /**
    * @brief Indexes a document in the disk database
-   *
-   * Adds a document to the inverted index for the specified index name and term.
-   *
-   * @param db Pointer to the disk database
-   * @param indexName Name of the index to add the document to
-   * @param term Term to associate the document with
-   * @param docId Document ID to index
-   * @param fieldMask Field mask indicating which fields are present in the document
-   * @return true if the write was successful, false otherwise
    */
   bool (*indexDocument)(RedisSearchDiskIndexSpec *index, const char *term, t_docId docId, t_fieldMask fieldMask);
 
-   /**
+  /**
    * @brief Creates a new iterator for the inverted index
-   *
-   * @param db Pointer to the disk database
-   * @param indexName Name of the index to iterate
-   * @param term Term within the index to iterate
-   * @return Pointer to the created iterator, or NULL if creation failed
    */
   IndexIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, t_fieldMask fieldMask);
 
   /**
-   * @brief Returns the number of documents in the index
-   *
-   * @param index Pointer to the index
-   * @return Number of documents in the index
+   * @brief Returns an iterator over all docs
    */
   IndexIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
@@ -69,30 +52,67 @@ typedef struct IndexDiskAPI {
 typedef struct DocTableDiskAPI {
   /**
    * @brief Adds a new document to the table
-   *
-   * Assigns a new document ID and stores the document metadata.
-   * If the document key already exists, returns 0.
-   *
-   * @param handle Handle to the document table
-   * @param key Document key
-   * @param score Document score (for ranking)
-   * @param flags Document flags
-   * @param maxFreq Maximum term frequency in the document
-   * @return New document ID, or 0 on error/duplicate
    */
   t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, const char* key, double score, uint32_t flags, uint32_t maxFreq);
 
   /**
    * @brief Returns whether the docId is in the deleted set
-   *
-   * @param handle Handle to the document table
-   * @param docId Document ID to check
-   * @return true if deleted, false if not deleted or on error
    */
   bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 
+  /**
+   * @brief Synchronous metadata fetch (legacy)
+   */
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
+
+  /**
+   * @brief Schedule an async dmd read for a given docId
+   */
+  bool (*loadDmdAsync)(RedisSearchDiskIndexSpec* handle, t_docId docId);
+
+  /**
+   * @brief Wait until a completion is available (or timeout_ms) and extract fields
+   *
+   * On success, returns 1 and outputs the dmd fields:
+   *  - keyOut: pointer allocated via AllocateKeyCallback
+   *  - keyLenOut: length of keyOut
+   *  - scoreOut, flagsOut, maxFreqOut: basic metadata values
+   * Returns 0 on timeout, -1 on error/failed read
+   */
+  int (*waitDmd)(RedisSearchDiskIndexSpec* handle,
+                 t_docId* docIdOut,
+                 char** keyOut, size_t* keyLenOut,
+                 double* scoreOut, uint32_t* flagsOut, uint32_t* maxFreqOut,
+                 long long timeout_ms,
+                 AllocateKeyCallback allocateKey);
+
 } DocTableDiskAPI;
+
+/**
+ * @brief POD returned by waitDmd when a document’s metadata is ready
+ *
+ * key is allocated via the provided AllocateKeyCallback and should be owned by the caller
+ * (no extra free helper is required).
+ * If key is NULL, the call either timed out or failed; in that case other fields are undefined.
+ */
+typedef struct DiskDocumentMetadata {
+  t_docId docId;
+  char* key;
+  size_t keyLen;
+  double score;
+  uint32_t flags;
+  uint32_t maxFreq;
+} DiskDocumentMetadata;
+
+/**
+ * @brief Wait until a completion is available (or timeout_ms) and return its metadata
+ *
+ * On success, returns a DiskDocumentMetadata with a non-NULL key allocated via AllocateKeyCallback.
+ * On timeout or failure, returns a struct with key == NULL.
+ */
+DiskDocumentMetadata SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
+                                        long long timeout_ms,
+                                        AllocateKeyCallback allocateKey);
 
 typedef struct RedisSearchDiskAPI {
   BasicDiskAPI basic;
@@ -104,4 +124,3 @@ typedef struct RedisSearchDiskAPI {
 #ifdef __cplusplus
 }
 #endif
-

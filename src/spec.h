@@ -72,6 +72,7 @@ struct IndexesScanner;
 #define SPEC_INDEXMISSING_STR "INDEXMISSING"
 #define SPEC_INDEXALL_STR "INDEXALL"
 #define SPEC_RAM_STR "RAM"
+#define SPEC_DISK_SYNC_STR "SYNC"
 
 #define SPEC_GEOMETRY_FLAT_STR "FLAT"
 #define SPEC_GEOMETRY_SPHERE_STR "SPHERICAL"
@@ -182,15 +183,22 @@ typedef enum {
   Index_HasFieldAlias = 0x4000,
   Index_HasVecSim = 0x8000,
   Index_HasSuffixTrie = 0x10000,
+
   // If any of the fields has undefined order. This is just a cache for quick lookup
   Index_HasUndefinedOrder = 0x20000,
 
   Index_HasGeometry = 0x40000,
 
-  Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+  // Index has at least one field that does not indexes empty values
+  Index_HasNonEmpty = 0x80000,
 
-  Index_StoreInRAM = 0x100000, // Index is stored on RAM (force it)
+  // Index is stored on RAM (force it)
+  Index_StoreInRAM = 0x100000,
+
+  // Force synchronous dmd reads from disk doc-table (disable async path)
+  Index_DiskSyncDmd = 0x200000,
 } IndexFlags;
+
 
 // redis version (its here because most file include it with no problem,
 // we should introduce proper common.h file)

@@ -1579,6 +1579,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
       // A temporary flag to force indexes to be stored in RAM - for benchmarking purposes.
       {AC_MKBITFLAG(SPEC_RAM_STR, &spec->flags, Index_StoreInRAM)},
+      // Disk pipeline option to force synchronous dmd reads (disable async)
+      {AC_MKBITFLAG(SPEC_DISK_SYNC_STR, &spec->flags, Index_DiskSyncDmd)},
 
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},

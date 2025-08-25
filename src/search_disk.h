@@ -112,3 +112,23 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
  * @return true if deleted, false if not deleted or on error
  */
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
+
+// Async doc-table read API
+/**
+ * @breif Schedule an async dmd read for a given docId
+ *
+ * @param handle Handle to the document table
+ * @param docId Document ID
+ * @return true if successful, false otherwise
+ */
+bool SearchDisk_LoadDmdAsync(RedisSearchDiskIndexSpec *handle, t_docId docId);
+
+/**
+ * @brief Wait until a completion is available (or timeout_ms) and return a POD
+ *
+ * On success, returns a DiskDocumentMetadata with key allocated via AllocateKeyCallback.
+ * On timeout or error, returns .key == NULL.
+ */
+DiskDocumentMetadata SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
+                                        long long timeout_ms,
+                                        AllocateKeyCallback allocateKey);
