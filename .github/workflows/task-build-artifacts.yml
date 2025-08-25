@@ -144,6 +144,11 @@ jobs:
         env:
           REDISEARCH_MT_BUILD: 0
         run: ${{ env.BUILD_CMD }} && make pack
+      - name: Build and Pack COORD=oss
+        env:
+          REDISEARCH_MT_BUILD: 0
+          COORD: oss
+        run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Lite
         env:
           REDISEARCH_MT_BUILD: 1

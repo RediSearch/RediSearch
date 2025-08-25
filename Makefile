@@ -114,6 +114,11 @@ else ifeq ($(LITE),1)
 	MODULE_NAME=searchlight
 	PACKAGE_NAME=redisearch-light
 	RAMP_YAML=pack/ramp-light.yml
+else ifeq ($(COORD),oss)
+	TARGET_NAME=module-oss.so
+	MODULE_NAME=search
+	PACKAGE_NAME=redisearch-oss-cluster
+	RAMP_YAML=pack/ramp-oss-cluster.yml
 else  # Default to OSS
 	TARGET_NAME=redisearch.so
 	MODULE_NAME=search
@@ -240,6 +245,12 @@ run:
 			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
 			if [ -z "$$MODULE_PATH" ]; then \
 				echo "Error: No enterprise module found. Please build first with 'make build COORD=rlec'"; \
+				exit 1; \
+			fi; \
+		elif [ "$(COORD)" = "oss" ]; then \
+			MODULE_PATH=$$(find $(ROOT)/bin -name $(TARGET_NAME) | head -1); \
+			if [ -z "$$MODULE_PATH" ]; then \
+				echo "Error: No Coord-OSS module found. Please build first with 'make build COORD=oss'"; \
 				exit 1; \
 			fi; \
 		else \
