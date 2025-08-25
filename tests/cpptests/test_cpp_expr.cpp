@@ -371,7 +371,7 @@ TEST_F(ExprTest, testPredicate) {
   TEST_EVAL("3 * @bar + 1", 7);
   TEST_EVAL("@bar * 3 + 1", 7);
 
-  RLookupRow_Cleanup(&rr);
+  RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
 
@@ -406,7 +406,7 @@ TEST_F(ExprTest, testPropertyFetch) {
   ASSERT_EQ(RSValue_Number, ctx.result().t);
   ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), ctx.result().numval);
 
-  RLookupRow_Cleanup(&rr);
+  RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
 
@@ -462,7 +462,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
   ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
   ASSERT_EXPR_EVAL_NUMBER(ctx, 1);  // @foo < @bar is true, so should return 1
 
-  RLookupRow_Cleanup(&rr);
+  RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
 
@@ -490,7 +490,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithExists) {
   ASSERT_EQ(EXPR_EVAL_OK, ctx1.bindLookupKeys());
   ASSERT_EXPR_EVAL_NUMBER(ctx1, 0);  // !exists(@foo) is false, so should return false branch (0)
 
-  RLookupRow_Cleanup(&rr);
+  RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
 
@@ -582,7 +582,7 @@ TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
   ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
   ASSERT_EXPR_EVAL_NUMBER(ctx, 15);  // @foo + 10 = 5 + 10 = 15
 
-  RLookupRow_Cleanup(&rr);
+  RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
 

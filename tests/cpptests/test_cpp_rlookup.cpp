@@ -68,6 +68,6 @@ TEST_F(RLookupTest, testRow) {
 
   RSValue_Decref(vfoo);
   RSValue_Decref(vbar);
-  RLookupRow_Cleanup(&rr);
+  RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
