@@ -122,8 +122,8 @@ pub enum LoadDocumentError {
 ///
 /// There are four code paths for loading documents, depending on the document type and the loading mode:
 ///
-/// 1. Hash document, load all fields, Scan-Cursor-API: This code path is fully implemented in Rust using the [`h_get_all`] and [`h_get_all_scan`] function.
-/// 2. Hash document, load all fields, fallback Call-API: This code path is fully implemented in Rust using the [`h_get_all`] abd [`h_get_all_fallback`] function.
+/// 1. Hash document, load all fields, Scan-Cursor-API: This code path is fully implemented in Rust using the `h_get_all` and `h_get_all_scan` function.
+/// 2. Hash document, load all fields, fallback Call-API: This code path is fully implemented in Rust using the `h_get_all` and `h_get_all_fallback` function.
 /// 3. JSON document, load all fields: This code path is not yet ported to Rust and still uses the C implementation via FFI, see MOD-11050.
 /// 4. Individual keys (either hash or JSON document): This code path is not yet ported to Rust and still uses the C implementation via FFI, see MOD-11051.
 ///
