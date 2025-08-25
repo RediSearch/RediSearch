@@ -189,7 +189,7 @@ class testHybridSearch:
     #     }
     #     run_test_scenario(self.env, self.index_name, scenario)
 
-    # # TODO: MOD-11012 FT.HYBRID VSIM FILTER clause doesnt work as expected
+    # # TODO: MOD-11012 FT.HYBRID VSIM FILTER clause doesn't work as expected
     # def test_knn_text_vector_prefilter(self):
     #     """Test hybrid search using KNN + VSIM text prefilter"""
     #     scenario = {
