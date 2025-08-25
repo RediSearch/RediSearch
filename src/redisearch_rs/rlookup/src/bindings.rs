@@ -587,7 +587,8 @@ impl Iterator for RedisScanCursor {
             value: *mut RedisModuleString,
             data: *mut c_void,
         ) {
-            // SAFETY: this is the responsibility of the caller, see above.
+            // SAFETY: this is the responsibility of the caller, see only usage below in `next()`
+            // `data` is a stack slot of type Data
             unsafe {
                 let data = data.cast::<Data>();
                 let data = &mut (*data);
@@ -602,6 +603,7 @@ impl Iterator for RedisScanCursor {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
         let scan_key = unsafe { RedisModule_ScanKey.unwrap() };
+
         // Safety: All pointers we pass here are guaranteed to remain valid during the `scan_key` call.
         let ret = unsafe {
             scan_key(
