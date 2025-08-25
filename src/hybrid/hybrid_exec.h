@@ -15,6 +15,7 @@
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
 #include "query_error.h"
+#include "cursor.h"
 
 #ifdef __cplusplus
 extern "C" {

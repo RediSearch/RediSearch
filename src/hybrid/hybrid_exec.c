@@ -116,7 +116,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   startPipelineCommon(hreq->reqConfig.timeoutPolicy,
-          &hreq->hybridParams->aggregationParams.common.sctx->time.timeout,
+          &hreq->sctx->time.timeout,
           rp, results, r, rc);
 }
 
