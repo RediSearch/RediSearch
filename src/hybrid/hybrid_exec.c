@@ -417,7 +417,12 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
-  cmd.reqConfig = &hybridRequest->reqConfig;
+  RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
+  cmd.search->sctx = NewSearchCtxC(ctx1, indexname, true);
+  RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
+  cmd.vector->sctx = NewSearchCtxC(ctx2, indexname, true);
 
   int rc = parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status);
   if (rc != REDISMODULE_OK) {
@@ -445,6 +450,64 @@ error:
 
   CurrentThread_ClearIndexSpec();
   return QueryError_ReplyAndClear(ctx, &status);
+}
+
+/**
+ * Destroy a blocked client hybrid context and clean up resources.
+ *
+ * @param BCHCtx The blocked client context to destroy
+ */
+void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
+    AGGPlan *plan = &hreq->tailPipeline->ap;
+    cachedVars cv = {
+        .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+        .lastAstp = AGPLN_GetArrangeStep(plan)
+    };
+
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
+    RedisModule_EndReply(reply);
+    HybridRequest_Free(hreq);
+}
+
+static bool HybridRequest_InternalBuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError* status, bool internal, bool coordinator) {
+  // Build the pipeline and execute
+  bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+  arrayof(ResultProcessor*) depleters = NULL;
+  // Internal commands do not have a hybrid merger and only have a depletion pipeline
+  if (internal) {
+    RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
+    isCursor = true;
+    depleters = HybridRequest_BuildDepletionPipeline(hreq, hybridParams);
+    if (!depleters) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Failed to build depletion pipeline");
+      QueryError_ReplyAndClear(ctx, status);
+      return false;
+    }
+  } else {
+    if (HybridRequest_BuildPipeline(hreq, hybridParams, status) != REDISMODULE_OK) {
+      return false;
+    }
+  }
+
+  if (isCursor) {
+    arrayof(Cursor*) cursors = HybridRequest_StartCursor(hreq, depleters, status, coordinator);
+    if (!cursors) {
+      QueryError_ReplyAndClear(ctx, status);
+      return false;
+    }
+
+    // Send array of cursor IDs as response
+    RedisModule_ReplyWithArray(ctx, array_len(cursors));
+    for (size_t i = 0; i < array_len(cursors); i++) {
+      RedisModule_ReplyWithLongLong(ctx, cursors[i]->id);
+    }
+    array_free(cursors);
+  } else {
+    // Hybrid query doesn't support cursors.
+    HybridRequest_Execute(hreq, ctx, sctx);
+  }
+  return true;
 }
 
 /**
@@ -492,11 +555,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     return;
   }
 
+  // Update the main search context with the thread-safe context
   RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
-  if (!(hreq->reqflags & QEXEC_F_IS_CURSOR)) {
-    // Update the main search context with the thread-safe context
-    sctx->redisCtx = outctx;
-  }
+  sctx->redisCtx = outctx;
 
   if (buildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, BCHCtx->internal) == REDISMODULE_OK) {
     // Set hreq and hybridParams to NULL so they won't be freed in destroy

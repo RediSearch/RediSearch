@@ -12,6 +12,7 @@ protected:
   std::string index_name;
   RedisSearchCtx *sctx;
   HybridRequest *result;  // Member to hold current test result
+  HybridPipelineParams hybridParams;
   ParseHybridCommandCtx parseCtx;
 
   void SetUp() override {
@@ -41,6 +42,7 @@ protected:
     parseCtx.search = result->requests[0];
     parseCtx.vector = result->requests[1];
     parseCtx.tailPlan = &result->tailPipeline->ap;
+    parseCtx.hybridParams = &hybridParams;
   }
 
   void TearDown() override {

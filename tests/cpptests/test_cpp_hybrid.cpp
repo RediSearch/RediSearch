@@ -668,7 +668,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* hybridReq = MakeDefaultHyabridRequest();
+  HybridRequest* hybridReq = MakeDefaultHybridRequest();
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridReq->requests[0];
   cmd.vector = hybridReq->requests[1];
@@ -679,7 +679,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Build the pipeline using the parsed hybrid parameters
-  rc = HybridRequest_BuildPipeline(hybridReq, &cmd.hybridParams);
+  rc = HybridRequest_BuildPipeline(hybridReq, &cmd.hybridParams, &status);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
 
   // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
@@ -772,7 +772,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* hybridReq = MakeDefaultHyabridRequest();
+  HybridRequest* hybridReq = MakeDefaultHybridRequest();
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridReq->requests[0];
   cmd.vector = hybridReq->requests[1];
@@ -784,7 +784,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Build the pipeline using the parsed hybrid parameters
-  rc = HybridRequest_BuildPipeline(hybridReq, &cmd.hybridParams);
+  rc = HybridRequest_BuildPipeline(hybridReq, &cmd.hybridParams, &status);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
 
   // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
