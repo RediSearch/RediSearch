@@ -15,6 +15,8 @@ use inverted_index::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSTermRecord,
 };
 
+pub use inverted_index::debug::{BlockSummary, Summary};
+
 /// Check if the result is an aggregate result.
 ///
 /// # Safety
