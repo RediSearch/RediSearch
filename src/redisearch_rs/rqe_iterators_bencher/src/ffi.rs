@@ -25,6 +25,7 @@ mod bindings {
 }
 
 use bindings::{IteratorStatus, ValidateStatus};
+use ffi::RedisModule_Alloc;
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -38,11 +39,14 @@ impl QueryIterator {
 
     #[inline(always)]
     pub fn new_id_list(vec: Vec<u64>) -> Self {
-        let len = vec.len() as u64;
-        // Prevent the Vec from being dropped so C can use its allocation.
-        let mut vec = std::mem::ManuallyDrop::new(vec);
-        let ptr = vec.as_mut_ptr();
-        Self(unsafe { bindings::NewIdListIterator(ptr, len, 1f64) })
+        // Convert the Rust vector to use C allocation
+        let len = vec.len();
+        let data =
+            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
+        }
+        Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
     }
 
     #[inline(always)]

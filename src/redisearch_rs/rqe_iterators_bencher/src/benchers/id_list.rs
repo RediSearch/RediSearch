@@ -38,24 +38,36 @@ impl Bencher {
     }
 
     pub fn bench(&self, c: &mut Criterion) {
-        self.read(c);
-        self.skip_to(c);
+        self.read_dense(c);
+        self.read_sparse(c);
+        self.skip_to_dense(c);
+        self.skip_to_sparse(c);
     }
 
-    fn read(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - IdList - Read");
+    fn read_dense(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - IdList - Read Dense");
         self.c_read_dense(&mut group);
-        self.c_read_sparse(&mut group);
         self.rust_read_dense(&mut group);
+        group.finish();
+    }
+
+    fn read_sparse(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - IdList - Read Sparse");
+        self.c_read_sparse(&mut group);
         self.rust_read_sparse(&mut group);
         group.finish();
     }
 
-    fn skip_to(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - IdList - SkipTo");
+    fn skip_to_dense(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - IdList - SkipTo Dense");
         self.c_skip_to_dense(&mut group);
-        self.c_skip_to_sparse(&mut group);
         self.rust_skip_to_dense(&mut group);
+        group.finish();
+    }
+
+    fn skip_to_sparse(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - IdList - SkipTo Sparse");
+        self.c_skip_to_sparse(&mut group);
         self.rust_skip_to_sparse(&mut group);
         group.finish();
     }
