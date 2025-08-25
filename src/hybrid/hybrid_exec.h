@@ -32,9 +32,9 @@ extern "C" {
  * @param argc Number of arguments in argv
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal);
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, bool coordinator);
 
-void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
+arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
 
 /**
  * Helper function to get the search context from a hybrid request.
