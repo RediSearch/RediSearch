@@ -295,6 +295,11 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
 int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, QueryError *status);
 
 /**
+ * Initialize basic AREQ structure with search options and aggregation plan.
+ */
+void initializeAREQ(AREQ *req);
+
+/**
  * This stage will apply the context to the request. During this phase, the
  * query will be parsed (and matched according to the schema), and the reducers
  * will be loaded and analyzed.
