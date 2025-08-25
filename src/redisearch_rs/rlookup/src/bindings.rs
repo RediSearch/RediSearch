@@ -87,8 +87,7 @@ pub enum RLookupLoadMode {
 
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum RLookupCoerceType {
-    /// Type is a string
+pub(crate) enum RLookupCoerceType {
     Str = 0,
     #[expect(
         unused,

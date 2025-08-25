@@ -28,18 +28,6 @@ use ffi::{QueryError, REDISMODULE_OK, RSDocumentMetadata, RedisSearchCtx};
 use sorting_vector::RSSortingVector;
 use value::RSValueFFI;
 
-/// Variables that are global in the C API and required for loading documents.
-///
-/// This is a temporary solution until we have a proper Rust port of the globals in the C API.
-pub struct GlobalOptions {
-    /// A server-wide flag if CRDTs (Conflict-free replicated data type) are used.
-    /// [See further details](https://redis.io/docs/latest/operate/rs/databases/active-active/)
-    is_crdt: bool,
-
-    /// The server version, which is used to determine the available features (using Scan API or Call API).
-    server_version: u32,
-}
-
 /// The options data structure as used by the `RLookup_Load` function. Needed for interoperability with C code.
 #[repr(C)]
 pub struct RLookupLoadOptions<'a> {
@@ -145,7 +133,6 @@ pub fn load_document(
     it: &mut RLookup<'_>,
     dst_row: &mut RLookupRow<'_, value::RSValueFFI>,
     options: &RLookupLoadOptions,
-    globals: &GlobalOptions,
 ) -> Result<(), LoadDocumentError> {
     let sv = options.dmd.sortVector as *const RSSortingVector<RSValueFFI>;
 
@@ -156,7 +143,7 @@ pub fn load_document(
     let rc = match options.mode {
         RLookupLoadMode::AllKeys => {
             if options.dmd.type_() == DocumentType::Hash as u32 {
-                h_get_all(it, dst_row, options, globals)?;
+                h_get_all(it, dst_row, options)?;
                 REDISMODULE_OK
             } else {
                 let it = (it as *mut RLookup<'_>).cast::<ffi::RLookup>();
@@ -202,7 +189,6 @@ fn h_get_all(
     lookup: &mut RLookup<'_>,
     dst_row: &mut RLookupRow<'_, RSValueFFI>,
     options: &RLookupLoadOptions,
-    globals: &GlobalOptions,
 ) -> Result<(), LoadDocumentError> {
     // get the key pointer from the options
     // Safety: The caller
@@ -214,12 +200,17 @@ fn h_get_all(
     // Safety: We assume the context has been locked by the caller
     let key_str = RedisString::from_raw_parts(unsafe { options.ctx_mut() }, key_ptr, sds_len);
 
-    let feature = ffi::RM_SCAN_KEY_API_FIX;
-    let feature_supported: bool = feature <= globals.server_version;
+    // Safety: We access the global config, which is setup during module initialization, we readonly access the serverVersion field here.
+    // which is safe as it is never changed after initialization.
+    let server_version = unsafe { ffi::RSGlobalConfig.serverVersion };
+    let feature = ffi::RM_SCAN_KEY_API_FIX as i32;
+    let feature_supported: bool = feature <= server_version;
 
     // We can only use the scan API from Redis version 6.0.6 and above
     // and when the deployment is not enterprise-crdt
-    if feature_supported && !globals.is_crdt {
+    // Safety: `isCrdt` is written at module startup and never changed afterwards, therefore now its readable.
+    let is_crdt = unsafe { ffi::isCrdt };
+    if feature_supported && !is_crdt {
         h_get_all_scan(lookup, dst_row, options, key_str)
     } else {
         h_get_all_fallback(lookup, dst_row, options, key_str)
