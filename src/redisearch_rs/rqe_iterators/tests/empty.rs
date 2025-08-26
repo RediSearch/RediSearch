@@ -19,10 +19,10 @@ fn read() {
     let mut it = Empty::default();
 
     assert_eq!(it.num_estimated(), 0);
-    assert!(!it.at_eof());
+    assert!(it.at_eof());
 
     assert!(matches!(it.read(), Ok(None)));
-    assert!(!it.at_eof());
+    assert!(it.at_eof());
 
     assert!(matches!(it.read(), Ok(None)));
 }
@@ -32,7 +32,7 @@ fn skip_to() {
     let mut it = Empty::default();
 
     assert!(matches!(it.skip_to(1), Ok(None)));
-    assert!(!it.at_eof());
+    assert!(it.at_eof());
 
     assert!(matches!(it.skip_to(42), Ok(None)));
     assert!(matches!(it.skip_to(1000), Ok(None)));
@@ -43,13 +43,13 @@ fn rewind() {
     let mut it = Empty::default();
 
     assert!(matches!(it.read(), Ok(None)));
-    assert!(!it.at_eof());
+    assert!(it.at_eof());
 
     it.rewind();
-    assert!(!it.at_eof());
+    assert!(it.at_eof());
 
     assert!(matches!(it.read(), Ok(None)));
-    assert!(!it.at_eof());
+    assert!(it.at_eof());
 }
 
 #[test]

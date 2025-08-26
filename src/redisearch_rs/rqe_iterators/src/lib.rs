@@ -78,6 +78,7 @@ pub trait RQEIterator {
     /// Returns the last doc id that was read or skipped to.
     fn last_doc_id(&self) -> t_docId;
 
-    /// Returns true if the iterator has more results to read, meaning, not at EOF.
+    /// Returns `false` if the iterator can yield more results.
+    /// The iterator implementation must ensure that `at_eof` returns `false` when it is sure that the [`RQEIterator::read`] returns `Ok(None)`.
     fn at_eof(&self) -> bool;
 }

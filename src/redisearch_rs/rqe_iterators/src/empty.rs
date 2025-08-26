@@ -42,6 +42,6 @@ impl RQEIterator for Empty {
     }
 
     fn at_eof(&self) -> bool {
-        false
+        true
     }
 }
