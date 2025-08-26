@@ -274,6 +274,12 @@ prepare_cmake_arguments() {
     fi
   fi
 
+  # Handle LITE build variant - set MODULE_NAME to searchlight
+  if [[ "$LITE" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DMODULE_NAME=searchlight"
+    echo "Building LITE variant with MODULE_NAME=searchlight"
+  fi
+
   # Set build type
   if [[ "$DEBUG" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Debug"
