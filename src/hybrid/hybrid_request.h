@@ -35,7 +35,6 @@ typedef struct blockedClientHybridCtx {
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
   bool internal;
-  bool coordinator;
 } blockedClientHybridCtx;
 
 /*
@@ -92,6 +91,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
  */
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params);
 void HybridRequest_Free(HybridRequest *req);
+int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 HybridRequest *MakeDefaultHybridRequest();
 
 #ifdef __cplusplus

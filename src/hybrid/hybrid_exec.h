@@ -32,7 +32,7 @@ extern "C" {
  * @param argc Number of arguments in argv
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, bool coordinator);
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal);
 
 arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
 
