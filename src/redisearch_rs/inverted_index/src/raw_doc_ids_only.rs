@@ -22,6 +22,7 @@ pub struct RawDocIdsOnly;
 
 impl Encoder for RawDocIdsOnly {
     type Delta = u32;
+    const RECOMMENDED_BLOCK_ENTRIES: usize = 1000;
 
     fn encode<W: Write + Seek>(
         &mut self,
