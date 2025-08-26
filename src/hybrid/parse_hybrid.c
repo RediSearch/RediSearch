@@ -718,11 +718,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  if (parseSearchSubquery(&ac, parsedCmdCtx->search, status) != REDISMODULE_OK) {
+  if (parseSearchSubquery(&ac, searchRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (parseVectorSubquery(&ac, parsedCmdCtx->vector, status) != REDISMODULE_OK) {
+  if (parseVectorSubquery(&ac, vectorRequest, status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -784,33 +784,33 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       AGPLN_PopStep(&loadStep->base);
     }
 
-    AGPLN_AddStep(&parsedCmdCtx->search->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-    AGPLN_AddStep(&parsedCmdCtx->vector->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
+    AGPLN_AddStep(&searchRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
+    AGPLN_AddStep(&vectorRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
     // Free the source load step
     loadStep->base.dtor(&loadStep->base);
     loadStep = NULL;
 
     if (mergeSearchopts.params) {
-      parsedCmdCtx->search->searchopts.params = Param_DictClone(mergeSearchopts.params);
-      parsedCmdCtx->vector->searchopts.params = Param_DictClone(mergeSearchopts.params);
+      searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+      vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       Param_DictFree(mergeSearchopts.params);
     }
 
     // Copy request configuration using the helper function
-    copyRequestConfig(&parsedCmdCtx->search->reqConfig, &mergeReqConfig);
-    copyRequestConfig(&parsedCmdCtx->vector->reqConfig, &mergeReqConfig);
+    copyRequestConfig(&searchRequest->reqConfig, &mergeReqConfig);
+    copyRequestConfig(&vectorRequest->reqConfig, &mergeReqConfig);
 
     // Copy max results limits
-    parsedCmdCtx->search->maxSearchResults = mergeMaxSearchResults;
-    parsedCmdCtx->search->maxAggregateResults = mergeMaxAggregateResults;
-    parsedCmdCtx->vector->maxSearchResults = mergeMaxSearchResults;
-    parsedCmdCtx->vector->maxAggregateResults = mergeMaxAggregateResults;
+    searchRequest->maxSearchResults = mergeMaxSearchResults;
+    searchRequest->maxAggregateResults = mergeMaxAggregateResults;
+    vectorRequest->maxSearchResults = mergeMaxSearchResults;
+    vectorRequest->maxAggregateResults = mergeMaxAggregateResults;
 
-    if (QAST_EvalParams(&parsedCmdCtx->vector->ast, &parsedCmdCtx->vector->searchopts, 2, status) != REDISMODULE_OK) {
+    if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
     }
 
-    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, parsedCmdCtx->vector->parsedVectorData, hybridParams);
+    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, vectorRequest->parsedVectorData, hybridParams);
   }
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
@@ -836,7 +836,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     AGPLN_GetOrCreateArrangeStep(parsedCmdCtx->tailPlan);
   }
 
-
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
@@ -860,7 +859,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
           },
       .outFields = NULL,
       .maxResultsLimit = mergeMaxAggregateResults,
-      .language = parsedCmdCtx->search->searchopts.language,
+      .language = searchRequest->searchopts.language,
   };
 
   hybridParams->aggregationParams = params;
