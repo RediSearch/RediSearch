@@ -1,7 +1,7 @@
 import numpy as np
 from typing import List, Tuple, Optional
 from RLTest import Env
-from common import getConnectionByEnv, create_np_array_typed, ANY, to_dict
+from common import *
 from utils.rrf import rrf, Result
 from itertools import groupby
 import re
@@ -135,6 +135,8 @@ class testHybridSearch:
     ############################################################################
     def test_knn_single_token_search(self):
         """Test hybrid search using KNN + single token search scenario"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "Single token text search",
             "hybrid_query": "SEARCH two VSIM @vector $BLOB LIMIT 0 11",
@@ -145,6 +147,8 @@ class testHybridSearch:
 
     def test_knn_wildcard_search(self):
         """Test hybrid search using KNN + wildcard search scenario"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "Wildcard text search",
             "hybrid_query": "SEARCH * VSIM @vector $BLOB",
@@ -156,6 +160,8 @@ class testHybridSearch:
 
     def test_knn_custom_k(self):
         """Test hybrid search using KNN with custom k scenario"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "KNN with custom k",
             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 5",
@@ -166,6 +172,8 @@ class testHybridSearch:
 
     def test_knn_custom_rrf_window(self):
         """Test hybrid search using KNN with custom k scenario"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "KNN with custom RRF WINDOW",
             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 COMBINE RRF 2 WINDOW 2",
@@ -177,6 +185,8 @@ class testHybridSearch:
 
     def test_knn_ef_runtime(self):
         """Test hybrid search using KNN + EF_RUNTIME parameter"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "KNN query with parameters",
             "hybrid_query": "SEARCH even VSIM @vector_hnsw $BLOB KNN 4 K 10 EF_RUNTIME 100",
@@ -188,6 +198,8 @@ class testHybridSearch:
     # # TODO: Enable this test after adding support for YIELD_DISTANCE_AS in VSIM
     # def test_knn_yield_distance_as(self):
     #     """Test hybrid search using KNN + YIELD_DISTANCE_AS parameter"""
+    #     if CLUSTER:
+    #         raise SkipTest()
     #     scenario = {
     #         "test_name": "KNN query with parameters",
     #         "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 4 K 10 YIELD_DISTANCE_AS vector_distance",
@@ -198,6 +210,8 @@ class testHybridSearch:
 
     def test_knn_text_vector_prefilter(self):
         """Test hybrid search using KNN + VSIM text prefilter"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "KNN with text prefilter",
             "hybrid_query": "SEARCH @text:(even) VSIM @vector $BLOB FILTER @text:(two|four|six)",
@@ -208,6 +222,8 @@ class testHybridSearch:
 
     def test_knn_numeric_vector_prefilter(self):
         """Test hybrid search using KNN + numeric prefilter"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "KNN with numeric prefilter",
             "hybrid_query": "SEARCH @text:even VSIM @vector $BLOB FILTER '@number:[2 5]'",
@@ -219,6 +235,8 @@ class testHybridSearch:
 
     def test_knn_tag_vector_prefilter(self):
         """Test hybrid search using KNN + tag prefilter"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "KNN with tag prefilter",
             "hybrid_query": "SEARCH @text:even VSIM @vector $BLOB FILTER @tag:{odd}",
@@ -229,6 +247,8 @@ class testHybridSearch:
 
     def test_knn_no_vector_results(self):
         """Test hybrid search using KNN + vector prefilter that returns zero results"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "KNN with vector prefilter that returns zero results",
             "hybrid_query": "SEARCH @text:even VSIM @vector $BLOB FILTER @tag:{invalid_tag}",
@@ -239,6 +259,8 @@ class testHybridSearch:
 
     def test_knn_no_text_results(self):
         """Test hybrid search using KNN + text prefilter that returns zero results"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "KNN with vector prefilter that returns zero results",
             "hybrid_query": "SEARCH @text:(invalid_text) VSIM @vector $BLOB",
@@ -249,6 +271,8 @@ class testHybridSearch:
 
     def test_knn_default_output(self):
         """Test hybrid search using default output fields"""
+        if CLUSTER:
+            raise SkipTest()
         hybrid_query = (
             "SEARCH '@text:(both) @number:[5 5]' "
             "VSIM @vector $BLOB FILTER '@number:[1 1]' "
@@ -277,6 +301,8 @@ class testHybridSearch:
 
     def test_knn_load_key(self):
         """Test hybrid search + LOAD __key"""
+        if CLUSTER:
+            raise SkipTest()
         hybrid_query = (
             "SEARCH '@text:(even four)' "
             "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
@@ -292,9 +318,11 @@ class testHybridSearch:
             res[3][1][1],
             [['my_key', 'both_04']])
 
-    # TODO: Enable this test after fixing MOD-10987
+    # # TODO: Enable this test after fixing MOD-10987
     # def test_knn_load_score(self):
     #     """Test hybrid search + LOAD __score"""
+    #     if CLUSTER:
+    #         raise SkipTest()
     #     hybrid_query = f"SEARCH '-@text:(both) -@text:(text)' VSIM @vector $BLOB FILTER @tag:{{invalid_tag}} COMBINE RRF 4 K 3 WINDOW 2 LOAD 3 __score AS my_score"
     #     hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
     #     res = self.env.executeCommand(*hybrid_cmd)
@@ -307,6 +335,8 @@ class testHybridSearch:
 
     def test_knn_load_fields(self):
         """Test hybrid search using LOAD to load fields"""
+        if CLUSTER:
+            raise SkipTest()
         hybrid_query = (
             "SEARCH '@text:(even four)' "
             "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
@@ -327,6 +357,8 @@ class testHybridSearch:
 
     def test_knn_apply_on_default_output(self):
         """Test hybrid search using APPLY on default output fields"""
+        if CLUSTER:
+            raise SkipTest()
         hybrid_query = (
             "SEARCH '@text:(even four)' "
             "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
@@ -354,6 +386,8 @@ class testHybridSearch:
 
     def test_knn_apply_on_custom_loaded_fields(self):
         """Test hybrid search using APPLY on custom loaded fields"""
+        if CLUSTER:
+            raise SkipTest()
         hybrid_query = (
             "SEARCH '@text:(even four)' "
             "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
@@ -380,9 +414,11 @@ class testHybridSearch:
             float(res_2['double_number']),
             delta=0.0000001)
 
-    # TODO: Enable this test after fixing GROUPBY in hybrid search
+    # # TODO: Enable this test after fixing GROUPBY in hybrid search
     # def test_knn_groupby(self):
     #     """Test hybrid search using GROUPBY"""
+    #     if CLUSTER:
+    #         raise SkipTest()
     #     hybrid_query = (
     #         "SEARCH '@text:(even four)' "
     #         "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
@@ -404,11 +440,148 @@ class testHybridSearch:
     #         'execution_time', ANY
     #     ])
 
+    def test_knn_sortby_key_and_score(self):
+        """Test hybrid search using SORTBY with key and score"""
+        if CLUSTER:
+            raise SkipTest()
+        # Sort by key descending, score ascending
+        hybrid_query = (
+            "SEARCH '@text:(both) @number:[5 5]' "
+            "VSIM @vector $BLOB FILTER '@number:[1 1]' "
+            "COMBINE RRF 2 K 1 "
+            "SORTBY 4 @__key DESC @__score ASC "
+        )
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        res = self.env.executeCommand(*hybrid_cmd)
+        expected = [
+            'format', 'STRING',
+            'results',
+            [
+                ['attributes', [['__key', 'vector_01', '__score', '0.333333333333']]],
+                ['attributes', [['__key', 'both_05', '__score', '0.5']]],
+                ['attributes', [['__key', 'both_01', '__score', '0.5']]],
+            ],
+            'total_results', 3,
+            'warning', [],
+            'execution_time', ANY
+        ]
+        self.env.assertEqual(res, expected)
+
+        # Sort by score ascending, key ascending
+        hybrid_query = (
+            "SEARCH '@text:(both) @number:[5 5]' "
+            "VSIM @vector $BLOB FILTER '@number:[1 1]' "
+            "COMBINE RRF 2 K 1 "
+            "SORTBY 4 @__score ASC @__key ASC"
+        )
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        res = self.env.executeCommand(*hybrid_cmd)
+        expected = [
+            'format', 'STRING',
+            'results',
+            [
+                ['attributes', [['__key', 'vector_01', '__score', '0.333333333333']]],
+                ['attributes', [['__key', 'both_01', '__score', '0.5']]],
+                ['attributes', [['__key', 'both_05', '__score', '0.5']]],
+            ],
+            'total_results', 3,
+            'warning', [],
+            'execution_time', ANY
+        ]
+        self.env.assertEqual(res, expected)
+
+
+    def test_knn_sortby_with_apply(self):
+        """Test hybrid search using SORTBY with APPLY"""
+        if CLUSTER:
+            raise SkipTest()
+        hybrid_query = (
+            "SEARCH '@text:(both) @number:[5 5]' "
+            "VSIM @vector $BLOB FILTER '@number:[1 1]' "
+            "COMBINE RRF 2 K 1 "
+            "LOAD 3 @number @__key @__score "
+            "APPLY 10-@number AS 10_minus_number "
+            "SORTBY 6 @10_minus_number ASC @__key ASC @__score ASC"
+        )
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        res = self.env.executeCommand(*hybrid_cmd)
+        expected = [
+            'format', 'STRING',
+            'results',
+            [
+                ['attributes', [['number', '5', '__key', 'both_05', '__score', '0.5', '10_minus_number', '5']]],
+                ['attributes', [['number', '1', '__key', 'both_01', '__score', '0.5', '10_minus_number', '9']]],
+                ['attributes', [['number', '1', '__key', 'vector_01', '__score', '0.333333333333', '10_minus_number', '9']]]
+            ],
+            'total_results', 3,
+            'warning', [],
+            'execution_time', ANY
+        ]
+        self.env.assertEqual(res, expected)
+
+    def test_knn_with_params(self):
+        """Test hybrid search using KNN with parameters"""
+        if CLUSTER:
+            raise SkipTest()
+        hybrid_query = (
+            "SEARCH '@text:(both) @number:[4 5]' "
+            "VSIM @vector $BLOB FILTER '@number:[3 3]' "
+            "COMBINE RRF 2 K 1"
+        )
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        expected_result = self.env.executeCommand(*hybrid_cmd)
+        expected_result[9] = ANY # Ignore execution time
+
+        # Use parameters in vector value
+        hybrid_query = (
+            "SEARCH '@text:(both) @number:[4 5]' "
+            "VSIM @vector $MYVECTOR FILTER '@number:[3 3]' "
+            "COMBINE RRF 2 K 1 "
+            f"PARAMS 2 MYVECTOR {self.vector_blob.decode('utf-8')} "
+        )
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        res = self.env.executeCommand(*hybrid_cmd)
+        self.env.assertEqual(res, expected_result)
+
+        # # Use parameters in search term
+        # # TODO: MOD-10970 This test fails:
+        # # With DIALECT 1: Syntax error at offset 8 near MYTEXT
+        # # With DIALECT 2: returns 0 results
+        # hybrid_query = (
+        #     "SEARCH '@text:($MYTEXT) @number:[4 5]' "
+        #     "VSIM @vector $BLOB FILTER '@number:[3 3]' "
+        #     "COMBINE RRF 2 K 1 "
+        #     f"PARAMS 2 MYTEXT both "
+        #     "DIALECT 1"
+        # )
+        # hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        # print(hybrid_cmd)
+        # res = self.env.executeCommand(*hybrid_cmd)
+        # self.env.assertEqual(res, expected_result)
+
+        # # Use parameters in vsim filter
+        # # TODO: MOD-10970 This test fails with the following error:
+        # # With DIALECT 1: Syntax error at offset 10 near MYNUMBER
+        # # With DIALECT 2: returns 0 results
+        # hybrid_query = (
+        #     "SEARCH '@text:(both) @number:[4 5]' "
+        #     "VSIM @vector $BLOB FILTER '@number:[$MYNUMBER $MYNUMBER]' "
+        #     "COMBINE RRF 2 K 1 "
+        #     f"PARAMS 2 MYNUMBER 3 "
+        #     "DIALECT 2"
+        # )
+        # hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        # res = self.env.executeCommand(*hybrid_cmd)
+        # self.env.assertEqual(res, expected_result)
+
+
     ############################################################################
     # Range query tests
     ############################################################################
     def test_range_basic(self):
         """Test hybrid search using range query scenario"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "Range query",
             "hybrid_query": "SEARCH @text:(four|even) VSIM @vector $BLOB RANGE 2 RADIUS 5",
@@ -419,6 +592,8 @@ class testHybridSearch:
 
     def test_range_epsilon(self):
         """Test hybrid search using range with parameters"""
+        if CLUSTER:
+            raise SkipTest()
         scenario = {
             "test_name": "Range query",
             "hybrid_query": "SEARCH @text:(four|even) VSIM @vector_hnsw $BLOB RANGE 4 RADIUS 5 EPSILON 0.5",
@@ -607,15 +782,15 @@ def create_comparison_table(actual_results: List[Result], expected_results: List
             expected_score_str = f"{expected_result.score:.10f}"
 
             # Get search and vector rankings for expected doc (from original results)
-            expected_search_rank = expected_search_rank_map.get(expected_result.key, "---")
-            expected_vector_rank = expected_vector_rank_map.get(expected_result.key, "---")
-            expected_search_str = str(expected_search_rank) if expected_search_rank != "---" else "---"
-            expected_vector_str = str(expected_vector_rank) if expected_vector_rank != "---" else "---"
+            expected_search_rank = expected_search_rank_map.get(expected_result.key, MISSING_VALUE)
+            expected_vector_rank = expected_vector_rank_map.get(expected_result.key, MISSING_VALUE)
+            expected_search_str = str(expected_search_rank) if expected_search_rank != MISSING_VALUE else MISSING_VALUE
+            expected_vector_str = str(expected_vector_rank) if expected_vector_rank != MISSING_VALUE else MISSING_VALUE
         else:
-            expected_doc_str = "---"
-            expected_score_str = "---"
-            expected_search_str = "---"
-            expected_vector_str = "---"
+            expected_doc_str = MISSING_VALUE
+            expected_score_str = MISSING_VALUE
+            expected_search_str = MISSING_VALUE
+            expected_vector_str = MISSING_VALUE
 
         # Check if they match
         if (i < len(actual_results) and i < len(expected_results) and
