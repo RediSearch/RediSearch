@@ -11,6 +11,7 @@
 
 #include "redisearch.h"
 #include "redismodule.h"
+#include "index_result.h"
 #include "iterators/iterator_api.h"
 #include "search_ctx.h"
 #include "query_error.h"
