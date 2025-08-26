@@ -75,6 +75,9 @@ protected:
     cmd.search = result->requests[0];
     cmd.vector = result->requests[1];
     cmd.tailPlan = &result->tailPipeline->ap;
+    cmd.hybridParams = &hybridParams;
+    cmd.reqConfig = &result->reqConfig;
+    cmd.cursorConfig = &result->cursorConfig;
 
     int rc =  parseHybridCommand(ctx, args, args.size(), result->sctx, index_name.c_str(), &cmd, &status);
     if (rc != REDISMODULE_OK) {
