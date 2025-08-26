@@ -1373,6 +1373,7 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "inverted_index_ffi",
  "redis-module",
  "triemap_ffi",
  "types_ffi",
