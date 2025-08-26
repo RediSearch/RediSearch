@@ -87,6 +87,7 @@ impl RQEIterator for IdList {
         self.ids.len()
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         match self.current {
             0 => 0,
@@ -94,6 +95,7 @@ impl RQEIterator for IdList {
         }
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         self.current >= self.ids.len()
     }
