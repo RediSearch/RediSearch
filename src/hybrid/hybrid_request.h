@@ -91,7 +91,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params);
 void HybridRequest_Free(HybridRequest *req);
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
-HybridRequest *MakeDefaultHybridRequest();
+HybridRequest *MakeDefaultHybridRequest(RedisModuleCtx *ctx, const char *indexname);
 
 #ifdef __cplusplus
 }
