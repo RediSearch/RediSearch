@@ -25,6 +25,7 @@
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
+#include "hybrid/hybrid_debug.h"
 #include "reply.h"
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
@@ -1496,6 +1497,19 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
 }
 
+DEBUG_COMMAND(HybridCommand_DebugWrapper) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  // Minimum args: _FT.DEBUG FT.HYBRID <index> SEARCH <query> VSIM <field> <vector> TIMEOUT_AFTER_N <N> DEBUG_PARAMS_COUNT <count>
+  if (argc < 11) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Single shard mode only - skip _FT.DEBUG and call our handler
+  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+}
+
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
@@ -1811,11 +1825,11 @@ DEBUG_COMMAND(YieldCounter) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  
+
   if (argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
-  
+
   // Check if we need to reset the counter
   if (argc == 3) {
     size_t len;
@@ -1827,7 +1841,7 @@ DEBUG_COMMAND(YieldCounter) {
       return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
     }
   }
-  
+
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
 }
@@ -1875,6 +1889,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
+                               {"FT.HYBRID", HybridCommand_DebugWrapper},
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.
