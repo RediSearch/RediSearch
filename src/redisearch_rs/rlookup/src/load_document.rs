@@ -19,13 +19,13 @@ use std::ptr::NonNull;
 
 use crate::bindings::call_hgetall;
 use crate::bindings::{
-    DocumentType, KeyMode, KeyTypes, RLookupCoerceType, RLookupLoadMode, RedisKey, RedisScanCursor,
-    RedisString, ReplyTypes,
+    DocumentType, RLookupCoerceType, RLookupLoadMode, RedisKey, RedisScanCursor, RedisString,
 };
 use crate::row::RLookupRow;
 use crate::{RLookup, RLookupKey, RLookupKeyFlag};
 use enumflags2::make_bitflags;
 use ffi::{QueryError, REDISMODULE_OK, RSDocumentMetadata, RedisSearchCtx};
+use redis_module::{KeyMode, KeyType, ReplyType};
 use sorting_vector::RSSortingVector;
 use value::RSValueFFI;
 
@@ -238,11 +238,14 @@ fn h_get_all_scan(
     let key = RedisKey::open(
         unsafe { options.ctx_mut() },
         key_str_ptr,
-        KeyMode::Read | KeyMode::NoEffects | KeyMode::NoExpire | KeyMode::AccessExpired,
+        KeyMode::READ
+            | KeyMode::KEYOPEN_NOEFFECTS
+            | KeyMode::KEYOPEN_NOEXPIRE
+            | KeyMode::KEYOPEN_ACCESSEXPIRED,
     );
 
     // Check if the key is a hash
-    if key.ty() != KeyTypes::Hash {
+    if key.ty() != KeyType::Hash {
         // If not a hash, return an error
         #[cfg(debug_assertions)]
         {
@@ -316,7 +319,7 @@ fn h_get_all_fallback(
         return Err(LoadDocumentError::FallbackAPINotAvailable);
     };
 
-    if reply.ty() != ReplyTypes::Array {
+    if reply.ty() != ReplyType::Array {
         #[cfg(debug_assertions)]
         {
             return Err(LoadDocumentError::KeyDoesNotExist(key_str.to_string()));
