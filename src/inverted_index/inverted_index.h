@@ -290,6 +290,8 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
+unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
+
 #ifdef __cplusplus
 }
 #endif

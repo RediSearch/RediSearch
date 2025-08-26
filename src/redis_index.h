@@ -61,6 +61,5 @@ RedisModuleString *fmtRedisSkipIndexKey(const RedisSearchCtx *ctx, const char *t
 RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field);
 
 void InvertedIndex_Free(void *idx);
-unsigned long InvertedIndex_MemUsage(const void *value);
 
 #endif

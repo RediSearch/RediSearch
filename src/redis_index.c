@@ -46,18 +46,6 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
   rs_timeradd(&monotoicNow, &duration, &searchTime->timeout);
 }
 
-unsigned long InvertedIndex_MemUsage(const void *value) {
-  const InvertedIndex *idx = value;
-  size_t numBlocks = InvertedIndex_NumBlocks(idx);
-  unsigned long ret = sizeof_InvertedIndex(InvertedIndex_Flags(idx))
-                      + sizeof(IndexBlock) * numBlocks;
-  for (size_t i = 0; i < numBlocks; i++) {
-    IndexBlock *block = InvertedIndex_BlockRef(idx, i);
-    ret += IndexBlock_Cap(block);
-  }
-  return ret;
-}
-
 /**
  * Format redis key for a term.
  */

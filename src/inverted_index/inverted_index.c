@@ -1275,3 +1275,14 @@ IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *co
 void InvertedIndex_BlocksSummaryFree(IIBlockSummary *summaries) {
   rm_free(summaries);
 }
+
+unsigned long InvertedIndex_MemUsage(const InvertedIndex *idx) {
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  unsigned long ret = sizeof_InvertedIndex(InvertedIndex_Flags(idx))
+                      + sizeof(IndexBlock) * numBlocks;
+  for (size_t i = 0; i < numBlocks; i++) {
+    IndexBlock *block = InvertedIndex_BlockRef(idx, i);
+    ret += IndexBlock_Cap(block);
+  }
+  return ret;
+}
