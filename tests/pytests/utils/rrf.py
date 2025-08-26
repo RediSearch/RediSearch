@@ -22,7 +22,7 @@ class Result:
         return self.key == other.key and abs(self.score - other.score) < 1e-6
 
 
-def rrf_fusion(
+def rrf(
     list1: List[Result],
     list2: List[Result],
     k: int = 60,
@@ -43,7 +43,7 @@ def rrf_fusion(
     Example:
         >>> list1 = [Result("doc1", 0.9), Result("doc2", 0.8), Result("doc3", 0.7)]
         >>> list2 = [Result("doc2", 0.95), Result("doc3", 0.85), Result("doc1", 0.75)]
-        >>> result = rrf_fusion(list1, list2, k=60, window=20)
+        >>> result = rrf(list1, list2, k=60, window=20)
         >>> print(result)
         [Result(key='doc2', score=0.032786885245901644), Result(key='doc3', score=0.032258064516129031), Result(key='doc1', score=0.029508196721311475)]
     """
@@ -86,7 +86,7 @@ def rrf_fusion(
     return result
 
 
-def rrf_fusion_multiple(
+def rrf_multiple(
     ranked_lists: List[List[Result]],
     k: int = 60,
     window: int = 20
@@ -104,11 +104,13 @@ def rrf_fusion_multiple(
 
     Example:
         >>> lists = [
-        ...     [Result("doc1", 0.9), Result("doc2", 0.8)],
+        ...     [Result("doc1", 0.9), Result("doc3", 0.8)],
         ...     [Result("doc2", 0.95), Result("doc3", 0.85)],
-        ...     [Result("doc3", 0.9), Result("doc1", 0.7)]
+        ...     [Result("doc1", 0.9), Result("doc2", 0.7)]
         ... ]
-        >>> result = rrf_fusion_multiple(lists, k=60, window=20)
+        >>> result = rrf_multiple(lists, k=3, window=20)
+        >>> print(result)
+        [Result(key='doc1', score=0.5), Result(key='doc2', score=0.45), Result(key='doc3', score=0.4)]
     """
     if not ranked_lists:
         return []
@@ -154,7 +156,7 @@ def rrf_fusion_multiple(
 
 if __name__ == "__main__":
     # Example usage
-    print("RRF Fusion Example:")
+    print("RRF Example:")
 
     # Example with two lists
     search_results = [Result("doc1", 0.9), Result("doc2", 0.8), Result("doc3", 0.7), Result("doc4", 0.6)]
@@ -163,7 +165,7 @@ if __name__ == "__main__":
     print("\nSearch results:", search_results)
     print("Vector results:", vector_results)
 
-    fused_results = rrf_fusion(search_results, vector_results, k=60)
+    fused_results = rrf(search_results, vector_results, k=60)
     print("\nRRF Fused results:")
     for result in fused_results:
         print(f"  {result.key}: {result.score:.6f}")
@@ -181,7 +183,7 @@ if __name__ == "__main__":
     for i, lst in enumerate(lists):
         print(f"List {i+1}: {lst}")
 
-    multi_fused = rrf_fusion_multiple(lists, k=60)
+    multi_fused = rrf_multiple(lists, k=60)
     print("\nMultiple RRF Fused results:")
     for result in multi_fused:
         print(f"  {result.key}: {result.score:.6f}")

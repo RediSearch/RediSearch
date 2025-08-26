@@ -2,8 +2,13 @@ import numpy as np
 from typing import List, Tuple, Optional
 from RLTest import Env
 from common import getConnectionByEnv, create_np_array_typed, ANY, to_dict
-from utils.rrf import rrf_fusion, Result
+from utils.rrf import rrf, Result
+from itertools import groupby
 import re
+
+# Constant string used in create_comparison_table() to indicate missing value
+# or missing ranking info
+MISSING_VALUE = "---"
 
 
 def _sort_adjacent_same_scores(results: List[Result]) -> None:
@@ -15,16 +20,14 @@ def _sort_adjacent_same_scores(results: List[Result]) -> None:
 
     Example: [Result('c', 0.5), Result('b', 1.0), Result('a', 1.0)] -> [Result('c', 0.5), Result('a', 1.0), Result('b', 1.0)]
     """
-    i = 0
-    while i < len(results):
-        # Find the end of the group with the same score
-        j = i
-        while j < len(results) and results[j].score == results[i].score:
-            j += 1
-        # Sort the group by key if it has more than one element
-        if j - i > 1:
-            results[i:j] = sorted(results[i:j], key=lambda x: x.key)
-        i = j
+    grouped = []
+    for _, group in groupby(results, key=lambda x: x.score):
+        group_list = list(group)
+        if len(group_list) > 1:
+            group_list.sort(key=lambda x: x.key)
+        grouped.extend(group_list)
+    results[:] = grouped
+
 
 def _validate_results(env, actual_results: List[Result], expected_results: List[Result], comparison_table: str) -> None:
     """Compare actual vs expected results, allowing for small score variations"""
@@ -55,22 +58,15 @@ class testHybridSearch:
     def __init__(self):
         self.env = Env()
         self.dim = 128
-        self.index_name = self._generate_hybrid_test_data(self.dim)
+        self.index_name = "idx"
+        self._create_index(self.index_name, self.dim)
+        self._generate_hybrid_test_data(self.dim)
         self.vector_blob = create_np_array_typed([2.3] * self.dim).tobytes()
 
-    def _generate_hybrid_test_data(self, dim: int):
-        """
-        Generate sample data for hybrid search tests.
-        This runs once when the class is instantiated.
 
-        Returns:
-            str: index_name
-        """
-        index_name = "idx"
-        num_vectors = 10
+    def _create_index(self, index_name: str, dim: int):
+        """Create index with vector, text, numeric and tag fields"""
         data_type = "FLOAT32"
-
-        # Create index with vector, text, numeric and tag fields
         try:
             self.env.cmd('FT.DROPINDEX', index_name)
         except:
@@ -85,6 +81,13 @@ class testHybridSearch:
             'number', 'NUMERIC',
             'tag', 'TAG').ok()
 
+
+    def _generate_hybrid_test_data(self, dim: int):
+        """
+        Generate sample data for hybrid search tests.
+        This runs once when the class is instantiated.
+        """
+        num_vectors = 10
         # Generate and load data
         np.random.seed(42)  # For reproducibility
         conn = getConnectionByEnv(self.env)
@@ -126,7 +129,6 @@ class testHybridSearch:
                               'tag', tag_value)
 
         p.execute()
-        return index_name
 
     ############################################################################
     # KNN Vector search tests
@@ -379,6 +381,30 @@ class testHybridSearch:
             float(res_2['double_number']),
             delta=0.0000001)
 
+    # TODO: Enable this test after fixing GROUPBY in hybrid search
+    # def test_knn_groupby(self):
+    #     """Test hybrid search using GROUPBY"""
+    #     hybrid_query = (
+    #         "SEARCH '@text:(even four)' "
+    #         "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
+    #         "LOAD 1 @tag "
+    #         "GROUPBY 1 @tag "
+    #         "REDUCE COUNT 0 AS count "
+    #     )
+    #     hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+    #     res = self.env.executeCommand(*hybrid_cmd)
+    #     print(res)
+    #     self.env.assertEqual(res, [
+    #         'format', 'STRING',
+    #         'results',
+    #         [
+    #             ['attributes', [['tag', 'even', 'count', '2']]]
+    #         ],
+    #         'total_results', 1,
+    #         'warning', [],
+    #         'execution_time', ANY
+    #     ])
+
     ############################################################################
     # Range query tests
     ############################################################################
@@ -431,7 +457,6 @@ def process_search_response(search_results):
             doc_id = results_data[i].decode('utf-8') if isinstance(results_data[i], bytes) else str(results_data[i])
             score = float(results_data[i + 1].decode('utf-8') if isinstance(results_data[i + 1], bytes) else results_data[i + 1])
             processed.append(Result(key=doc_id, score=score))
-    # _sort_adjacent_same_scores(processed)
     return processed
 
 
@@ -461,9 +486,8 @@ def process_aggregate_response(aggregate_results):
     for i in range(0, len(score)):
         processed.append(Result(key=doc_id[i], score=score[i]))
 
-    # printprocessed)
-
     return processed
+
 
 def process_hybrid_response(hybrid_results, expected_results: Optional[List[Result]] = None) -> Tuple[List[Result], dict]:
     """
@@ -567,15 +591,15 @@ def create_comparison_table(actual_results: List[Result], expected_results: List
             actual_score_str = f"{actual_result.score:.10f}"
 
             # Get search and vector rankings for actual doc (from hybrid results)
-            actual_search_rank = actual_search_rank_map.get(actual_result.key, "---")
-            actual_vector_rank = actual_vector_rank_map.get(actual_result.key, "---")
-            actual_search_str = str(actual_search_rank) if actual_search_rank != "---" else "---"
-            actual_vector_str = str(actual_vector_rank) if actual_vector_rank != "---" else "---"
+            actual_search_rank = actual_search_rank_map.get(actual_result.key, MISSING_VALUE)
+            actual_vector_rank = actual_vector_rank_map.get(actual_result.key, MISSING_VALUE)
+            actual_search_str = str(actual_search_rank) if actual_search_rank != MISSING_VALUE else MISSING_VALUE
+            actual_vector_str = str(actual_vector_rank) if actual_vector_rank != MISSING_VALUE else MISSING_VALUE
         else:
-            actual_doc_str = "---"
-            actual_score_str = "---"
-            actual_search_str = "---"
-            actual_vector_str = "---"
+            actual_doc_str = MISSING_VALUE
+            actual_score_str = MISSING_VALUE
+            actual_search_str = MISSING_VALUE
+            actual_vector_str = MISSING_VALUE
 
         # Get expected result
         if i < len(expected_results):
@@ -638,7 +662,6 @@ def process_vector_response(vector_results):
                 score = 0.0  # fallback
 
             processed.append(Result(key=doc_id, score=score))
-    # _sort_adjacent_same_scores(processed)
     return processed
 
 
@@ -736,7 +759,7 @@ def run_test_scenario(env, index_name, scenario):
     # Process vector results
     vector_results = process_vector_response(vector_results_raw)
 
-    expected_rrf = rrf_fusion(search_results, vector_results)
+    expected_rrf = rrf(search_results, vector_results)
     _sort_adjacent_same_scores(expected_rrf)
 
     hybrid_cmd = translate_hybrid_query(scenario['hybrid_query'], vector_blob, index_name)
