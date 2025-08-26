@@ -104,7 +104,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
 */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize);
 size_t indexBlock_Free(IndexBlock *blk);
-void InvertedIndex_Free(void *idx);
+void InvertedIndex_Free(InvertedIndex *idx);
 
 IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex);
 IndexBlock InvertedIndex_Block(InvertedIndex *idx, size_t blockIndex);

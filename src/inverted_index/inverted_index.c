@@ -208,8 +208,7 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
   b->buf = buf;
 }
 
-void InvertedIndex_Free(void *ctx) {
-  InvertedIndex *idx = ctx;
+void InvertedIndex_Free(InvertedIndex *idx) {
   size_t numBlocks = InvertedIndex_NumBlocks(idx);
   TotalIIBlocks -= numBlocks;
   for (uint32_t i = 0; i < numBlocks; i++) {
