@@ -62,9 +62,10 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     // and contain only keys from the loading step
     // Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
-    RLookup_Init(lookup, IndexSpec_GetSpecCache(params->aggregationParams.common.sctx->spec));
+    RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
     RLookup_CloneInto(lookup, AGPLN_GetLookup(AREQ_AGGPlan(req->requests[SEARCH_INDEX]), NULL, AGPLN_GETLOOKUP_FIRST));
 
+    // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     params->scoringCtx = NULL; // ownership transferred to merger
@@ -78,9 +79,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
 }
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
-      // move the context to the hybrid request
-    req->sctx = params->aggregationParams.common.sctx;
-    params->aggregationParams.common.sctx = NULL;
     // Build the depletion pipeline for extracting results from individual search requests
     arrayof(ResultProcessor*) depleters = HybridRequest_BuildDepletionPipeline(req, params);
     if (!depleters) {
@@ -291,15 +289,16 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
   return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
-HybridRequest *MakeDefaultHybridRequest(RedisModuleCtx *ctx, const char *indexname) {
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
-  search->sctx = createDetachedSearchContext(ctx, indexname);
-  vector->sctx = createDetachedSearchContext(ctx, indexname);
+  const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
+  search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
+  vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
-  return HybridRequest_New(requests, array_len(requests));
+  return HybridRequest_New(sctx, requests, array_len(requests));
 }
 
 #ifdef __cplusplus
