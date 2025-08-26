@@ -17,6 +17,7 @@
 #[global_allocator]
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
+pub use inverted_index_ffi as inverted_index;
 pub use triemap_ffi as triemap;
 pub use types_ffi as types;
 pub use varint_ffi as varint;
