@@ -1335,7 +1335,7 @@ dependencies = [
 [[package]]
 name = "redis-module"
 version = "99.99.99"
-source = "git+https://github.com/darthb/redismodule-rs.git?branch=tj%2Ffix%2Fbuild-for-redisearch#6635856bc8800d5f1f50b38a2cd84219028b4188"
+source = "git+https://github.com/darthb/redismodule-rs.git?branch=tj%2Fwip%2Fadditions_for_rs_load_document#a5898994b610c16c4da167b1a404985800cf0060"
 dependencies = [
  "backtrace",
  "bindgen 0.66.1",
@@ -1351,13 +1351,14 @@ dependencies = [
  "redis-module-macros-internals",
  "regex",
  "serde",
+ "strum",
  "strum_macros 0.24.3",
 ]
 
 [[package]]
 name = "redis-module-macros-internals"
 version = "99.99.99"
-source = "git+https://github.com/darthb/redismodule-rs.git?branch=tj%2Ffix%2Fbuild-for-redisearch#6635856bc8800d5f1f50b38a2cd84219028b4188"
+source = "git+https://github.com/darthb/redismodule-rs.git?branch=tj%2Fwip%2Fadditions_for_rs_load_document#a5898994b610c16c4da167b1a404985800cf0060"
 dependencies = [
  "lazy_static",
  "proc-macro2",
