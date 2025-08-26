@@ -99,7 +99,7 @@ impl RSOffsetVector<'_> {
     /// Free the data inside this offset
     ///
     /// # Safety
-    /// The caller must ensure that the `data` pointer was allocated using [`Self::deep_copy()`].
+    /// The caller must ensure that the `data` pointer was allocated using [`Self::into_owned()`].
     pub fn free_data(&mut self) {
         if self.data.is_null() {
             return;
@@ -114,9 +114,9 @@ impl RSOffsetVector<'_> {
         self.len = 0;
     }
 
-    /// Create a deep copy of this offset vector, allocating new memory for the data. This data
+    /// Create an owned copy of this offset vector, allocating new memory for the data. This data
     /// should be freed using [`Self::free_data()`].
-    pub fn deep_copy(&self) -> RSOffsetVector<'static> {
+    pub fn into_owned(&self) -> RSOffsetVector<'static> {
         let data = if self.len > 0 {
             debug_assert!(!self.data.is_null(), "data must not be null");
             let layout = Layout::array::<c_char>(self.len as usize).unwrap();
@@ -239,16 +239,16 @@ impl<'index> RSTermRecord<'index> {
         }
     }
 
-    /// Create a deep copy of this term record, allocating new memory for the offsets, but reusing the term.
-    pub fn deep_copy(&self) -> RSTermRecord<'static> {
+    /// Create an owned copy of this term record, allocating new memory for the offsets, but reusing the term.
+    pub fn into_owned(&self) -> RSTermRecord<'static> {
         match self {
             RSTermRecord::Borrowed { term, offsets } => RSTermRecord::Owned {
                 term: *term,
-                offsets: offsets.deep_copy(),
+                offsets: offsets.into_owned(),
             },
             RSTermRecord::Owned { term, offsets } => RSTermRecord::Owned {
                 term: *term,
-                offsets: offsets.deep_copy(),
+                offsets: offsets.into_owned(),
             },
         }
     }
@@ -466,13 +466,13 @@ impl<'index> RSAggregateResult<'index> {
         }
     }
 
-    /// Create a deep copy of this aggregate result, allocating new memory for the records.
-    pub fn deep_copy(&self) -> RSAggregateResult<'static> {
+    /// Create an owned copy of this aggregate result, allocating new memory for the records.
+    pub fn into_owned(&self) -> RSAggregateResult<'static> {
         match self {
             RSAggregateResult::Borrowed { records, kind_mask } => {
                 let mut new_records = LowMemoryThinVec::with_capacity(records.len());
 
-                new_records.extend(records.iter().map(|c| c.deep_copy()).map(Box::new));
+                new_records.extend(records.iter().map(|c| c.into_owned()).map(Box::new));
 
                 RSAggregateResult::Owned {
                     records: new_records,
@@ -482,7 +482,7 @@ impl<'index> RSAggregateResult<'index> {
             RSAggregateResult::Owned { records, kind_mask } => {
                 let mut new_records = LowMemoryThinVec::with_capacity(records.len());
 
-                new_records.extend(records.iter().map(|c| c.deep_copy()).map(Box::new));
+                new_records.extend(records.iter().map(|c| c.into_owned()).map(Box::new));
 
                 RSAggregateResult::Owned {
                     records: new_records,
@@ -597,16 +597,16 @@ impl RSResultData<'_> {
         }
     }
 
-    /// Create a deep copy of this result data, allocating new memory for the contained data.
-    pub fn deep_copy(&self) -> RSResultData<'static> {
+    /// Create an owned copy of this result data, allocating new memory for the contained data.
+    pub fn into_owned(&self) -> RSResultData<'static> {
         match self {
-            Self::Union(agg) => RSResultData::Union(agg.deep_copy()),
-            Self::Intersection(agg) => RSResultData::Intersection(agg.deep_copy()),
-            Self::Term(term) => RSResultData::Term(term.deep_copy()),
+            Self::Union(agg) => RSResultData::Union(agg.into_owned()),
+            Self::Intersection(agg) => RSResultData::Intersection(agg.into_owned()),
+            Self::Term(term) => RSResultData::Term(term.into_owned()),
             Self::Virtual => RSResultData::Virtual,
-            Self::Numeric(num) => RSResultData::Numeric(*mum),
-            Self::Metric(num) => RSResultData::Metric(*mum),
-            Self::HybridMetric(agg) => RSResultData::HybridMetric(agg.deep_copy()),
+            Self::Numeric(num) => RSResultData::Numeric(*num),
+            Self::Metric(num) => RSResultData::Metric(*num),
+            Self::HybridMetric(agg) => RSResultData::HybridMetric(agg.into_owned()),
         }
     }
 }
@@ -930,8 +930,8 @@ impl<'index> RSIndexResult<'index> {
         }
     }
 
-    /// Create a deep copy of this index result, allocating new memory for the contained data.
-    pub fn deep_copy(&self) -> RSIndexResult<'static> {
+    /// Create an owned copy of this index result, allocating new memory for the contained data.
+    pub fn into_owned(&self) -> RSIndexResult<'static> {
         let metrics = if !self.metrics.is_null() {
             // SAFETY: we know metric is a valid pointer to `RSYieldableMetric` because we created
             // it in a constructor. We also know it is not NULL because of the check above.
@@ -946,7 +946,7 @@ impl<'index> RSIndexResult<'index> {
             field_mask: self.field_mask,
             freq: self.freq,
             offsets_sz: self.offsets_sz,
-            data: self.data.deep_copy(),
+            data: self.data.into_owned(),
             metrics,
             weight: self.weight,
         }
