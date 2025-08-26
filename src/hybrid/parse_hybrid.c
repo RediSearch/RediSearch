@@ -760,7 +760,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     ParseAggPlanContext papCtx = {
       .plan = parsedCmdCtx->tailPlan,
       .reqflags = mergeReqflags,
-      .reqConfig = &mergeReqConfig,
+      .reqConfig = parsedCmdCtx->reqConfig,
       .searchopts = &mergeSearchopts,
       .prefixesOffset = NULL,               // Invalid in FT.HYBRID
       .cursorConfig = parsedCmdCtx->cursorConfig,
@@ -792,8 +792,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     }
 
     // Copy request configuration using the helper function
-    copyRequestConfig(&searchRequest->reqConfig, &mergeReqConfig);
-    copyRequestConfig(&vectorRequest->reqConfig, &mergeReqConfig);
+    copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
+    copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
 
     // Copy max results limits
     searchRequest->maxSearchResults = mergeMaxSearchResults;

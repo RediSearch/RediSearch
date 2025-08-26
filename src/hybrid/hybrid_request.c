@@ -113,9 +113,6 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
 }
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
-      // move the context to the hybrid request
-    req->sctx = params->aggregationParams.common.sctx;
-    params->aggregationParams.common.sctx = NULL;
     // Build the depletion pipeline for extracting results from individual search requests
     arrayof(ResultProcessor*) depleters = HybridRequest_BuildDepletionPipeline(req, params);
     if (!depleters) {
@@ -337,15 +334,16 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
   return NewSearchCtxC(detachedCtx, indexname, true);
 }
 
-HybridRequest *MakeDefaultHybridRequest(RedisModuleCtx *ctx, const char *indexname) {
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
-  search->sctx = createDetachedSearchContext(ctx, indexname);
-  vector->sctx = createDetachedSearchContext(ctx, indexname);
+  const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
+  search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
+  vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
-  return HybridRequest_New(requests, array_len(requests));
+  return HybridRequest_New(sctx, requests, array_len(requests));
 }
 
 void AddValidationErrorContext(AREQ *req, QueryError *status) {

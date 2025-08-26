@@ -293,7 +293,6 @@ done_err:
     finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
 }
 
-
 /**
  * Destroy a blocked client hybrid context and clean up resources.
  *
@@ -331,6 +330,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
                                                          RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
                                                          bool internal) {
   // Build the pipeline and execute
+  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
   arrayof(ResultProcessor*) depleters = NULL;
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
@@ -388,9 +388,6 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
 // otherwise, the caller is responsible for freeing them
 static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
-  RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
-  RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
-
   if (RunInThread()) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
@@ -451,7 +448,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HybridRequest_BuildPipelineAndExecute(hybridRequest, cmd.hybridParams, ctx, sctx, &status, internal) != REDISMODULE_OK) {
+  if (cmd.hybridParams->aggregationParams.common.reqflags & QEXEC_F_IS_CURSOR) {
+    RedisModuleCtx *newctx = RedisModule_GetDetachedThreadSafeContext(ctx);
+    RedisModule_SelectDb(newctx, RedisModule_GetSelectedDb(ctx));
+    hybridRequest->sctx->redisCtx = ctx = newctx;
+  }
+
+  if (HybridRequest_BuildPipelineAndExecute(hybridRequest, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     goto error;
   }
@@ -519,9 +522,11 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     return;
   }
 
-  // Update the main search context with the thread-safe context
   RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
-  sctx->redisCtx = outctx;
+  if (!(hreq->reqflags & QEXEC_F_IS_CURSOR)) {
+    // Update the main search context with the thread-safe context
+    sctx->redisCtx = outctx;
+  }
 
   if (buildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, BCHCtx->internal) == REDISMODULE_OK) {
     // Set hreq and hybridParams to NULL so they won't be freed in destroy

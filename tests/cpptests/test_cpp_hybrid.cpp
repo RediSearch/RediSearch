@@ -226,7 +226,7 @@ TEST_F(HybridRequestTest, testHybridRequestPipelineBuildingBasic) {
   requests = array_ensure_append_1(requests, req2);
 
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_idx2", true), requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
   const char *loadFields[] = {"title", "score"};
@@ -296,7 +296,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineWithMultipleRequests) {
   requests = array_ensure_append_1(requests, req3);
 
   // Create HybridRequest with 3 requests
-  HybridRequest *hybridReq = HybridRequest_New(requests, 3);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_idx3", true), requests, 3);
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 3);
 
@@ -360,7 +360,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineErrorHandling) {
   requests = array_ensure_append_1(requests, req1);
 
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 1);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_idx4", true), requests, 1);
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
@@ -408,7 +408,7 @@ TEST_F(HybridRequestTest, testHybridRequestBuildPipelineTail) {
   requests = array_ensure_append_1(requests, req2);
 
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_idx_complex", true), requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Add complex AGGPlan with LOAD + SORT + APPLY steps
@@ -477,7 +477,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitLoad) {
   requests = array_ensure_append_1(requests, req2);
 
   // Create HybridRequest WITHOUT adding any explicit LOAD step
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_implicit_basic", true), requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Verify no LOAD step exists initially in any pipeline
@@ -565,7 +565,7 @@ TEST_F(HybridRequestTest, testHybridRequestExplicitLoadPreserved) {
   requests = array_ensure_append_1(requests, req2);
 
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_explicit_preserved", true), requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Add explicit LOAD step with custom fields
@@ -639,7 +639,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitSort) {
   requests = array_ensure_append_1(requests, req2);
 
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_no_implicit_sort", true), requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Add explicit LOAD and SORT steps
@@ -702,7 +702,7 @@ TEST_F(HybridRequestTest, testHybridRequestImplicitSortByScore) {
   requests = array_ensure_append_1(requests, req2);
 
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_implicit_sort", true), requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Add LOAD step but NO SORT step - this should trigger implicit sort-by-score
@@ -773,7 +773,7 @@ TEST_F(HybridRequestTest, testHybridRequestNoImplicitSortWithExplicitFirstReques
   requests = array_ensure_append_1(requests, req2);
 
   // Create HybridRequest
-  HybridRequest *hybridReq = HybridRequest_New(requests, 2);
+  HybridRequest *hybridReq = HybridRequest_New(NewSearchCtxC(ctx, "test_no_implicit_first_sort", true), requests, 2);
   ASSERT_TRUE(hybridReq != nullptr);
 
   // Allocate HybridScoringContext on heap since it will be freed by the hybrid merger
@@ -837,7 +837,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* hybridReq = MakeDefaultHybridRequest(ctx, specName);
+  HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx);
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridReq->requests[0];
   cmd.vector = hybridReq->requests[1];
@@ -941,7 +941,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* hybridReq = MakeDefaultHybridRequest(ctx, specName);
+  HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx);
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridReq->requests[0];
   cmd.vector = hybridReq->requests[1];

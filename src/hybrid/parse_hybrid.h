@@ -32,6 +32,7 @@ typedef struct ParseHybridCommandCtx {
     AREQ *vector;
     AGGPlan *tailPlan;
     HybridPipelineParams* hybridParams;
+    RequestConfig* reqConfig;
     CursorConfig* cursorConfig;
 } ParseHybridCommandCtx;
 
