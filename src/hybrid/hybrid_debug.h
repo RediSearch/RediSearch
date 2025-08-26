@@ -24,13 +24,21 @@ extern "C" {
  * allowing simulation of timeouts during hybrid search execution for testing purposes.
  *
  * **Syntax:**
- *   _FT.DEBUG FT.HYBRID <index> SEARCH <query> VSIM <vector_args> [options] TIMEOUT_AFTER_N <N> DEBUG_PARAMS_COUNT 2
+ *   _FT.DEBUG FT.HYBRID <index> SEARCH <query> VSIM <vector_args> [options] <DEBUG_PARAMS> DEBUG_PARAMS_COUNT <count>
  *
- * **Parameters:**
- *   - `TIMEOUT_AFTER_N <N>`: Simulates a timeout after processing N results
+  * **Parameters:**
+ *   - `TIMEOUT_AFTER_N_SEARCH <N>`: Timeout after N results from search component
+ *   - `TIMEOUT_AFTER_N_VSIM <N>`: Timeout after N results from vector component
  *
- * **Usage Example:**
- *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N 10 DEBUG_PARAMS_COUNT 2
+ * **Usage Examples:**
+ *   # Search component timeout only
+ *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_SEARCH 5 DEBUG_PARAMS_COUNT 2
+ *
+ *   # Vector component timeout only
+ *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_VSIM 8 DEBUG_PARAMS_COUNT 2
+ *
+ *   # Both component timeouts
+ *   _FT.DEBUG FT.HYBRID idx SEARCH "hello" VSIM @vec $blob TIMEOUT_AFTER_N_SEARCH 5 TIMEOUT_AFTER_N_VSIM 10 DEBUG_PARAMS_COUNT 4
  *
  * Note: Currently supports single shard mode only. Coordinator-shards support will be added later.
  */
@@ -39,8 +47,12 @@ extern "C" {
 typedef struct {
   RedisModuleString **debug_argv;
   unsigned long long debug_params_count;
-  unsigned long long timeout_count;        // Parsed TIMEOUT_AFTER_N value
-  int timeout_set;                         // Flag to indicate if timeout was set
+
+  // Component-specific timeouts only
+  unsigned long long search_timeout_count;
+  unsigned long long vsim_timeout_count;
+  int search_timeout_set;
+  int vsim_timeout_set;
 } HybridDebugParams;
 
 // Wrapper structure for hybrid request with debug capabilities
@@ -100,14 +112,29 @@ int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *status);
 int applyHybridDebugToBuiltPipelines(HybridRequest_Debug *debug_req, QueryError *status);
 
 /**
- * Apply timeout after count to hybrid request components.
- * Inserts timeout result processors into the appropriate parts of the pipeline.
+ * Apply component-specific timeouts to hybrid request pipelines.
+ * Inserts timeout result processors into the search and vector pipelines.
+ * A timeout value of 0 means no timeout for that component.
  *
  * @param hreq The hybrid request to modify
- * @param timeout_count Number of results after which to timeout
+ * @param search_timeout Number of results after which search pipeline times out (0 = no timeout)
+ * @param vsim_timeout Number of results after which vector pipeline times out (0 = no timeout)
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int applyHybridTimeout(HybridRequest *hreq, unsigned long long timeout_count);
+int applyHybridTimeout(HybridRequest *hreq, unsigned long long search_timeout,
+                       unsigned long long vsim_timeout);
+
+/**
+ * Extract component-specific timeout values from debug parameters.
+ * Returns the timeout value if set, otherwise returns 0 (no timeout).
+ *
+ * @param params The debug parameters containing timeout settings
+ * @param search_timeout Output parameter for search timeout (0 if not set)
+ * @param vsim_timeout Output parameter for vector timeout (0 if not set)
+ */
+void extractHybridTimeoutValues(const HybridDebugParams *params,
+                                unsigned long long *search_timeout,
+                                unsigned long long *vsim_timeout);
 
 /**
  * Debug command handler for FT.HYBRID (single shard mode).
