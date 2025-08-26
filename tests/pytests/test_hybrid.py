@@ -1,7 +1,7 @@
 import numpy as np
 from typing import List, Tuple, Optional
 from RLTest import Env
-from common import getConnectionByEnv, create_np_array_typed, ANY
+from common import getConnectionByEnv, create_np_array_typed, ANY, to_dict
 from utils.rrf import rrf_fusion, Result
 import re
 
@@ -79,6 +79,8 @@ class testHybridSearch:
             'FT.CREATE', index_name, 'SCHEMA',
             'vector', 'VECTOR', 'FLAT', '6', 'TYPE', data_type, 'DIM', dim,
             'DISTANCE_METRIC', 'L2',
+            'vector_hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_type, 'DIM', dim,
+            'DISTANCE_METRIC', 'COSINE',
             'text', 'TEXT',
             'number', 'NUMERIC',
             'tag', 'TAG').ok()
@@ -108,13 +110,17 @@ class testHybridSearch:
                               'tag', tag_value)
 
             # Create documents with only vector
+            vector_value_1 = np.random.rand(dim).astype(np.float32).tobytes()
             p.execute_command('HSET', f'vector_{i:02d}',
-                              'vector', np.random.rand(dim).astype(np.float32).tobytes(),
+                              'vector', vector_value_1,
+                              'vector_hnsw', vector_value_1,
                               'number', i, 'tag', tag_value)
 
             # Create documents with both vector and text data
+            vector_value_2 = np.random.rand(dim).astype(np.float32).tobytes()
             p.execute_command('HSET', f'both_{i:02d}',
-                              'vector', np.random.rand(dim).astype(np.float32).tobytes(),
+                              'vector', vector_value_2,
+                              'vector', vector_value_2,
                               'text', f'both {text_value}',
                               'number', i,
                               'tag', tag_value)
@@ -167,16 +173,15 @@ class testHybridSearch:
         }
         run_test_scenario(self.env, self.index_name, scenario)
 
-    # # TODO: Enable this test after adding support for EF_RUNTIME in VSIM
-    # def test_knn_ef_runtime(self):
-    #     """Test hybrid search using KNN + EF_RUNTIME parameter"""
-    #     scenario = {
-    #         "test_name": "KNN query with parameters",
-    #         "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 4 K 10 EF_RUNTIME 100",
-    #         "search_equivalent": "even",
-    #         "vector_equivalent": "*=>[KNN 10 @vector $BLOB EF_RUNTIME 100]"
-    #     }
-    #     run_test_scenario(self.env, self.index_name, scenario)
+    def test_knn_ef_runtime(self):
+        """Test hybrid search using KNN + EF_RUNTIME parameter"""
+        scenario = {
+            "test_name": "KNN query with parameters",
+            "hybrid_query": "SEARCH even VSIM @vector_hnsw $BLOB KNN 4 K 10 EF_RUNTIME 100",
+            "search_equivalent": "even",
+            "vector_equivalent": "*=>[KNN 10 @vector_hnsw $BLOB EF_RUNTIME 100]=>{$YIELD_DISTANCE_AS: vector_distance}"
+        }
+        run_test_scenario(self.env, self.index_name, scenario)
 
     # # TODO: Enable this test after adding support for YIELD_DISTANCE_AS in VSIM
     # def test_knn_yield_distance_as(self):
@@ -319,6 +324,61 @@ class testHybridSearch:
               'my_number', '4',
               'my_tag', 'even']])
 
+    def test_knn_apply_on_default_output(self):
+        """Test hybrid search using APPLY on default output fields"""
+        hybrid_query = (
+            "SEARCH '@text:(even four)' "
+            "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
+            "APPLY upper(@__key) AS upper_key "
+            "APPLY @__score*2 AS double_score "
+        )
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        res = self.env.executeCommand(*hybrid_cmd)
+
+        res_1 = to_dict(res[3][0][1][0])
+        self.env.assertEqual(len(res_1), 4)
+        self.env.assertEqual(res_1['__key'].upper(), res_1['upper_key'])
+        self.env.assertAlmostEqual(
+            float(res_1['__score']) * 2,
+            float(res_1['double_score']),
+            delta=0.0000001)
+
+        res_2 = to_dict(res[3][1][1][0])
+        self.env.assertEqual(len(res_2), 4)
+        self.env.assertEqual(res_2['__key'].upper(), res_2['upper_key'])
+        self.env.assertAlmostEqual(
+            float(res_2['__score']) * 2,
+            float(res_2['double_score']),
+            delta=0.0000001)
+
+    def test_knn_apply_on_custom_loaded_fields(self):
+        """Test hybrid search using APPLY on custom loaded fields"""
+        hybrid_query = (
+            "SEARCH '@text:(even four)' "
+            "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
+            "LOAD 6 @text AS my_text @number AS my_number "
+            "APPLY upper(@my_text) AS upper_text "
+            "APPLY @my_number*2 AS double_number "
+        )
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        res = self.env.executeCommand(*hybrid_cmd)
+
+        res_1 = to_dict(res[3][0][1][0])
+        self.env.assertEqual(len(res_1), 4)
+        self.env.assertEqual(res_1['my_text'].upper(), res_1['upper_text'])
+        self.env.assertAlmostEqual(
+            float(res_1['my_number']) * 2,
+            float(res_1['double_number']),
+            delta=0.0000001)
+
+        res_2 = to_dict(res[3][1][1][0])
+        self.env.assertEqual(len(res_2), 4)
+        self.env.assertEqual(res_2['my_text'].upper(), res_2['upper_text'])
+        self.env.assertAlmostEqual(
+            float(res_2['my_number']) * 2,
+            float(res_2['double_number']),
+            delta=0.0000001)
+
     ############################################################################
     # Range query tests
     ############################################################################
@@ -332,15 +392,16 @@ class testHybridSearch:
         }
         run_test_scenario(self.env, self.index_name, scenario)
 
-    # def test_range_with_parameters(self):
-    #     """Test hybrid search using range with parameters"""
-    #     scenario = {
-    #         "test_name": "Range query",
-    #         "hybrid_query": "SEARCH @text:(four|even) VSIM @vector $BLOB RANGE 6 RADIUS 5 EPSILON 0.5 YIELD_DISTANCE_AS vector_distance",
-    #         "search_equivalent": "@text:(four|even)",
-    #         "vector_equivalent": "@vector:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
-    #     }
-    #     run_test_scenario(self.env, self.index_name, scenario)
+    def test_range_epsilon(self):
+        """Test hybrid search using range with parameters"""
+        scenario = {
+            "test_name": "Range query",
+            "hybrid_query": "SEARCH @text:(four|even) VSIM @vector_hnsw $BLOB RANGE 4 RADIUS 5 EPSILON 0.5",
+            "search_equivalent": "@text:(four|even)",
+            "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
+        }
+        run_test_scenario(self.env, self.index_name, scenario)
+
 
 # =============================================================================
 # QUERY TRANSLATION LAYER
