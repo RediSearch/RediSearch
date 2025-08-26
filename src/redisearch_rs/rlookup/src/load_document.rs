@@ -14,17 +14,19 @@
 
 use core::panic;
 use std::borrow::Cow;
+use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
-use crate::bindings::call_hgetall;
-use crate::bindings::{
-    DocumentType, RLookupCoerceType, RLookupLoadMode, RedisKey, RedisScanCursor, RedisString,
-};
+use crate::bindings::{DocumentType, RLookupCoerceType, RLookupLoadMode};
 use crate::row::RLookupRow;
 use crate::{RLookup, RLookupKey, RLookupKeyFlag};
 use enumflags2::make_bitflags;
 use ffi::{QueryError, REDISMODULE_OK, RSDocumentMetadata, RedisSearchCtx};
-use redis_module::{KeyMode, KeyType, ReplyType};
+use redis_module::key::{KeyFlags, RedisKey};
+use redis_module::{
+    CallOptionResp, CallOptionsBuilder, CallReply, CallResult, Context, KeyType, RedisString,
+    ScanKeyCursor,
+};
 use sorting_vector::RSSortingVector;
 use value::RSValueFFI;
 
@@ -62,18 +64,14 @@ pub struct RLookupLoadOptions<'a> {
 
 impl RLookupLoadOptions<'_> {
     /// Get a mutable pointer to the RedisModuleCtx from the RedisSearchCtx.
-    ///
-    /// # Safety
-    /// This function does not ensure that the module context is locked.
-    /// The caller must ensure that the context is locked before using the context pointer.
-    unsafe fn ctx_mut(&self) -> *mut ffi::RedisModuleCtx {
+    fn ctx_mut(&self) -> Option<NonNull<redis_module::raw::RedisModuleCtx>> {
         let rs_ctx = self.sctx;
 
         // Safety: The RedisSearchCtxPtr is expected to be a valid pointer under
         // the assumption that the caller has provided valid option data structure.
-        let rs_ctx = unsafe { &*rs_ctx };
+        let rs_ctx = rs_ctx.cast::<redis_module::raw::RedisModuleCtx>();
 
-        rs_ctx.redisCtx
+        NonNull::new(rs_ctx)
     }
 }
 
@@ -191,14 +189,12 @@ fn h_get_all(
     options: &RLookupLoadOptions,
 ) -> Result<(), LoadDocumentError> {
     // get the key pointer from the options
-    // Safety: The caller
     let key_ptr = options.dmd.keyPtr;
 
     // Safety: The key pointer is expected to be a valid C string.
     let sds_len = unsafe { ffi::sdslen__(key_ptr) };
 
-    // Safety: We assume the context has been locked by the caller
-    let key_str = RedisString::from_raw_parts(unsafe { options.ctx_mut() }, key_ptr, sds_len);
+    let key_str = RedisString::from_raw_parts(options.ctx_mut(), key_ptr, sds_len);
 
     // Safety: We access the global config, which is setup during module initialization, we readonly access the serverVersion field here.
     // which is safe as it is never changed after initialization.
@@ -227,24 +223,17 @@ fn h_get_all_scan(
     lookup: &mut RLookup<'_>,
     dst_row: &mut RLookupRow<'_, RSValueFFI>,
     options: &RLookupLoadOptions,
-    mut key_str: RedisString,
+    key_str: RedisString,
 ) -> Result<(), LoadDocumentError> {
     // 1. Open the key
-    // Safety: The RedisString pointer is only used inside the RedisModule API, which we assume to be safe.
-    let key_str_ptr = unsafe { key_str.as_ptr() };
-
-    // Safety: We assume the context has been locked by the caller
-    let key = RedisKey::open(
-        unsafe { options.ctx_mut() },
-        key_str_ptr,
-        KeyMode::READ
-            | KeyMode::KEYOPEN_NOEFFECTS
-            | KeyMode::KEYOPEN_NOEXPIRE
-            | KeyMode::KEYOPEN_ACCESSEXPIRED,
+    let key = RedisKey::open_with_flags(
+        options.ctx_mut().unwrap().as_ptr(),
+        &key_str,
+        KeyFlags::NOEFFECTS | KeyFlags::NOEXPIRE | KeyFlags::ACCESS_EXPIRED,
     );
 
     // Check if the key is a hash
-    if key.ty() != KeyType::Hash {
+    if key.key_type() != KeyType::Hash {
         // If not a hash, return an error
         #[cfg(debug_assertions)]
         {
@@ -257,18 +246,30 @@ fn h_get_all_scan(
     }
 
     // 2. Create a scan cursor
-    let scan_cursor = RedisScanCursor::new_from_key(key);
+    let scan_cursor = ScanKeyCursor::new(key);
 
     // Iterator over cursor
-    for (_key, field, value) in scan_cursor {
-        let field_cstr = RedisString::try_raw_into_cstr(field).unwrap();
+    scan_cursor.foreach(|_key, field, value| {
+        let (raw_field_cstr, _field_len) = field.as_cstr_ptr_and_len();
+
+        // Safety: We crate a CStr from the bytes we received from Redis SCAN API:
+        let field_cstr = unsafe { CStr::from_ptr(raw_field_cstr) };
 
         // To work around the borrow checker, we check for key existence and create a new key if needed.
         let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
         let new_needed = lookup.keys.find_by_name(field_cstr).is_none();
         if new_needed {
-            let name = Cow::Owned(field_cstr.to_owned());
+            // if we create a new key we want to own the CString,
+            // so we copy and convert it to a Cow::Owned
+
+            // Safety: We create a CString from the bytes we received from Redis SCAN API:
+            let field_cstring = unsafe { CString::from_raw(raw_field_cstr.cast_mut()) };
+
+            let name = field_cstring.clone().into();
             lookup.keys.push(RLookupKey::new_with_cow(name, flags));
+
+            // we're not the owner of the CString, so we must not free it
+            std::mem::forget(field_cstring); // prevent it from being freed
         }
 
         let rlk = lookup.get_key_load(field_cstr, field_cstr, flags).unwrap();
@@ -285,7 +286,10 @@ fn h_get_all_scan(
         dst_row.write_key(rlk, {
             // Safety: value is expected to be valid RedisModuleString that is a hash and
             // `ffi::hvalToValue` is expected to return a valid RSValue pointer.
-            let inner = unsafe { ffi::hvalToValue(value, coerce_type as ffi::RLookupCoerceType) };
+
+            let inner = unsafe {
+                ffi::hvalToValue(value.as_ptr().cast(), coerce_type as ffi::RLookupCoerceType)
+            };
             // Safety: We assume that `hvalToValue` returns a valid pointer.
             unsafe {
                 RSValueFFI::from_raw(
@@ -293,7 +297,7 @@ fn h_get_all_scan(
                 )
             }
         });
-    }
+    });
 
     Ok(())
 }
@@ -310,12 +314,17 @@ fn h_get_all_fallback(
     options: &RLookupLoadOptions,
     key_str: RedisString,
 ) -> Result<(), LoadDocumentError> {
-    // Safety: We assume the context has been locked by the caller
-    let Some(reply) = call_hgetall(unsafe { options.ctx_mut() }, &key_str) else {
+    let call_options = CallOptionsBuilder::new()
+        .script_mode()
+        .resp(CallOptionResp::Resp3)
+        .errors_as_replies()
+        .build();
+    let ctx = Context::new(options.ctx_mut().unwrap().as_ptr());
+    let Ok(reply) = ctx.call_ext::<_, CallResult>("HGETALL", &call_options, &[&key_str]) else {
         return Err(LoadDocumentError::FallbackAPINotAvailable);
     };
 
-    if reply.ty() != ReplyType::Array {
+    let redis_module::CallReply::Array(reply) = reply else {
         #[cfg(debug_assertions)]
         {
             return Err(LoadDocumentError::KeyDoesNotExist(key_str.to_string()));
@@ -324,9 +333,9 @@ fn h_get_all_fallback(
         {
             return Err(LoadDocumentError::KeyDoesNotExist);
         }
-    }
+    };
 
-    let len = reply.length();
+    let len = reply.len();
     if len == 0 {
         #[cfg(debug_assertions)]
         {
@@ -339,39 +348,39 @@ fn h_get_all_fallback(
     }
 
     for i in (0..len).step_by(2) {
-        let Some(k) = reply.array_element(i) else {
-            panic!("The call reply should be accessible, this indicates a bug.");
+        let k = reply.get(i).unwrap().unwrap();
+        let CallReply::String(k) = k else {
+            panic!("Expected a string reply for the key, but got something else");
         };
-        let Some(value) = reply.array_element(i + 1) else {
-            panic!("The call reply should be accessible, this indicates a bug.");
+        let value = reply.get(i + 1).unwrap().unwrap();
+        let CallReply::String(value) = value else {
+            panic!("Expected a string reply for the value, but got something else");
         };
 
-        // Safety: The k is expected to be a valid C string obtained from Redis Module API.
-        let field_cstr = k.try_as_cstr().unwrap_or_else(|| {
-            panic!("Expected a string pointer for the key, but got None");
-        });
+        let key_bytes = k.as_bytes();
 
-        let cursor = it.keys.find_by_name(field_cstr);
-
-        let (_, rlk) = if let Some(cursor) = &cursor {
-            let rlk = cursor.current().unwrap();
-            if rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
-                /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/
-                continue; // Key name is already taken by a query key, or it's already loaded.
-            }
-            (Some(cursor), rlk)
-        } else {
-            // To work around the borrow checker, we check for key existence and create a new key if needed.
-            let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
-            let new_needed = it.keys.find_by_name(field_cstr).is_none();
-            if new_needed {
+        {
+            // Safety: We create a CString from the bytes we received from Redis CALL API:
+            let field_cstr = unsafe { CStr::from_bytes_with_nul_unchecked(key_bytes) };
+            if let Some(_cursor) = it.keys.find_by_name(field_cstr) {
+                // Key already exists, nothing to do
+            } else {
                 let name = Cow::Owned(field_cstr.to_owned());
+                let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
                 it.keys.push(RLookupKey::new_with_cow(name, flags));
             }
+        }
 
-            let rlk = it.get_key_load(field_cstr, field_cstr, flags);
-            (None, rlk.unwrap())
-        };
+        let flags = make_bitflags!(RLookupKeyFlag::{ForceLoad});
+        // convert key to Cow: CString -> Copied CString -> Cow
+        let cstring = CString::new(k.as_bytes()).unwrap();
+        let cow = Cow::from(cstring.clone());
+
+        // generate a cstr that is used as the field name but is the same as the cow
+        let ptr = cow.as_ptr();
+        // Safety: The pointer is valid as it comes from a RedisModuleString that is expected to be valid.
+        let field_cstr = unsafe { CStr::from_ptr(ptr) };
+        let rlk = it.get_key_load(cow, field_cstr, flags).unwrap();
 
         let mut coerce_ty = RLookupCoerceType::Str;
         if options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
@@ -383,10 +392,13 @@ fn h_get_all_fallback(
         // the callback returns, so this is a thread-local operation that will take ownership of
         // the string value.
         row.write_key(rlk, {
-            // Safety: We use the pointer only to obtain the RSValue.
-            let in_ptr = unsafe { value.get_ptr() };
             // Safety: The prvoided value pointer is valid and the ctype is of the correct type.
-            let ptr = unsafe { ffi::replyElemToValue(in_ptr, coerce_ty as ffi::RLookupCoerceType) };
+            let ptr = unsafe {
+                ffi::replyElemToValue(
+                    value.get_raw().cast(), // different opaque types from different crates but pointing to the same structure.
+                    coerce_ty as ffi::RLookupCoerceType,
+                )
+            };
             // Safety: We assume that `replyElemToValue` returns a valid pointer.
             unsafe {
                 RSValueFFI::from_raw(
