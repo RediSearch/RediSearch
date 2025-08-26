@@ -18,6 +18,7 @@
 
 use core::slice;
 use enumflags2::{BitFlags, bitflags};
+use redis_module::{KeyMode, KeyType, ReplyType};
 use std::{
     ffi::{CStr, c_char, c_void},
     fmt::Display,
@@ -211,90 +212,6 @@ impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
 }
 
 // ===== RedisModule Wrapping ====
-
-/// KeyMode is a set of flags that can be used when opening a key with `RedisModule_OpenKey`.
-/// See https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#RedisModule_OpenKey
-///
-/// This is a duplication of defines from `redismodule.h`. Here enums and
-/// [`bitflags`](https://docs.rs/bitflags/latest/bitflags/) enables us to write idomatic
-/// Rust code allowing to ORs the values as in C bitflag patterns.
-///
-/// Beware: If an update to `redismodule.h` adds new values, this enum must be updated accordingly.
-///
-/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
-#[bitflags]
-#[repr(u32)] // should be c_unit
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum KeyMode {
-    /// Open the key for reading.
-    Read = ffi::REDISMODULE_READ,
-
-    /// Open the key for writing.
-    Write = ffi::REDISMODULE_WRITE,
-
-    /// Avoid touching the LRU/LFU of the key when opened.
-    NoTouch = ffi::REDISMODULE_OPEN_KEY_NOTOUCH,
-
-    /// Don't trigger keyspace event on key misses
-    NoNotify = ffi::REDISMODULE_OPEN_KEY_NONOTIFY,
-
-    /// Don't update keyspace hits/misses counters.
-    NoStats = ffi::REDISMODULE_OPEN_KEY_NOSTATS,
-
-    /// Avoid deleting lazy expired keys.
-    NoExpire = ffi::REDISMODULE_OPEN_KEY_NOEXPIRE,
-
-    /// Avoid any effects from fetching the key.
-    NoEffects = ffi::REDISMODULE_OPEN_KEY_NOEFFECTS,
-
-    /// Allow access to expired keys that haven't been deleted yet.
-    AccessExpired = ffi::REDISMODULE_OPEN_KEY_ACCESS_EXPIRED,
-}
-pub type KeyModes = BitFlags<KeyMode>;
-
-/// KeyTypes is a enum of types of a `RedisModuleKey`.
-///
-/// This is a duplication of defines from `redismodule.h`, leading to more idiomatic Rust code
-/// using enums instead of integer defines and thus allowing pattern matching.
-///
-/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
-#[repr(u32)]
-#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
-pub enum KeyTypes {
-    Empty = ffi::REDISMODULE_KEYTYPE_EMPTY,
-    String = ffi::REDISMODULE_KEYTYPE_STRING,
-    List = ffi::REDISMODULE_KEYTYPE_LIST,
-    Hash = ffi::REDISMODULE_KEYTYPE_HASH,
-    Set = ffi::REDISMODULE_KEYTYPE_SET,
-    ZSet = ffi::REDISMODULE_KEYTYPE_ZSET,
-    Module = ffi::REDISMODULE_KEYTYPE_MODULE,
-    Stream = ffi::REDISMODULE_KEYTYPE_STREAM,
-}
-
-/// ReplyTypes is a enum of types that can be encapsulated with a `RedisModuleReply`.
-///
-/// This is a duplication of defines from `redismodule.h``, leading to more idiomatic Rust code
-/// using enums instead of integer defines and thus allowing pattern matching.
-///
-/// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
-#[repr(u32)] // should be c_unit
-#[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
-pub enum ReplyTypes {
-    Unknown = ffi::REDISMODULE_REPLY_UNKNOWN as u32,
-    String = ffi::REDISMODULE_REPLY_STRING,
-    Error = ffi::REDISMODULE_REPLY_ERROR,
-    Integer = ffi::REDISMODULE_REPLY_INTEGER,
-    Array = ffi::REDISMODULE_REPLY_ARRAY,
-    Null = ffi::REDISMODULE_REPLY_NULL,
-    Map = ffi::REDISMODULE_REPLY_MAP,
-    Set = ffi::REDISMODULE_REPLY_SET,
-    Bool = ffi::REDISMODULE_REPLY_BOOL,
-    Double = ffi::REDISMODULE_REPLY_DOUBLE,
-    BigNumber = ffi::REDISMODULE_REPLY_BIG_NUMBER,
-    VerbatimString = ffi::REDISMODULE_REPLY_VERBATIM_STRING,
-    Attributes = ffi::REDISMODULE_REPLY_ATTRIBUTE,
-    Promise = ffi::REDISMODULE_REPLY_PROMISE,
-}
 
 // ===== RedisString =====
 
@@ -519,7 +436,7 @@ impl RedisKey {
     /// Opens a key with the given context and name, using the specified [KeyModes] mode.
     /// Uses the `RedisModule_OpenKey` function from the C API.
     #[inline]
-    pub fn open(ctx: *mut RedisModuleCtx, name: *mut RedisModuleString, mode: KeyModes) -> Self {
+    pub fn open(ctx: *mut RedisModuleCtx, name: *mut RedisModuleString, mode: KeyMode) -> Self {
         debug_assert!(!name.is_null(), "RedisKey::open called with null pointer");
 
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
@@ -533,7 +450,7 @@ impl RedisKey {
 
     /// Returns the type of the key, using the `RedisModule_KeyType` function from the C API.
     #[inline]
-    pub fn ty(&self) -> KeyTypes {
+    pub fn ty(&self) -> KeyType {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
         let gs = unsafe { RedisModule_KeyType.unwrap() };
@@ -542,7 +459,7 @@ impl RedisKey {
         let raw = unsafe { gs(self.0.as_ptr()) } as u32;
 
         // If the c function returns an invalid value, we assume the type is empty.
-        KeyTypes::from_repr(raw).unwrap_or(KeyTypes::Empty)
+        KeyType::from_repr(raw).unwrap_or(KeyType::Empty)
     }
 }
 
@@ -696,16 +613,16 @@ impl RedisCallReply {
 
     /// Returns the type of the reply, using the `RedisModule_CallReplyType` function from the C API.
     #[inline]
-    pub fn ty(&self) -> ReplyTypes {
+    pub fn ty(&self) -> ReplyType {
         // Safety: Assumption: c-side initialized the function ptr and it is is never changed,
         // i.e. after module initialization the function pointers stay valid till the end of the program.
         let gs = unsafe { RedisModule_CallReplyType.unwrap() };
 
         // Safety: RAII pattern ensures that the ptr is valid (created by "RedisModule_Call" with HGETCALL params)
-        let raw = unsafe { gs(self.0.as_ptr()) } as u32;
+        let raw = unsafe { gs(self.0.as_ptr()) };
 
         // If the c function returns an invalid value, we assume the type is unknown.
-        ReplyTypes::from_repr(raw).unwrap_or(ReplyTypes::Unknown)
+        ReplyType::from_repr(raw).unwrap_or(ReplyType::Unknown)
     }
 
     /// Returns the length of the reply if it is an array, using the `RedisModule_CallReplyLength` function from the C API.
