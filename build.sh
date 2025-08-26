@@ -305,6 +305,12 @@ prepare_cmake_arguments() {
     echo "Building with multi-threading support disabled"
   fi
 
+  # Handle LITE build variant - set MODULE_NAME to searchlight
+  if [[ "$LITE" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DMODULE_NAME=searchlight"
+    echo "Building LITE variant with MODULE_NAME=searchlight"
+  fi
+
   # Ensure output file is always .so even on macOS
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_SHARED_LIBRARY_SUFFIX=.so"
 
