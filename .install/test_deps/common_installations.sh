@@ -44,16 +44,11 @@ cargo install cargo-llvm-cov --locked
 # for more details.
 cargo +$NIGHTLY_VERSION miri setup
 
-python3 -m venv venv
+# Create a virtual environment for Python tests, with `pip` pre-installed (--seed)
+uv venv --seed venv
 activate_venv
 source venv/bin/activate
-
-pip install --upgrade pip
-pip install -q --upgrade setuptools
-echo "pip version: $(pip --version)"
-echo "pip path: $(which pip)"
-
-pip install -q -r tests/pytests/requirements.txt
+uv sync --all-packages
 
 # List installed packages
-pip list
+uv run pip list
