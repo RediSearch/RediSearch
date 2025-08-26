@@ -212,9 +212,10 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp->parent->err, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
-      // TODO: take to error using HREQ_GetError
-      RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
+    QueryError err = {0};
+    HREQ_GetError(hreq, &err);
+    if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
       ReplyWithTimeoutError(reply);
