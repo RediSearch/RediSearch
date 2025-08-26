@@ -6,11 +6,11 @@ MODE=$1 # whether to install using sudo or not
 activate_venv() {
 	echo "copy activation script to shell config"
 	if [[ $OS_TYPE == Darwin ]]; then
-		echo "source venv/bin/activate" >> ~/.bashrc
-		echo "source venv/bin/activate" >> ~/.zshrc
+		echo "source .venv/bin/activate" >> ~/.bashrc
+		echo "source .venv/bin/activate" >> ~/.zshrc
 	else
-		echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
-		echo "source $PWD/venv/bin/activate" >> ~/.bashrc
+		echo "source $PWD/.venv/bin/activate" >> ~/.bash_profile
+		echo "source $PWD/.venv/bin/activate" >> ~/.bashrc
 		# Adding the virtual environment activation script to the shell profile
 		# causes $PATH issues on platforms like Debian and Alpine,
 		# shadowing the pre-existing source command to make `cargo` available.
@@ -45,9 +45,9 @@ cargo install cargo-llvm-cov --locked
 cargo +$NIGHTLY_VERSION miri setup
 
 # Create a virtual environment for Python tests, with `pip` pre-installed (--seed)
-uv venv --seed venv
+uv venv --seed
 activate_venv
-source venv/bin/activate
+source .venv/bin/activate
 uv sync --all-packages
 
 # List installed packages
