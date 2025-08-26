@@ -196,16 +196,15 @@ class testHybridSearch:
     #     }
     #     run_test_scenario(self.env, self.index_name, scenario)
 
-    # # TODO: MOD-11012 FT.HYBRID VSIM FILTER clause doesn't work as expected
-    # def test_knn_text_vector_prefilter(self):
-    #     """Test hybrid search using KNN + VSIM text prefilter"""
-    #     scenario = {
-    #         "test_name": "KNN with text prefilter",
-    #         "hybrid_query": "SEARCH @text:(even) VSIM @vector $BLOB FILTER @text:(two|four|six)",
-    #         "search_equivalent": "@text:(even)",
-    #         "vector_equivalent": "(@text:(two|four|six))=>[KNN 10 @vector $BLOB AS vector_distance]"
-    #     }
-    #     run_test_scenario(self.env, self.index_name, scenario)
+    def test_knn_text_vector_prefilter(self):
+        """Test hybrid search using KNN + VSIM text prefilter"""
+        scenario = {
+            "test_name": "KNN with text prefilter",
+            "hybrid_query": "SEARCH @text:(even) VSIM @vector $BLOB FILTER @text:(two|four|six)",
+            "search_equivalent": "@text:(even)",
+            "vector_equivalent": "(@text:(two|four|six))=>[KNN 10 @vector $BLOB AS vector_distance]"
+        }
+        run_test_scenario(self.env, self.index_name, scenario)
 
     def test_knn_numeric_vector_prefilter(self):
         """Test hybrid search using KNN + numeric prefilter"""
