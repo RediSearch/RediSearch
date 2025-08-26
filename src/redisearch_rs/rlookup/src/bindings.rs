@@ -214,71 +214,86 @@ impl AsRef<ffi::IndexSpecCache> for IndexSpecCache {
 
 /// KeyMode is a set of flags that can be used when opening a key with `RedisModule_OpenKey`.
 /// See https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#RedisModule_OpenKey
+///
+/// This is a duplication of defines from `redismodule.h`. Here enums and
+/// [`bitflags`](https://docs.rs/bitflags/latest/bitflags/) enables us to write idomatic
+/// Rust code allowing to ORs the values as in C bitflag patterns.
+///
+/// Beware: If an update to `redismodule.h` adds new values, this enum must be updated accordingly.
+///
 /// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
 #[bitflags]
 #[repr(u32)] // should be c_unit
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum KeyMode {
     /// Open the key for reading.
-    Read = 1 << 0,
+    Read = ffi::REDISMODULE_READ,
 
     /// Open the key for writing.
-    Write = 1 << 1,
+    Write = ffi::REDISMODULE_WRITE,
 
     /// Avoid touching the LRU/LFU of the key when opened.
-    NoTouch = 1 << 16,
+    NoTouch = ffi::REDISMODULE_OPEN_KEY_NOTOUCH,
 
     /// Don't trigger keyspace event on key misses
-    NoNotify = 1 << 17,
+    NoNotify = ffi::REDISMODULE_OPEN_KEY_NONOTIFY,
 
     /// Don't update keyspace hits/misses counters.
-    NoStats = 1 << 18,
+    NoStats = ffi::REDISMODULE_OPEN_KEY_NOSTATS,
 
     /// Avoid deleting lazy expired keys.
-    NoExpire = 1 << 19,
+    NoExpire = ffi::REDISMODULE_OPEN_KEY_NOEXPIRE,
 
     /// Avoid any effects from fetching the key.
-    NoEffects = 1 << 20,
+    NoEffects = ffi::REDISMODULE_OPEN_KEY_NOEFFECTS,
 
     /// Allow access to expired keys that haven't been deleted yet.
-    AccessExpired = 1 << 21,
+    AccessExpired = ffi::REDISMODULE_OPEN_KEY_ACCESS_EXPIRED,
 }
 pub type KeyModes = BitFlags<KeyMode>;
 
 /// KeyTypes is a enum of types of a `RedisModuleKey`.
+///
+/// This is a duplication of defines from `redismodule.h`, leading to more idiomatic Rust code
+/// using enums instead of integer defines and thus allowing pattern matching.
+///
 /// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
 pub enum KeyTypes {
-    Empty = 0,
-    String = 1,
-    List = 2,
-    Hash = 3,
-    Set = 4,
-    ZSet = 5,
-    Module = 6,
-    Stream = 7,
+    Empty = ffi::REDISMODULE_KEYTYPE_EMPTY,
+    String = ffi::REDISMODULE_KEYTYPE_STRING,
+    List = ffi::REDISMODULE_KEYTYPE_LIST,
+    Hash = ffi::REDISMODULE_KEYTYPE_HASH,
+    Set = ffi::REDISMODULE_KEYTYPE_SET,
+    ZSet = ffi::REDISMODULE_KEYTYPE_ZSET,
+    Module = ffi::REDISMODULE_KEYTYPE_MODULE,
+    Stream = ffi::REDISMODULE_KEYTYPE_STREAM,
 }
 
 /// ReplyTypes is a enum of types that can be encapsulated with a `RedisModuleReply`.
+///
+/// This is a duplication of defines from `redismodule.h``, leading to more idiomatic Rust code
+/// using enums instead of integer defines and thus allowing pattern matching.
+///
 /// TODO: [MOD-10548] move to unified RedisModule wrapper crate.
 #[repr(u32)] // should be c_unit
 #[derive(Copy, Clone, Debug, PartialEq, strum::FromRepr)]
 pub enum ReplyTypes {
-    Unknown = 0xFFFFFFFF,
-    String = 0,
-    Error = 1,
-    Integer = 2,
-    Array = 3,
-    Null = 4,
-    Map = 5,
-    Set = 6,
-    Bool = 7,
-    Double = 8,
-    BigNumber = 9,
-    VerbatimString = 10,
-    Attributes = 11,
-    Promise = 12,
+    Unknown = ffi::REDISMODULE_REPLY_UNKNOWN as u32,
+    String = ffi::REDISMODULE_REPLY_STRING,
+    Error = ffi::REDISMODULE_REPLY_ERROR,
+    Integer = ffi::REDISMODULE_REPLY_INTEGER,
+    Array = ffi::REDISMODULE_REPLY_ARRAY,
+    Null = ffi::REDISMODULE_REPLY_NULL,
+    Map = ffi::REDISMODULE_REPLY_MAP,
+    Set = ffi::REDISMODULE_REPLY_SET,
+    Bool = ffi::REDISMODULE_REPLY_BOOL,
+    Double = ffi::REDISMODULE_REPLY_DOUBLE,
+    BigNumber = ffi::REDISMODULE_REPLY_BIG_NUMBER,
+    VerbatimString = ffi::REDISMODULE_REPLY_VERBATIM_STRING,
+    Attributes = ffi::REDISMODULE_REPLY_ATTRIBUTE,
+    Promise = ffi::REDISMODULE_REPLY_PROMISE,
 }
 
 // ===== RedisString =====
