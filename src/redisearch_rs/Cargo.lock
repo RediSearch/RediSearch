@@ -1417,6 +1417,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "fnv_ffi",
+ "inverted_index_ffi",
  "redis-module",
  "result_processor_ffi",
  "triemap_ffi",
