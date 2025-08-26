@@ -55,7 +55,7 @@ uv python list
 uv venv --seed
 activate_venv
 source .venv/bin/activate
-uv sync --all-packages
+uv sync --locked --all-packages
 
 # List installed packages
 uv run pip list
