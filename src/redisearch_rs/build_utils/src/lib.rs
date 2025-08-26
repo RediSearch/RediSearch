@@ -160,7 +160,6 @@ pub fn generate_c_bindings(
         root.join("src").join("redisearch_rs").join("headers"),
         root.join("deps").join("VectorSimilarity").join("src"),
         root.join("src").join("buffer"),
-        root.join("src").join("inverted_index"),
     ];
 
     let headers = headers
