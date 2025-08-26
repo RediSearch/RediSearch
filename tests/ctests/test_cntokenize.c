@@ -12,7 +12,6 @@
 
 #include "src/buffer/buffer.h"
 #include "src/inverted_index/inverted_index.h"
-#include "src/index_result.h"
 #include "src/query_parser/tokenizer.h"
 #include "src/spec.h"
 #include "src/tokenize.h"

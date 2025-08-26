@@ -15,7 +15,6 @@ extern "C" {
 
 #include "src/forward_index.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/index_result.h"
 #include "src/tag_index.h"
 #include "src/numeric_index.h"
 #include "redisearch_rs/headers/triemap.h"
