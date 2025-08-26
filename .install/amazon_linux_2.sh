@@ -5,11 +5,7 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 $MODE yum update -y
-$MODE amazon-linux-extras enable python3.8
-$MODE yum install -y python3.8 python38-devel which
-
-# Prefer python3.8 via PATH (do NOT fight the /usr/bin/python3 owned by RPMs)
-$MODE ln -sf /usr/bin/python3.8 /usr/local/bin/python3
+$MODE yum install -y which
 
 # Install the RPM package that provides the Software Collections (SCL) required for devtoolset-11
 $MODE yum install -y https://vault.centos.org/centos/7/extras/x86_64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
