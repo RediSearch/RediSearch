@@ -39,7 +39,6 @@ typedef struct blockedClientHybridCtx {
   WeakRef spec_ref;
   // We need to know what kind of cursor to open, either multiple cursors if it is an internal command(shard) or single if it is a user command(coordinator)
   bool internal;
-  bool coordinator;
 } blockedClientHybridCtx;
 
 /*

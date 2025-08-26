@@ -293,13 +293,11 @@ done_err:
     finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
 }
 
+
 /**
- * Execute the hybrid search pipeline and send results to the client.
- * This function uses the hybrid-specific result serialization functions.
+ * Destroy a blocked client hybrid context and clean up resources.
  *
- * @param hreq The HybridRequest with built pipeline
- * @param ctx Redis module context for sending the reply
- * @param sctx Redis search context
+ * @param BCHCtx The blocked client context to destroy
  */
 void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
     AGGPlan *plan = &hreq->tailPipeline->ap;
@@ -333,15 +331,42 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
                                                          RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
                                                          bool internal) {
   // Build the pipeline and execute
-  hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
-  if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+  bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
+  arrayof(ResultProcessor*) depleters = NULL;
+  // Internal commands do not have a hybrid merger and only have a depletion pipeline
+  if (internal) {
+    RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
+    isCursor = true;
+    depleters = HybridRequest_BuildDepletionPipeline(hreq, hybridParams);
+    if (!depleters) {
+      goto error;
+    }
+  } else {
+    if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
+      goto error;
+    }
   }
 
-  // Hybrid query doesn't support cursors.
-  HybridRequest_Execute(hreq, ctx, sctx);
+  if (isCursor) {
+    arrayof(Cursor*) cursors = HybridRequest_StartCursor(hreq, depleters, status, false);
+    if (!cursors) {
+      goto error;
+    }
+
+    // Send array of cursor IDs as response
+    RedisModule_ReplyWithArray(ctx, array_len(cursors));
+    for (size_t i = 0; i < array_len(cursors); i++) {
+      RedisModule_ReplyWithLongLong(ctx, cursors[i]->id);
+    }
+    array_free(cursors);
+  } else {
+    // Hybrid query doesn't support cursors.
+    HybridRequest_Execute(hreq, ctx, sctx);
+  }
+  rc = REDISMODULE_OK;
+error:
   rm_free(hybridParams);
-  return REDISMODULE_OK;
+  return rc;
 }
 
 // Background execution functions implementation
@@ -363,6 +388,9 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
 // otherwise, the caller is responsible for freeing them
 static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
+  RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
+  RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
+
   if (RunInThread()) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
@@ -417,6 +445,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
+  cmd.hybridParams = rm_new(HybridPipelineParams);
   RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
   RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
   cmd.search->sctx = NewSearchCtxC(ctx1, indexname, true);
@@ -429,7 +458,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HybridRequest_BuildPipelineAndExecute(hybridRequest, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {
+  if (HybridRequest_BuildPipelineAndExecute(hybridRequest, cmd.hybridParams, ctx, sctx, &status, internal) != REDISMODULE_OK) {
     HybridRequest_GetError(hybridRequest, &status);
     goto error;
   }
@@ -450,64 +479,6 @@ error:
 
   CurrentThread_ClearIndexSpec();
   return QueryError_ReplyAndClear(ctx, &status);
-}
-
-/**
- * Destroy a blocked client hybrid context and clean up resources.
- *
- * @param BCHCtx The blocked client context to destroy
- */
-void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
-    AGGPlan *plan = &hreq->tailPipeline->ap;
-    cachedVars cv = {
-        .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-        .lastAstp = AGPLN_GetArrangeStep(plan)
-    };
-
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-    sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
-    RedisModule_EndReply(reply);
-    HybridRequest_Free(hreq);
-}
-
-static bool HybridRequest_InternalBuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError* status, bool internal, bool coordinator) {
-  // Build the pipeline and execute
-  bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
-  arrayof(ResultProcessor*) depleters = NULL;
-  // Internal commands do not have a hybrid merger and only have a depletion pipeline
-  if (internal) {
-    RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
-    isCursor = true;
-    depleters = HybridRequest_BuildDepletionPipeline(hreq, hybridParams);
-    if (!depleters) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Failed to build depletion pipeline");
-      QueryError_ReplyAndClear(ctx, status);
-      return false;
-    }
-  } else {
-    if (HybridRequest_BuildPipeline(hreq, hybridParams, status) != REDISMODULE_OK) {
-      return false;
-    }
-  }
-
-  if (isCursor) {
-    arrayof(Cursor*) cursors = HybridRequest_StartCursor(hreq, depleters, status, coordinator);
-    if (!cursors) {
-      QueryError_ReplyAndClear(ctx, status);
-      return false;
-    }
-
-    // Send array of cursor IDs as response
-    RedisModule_ReplyWithArray(ctx, array_len(cursors));
-    for (size_t i = 0; i < array_len(cursors); i++) {
-      RedisModule_ReplyWithLongLong(ctx, cursors[i]->id);
-    }
-    array_free(cursors);
-  } else {
-    // Hybrid query doesn't support cursors.
-    HybridRequest_Execute(hreq, ctx, sctx);
-  }
-  return true;
 }
 
 /**

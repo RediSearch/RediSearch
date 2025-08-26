@@ -112,15 +112,14 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     return Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);;
 }
 
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, QueryError *status) {
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
       // move the context to the hybrid request
     req->sctx = params->aggregationParams.common.sctx;
     params->aggregationParams.common.sctx = NULL;
     // Build the depletion pipeline for extracting results from individual search requests
     arrayof(ResultProcessor*) depleters = HybridRequest_BuildDepletionPipeline(req, params);
     if (!depleters) {
-      QueryError_SetError(status, QUERY_EGENERIC, "Failed to build depletion pipeline");
-        return REDISMODULE_ERR;
+      return REDISMODULE_ERR;
     }
     // Build the merge pipeline for combining and processing results from the depletion pipeline
     return HybridRequest_BuildMergePipeline(req, params, depleters);
@@ -130,7 +129,7 @@ static void FreeHybridRequest(void *ptr) {
   HybridRequest_Free((HybridRequest *)ptr);
 }
 
-arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord) {
+arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultProcessor*) depleters, bool coord) {
     if (req->nrequests == 0 || req->nrequests != array_len(depleters)) {
       return NULL;
     }
@@ -173,7 +172,7 @@ arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultPro
         Cursor_Free(cursors[i]);
       }
       array_free(cursors);
-      QueryError_SetError(status, QUERY_ELIMIT, "Failed to allocate enough cursors");
+      QueryError_SetError(&req->tailPipelineError, QUERY_ELIMIT, "Failed to allocate enough cursors");
       return NULL;
     }
 
@@ -185,9 +184,9 @@ arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultPro
       }
       array_free(cursors);
       if (rc == RS_RESULT_TIMEDOUT) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ETIMEDOUT, "Depleting timed out");
+        QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_ETIMEDOUT, "Depleting timed out");
       } else {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
+        QueryError_SetWithoutUserDataFmt(&req->tailPipelineError, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
       }
       return NULL;
     }

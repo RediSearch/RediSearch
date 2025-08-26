@@ -91,12 +91,12 @@ protected:
 static void validateDefaultParams(HybridRequest* result, ParseHybridCommandCtx& parseCtx,
     size_t expectedWindow, size_t expectedKnnK) {
     ASSERT_TRUE(result != NULL);
-    ASSERT_TRUE(parseCtx.hybridParams.scoringCtx != NULL);
+    ASSERT_TRUE(parseCtx.hybridParams->scoringCtx != NULL);
 
     // Verify RRF-specific parameters (only for RRF)
-    if (parseCtx.hybridParams.scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-        ASSERT_EQ(expectedWindow, parseCtx.hybridParams.scoringCtx->rrfCtx.window)
-            << "Expected window=" << expectedWindow << ", got " << parseCtx.hybridParams.scoringCtx->rrfCtx.window;
+    if (parseCtx.hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF) {
+        ASSERT_EQ(expectedWindow, parseCtx.hybridParams->scoringCtx->rrfCtx.window)
+            << "Expected window=" << expectedWindow << ", got " << parseCtx.hybridParams->scoringCtx->rrfCtx.window;
 
         // Verify RRF k default
         ASSERT_DOUBLE_EQ(HYBRID_DEFAULT_RRF_CONSTANT, parseCtx.hybridParams->scoringCtx->rrfCtx.constant)
@@ -187,7 +187,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
 
   parseCommand(args);
   // Both flags should be false
-  ASSERT_FALSE(parseCtx.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_FALSE(parseCtx.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
   ASSERT_FALSE(result->requests[1]->parsedVectorData->hasExplicitK);
 }
 
@@ -199,7 +199,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitK) {
   parseCommand(args);
   // K explicit, WINDOW implicit
   ASSERT_TRUE(result->requests[1]->parsedVectorData->hasExplicitK);
-  ASSERT_FALSE(parseCtx.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_FALSE(parseCtx.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitWindow) {
@@ -209,7 +209,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitWindow) {
 
   parseCommand(args);
   // WINDOW explicit, K implicit
-  ASSERT_TRUE(parseCtx.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(parseCtx.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
   ASSERT_FALSE(result->requests[1]->parsedVectorData->hasExplicitK);
 }
 
@@ -221,7 +221,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitBoth) {
   parseCommand(args);
   // Both flags should be true
   ASSERT_TRUE(result->requests[1]->parsedVectorData->hasExplicitK);
-  ASSERT_TRUE(parseCtx.hybridParams.scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(parseCtx.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(HybridDefaultsTest, testLinearDefaults) {
@@ -231,7 +231,7 @@ TEST_F(HybridDefaultsTest, testLinearDefaults) {
 
   parseCommand(args);
   // LINEAR should not have window parameter (uses regular limit instead)
-  ASSERT_EQ(parseCtx.hybridParams.scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
+  ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
 
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(HYBRID_DEFAULT_KNN_K, vq->knn.k)
@@ -248,7 +248,7 @@ TEST_F(HybridDefaultsTest, testKCappedAtExplicitWindow) {
   // Verify K was capped to WINDOW value
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(15, vq->knn.k) << "Expected K to be capped at WINDOW=15, got " << vq->knn.k;
-  ASSERT_EQ(15, parseCtx.hybridParams.scoringCtx->rrfCtx.window);
+  ASSERT_EQ(15, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }
 
 // Test K ≤ WINDOW constraint: K from LIMIT fallback > explicit WINDOW should cap K to WINDOW
@@ -261,7 +261,7 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
   // K should be capped to WINDOW (12) even though LIMIT fallback would set it to 30
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(12, vq->knn.k) << "Expected K to be capped at WINDOW=12, got " << vq->knn.k;
-  ASSERT_EQ(12, parseCtx.hybridParams.scoringCtx->rrfCtx.window);
+  ASSERT_EQ(12, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }
 
 // Test K ≤ WINDOW constraint: explicit K > WINDOW from LIMIT fallback should cap K to WINDOW
@@ -274,7 +274,7 @@ TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
   // K should be capped to WINDOW (18 from LIMIT fallback) even though K was explicitly set to 25
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(18, vq->knn.k) << "Expected K to be capped at WINDOW=18, got " << vq->knn.k;
-  ASSERT_EQ(18, parseCtx.hybridParams.scoringCtx->rrfCtx.window);
+  ASSERT_EQ(18, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }
 
 // Test that Linear scoring is unaffected by K ≤ WINDOW constraint
@@ -285,7 +285,7 @@ TEST_F(HybridDefaultsTest, testLinearScoringUnaffectedByKWindowConstraint) {
 
   parseCommand(args);
   // Linear scoring should not apply K ≤ WINDOW constraint, K should remain 50
-  ASSERT_EQ(parseCtx.hybridParams.scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
+  ASSERT_EQ(parseCtx.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR);
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(50, vq->knn.k) << "Expected K to remain 50 for Linear scoring, got " << vq->knn.k;
 }
@@ -300,5 +300,5 @@ TEST_F(HybridDefaultsTest, testKAlreadyWithinWindow) {
   // K should remain unchanged since 8 ≤ 20
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(8, vq->knn.k) << "Expected K to remain 8, got " << vq->knn.k;
-  ASSERT_EQ(20, parseCtx.hybridParams.scoringCtx->rrfCtx.window);
+  ASSERT_EQ(20, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }

@@ -33,7 +33,7 @@ extern "C" {
  * @param internal Whether the request is internal (true - shard in cluster setup, false - Coordinator in cluster setup or standalone)
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal, bool coordinator);
+int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal);
 
 arrayof(Cursor*) HybridRequest_StartCursor(HybridRequest *req, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
 

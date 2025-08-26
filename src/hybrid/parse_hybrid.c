@@ -565,7 +565,7 @@ static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
 
 // Helper function to get LIMIT value from parsed aggregation pipeline
 static size_t getLimitFromPlan(AGGPlan *plan) {
-  RS_ASSERT(pipeline);
+  RS_ASSERT(plan);
 
   PLN_ArrangeStep *arrangeStep = AGPLN_GetArrangeStep(plan);
   if (arrangeStep && arrangeStep->isLimited && arrangeStep->limit > 0) {
@@ -768,7 +768,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       .reqConfig = &mergeReqConfig,
       .searchopts = &mergeSearchopts,
       .prefixesOffset = NULL,               // Invalid in FT.HYBRID
-      .cursorConfig = &parsedCmdCtx->cursorConfig,
+      .cursorConfig = parsedCmdCtx->cursorConfig,
       .requiredFields = NULL,               // Invalid in FT.HYBRID
       .maxSearchResults = &mergeMaxSearchResults,
       .maxAggregateResults = &mergeMaxAggregateResults

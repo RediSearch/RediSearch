@@ -14,6 +14,175 @@
 
 class HybridRequestBasicTest : public ::testing::Test {};
 
+using RS::addDocument;
+
+// Helper function to get error message from HybridRequest for test assertions
+std::string HREQ_GetUserError(HybridRequest* req) {
+  QueryError error;
+  QueryError_Init(&error);
+  HybridRequest_GetError(req, &error);
+  return QueryError_GetUserError(&error);
+}
+
+// Helper function to create a test index spec
+IndexSpec* CreateTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, QueryError *status) {
+  RMCK::ArgvList args(ctx, "FT.CREATE", indexName, "ON", "HASH", "SKIPINITIALSCAN",
+                      "SCHEMA", "title", "TEXT", "SORTABLE", "score", "NUMERIC",
+                      "SORTABLE", "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
+                      "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC", "COSINE");
+  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), status);
+  return spec;
+}
+
+// Helper function to create a basic AREQ for testing
+AREQ* CreateTestAREQ(RedisModuleCtx *ctx, const char* query, IndexSpec *spec, QueryError *status, bool isSearchSubquery = false) {
+  AREQ *req = AREQ_New();
+  if (isSearchSubquery) {
+    AREQ_AddRequestFlags(req, QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
+  }
+  RMCK::ArgvList args(ctx, query);
+  int rv = AREQ_Compile(req, args, args.size(), status);
+  if (rv != REDISMODULE_OK) {
+    AREQ_Free(req);
+    return nullptr;
+  }
+
+  const char *specName = HiddenString_GetUnsafe(spec->specName, NULL);
+  RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx1, specName, true);
+  if (!sctx) {
+    AREQ_Free(req);
+    return nullptr;
+  }
+
+  rv = AREQ_ApplyContext(req, sctx, status);
+  if (rv != REDISMODULE_OK) {
+    AREQ_Free(req);
+    return nullptr;
+  }
+
+  return req;
+}
+
+// Helper function to verify pipeline chain structure
+void VerifyPipelineChain(ResultProcessor *endProc, const std::vector<ResultProcessorType>& expectedTypes, const std::string& pipelineName) {
+  ASSERT_TRUE(endProc != nullptr) << pipelineName << " has no end processor";
+
+  std::vector<ResultProcessorType> actualTypes;
+  ResultProcessor *current = endProc;
+
+  // Walk the chain from end to beginning
+  while (current != nullptr) {
+    actualTypes.push_back(current->type);
+    current = current->upstream;
+  }
+
+  ASSERT_EQ(expectedTypes.size(), actualTypes.size())
+    << pipelineName << " has " << actualTypes.size() << " processors, expected " << expectedTypes.size();
+
+  for (size_t i = 0; i < expectedTypes.size(); i++) {
+    EXPECT_EQ(expectedTypes[i], actualTypes[i])
+      << pipelineName << " processor " << i << " is " << RPTypeToString(actualTypes[i])
+      << ", expected " << RPTypeToString(expectedTypes[i]);
+  }
+}
+
+
+
+/**
+ * Helper function to add a LOAD step to an AGGPlan with properly initialized RLookupKeys.
+ * This function creates an unprocessed LOAD step with proper ArgsCursor that will be
+ * processed during Pipeline_BuildAggregationPart, following the same pattern as handleLoad.
+ *
+ * @param plan The AGGPlan to add the LOAD step to
+ * @param fields Array of field names to load
+ * @param nfields Number of fields in the array
+ */
+void AddLoadStepToPlan(AGGPlan *plan, const char **fields, size_t nfields) {
+  PLN_LoadStep *loadStep = (PLN_LoadStep*)rm_calloc(1, sizeof(PLN_LoadStep));
+  loadStep->base.type = PLN_T_LOAD;
+  loadStep->base.dtor = loadDtor;  // Use standard destructor
+
+  // Create unprocessed LOAD step (following handleLoad pattern)
+  loadStep->nkeys = 0;  // Start unprocessed
+
+  if (nfields > 0) {
+    // Initialize ArgsCursor with the field names directly (no copying needed)
+    // The field names are expected to have stable lifetime during test execution
+    ArgsCursor_InitCString(&loadStep->args, fields, nfields);
+
+    // Pre-allocate keys array (will be populated during processing, same as handleLoad)
+    loadStep->keys = (const RLookupKey**)rm_calloc(nfields, sizeof(RLookupKey*));
+  } else {
+    // Handle empty case
+    memset(&loadStep->args, 0, sizeof(ArgsCursor));
+    loadStep->keys = NULL;
+  }
+
+  AGPLN_AddStep(plan, &loadStep->base);
+}
+
+/**
+ * Helper function to add a SORT step to an AGGPlan.
+ * This function gets or creates an arrange step and configures it for sorting.
+ *
+ * @param plan The AGGPlan to add the SORT step to
+ * @param sortFields Array of field names to sort by
+ * @param nfields Number of fields in the array
+ * @param ascendingMap Bitmap indicating ascending (1) or descending (0) for each field
+ */
+void AddSortStepToPlan(AGGPlan *plan, const char **sortFields, size_t nfields, uint64_t ascendingMap) {
+  PLN_ArrangeStep *arrangeStep = AGPLN_GetOrCreateArrangeStep(plan);
+
+  // Set up sorting (free existing keys if any)
+  RS_ASSERT(arrangeStep->sortkeysLK == NULL);
+
+  arrangeStep->sortKeys = array_new(const char*, nfields);
+  for (size_t i = 0; i < nfields; i++) {
+    array_append(arrangeStep->sortKeys, sortFields[i]);
+  }
+  arrangeStep->sortAscMap = ascendingMap;
+}
+
+/**
+ * Helper function to add an APPLY step to an AGGPlan.
+ * This function creates an apply step that applies an expression to create a new field.
+ *
+ * @param plan The AGGPlan to add the APPLY step to
+ * @param expression The expression to apply (e.g., "@score * 2")
+ * @param alias The alias for the new field (e.g., "boosted_score")
+ */
+void AddApplyStepToPlan(AGGPlan *plan, const char *expression, const char *alias) {
+  HiddenString *expr = NewHiddenString(expression, strlen(expression), false);
+  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
+  HiddenString_Free(expr, false);
+
+  // Set the alias for the APPLY step
+  if (alias) {
+    applyStep->base.alias = rm_strdup(alias);
+  }
+
+  AGPLN_AddStep(plan, &applyStep->base);
+}
+
+/**
+ * Helper function to find the HybridMerger processor in a pipeline chain.
+ * Traverses the pipeline from the end processor to find the HybridMerger.
+ *
+ * @param endProc The end processor of the pipeline chain
+ * @return Pointer to the HybridMerger processor, or NULL if not found
+ */
+ResultProcessor* FindHybridMergerInPipeline(ResultProcessor *endProc) {
+  ResultProcessor *current = endProc;
+  while (current != nullptr) {
+    if (current->type == RP_HYBRID_MERGER) {
+      return current;
+    }
+    current = current->upstream;
+  }
+  return nullptr;
+}
+
 // Tests that don't require full Redis Module integration
 
 // Test basic HybridRequest creation and initialization with multiple AREQ requests
@@ -679,7 +848,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Build the pipeline using the parsed hybrid parameters
-  rc = HybridRequest_BuildPipeline(hybridReq, &cmd.hybridParams, &status);
+  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
 
   // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
@@ -784,7 +953,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
   ASSERT_EQ(status.code, QUERY_OK);
 
   // Build the pipeline using the parsed hybrid parameters
-  rc = HybridRequest_BuildPipeline(hybridReq, &cmd.hybridParams, &status);
+  rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams);
   EXPECT_EQ(REDISMODULE_OK, rc) << "Pipeline build failed";
 
   // Get the tail pipeline lookup (this is where RLookup_CloneInto was used)
