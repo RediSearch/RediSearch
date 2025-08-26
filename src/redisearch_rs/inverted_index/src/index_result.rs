@@ -46,7 +46,7 @@ unsafe extern "C" {
     ///
     /// # Safety
     /// The caller must ensure that the `src` pointer is valid and points to an `RSYieldableMetric`.
-    /// The caller must also not free the returned pointer.
+    /// The caller must also not free the returned pointer, but should use `ResultMetrics_Free` instead.
     unsafe fn RSYieldableMetrics_Clone(src: *mut RSYieldableMetric) -> *mut RSYieldableMetric;
 }
 
