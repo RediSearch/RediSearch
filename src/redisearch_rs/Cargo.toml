@@ -100,7 +100,7 @@ default-features = false
 # Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
 #path = "../../../redismodule-rs"
 git = "https://github.com/darthb/redismodule-rs.git"
-branch = "tj/fix/build-for-redisearch"
+branch = "tj/wip/additions_for_rs_load_document"
 default-features = false
 
 [profile.release]
