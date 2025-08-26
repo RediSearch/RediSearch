@@ -182,7 +182,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
     RedisModule_ReplySetArrayLength(ctx, blockBulkLen);
   }
 
-  InvertedIndex_BlocksSummaryFree(blocksSummary);
+  InvertedIndex_BlocksSummaryFree(blocksSummary, blockCount);
 
   invIdxBulkLen += 2;
 
