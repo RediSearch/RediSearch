@@ -196,17 +196,26 @@ run_coordinator_tests() {
     print_separator
     echo "# Running coordinator unit tests"
 
-    for TESTS_DIR in "$(cd $BINDIR/tests/ctests/coord_tests; pwd)" "$(cd $BINDIR/tests/cpptests; pwd)"; do
-        if [[ -z $TEST ]]; then
-            # Run all coordinator tests
-            for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-                run_single_test "$test" "coord_"
-            done
-        elif [[ -f $TESTS_DIR/$TEST ]]; then
-            # Run single coordinator test
-            run_single_test "$TESTS_DIR/$TEST" "coord_"
-        fi
-    done
+    # Only look in coord_tests directory - C++ tests are handled by run_cpp_tests()
+    COORD_TESTS_DIR="$BINDIR/tests/ctests/coord_tests"
+
+    # Check if the directory exists
+    if [[ ! -d "$COORD_TESTS_DIR" ]]; then
+        echo "Coordinator tests directory not found: $COORD_TESTS_DIR"
+        return 0
+    fi
+
+    if [[ -z $TEST ]]; then
+        # Run all coordinator tests
+        for test in $(find "$COORD_TESTS_DIR" -maxdepth 1 -name "test_*" -type f -print); do
+            run_single_test "$test" "coord_"
+        done
+    elif [[ -f "$COORD_TESTS_DIR/$TEST" ]]; then
+        # Run single coordinator test
+        run_single_test "$COORD_TESTS_DIR/$TEST" "coord_"
+    else
+        echo "Coordinator test not found: $TEST in $COORD_TESTS_DIR"
+    fi
 }
 
 #------------------------------------------------------------------------------
@@ -255,6 +264,23 @@ generate_summary() {
 detect_platform
 
 # Setup paths and variables
+# Calculate BINDIR from BINROOT if not already set
+if [[ -z $BINDIR ]]; then
+    if [[ -n $BINROOT ]]; then
+        # Default to OSS build path - make it absolute
+        if [[ "$BINROOT" = /* ]]; then
+            # BINROOT is already absolute
+            BINDIR="$BINROOT/search-community"
+        else
+            # BINROOT is relative to ROOT_DIR
+            BINDIR="$ROOT_DIR/$BINROOT/search-community"
+        fi
+    else
+        echo "Error: Neither BINDIR nor BINROOT is set"
+        exit 1
+    fi
+fi
+
 export EXT_TEST_PATH=${BINDIR}/example_extension/libexample_extension.so
 
 # No test scope configuration needed
