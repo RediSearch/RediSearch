@@ -19,7 +19,6 @@ typedef struct HybridRequest {
     size_t nrequests;
     QueryError tailPipelineError;
     QueryError *errors;
-    AGGPlan *ap;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;

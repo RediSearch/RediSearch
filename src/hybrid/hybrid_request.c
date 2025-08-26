@@ -61,12 +61,11 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
     // and contain only keys from the loading step
     // Init lookup since we dont call buildQueryPart
-    RLookup *lookup = AGPLN_GetLookup(req->ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(params->aggregationParams.common.sctx->spec));
     RLookup_CloneInto(lookup, AGPLN_GetLookup(AREQ_AGGPlan(req->requests[SEARCH_INDEX]), NULL, AGPLN_GETLOOKUP_FIRST));
 
-    // Itzik said he will fix score key
-    const RLookupKey *scoreKey = NULL;
+    const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
