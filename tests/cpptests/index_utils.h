@@ -49,11 +49,6 @@ void freeSpec(RefManager *ism);
  */
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range);
 
-/**
- * Returns the total memory consumed by the inverted index of a numeric tree node.
- */
-size_t NumericRangeGetMemory(const NumericRangeNode *Node);
-
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
 
 class MockQueryEvalCtx {

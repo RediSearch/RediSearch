@@ -280,7 +280,7 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
 
   auto print_failure = [&]() {
     std::cout << "Expected range memory = " << expected_mem << std::endl;
-    std::cout << "Failed range mem: " << NumericRangeGetMemory(failed_range) << std::endl;
+    std::cout << "Failed range mem: " << InvertedIndex_MemUsage(failed_range->range->entries) << std::endl;
   };
 
   // add docs with random numbers
