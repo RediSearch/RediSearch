@@ -1,7 +1,7 @@
 [project]
 name = "rspytests"
 version = "0.1.0"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "gevent<=24.11.1",
     "packaging<=24.2",
