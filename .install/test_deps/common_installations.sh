@@ -20,7 +20,7 @@ activate_venv() {
 		# cargo
 		echo '. "$HOME/.cargo/env"' >> ~/.bash_profile
 		# uv
-		echo '. "$HOME/.local/bin/env"' >> ~/.bash_profile
+		echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile
 	fi
 }
 
@@ -48,9 +48,6 @@ cargo install cargo-llvm-cov --locked
 # for more details.
 cargo +$NIGHTLY_VERSION miri setup
 
-# Install the Python interpreter specified in .python-version
-uv python install
-uv python list
 # Create a virtual environment for Python tests, with `pip` pre-installed (--seed)
 uv venv --seed
 activate_venv
