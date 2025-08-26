@@ -172,6 +172,7 @@ dependencies = [
 name = "build_utils"
 version = "0.0.1"
 dependencies = [
+ "bindgen 0.71.1",
  "cbindgen",
 ]
 
