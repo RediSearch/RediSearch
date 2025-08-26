@@ -212,20 +212,6 @@ typedef struct RSTermRecord {
 } RSTermRecord;
 
 /**
- * Represents a virtual result in an index record.
- */
-typedef struct RSVirtualResult {
-
-} RSVirtualResult;
-
-/**
- * Represents a numeric value in an index record.
- */
-typedef struct RSNumericRecord {
-  double value;
-} RSNumericRecord;
-
-/**
  * Holds the actual data of an ['IndexResult']
  *
  * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
@@ -267,16 +253,12 @@ typedef union RSResultData {
     struct RSTermRecord term;
   };
   struct {
-    RSResultData_Tag virtual_tag;
-    struct RSVirtualResult virtual_;
-  };
-  struct {
     RSResultData_Tag numeric_tag;
-    struct RSNumericRecord numeric;
+    double numeric;
   };
   struct {
     RSResultData_Tag metric_tag;
-    struct RSNumericRecord metric;
+    double metric;
   };
   struct {
     RSResultData_Tag hybrid_metric_tag;
