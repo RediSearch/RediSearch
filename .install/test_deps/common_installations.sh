@@ -13,10 +13,13 @@ activate_venv() {
 		echo "source $PWD/.venv/bin/activate" >> ~/.bashrc
 		# Adding the virtual environment activation script to the shell profile
 		# causes $PATH issues on platforms like Debian and Alpine,
-		# shadowing the pre-existing source command to make `cargo` available.
+		# shadowing the pre-existing source command to make some of our tools available.
 		# We work around it by appending the required lines to the shell profile
 		# _after_ the venv activation script
+
+		# cargo
 		echo '. "$HOME/.cargo/env"' >> ~/.bash_profile
+		# uv
 		echo '. "$HOME/.local/bin/env"' >> ~/.bash_profile
 	fi
 }
