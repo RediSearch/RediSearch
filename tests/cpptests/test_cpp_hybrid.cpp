@@ -837,7 +837,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelines) {
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* hybridReq = MakeDefaultHybridRequest();
+  HybridRequest* hybridReq = MakeDefaultHybridRequest(ctx, specName);
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridReq->requests[0];
   cmd.vector = hybridReq->requests[1];
@@ -941,7 +941,7 @@ TEST_F(HybridRequestTest, testKeyCorrespondenceBetweenSearchAndTailPipelinesImpl
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, specName, true);
   ASSERT_TRUE(test_sctx != NULL);
 
-  HybridRequest* hybridReq = MakeDefaultHybridRequest();
+  HybridRequest* hybridReq = MakeDefaultHybridRequest(ctx, specName);
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridReq->requests[0];
   cmd.vector = hybridReq->requests[1];

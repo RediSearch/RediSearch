@@ -442,16 +442,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
   cmd.vector = hybridRequest->requests[VECTOR_INDEX];
   cmd.cursorConfig = &hybridRequest->cursorConfig;
-  
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
   cmd.hybridParams = rm_new(HybridPipelineParams);
-  RedisModuleCtx *ctx1 = RedisModule_GetDetachedThreadSafeContext(ctx);
-  RedisModule_SelectDb(ctx1, RedisModule_GetSelectedDb(ctx));
-  cmd.search->sctx = NewSearchCtxC(ctx1, indexname, true);
-  RedisModuleCtx *ctx2 = RedisModule_GetDetachedThreadSafeContext(ctx);
-  RedisModule_SelectDb(ctx2, RedisModule_GetSelectedDb(ctx));
-  cmd.vector->sctx = NewSearchCtxC(ctx2, indexname, true);
 
   int rc = parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status);
   if (rc != REDISMODULE_OK) {

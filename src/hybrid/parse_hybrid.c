@@ -686,11 +686,6 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
 int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                        RedisSearchCtx *sctx, const char *indexname, ParseHybridCommandCtx *parsedCmdCtx,
                        QueryError *status) {
-
-  /*foosome initializeAREQ(searchRequest);
-  initializeAREQ(vectorRequest);
-  searchRequest->sctx = createDetachedSearchContext(ctx, indexname);
-  vectorRequest->sctx = createDetachedSearchContext(ctx, indexname);*/
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 

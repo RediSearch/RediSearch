@@ -328,9 +328,20 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
     return REDISMODULE_OK;
 }
 
-HybridRequest *MakeDefaultHybridRequest() {
+/**
+ * Create a detached thread-safe search context.
+ */
+static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const char *indexname) {
+  RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
+  RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
+  return NewSearchCtxC(detachedCtx, indexname, true);
+}
+
+HybridRequest *MakeDefaultHybridRequest(RedisModuleCtx *ctx, const char *indexname) {
   AREQ *search = AREQ_New();
   AREQ *vector = AREQ_New();
+  search->sctx = createDetachedSearchContext(ctx, indexname);
+  vector->sctx = createDetachedSearchContext(ctx, indexname);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
