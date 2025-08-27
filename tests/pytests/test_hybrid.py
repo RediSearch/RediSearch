@@ -318,20 +318,28 @@ class testHybridSearch:
             res[3][1][1],
             [['my_key', 'both_04']])
 
-    # # TODO: Enable this test after fixing MOD-10987
-    # def test_knn_load_score(self):
-    #     """Test hybrid search + LOAD __score"""
-    #     if CLUSTER:
-    #         raise SkipTest()
-    #     hybrid_query = f"SEARCH '-@text:(both) -@text:(text)' VSIM @vector $BLOB FILTER @tag:{{invalid_tag}} COMBINE RRF 4 K 3 WINDOW 2 LOAD 3 __score AS my_score"
-    #     hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
-    #     res = self.env.executeCommand(*hybrid_cmd)
-    #     self.env.assertEqual(
-    #         res[3][0][1],
-    #         [['my_score', '0.25']])
-    #     self.env.assertEqual(
-    #         res[3][1][1],
-    #         [['my_score', '0.2']])
+    def test_knn_load_score(self):
+        """Test hybrid search + LOAD __score"""
+        if CLUSTER:
+            raise SkipTest()
+        hybrid_query = (
+            "SEARCH '-@text:(both) -@text:(text)' "
+            "VSIM @vector $BLOB FILTER @tag:{{invalid_tag}} "
+            "COMBINE RRF 4 K 3 WINDOW 2 "
+            "LOAD 3 __score AS my_score"
+        )
+        # DocId     | SEARCH_RANK | VECTOR_RANK | SCORE
+        # --------------------------------------------------------
+        # vector_01 | 1           | -           | 1/(3 + 1) = 0.25
+        # vector_02 | 2           | -           | 1/(3 + 2) = 0.20
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        res = self.env.executeCommand(*hybrid_cmd)
+        self.env.assertEqual(
+            res[3][0][1],
+            [['my_score', '0.25']])
+        self.env.assertEqual(
+            res[3][1][1],
+            [['my_score', '0.2']])
 
     def test_knn_load_fields(self):
         """Test hybrid search using LOAD to load fields"""

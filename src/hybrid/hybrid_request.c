@@ -11,6 +11,7 @@
 #include "info/info_redis/block_client.h"
 #include "query_error.h"
 #include "spec.h"
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -142,8 +143,20 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // TODO: sync SEARCH and VSIM subqueries' lookups after YIELD_DISTANCE_AS is enabled
 
 
-    // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
+    // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly).
+    // First try the standard lookup by name
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
+
+    // If not found by name, search for a key that loads from the __score path
+    if (!scoreKey) {
+        // Iterate through all keys to find one that loads from __score field
+        for (const RLookupKey *key = lookup->head; key; key = key->next) {
+            if (key->path && strcmp(key->path, UNDERSCORE_SCORE) == 0) {
+                scoreKey = key;
+                break;
+            }
+        }
+    }
 
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
