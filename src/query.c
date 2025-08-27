@@ -1004,10 +1004,10 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   IndexIterator *child_it = NULL;
-  if (QueryNode_NumChildren(qn) > 0) {
+  if (QueryNode_NumChildren(qn) > 0 && qn->vn.vq->type == VECSIM_QT_KNN) {
     RS_ASSERT(QueryNode_NumChildren(qn) == 1);
     child_it = Query_EvalNode(q, qn->children[0]);
-    // If child iterator is in valid or empty, the hybrid iterator is empty as well.
+    // If child iterator is invalid or empty, the hybrid iterator is empty as well.
     if (child_it == NULL) {
       return NULL;
     }
