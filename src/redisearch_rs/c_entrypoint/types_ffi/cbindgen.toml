@@ -33,6 +33,9 @@ exclude = ["Header"]
 include = ["BlockSummary", "Summary"]
 
 [export.rename]
+# For `LowMemoryThinVec<&'index RSIndexResult<'index>>`
 "LowMemoryThinVec______RSIndexResult" = "LowMemoryThinVecRSIndexResult"
+# For `LowMemoryThinVec<Box<RSIndexResult<'static>>>`
+"LowMemoryThinVec_____RSIndexResult" = "LowMemoryThinVecRSIndexResultOwned"
 "BlockSummary" = "IIBlockSummary"
 "Summary" = "IISummary"

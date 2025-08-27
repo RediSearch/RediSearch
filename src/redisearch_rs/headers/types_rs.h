@@ -155,6 +155,13 @@ typedef uint8_t BitFlags_RSResultKind__u8;
 typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 
 /**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct LowMemoryThinVecRSIndexResultOwned {
+  Header *ptr;
+} LowMemoryThinVecRSIndexResultOwned;
+
+/**
  * Represents an aggregate array of values in an index record.
  *
  * The C code should always use `AggregateResult_New` to construct a new instance of this type
@@ -162,11 +169,44 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
  * the `LowMemoryThinVec` which needs to exist in Rust's memory space to ensure its memory is
  * managed correctly.
  */
-typedef struct RSAggregateResult {
+enum RSAggregateResult_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  RSAggregateResult_Borrowed,
+  RSAggregateResult_Owned,
+};
+#ifndef __cplusplus
+typedef uint8_t RSAggregateResult_Tag;
+#endif // __cplusplus
+
+typedef struct RSAggregateResult_Borrowed_Body {
+  RSAggregateResult_Tag tag;
   /**
-   * We mark copied aggregates so we can treat them a bit differently on drop.
+   * The records making up this aggregate result
+   *
+   * The `RSAggregateResult` is part of a union in [`RSResultData`], so it needs to have a
+   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
+   * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
+   *
+   * This requires `'index` on the reference because adding a new lifetime will cause the
+   * type to be `LowMemoryThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
+   * `'index: 'refs` else it would mean the `'index` can be cleaned up while some reference
+   * will still try to access it (ie a dangling pointer). Now the decoders will never return
+   * any aggregate results so `'refs == 'static` when decoding. Because of the requirement
+   * above, this means `'index: 'static` which is just incorrect since the index data will
+   * never be `'static` when decoding.
    */
-  bool isCopy;
+  struct LowMemoryThinVecRSIndexResult records;
+  /**
+   * A map of the aggregate kind of the underlying records
+   */
+  RSResultKindMask kind_mask;
+} RSAggregateResult_Borrowed_Body;
+
+typedef struct RSAggregateResult_Owned_Body {
+  RSAggregateResult_Tag tag;
   /**
    * The records making up this aggregate result
    *
@@ -174,11 +214,17 @@ typedef struct RSAggregateResult {
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `LowMemoryThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  struct LowMemoryThinVecRSIndexResult records;
+  struct LowMemoryThinVecRSIndexResultOwned records;
   /**
    * A map of the aggregate kind of the underlying records
    */
-  RSResultKindMask kindMask;
+  RSResultKindMask kind_mask;
+} RSAggregateResult_Owned_Body;
+
+typedef union RSAggregateResult {
+  RSAggregateResult_Tag tag;
+  RSAggregateResult_Borrowed_Body borrowed;
+  RSAggregateResult_Owned_Body owned;
 } RSAggregateResult;
 
 /**
@@ -196,19 +242,56 @@ typedef struct RSOffsetVector {
 /**
  * Represents a single record of a document inside a term in the inverted index
  */
-typedef struct RSTermRecord {
-  /**
-   * We mark copied terms so we can treat them a bit differently on drop.
-   */
-  bool isCopy;
+enum RSTermRecord_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  RSTermRecord_Borrowed,
+  RSTermRecord_Owned,
+};
+#ifndef __cplusplus
+typedef uint8_t RSTermRecord_Tag;
+#endif // __cplusplus
+
+typedef struct RSTermRecord_Borrowed_Body {
+  RSTermRecord_Tag tag;
   /**
    * The term that brought up this record
+   *
+   * This term was created using `NewQueryTerm`, and in the borrowed case, it is actually
+   * the owner of the memory. So it should be freed when this record is dropped.
    */
   RSQueryTerm *term;
   /**
    * The encoded offsets in which the term appeared in the document
+   *
+   * A decoder can choose to borrow this data from the index block, hence the `'index` lifetime.
    */
   struct RSOffsetVector offsets;
+} RSTermRecord_Borrowed_Body;
+
+typedef struct RSTermRecord_Owned_Body {
+  RSTermRecord_Tag tag;
+  /**
+   * The term that brought up this record
+   *
+   * The owned version points to the original borrowed term, and should therefore never clean
+   * up this memory.
+   */
+  RSQueryTerm *term;
+  /**
+   * The encoded offsets in which the term appeared in the document
+   *
+   * The owned version will make a copy of the offsets data, hence that `'static` lifetime.
+   */
+  struct RSOffsetVector offsets;
+} RSTermRecord_Owned_Body;
+
+typedef union RSTermRecord {
+  RSTermRecord_Tag tag;
+  RSTermRecord_Borrowed_Body borrowed;
+  RSTermRecord_Owned_Body owned;
 } RSTermRecord;
 
 /**
@@ -218,8 +301,6 @@ typedef struct RSTermRecord {
  * the bitflags on [`RSResultKindMask`]
  *
  * The `'index` lifetime is linked to the [`crate::IndexBlock`] when decoding borrows from the block.
- * While the `'aggregate_children` lifetime is linked to [`RSAggregateResult`] that is holding
- * raw pointers to results.
  */
 enum RSResultData_Tag
 #ifdef __cplusplus
@@ -242,15 +323,15 @@ typedef union RSResultData {
   RSResultData_Tag tag;
   struct {
     RSResultData_Tag union_tag;
-    struct RSAggregateResult union_;
+    union RSAggregateResult union_;
   };
   struct {
     RSResultData_Tag intersection_tag;
-    struct RSAggregateResult intersection;
+    union RSAggregateResult intersection;
   };
   struct {
     RSResultData_Tag term_tag;
-    struct RSTermRecord term;
+    union RSTermRecord term;
   };
   struct {
     RSResultData_Tag numeric_tag;
@@ -262,7 +343,7 @@ typedef union RSResultData {
   };
   struct {
     RSResultData_Tag hybrid_metric_tag;
-    struct RSAggregateResult hybrid_metric;
+    union RSAggregateResult hybrid_metric;
   };
 } RSResultData;
 
@@ -364,18 +445,7 @@ double IndexResult_NumValue(const struct RSIndexResult *result);
 void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
 
 /**
- * Get the term of the result if it is a term result. If the result is not a term, this function
- * will return a `NULL` pointer.
- *
- * # Safety
- *
- * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
- */
-const struct RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *result);
-
-/**
- * Get the mutable term of the result if it is a term result. If the result is not a term,
+ * Get the query term from a result if it is a term result. If the result is not a term, then
  * this function will return a `NULL` pointer.
  *
  * # Safety
@@ -383,7 +453,29 @@ const struct RSTermRecord *IndexResult_TermRef(const struct RSIndexResult *resul
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-struct RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
+RSQueryTerm *IndexResult_QueryTermRef(const struct RSIndexResult *result);
+
+/**
+ * Get the term offsets from a result if it is a term result. If the result is not a term, then
+ * this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+const struct RSOffsetVector *IndexResult_TermOffsetsRef(const struct RSIndexResult *result);
+
+/**
+ * Get a mutable term offsets from a result if it is a term result. If the result is not a term,
+ * then this function will return a `NULL` pointer.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+struct RSOffsetVector *IndexResult_TermOffsetsRefMut(struct RSIndexResult *result);
 
 /**
  * Get the aggregate result reference if the result is an aggregate result. If the result is
@@ -394,7 +486,7 @@ struct RSTermRecord *IndexResult_TermRefMut(struct RSIndexResult *result);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-const struct RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
+const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
 
 /**
  * Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
@@ -418,7 +510,7 @@ void IndexResult_AggregateReset(struct RSIndexResult *result);
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  * - The memory address at `index` should still be valid and not have been deallocated.
  */
-const struct RSIndexResult *AggregateResult_Get(const struct RSAggregateResult *agg,
+const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *agg,
                                                 uintptr_t index);
 
 /**
@@ -429,7 +521,7 @@ const struct RSIndexResult *AggregateResult_Get(const struct RSAggregateResult *
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-uintptr_t AggregateResult_NumChildren(const struct RSAggregateResult *agg);
+uintptr_t AggregateResult_NumChildren(const union RSAggregateResult *agg);
 
 /**
  * Get the capacity of the aggregate result.
@@ -439,7 +531,7 @@ uintptr_t AggregateResult_NumChildren(const struct RSAggregateResult *agg);
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
+uintptr_t AggregateResult_Capacity(const union RSAggregateResult *agg);
 
 /**
  * Get the kind mask of the aggregate result.
@@ -449,14 +541,14 @@ uintptr_t AggregateResult_Capacity(const struct RSAggregateResult *agg);
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-uint8_t AggregateResult_KindMask(const struct RSAggregateResult *agg);
+uint8_t AggregateResult_KindMask(const union RSAggregateResult *agg);
 
 /**
  * Create a new aggregate result with the specified capacity. This function will make the result
  * in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
  * should return to Rust to free up any heap memory using [`AggregateResult_Free`].
  */
-struct RSAggregateResult AggregateResult_New(uintptr_t cap);
+union RSAggregateResult AggregateResult_New(uintptr_t cap);
 
 /**
  * Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
@@ -466,12 +558,13 @@ struct RSAggregateResult AggregateResult_New(uintptr_t cap);
  *
  * The `agg` parameter should have been created with [`AggregateResult_New`].
  */
-void AggregateResult_Free(struct RSAggregateResult agg);
+void AggregateResult_Free(union RSAggregateResult agg);
 
 /**
- * Add a child to a result if it is an aggregate result. Note, `parent` will not take ownership of
- * the `child` and will therefore not free it. Instead, the caller is responsible for managing
- * the memory of the `child` pointer *after* the `parent` has been freed.
+ * Add a child to a result if it is an aggregate result. Note, if `parent` only hold references
+ * to results, then it will not take ownership of the `child` and will therefore not free it.
+ * Instead, the caller is responsible for managing the memory of the `child` pointer *after* the
+ * `parent` has been freed.
  *
  * If the `parent` is not an aggregate kind, then this is a no-op.
  *
@@ -491,7 +584,7 @@ void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-struct RSAggregateResultIter *AggregateResult_Iter(const struct RSAggregateResult *agg);
+struct RSAggregateResultIter *AggregateResult_Iter(const union RSAggregateResult *agg);
 
 /**
  * Get the next item in the aggregate result iterator and put it into the provided `value`

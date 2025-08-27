@@ -181,6 +181,9 @@ pub fn generate_c_bindings(
         // Don't generate the Rust exported types else we'll have a compiler issue about the wrong
         // type being used
         .blocklist_file(".*/types_rs.h")
+        .blocklist_function("InvertedIndex_Summary")
+        .blocklist_function("InvertedIndex_BlocksSummary")
+        .blocklist_function("InvertedIndex_BlocksSummaryFree")
         .generate()?
         .write_to_file(out_dir.join("bindings.rs"))?;
 

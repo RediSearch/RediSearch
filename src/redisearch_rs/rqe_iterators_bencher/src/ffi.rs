@@ -18,7 +18,7 @@ mod bindings {
     use inverted_index::t_docId;
 
     // Type aliases for C bindings - types without lifetimes for C interop
-    pub type RSIndexResult = inverted_index::RSIndexResult<'static, 'static>;
+    pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
     pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
