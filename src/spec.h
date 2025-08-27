@@ -72,6 +72,7 @@ struct IndexesScanner;
 #define SPEC_INDEXMISSING_STR "INDEXMISSING"
 #define SPEC_INDEXALL_STR "INDEXALL"
 #define SPEC_RAM_STR "RAM"
+#define SPEC_DISK_STR "DISK"
 #define SPEC_DISK_SYNC_STR "SYNC"
 
 #define SPEC_GEOMETRY_FLAT_STR "FLAT"
@@ -195,8 +196,11 @@ typedef enum {
   // Index is stored on RAM (force it)
   Index_StoreInRAM = 0x100000,
 
+  // Index is stored on Disk (force it)
+  Index_StoreInDisk = 0x200000,
+
   // Force synchronous dmd reads from disk doc-table (disable async path)
-  Index_DiskSyncDmd = 0x200000,
+  Index_DiskSyncDmd = 0x400000,
 } IndexFlags;
 
 

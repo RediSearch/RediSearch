@@ -99,11 +99,10 @@ typedef struct {
   // Async disk pipeline state
   bool disk_prefetchInit;   // true after first invocation
   bool disk_iterEOF;        // true once inverted index iterator returned EOF
-  size_t disk_inflight;     // number of scheduled-but-not-yet-emitted docs
   // Very small in-flight table keyed by docId (W<=64); linear search is fine
   struct {
-    t_docId ids[64];
-    RSIndexResult *res[64];
+    t_docId ids[500];
+    RSIndexResult *res[500];
     size_t n;
   } disk_inflightTbl;
 } RPIndexIterator;
@@ -133,7 +132,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     }
     rc = it->Read(it->ctx, &r);
-    if (!RP_SPEC(base)->diskSpec) {
+    if (!RP_SPEC(base)->diskSpec || (RP_SPEC(base)->flags & Index_DiskSyncDmd)) {
       switch (rc) {
       case INDEXREAD_EOF:
         // This means we are done!
@@ -156,111 +155,108 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 
     IndexSpec* spec = RP_SPEC(base);
     if (spec->diskSpec) {
-      // Old implementation
-      // RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
-      // diskDmd->ref_count = 1;
-      // // Start from checking the deleted-ids (in memory), then perform IO
-      // const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, r->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, r->docId, diskDmd);
-      // if (!foundDocument) {
-      //   DMD_Return(diskDmd);
-      //   continue;
-      // }
-      // dmd = diskDmd;
-
-      // -----------------------------------------------------------------------
-      // New implementation - Async
-      // Maintain a small read-ahead window W by topping up from the inverted index
-      // and scheduling async DMD loads. Then emit one ready completion per call.
-      const size_t W = 20;
-
-      if (!self->disk_prefetchInit) {
-        self->disk_prefetchInit = true;
-        self->disk_iterEOF = false;
-        self->disk_inflight = 0;
-        self->disk_inflightTbl.n = 0;
-      }
-
-      // If we have a freshly read item this round, schedule it first
-      if (rc == INDEXREAD_OK && r && !SearchDisk_DocIdDeleted(spec->diskSpec, r->docId)) {
-        // Create a deep copy to decouple from iterator-owned storage
-        RSIndexResult *copy = IndexResult_DeepCopy(r);
-        size_t k = self->disk_inflightTbl.n++;
-        self->disk_inflightTbl.ids[k] = r->docId;
-        self->disk_inflightTbl.res[k] = copy;
-        SearchDisk_LoadDmdAsync(spec->diskSpec, r->docId);
-        self->disk_inflight++;
-        r = NULL; // we will emit only after its DMD is ready
-      } else if (rc == INDEXREAD_TIMEOUT) {
-        return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
-      }
-
-      // Top-up window from the iterator until we either reach W or hit EOF
-      while (self->disk_inflightTbl.n < W && !self->disk_iterEOF) {
-        RSIndexResult *r2 = NULL;
-        int rc2 = it->Read(it->ctx, &r2);
-        if (rc2 == INDEXREAD_EOF) {
-          self->disk_iterEOF = true;
-          break;
+      if (spec->flags & Index_DiskSyncDmd) {
+        // Old implementation
+        RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+        diskDmd->ref_count = 1;
+        // Start from checking the deleted-ids (in memory), then perform IO
+        const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, r->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, r->docId, diskDmd);
+        if (!foundDocument) {
+          DMD_Return(diskDmd);
+          continue;
         }
-        if (rc2 == INDEXREAD_TIMEOUT) {
-          // TODO: Validate the valid release of resources in this case.
+        dmd = diskDmd;
+      } else {
+        // New implementation - Async
+        // Maintain a small read-ahead window W by topping up from the inverted index
+        // and scheduling async DMD loads. Then emit one ready completion per call.
+        const size_t W = 500;
+
+        if (!self->disk_prefetchInit) {
+          self->disk_prefetchInit = true;
+          self->disk_iterEOF = false;
+          self->disk_inflightTbl.n = 0;
+        }
+
+        // If we have a freshly read item this round, schedule it first
+        if (rc == INDEXREAD_OK && r && !SearchDisk_DocIdDeleted(spec->diskSpec, r->docId)) {
+          // Create a deep copy to decouple from iterator-owned storage
+          RSIndexResult *copy = IndexResult_DeepCopy(r);
+          size_t k = self->disk_inflightTbl.n++;
+          self->disk_inflightTbl.ids[k] = r->docId;
+          self->disk_inflightTbl.res[k] = copy;
+          SearchDisk_LoadDmdAsync(spec->diskSpec, r->docId);
+          r = NULL; // we will emit only after its DMD is ready
+        } else if (rc == INDEXREAD_TIMEOUT) {
           return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
         }
-        if (rc2 != INDEXREAD_OK || !r2) {
+
+        // Top-up window from the iterator until we either reach W or hit EOF
+        while (self->disk_inflightTbl.n < W && !self->disk_iterEOF) {
+          RSIndexResult *r2 = NULL;
+          int rc2 = it->Read(it->ctx, &r2);
+          if (rc2 == INDEXREAD_EOF) {
+            self->disk_iterEOF = true;
+            break;
+          }
+          if (rc2 == INDEXREAD_TIMEOUT) {
+            // TODO: Validate the valid release of resources in this case.
+            return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+          }
+          if (rc2 != INDEXREAD_OK || !r2) {
+            continue;
+          }
+          if (SearchDisk_DocIdDeleted(spec->diskSpec, r2->docId)) {
+            continue;
+          }
+          RSIndexResult *copy2 = IndexResult_DeepCopy(r2);
+          size_t k = self->disk_inflightTbl.n++;
+          self->disk_inflightTbl.ids[k] = r2->docId;
+          self->disk_inflightTbl.res[k] = copy2;
+          SearchDisk_LoadDmdAsync(spec->diskSpec, r2->docId);
+        }
+
+        // If nothing is in-flight and iterator exhausted, we're done
+        if (self->disk_inflightTbl.n == 0) {
+          return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+        }
+
+        // Consume one ready dmd from the disk doc-table
+        DiskDocumentMetadata ddmd = SearchDisk_WaitDmd(spec->diskSpec,
+                                      (long long) (RP_SCTX(base)->time.timeout.tv_sec * 1000),
+                                      &sdsnewlen);
+        if (!ddmd.key) {
+          // Timeout or no ready completion yet — retry in next rpidxNext iteration
           continue;
         }
-        if (SearchDisk_DocIdDeleted(spec->diskSpec, r2->docId)) {
-          continue;
+        t_docId did = ddmd.docId; char *keyBuf = ddmd.key; size_t keyLen = ddmd.keyLen; double score = ddmd.score; uint32_t flags = ddmd.flags, maxFreq = ddmd.maxFreq;
+        // Find the RSIndexResult for did
+        // TODO: Use a hash-table here, for better performance.
+        RSIndexResult *emit = NULL;
+        for (size_t i = 0; i < self->disk_inflightTbl.n; ++i) {
+          if (self->disk_inflightTbl.ids[i] == did) {
+            emit = self->disk_inflightTbl.res[i];
+            // compact table
+            self->disk_inflightTbl.ids[i] = self->disk_inflightTbl.ids[self->disk_inflightTbl.n-1];
+            self->disk_inflightTbl.res[i] = self->disk_inflightTbl.res[self->disk_inflightTbl.n-1];
+            self->disk_inflightTbl.n--;
+            break;
+          }
         }
-        RSIndexResult *copy2 = IndexResult_DeepCopy(r2);
-        size_t k = self->disk_inflightTbl.n++;
-        self->disk_inflightTbl.ids[k] = r2->docId;
-        self->disk_inflightTbl.res[k] = copy2;
-        SearchDisk_LoadDmdAsync(spec->diskSpec, r2->docId);
-        self->disk_inflight++;
-      }
+        if (!emit) { continue; }
 
-      // If nothing is in-flight and iterator exhausted, we're done
-      if (self->disk_inflightTbl.n == 0 && self->disk_iterEOF) {
-        return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+        // Build dmd on pipeline thread
+        RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+        diskDmd->ref_count = 1;
+        diskDmd->id = did;
+        diskDmd->keyPtr = keyBuf; // already allocated via sdsnewlen by disk
+        diskDmd->score = score;
+        diskDmd->flags = flags;
+        diskDmd->maxFreq = maxFreq;
+        diskDmd->type = RP_SPEC(base)->rule ? RP_SPEC(base)->rule->type : DocumentType_Unsupported;
+        dmd = diskDmd;
+        r = emit;
       }
-
-      // Consume one ready dmd from the disk doc-table
-      DiskDocumentMetadata ddmd = SearchDisk_WaitDmd(spec->diskSpec,
-                                    (long long) (RP_SCTX(base)->time.timeout.tv_sec * 1000),
-                                    &sdsnewlen);
-      if (!ddmd.key) {
-        // Timeout or no ready completion yet — retry in next rpidxNext iteration
-        continue;
-      }
-      t_docId did = ddmd.docId; char *keyBuf = ddmd.key; size_t keyLen = ddmd.keyLen; double score = ddmd.score; uint32_t flags = ddmd.flags, maxFreq = ddmd.maxFreq;
-      // Find the RSIndexResult for did
-      // TODO: Use a hash-table here, for better performance.
-      RSIndexResult *emit = NULL;
-      for (size_t i = 0; i < self->disk_inflightTbl.n; ++i) {
-        if (self->disk_inflightTbl.ids[i] == did) {
-          emit = self->disk_inflightTbl.res[i];
-          // compact table
-          self->disk_inflightTbl.ids[i] = self->disk_inflightTbl.ids[self->disk_inflightTbl.n-1];
-          self->disk_inflightTbl.res[i] = self->disk_inflightTbl.res[self->disk_inflightTbl.n-1];
-          self->disk_inflightTbl.n--;
-          break;
-        }
-      }
-      if (!emit) { continue; }
-
-      // Build dmd on pipeline thread
-      RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
-      diskDmd->ref_count = 1;
-      diskDmd->id = did;
-      diskDmd->keyPtr = keyBuf; // already allocated via sdsnewlen by disk
-      diskDmd->score = score;
-      diskDmd->flags = flags;
-      diskDmd->maxFreq = maxFreq;
-      diskDmd->type = RP_SPEC(base)->rule ? RP_SPEC(base)->rule->type : DocumentType_Unsupported;
-      dmd = diskDmd;
-      r = emit;
-
     } else {
       DocTable* docs = &spec->docs;
       if (r->dmd) {

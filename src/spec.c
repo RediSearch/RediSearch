@@ -1579,6 +1579,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
       // A temporary flag to force indexes to be stored in RAM - for benchmarking purposes.
       {AC_MKBITFLAG(SPEC_RAM_STR, &spec->flags, Index_StoreInRAM)},
+      // A temporary flag to force indexes to be stored on disk - for benchmarking purposes.
+      {AC_MKBITFLAG(SPEC_DISK_STR, &spec->flags, Index_StoreInDisk)},
       // Disk pipeline option to force synchronous dmd reads (disable async)
       {AC_MKBITFLAG(SPEC_DISK_SYNC_STR, &spec->flags, Index_DiskSyncDmd)},
 
@@ -1645,7 +1647,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   }
 
   // Store on disk if we're on Flex and we don't force RAM
-  if (isFlex && !(spec->flags & Index_StoreInRAM)) {
+  if ((isFlex && !(spec->flags & Index_StoreInRAM)) || (spec->flags & Index_StoreInDisk)) {
     RS_ASSERT(disk_db);
     spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
