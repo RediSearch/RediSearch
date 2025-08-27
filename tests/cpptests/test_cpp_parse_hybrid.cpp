@@ -33,7 +33,7 @@ class ParseHybridTest : public ::testing::Test {
   RedisModuleCtx *ctx;
   IndexSpec *spec;
   std::string index_name;
-  HybridRequest *result;
+  ParseHybridCommandCtx result;
 
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(NULL);
@@ -58,14 +58,17 @@ class ParseHybridTest : public ::testing::Test {
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
-    result = nullptr;
+    result.search = AREQ_New();
+    result.vector = AREQ_New();
   }
 
   void TearDown() override {
     // Free the result if it was set during the test
-    if (result) {
-      HybridScoringContext_Free(result->hybridParams->scoringCtx);
-      HybridRequest_Free(result);
+    if (result.search) {
+      AREQ_Free(result.search);
+    }
+    if (result.vector) {
+      AREQ_Free(result.vector);
     }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
@@ -89,20 +92,19 @@ class ParseHybridTest : public ::testing::Test {
    * Handles initialization, parsing, validation, and stores result in member variable.
    *
    * @param args The command arguments to parse
-   * @return Pointer to the parsed HybridRequest (also stored in member variable)
+   * @return REDISMODULE_OK if parsing succeeded, REDISMODULE_ERR otherwise
    */
-  HybridRequest* parseCommand(RMCK::ArgvList& args) {
+  int parseCommand(RMCK::ArgvList& args) {
     QueryError status = {QueryErrorCode(0)};
 
     RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
     EXPECT_TRUE(test_sctx != NULL) << "Failed to create search context";
 
-    result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
+    int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &result, &status);
 
     EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-    EXPECT_TRUE(result != nullptr) << "parseHybridCommand returned NULL";
-
-    return result;
+    EXPECT_TRUE(rc == REDISMODULE_OK) << "parseHybridCommand returned REDISMODULE_ERR";
+    return rc;
   }
 
   // Helper function to test error cases with less boilerplate
@@ -112,17 +114,17 @@ class ParseHybridTest : public ::testing::Test {
 
 
 #define assertLinearScoringCtx(Weight0, Weight1) { \
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
-  ASSERT_EQ(result->hybridParams->scoringCtx->linearCtx.numWeights, HYBRID_REQUEST_NUM_SUBQUERIES); \
-  ASSERT_TRUE(result->hybridParams->scoringCtx->linearCtx.linearWeights != NULL); \
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[0], Weight0); \
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], Weight1); \
+  ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
+  ASSERT_EQ(result.hybridParams->scoringCtx->linearCtx.numWeights, HYBRID_REQUEST_NUM_SUBQUERIES); \
+  ASSERT_TRUE(result.hybridParams->scoringCtx->linearCtx.linearWeights != NULL); \
+  ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[0], Weight0); \
+  ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[1], Weight1); \
 }
 
 #define assertRRFScoringCtx(K, Window) { \
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->rrfCtx.k, K); \
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, Window); \
+  ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
+  ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->rrfCtx.k, K); \
+  ASSERT_EQ(result.hybridParams->scoringCtx->rrfCtx.window, Window); \
 }
 
 
@@ -132,19 +134,16 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
 
   parseCommand(args);
 
-  // Verify the structure contains expected number of requests
-  ASSERT_EQ(result->nrequests, 2);
-
   // Verify default scoring type is RRF
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
-  ASSERT_EQ(result->requests[1]->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 500);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result->requests[0]->reqConfig.dialectVersion, 1);
-  ASSERT_EQ(result->requests[1]->reqConfig.dialectVersion, 1);
+  ASSERT_EQ(result.search->reqConfig.dialectVersion, 1);
+  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 1);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithParams) {
@@ -155,19 +154,16 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
 
   parseCommand(args);
 
-  // Verify the structure contains expected number of requests
-  ASSERT_EQ(result->nrequests, 2);
-
   // Verify default scoring type is RRF
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
-  ASSERT_EQ(result->requests[1]->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 500);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result->requests[0]->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result->requests[1]->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
@@ -176,19 +172,16 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
 
   parseCommand(args);
 
-  // Verify the structure contains expected number of requests
-  ASSERT_EQ(result->nrequests, 2);
-
   // Verify default scoring type is RRF
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set correctly
-  ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 240);
-  ASSERT_EQ(result->requests[1]->reqConfig.queryTimeoutMS, 240);
+  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 240);
+  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 240);
 
   // Verify dialect is set correctly
-  ASSERT_EQ(result->requests[0]->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result->requests[1]->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
 
 
@@ -210,7 +203,7 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   parseCommand(args);
 
   // Verify BLOB parameter was correctly resolved
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
@@ -235,7 +228,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
   assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW not specified)
-  ASSERT_FALSE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
@@ -248,7 +241,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
@@ -261,7 +254,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
   assertRRFScoringCtx(160, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
@@ -274,7 +267,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
   assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW was not specified)
-  ASSERT_FALSE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_FALSE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
 
@@ -297,17 +290,14 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
 
   parseCommand(args);
 
-  // Verify the structure contains expected number of requests
-  ASSERT_EQ(result->nrequests, 2);
-
   // Verify RRF scoring type was set with explicit WINDOW value (30), not LIMIT fallback
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 30);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
-  ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
+  ASSERT_TRUE(result.hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 
   // Verify KNN K follows LIMIT value (15) since K was not explicitly set
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
@@ -324,7 +314,7 @@ TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
   parseCommand(args);
 
   // Verify that an arrange step was not created
-  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(result.tailPlan, NULL, NULL, PLN_T_ARRANGE);
   ASSERT_TRUE(arrangeStep == NULL);
 }
 
@@ -335,7 +325,7 @@ TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   parseCommand(args);
 
   // Verify that an arrange step was created with normal sorting (not noSort)
-  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(result.tailPlan, NULL, NULL, PLN_T_ARRANGE);
   ASSERT_TRUE(arrangeStep != NULL);
   const PLN_ArrangeStep *arng = (const PLN_ArrangeStep *)arrangeStep;
   ASSERT_TRUE(arng->sortKeys != NULL);
@@ -351,7 +341,7 @@ TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
   parseCommand(args);
 
   // Verify that no arrange step exists (so implicit sorting will be applied)
-  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&result->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
+  const PLN_BaseStep *arrangeStep = AGPLN_FindStep(result.tailPlan, NULL, NULL, PLN_T_ARRANGE);
   ASSERT_TRUE(arrangeStep == NULL);
 
   // Verify default RRF scoring type was set
@@ -366,7 +356,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
 
   // Verify AST structure for KNN query
   ASSERT_TRUE(vecReq->ast.root != NULL);
@@ -413,7 +403,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
 
   // Verify AST structure for KNN query with EF_RUNTIME
   ASSERT_TRUE(vecReq->ast.root != NULL);
@@ -454,7 +444,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
 
   // Verify AST structure for basic KNN query without filter
   ASSERT_TRUE(vecReq->ast.root != NULL);
@@ -496,7 +486,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
 
   // Verify AST structure for KNN query with YIELD_DISTANCE_AS only
   ASSERT_TRUE(vecReq->ast.root != NULL);
@@ -524,7 +514,7 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
 
   // Verify AST structure for basic RANGE query with filter
   ASSERT_TRUE(vecReq->ast.root != NULL);
@@ -569,7 +559,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
 
   // Verify AST structure for RANGE query with EPSILON
   ASSERT_TRUE(vecReq->ast.root != NULL);
@@ -619,7 +609,7 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
 
   parseCommand(args);
 
-  AREQ* vecReq = result->requests[1];
+  AREQ* vecReq = result.vector;
 
   // Test the AST root
   ASSERT_TRUE(vecReq->ast.root != NULL);
@@ -670,10 +660,8 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   // Create a fresh sctx for this test
   RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
   ASSERT_TRUE(test_sctx != NULL);
-
-  HybridRequest* result = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &status);
-
-  ASSERT_TRUE(result == NULL);
+  int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &result, &status);
+  ASSERT_TRUE(rc == REDISMODULE_ERR);
   ASSERT_EQ(status.code, expected_code);
   ASSERT_STREQ(status.detail, expected_detail);
 
