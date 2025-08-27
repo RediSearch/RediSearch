@@ -31,6 +31,10 @@
 
 #include <time.h>
 
+#define SEARCH_SUFFIX "(SEARCH)"
+#define VSIM_SUFFIX "(VSIM)"
+#define POST_PROCESSING_SUFFIX "(POST PROCESSING)"
+
 static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
   if (suffix) {
     RS_ASSERT(strlen(suffix) > 0);
@@ -41,6 +45,22 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
   } else {
     RedisModule_Reply_SimpleString(reply, message);
   }
+}
+
+static inline bool handleQueryError(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
+  bool timeoutOccurred = false;
+
+  if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
+    ReplyWarning(reply, QueryError_Strerror(QUERY_ETIMEDOUT), suffix);
+    timeoutOccurred = true;
+  } else if (returnCode == RS_RESULT_ERROR) {
+    // Non-fatal error
+    ReplyWarning(reply, QueryError_GetUserError(err), suffix);
+  } else if (err->reachedMaxPrefixExpansions) {
+    ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
+  }
+
+  return timeoutOccurred;
 }
 
 
@@ -280,30 +300,18 @@ done:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
 
+    bool TimeoutInSubquery = false;
     for(size_t i = 0; i < hreq->nrequests; i++) {
       QueryError* err = &hreq->errors[i];
-      char* suffix = i == 0 ? "(SEARCH)" : "(VSIM)";
+      char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
       int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
-      if (subQueryReturnCode == RS_RESULT_TIMEDOUT) {
-        ReplyWarning(reply, QueryError_Strerror(QUERY_ETIMEDOUT), suffix );
-        // RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-      } else if (subQueryReturnCode == RS_RESULT_ERROR) {
-        // Non-fatal error
-        ReplyWarning(reply, QueryError_GetUserError(err), suffix );
-        // RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
-      } else if (err->reachedMaxPrefixExpansions) {
-        ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix );
-        // RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+
+      if (handleQueryError(reply, err, subQueryReturnCode, suffix, false)) {
+        TimeoutInSubquery = true;
       }
     }
-    if (rc == RS_RESULT_TIMEDOUT) {
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-    } else if (rc == RS_RESULT_ERROR) {
-      // Non-fatal error
-      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
-    } else if (qctx->err->reachedMaxPrefixExpansions) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
-    }
+    // Handle main query errors (POST PROCESSING)
+    handleQueryError(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, TimeoutInSubquery);
 
 
 

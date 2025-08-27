@@ -1,7 +1,6 @@
 from RLTest import Env
 from includes import *
 from common import *
-from typing import Dict
 
 # Test data with deterministic vectors
 test_data = {
@@ -31,23 +30,7 @@ def get_warnings(response):
     warnings_index[-1] += 1
     return access_nested_list(response, warnings_index)
 
-def get_results(response) -> Dict[str, float]:
-    # return dict mapping key -> score from the results list
-    res_results_index = recursive_index(response, 'results')
-    res_results_index[-1] += 1
 
-    results = {}
-    for result in access_nested_list(response, res_results_index):
-        key_index = recursive_index(result, '__key')
-        key_index[-1] += 1
-        score_index = recursive_index(result, '__score')
-        score_index[-1] += 1
-
-        key = access_nested_list(result, key_index)
-        score = float(access_nested_list(result, score_index))
-
-        results[key] = score
-    return results
 
 def setup_index(env):
     dim = 2
@@ -69,11 +52,12 @@ def test_hybrid_timeout_policy_return(env):
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2')
-    env.assertTrue('Timeout limit was reached' in get_warnings(response))
+    env.assertTrue('Timeout limit was reached (SEARCH)' in get_warnings(response))
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2')
-    env.assertTrue('Timeout limit was reached' in get_warnings(response))
+    env.assertTrue('Timeout limit was reached (VSIM)' in get_warnings(response))
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4')
-    env.assertTrue('Timeout limit was reached' in get_warnings(response))
+    env.assertTrue('Timeout limit was reached (SEARCH)' in get_warnings(response))
+    env.assertTrue('Timeout limit was reached (VSIM)' in get_warnings(response))
 
 def test_hybrid_timeout_policy_return_results():
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
@@ -82,8 +66,7 @@ def test_hybrid_timeout_policy_return_results():
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'gear', 'VSIM', \
                        '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, \
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
-    results = get_results(response)
-    env.assertTrue('Timeout limit was reached' in get_warnings(response))
+    results = get_results_from_hybrid_response(response)
     env.assertTrue('doc:3' in results.keys())
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
 
@@ -116,3 +99,145 @@ def test_tail_errors():
                           '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
                           query_vector, 'LOAD', '1', '__key', 'APPLY', '2*@__score',\
                           'AS', 'doubled_score').error().contains('Property `__score` not loaded nor in pipeline')
+
+
+def test_real_timeout_vector_only_fail():
+    """Test real timeout - vector only with FAIL policy"""
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    dim = 4
+    num_docs = 10000
+
+    # Create index with both fields but only populate vectors
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'description', 'TEXT',
+               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+    # Populate only vectors
+    query_vector = load_vectors_to_redis(env, num_docs, query_vec_index=0, vec_size=dim, seed=10)
+
+    # Test vector timeout with FAIL policy using FT.HYBRID
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@vector', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vector.tobytes(),
+               'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+def test_real_timeout_vector_only_return():
+    """Test real timeout - vector only with RETURN policy"""
+    env = Env(moduleArgs='ON_TIMEOUT RETURN')
+
+    dim = 4
+    num_docs = 10000
+
+    # Create index with both fields but only populate vectors
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'description', 'TEXT',
+               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+    # Populate only vectors
+    query_vector = load_vectors_to_redis(env, num_docs, query_vec_index=0, vec_size=dim, seed=10)
+
+    # Test vector timeout with RETURN policy using FT.HYBRID
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '123', 'VSIM', '@vector', '$BLOB',
+                       'PARAMS', '2', 'BLOB', query_vector.tobytes(),
+                       'TIMEOUT', '1')
+
+    warnings = get_warnings(response)
+    env.assertTrue('Timeout limit was reached (VSIM)' in warnings)
+
+
+def test_real_timeout_text_only_fail():
+    """Test real timeout - text only with FAIL policy"""
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    dim = 4
+    num_docs = 10000
+
+    # Create index with both fields but only populate text
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'description', 'TEXT',
+               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+    # Populate only text docs with faker
+    populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345)
+
+    # Create dummy query vector for VSIM part
+    query_vector = np.random.rand(dim).astype(np.float32)
+
+    # Test text timeout with FAIL policy using FT.HYBRID
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'description description description description', 'VSIM', '@vector', '$BLOB',
+               'PARAMS', '2', 'BLOB', query_vector.tobytes(),
+               'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+
+def test_real_timeout_text_only_return():
+    """Test real timeout - text only with RETURN policy"""
+    env = Env(moduleArgs='ON_TIMEOUT RETURN')
+
+    dim = 4
+    num_docs = 10000
+
+    # Create index with both fields but only populate text
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'description', 'TEXT',
+               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+    # Populate only text docs with faker
+    populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345)
+
+    # Create dummy query vector for VSIM part
+    query_vector = np.random.rand(dim).astype(np.float32)
+
+    # Test text timeout with RETURN policy using FT.HYBRID
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@vector', '$BLOB',
+                       'PARAMS', '2', 'BLOB', query_vector.tobytes(),
+                       'TIMEOUT', '1')
+
+    warnings = get_warnings(response)
+    env.assertTrue('Timeout limit was reached (SEARCH)' in warnings)
+
+def test_real_timeout_hybrid_fail():
+    """Test real timeout - hybrid (both text and vector) with FAIL policy"""
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
+
+    dim = 4
+    num_docs = 10000
+
+    # Create index with both text and vector fields
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'description', 'TEXT',
+               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+    # Populate both text and vectors
+    populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345)
+    query_vector = load_vectors_to_redis(env, num_docs, query_vec_index=0, vec_size=dim, seed=10)
+
+    # Test hybrid timeout with FAIL policy
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+               '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector.tobytes(),
+               'TIMEOUT', '1').error().contains('Timeout limit was reached')
+
+def test_real_timeout_hybrid_return():
+    """Test real timeout - hybrid (both text and vector) with RETURN policy"""
+    env = Env(moduleArgs='ON_TIMEOUT RETURN')
+
+    dim = 4
+    num_docs = 10000
+
+    # Create index with both text and vector fields
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'description', 'TEXT',
+               'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+    # Populate both text and vectors
+    populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345)
+    query_vector = load_vectors_to_redis(env, num_docs, query_vec_index=0, vec_size=dim, seed=10)
+
+    # Test hybrid timeout with RETURN policy
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
+                       '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector.tobytes(),
+                       'TIMEOUT', '1')
+
+    warnings = get_warnings(response)
+
+    env.assertTrue('Timeout limit was reached (SEARCH)' in warnings)
+    env.assertTrue('Timeout limit was reached (VSIM)' in warnings)
