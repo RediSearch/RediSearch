@@ -1783,8 +1783,8 @@ int RPDepleter_DepleteAllWithTimeout(arrayof(ResultProcessor*) depleters, size_t
   RedisSearchCtx *searchCtx = NULL;
   for (size_t i = 0; i < count; i++) {
     RPDepleter *depleter = (RPDepleter*)depleters[i];
-    DepleterSync *sync = (DepleterSync *)StrongRef_Get(depleter->sync_ref);
-    if (sync && sync != sync) {
+    DepleterSync *depleterSync = (DepleterSync *)StrongRef_Get(depleter->sync_ref);
+    if (sync && sync != depleterSync) {
       return RS_RESULT_ERROR;
     }
     if (searchCtx && searchCtx != depleter->nextThreadCtx) {
@@ -1793,7 +1793,7 @@ int RPDepleter_DepleteAllWithTimeout(arrayof(ResultProcessor*) depleters, size_t
     if (depleter->first_call == false) {
       return RS_RESULT_ERROR;
     }
-    sync = sync;
+    sync = depleterSync;
     searchCtx = depleter->nextThreadCtx;
   }
 
