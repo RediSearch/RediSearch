@@ -487,7 +487,7 @@ pub unsafe extern "C" fn RSOffsetVector_CopyData(
     // SAFETY: Caller is to ensure `dest` is non-null and point to a valid RSOffsetVector.
     let dest = unsafe { &mut *dest };
 
-    *dest = src.into_owned();
+    *dest = src.to_owned();
 }
 
 /// Retrieve the number of offsets in [`RSOffsetVector`].

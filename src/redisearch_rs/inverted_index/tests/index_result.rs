@@ -129,13 +129,13 @@ fn pushing_to_index_result() {
 }
 
 #[test]
-fn into_owned_an_aggregate_index_result() {
+fn to_owned_an_aggregate_index_result() {
     let num_rec = RSIndexResult::numeric(5.0).doc_id(10);
     let mut ir = RSIndexResult::intersect(5).doc_id(10).weight(3.0);
 
     ir.push_borrowed(&num_rec);
 
-    let mut ir_copy = ir.into_owned();
+    let mut ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);
     assert_eq!(ir.dmd, ir_copy.dmd);
@@ -180,9 +180,9 @@ fn into_owned_an_aggregate_index_result() {
 }
 
 #[test]
-fn into_owned_a_numeric_index_result() {
+fn to_owned_a_numeric_index_result() {
     let ir = RSIndexResult::numeric(8.0).doc_id(3);
-    let mut ir_copy = ir.into_owned();
+    let mut ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);
     assert_eq!(ir.dmd, ir_copy.dmd);
@@ -204,9 +204,9 @@ fn into_owned_a_numeric_index_result() {
 }
 
 #[test]
-fn into_owned_a_virtual_index_result() {
+fn to_owned_a_virtual_index_result() {
     let ir = RSIndexResult::virt().doc_id(8).field_mask(4).weight(2.0);
-    let ir_copy = ir.into_owned();
+    let ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);
     assert_eq!(ir.dmd, ir_copy.dmd);
@@ -219,7 +219,7 @@ fn into_owned_a_virtual_index_result() {
 }
 
 #[test]
-fn into_owned_a_term_index_result() {
+fn to_owned_a_term_index_result() {
     const TEST_STR: &str = "test_term";
     let test_str_ptr = TEST_STR.as_ptr() as *mut _;
     let mut term = ffi::RSQueryTerm {
@@ -235,7 +235,7 @@ fn into_owned_a_term_index_result() {
     let offsets = RSOffsetVector::with_data(offsets.as_mut_ptr(), offsets.len() as _);
 
     let ir = RSIndexResult::term_with_term_ptr(&mut term, offsets, 7, 1, 1);
-    let mut ir_copy = ir.into_owned();
+    let mut ir_copy = ir.to_owned();
 
     assert_eq!(ir.doc_id, ir_copy.doc_id);
     assert_eq!(ir.dmd, ir_copy.dmd);
