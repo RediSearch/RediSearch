@@ -111,6 +111,8 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
     // We intentionally relax it here.
     if target_os != "macos" {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+    } else {
+        println!("cargo:rustc-link-arg=-Wl,-undefined,dynamic_lookup");
     }
 
     let bin_root = root.join(format!(
