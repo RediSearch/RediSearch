@@ -11,4 +11,4 @@ thiserror.workspace = true
 Dependency versions should be updated:
 - ASAP in case of security advisories.
 - Whenever we need newer features or bug fixes released in a newer version.
-- Once in a while, via `cargo update`, if neither of the two things above have happened.
+- Once in a while, via [`cargo upgrade`](https://crates.io/crates/cargo-edit), if neither of the two things above have happened.
