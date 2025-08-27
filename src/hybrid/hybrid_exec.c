@@ -376,15 +376,25 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModule_Reply *reply, a
       return REDISMODULE_ERR;
     }
 
-    
-    // Send array of cursor IDs as response
-    RedisModule_Reply_Array(reply);
+
+    // We only support 2 subqueries
+    RS_ASSERT(array_len(cursors) == 2);
+    // Send map of cursor IDs as response
+    RedisModule_Reply_Map(reply);
     for (size_t i = 0; i < array_len(cursors); i++) {
       Cursor *cursor = cursors[i];
       Cursor_Pause(cursor);
-      RedisModule_Reply_LongLong(reply, cursor->id);
+      AREQ *areq = cursor->execState;
+      if (areq->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
+        RedisModule_ReplyKV_LongLong(reply, "SEARCH", cursor->id);
+      } else if (areq->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
+        RedisModule_ReplyKV_LongLong(reply, "VSIM", cursor->id);
+      } else {
+        // This should never happen, we currently only support SEARCH and VSIM subqueries
+        RS_ABORT_ALWAYS("Unknown subquery type");
+      }
     }
-    RedisModule_Reply_ArrayEnd(reply);
+    RedisModule_Reply_MapEnd(reply);
     RedisModule_EndReply(reply);
     array_free(cursors);
     return REDISMODULE_OK;

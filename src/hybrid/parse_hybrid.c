@@ -563,6 +563,11 @@ static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
   dest->BM25STD_TanhFactor = src->BM25STD_TanhFactor;
 }
 
+static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
+  dest->maxIdle = src->maxIdle;
+  dest->chunkSize = src->chunkSize;
+}
+
 // Helper function to get LIMIT value from parsed aggregation pipeline
 static size_t getLimitFromPlan(AGGPlan *plan) {
   RS_ASSERT(plan);
@@ -776,6 +781,15 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       Param_DictFree(mergeSearchopts.params);
+    }
+    
+    if (*mergeReqflags & QEXEC_F_IS_CURSOR) {
+      // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
+      searchRequest->reqflags |= QEXEC_F_IS_CURSOR;
+      vectorRequest->reqflags |= QEXEC_F_IS_CURSOR;
+      // Copy cursor configuration using the helper function
+      copyCursorConfig(&searchRequest->cursorConfig, parsedCmdCtx->cursorConfig);
+      copyCursorConfig(&vectorRequest->cursorConfig, parsedCmdCtx->cursorConfig);
     }
 
     // Copy request configuration using the helper function
