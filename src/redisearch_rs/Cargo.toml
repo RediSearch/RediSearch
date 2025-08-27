@@ -69,7 +69,7 @@ varint = { path = "./varint" }
 qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 
-cbindgen = "0.28.0"
+cbindgen = "0.29"
 cc = "1"
 crc32fast = "1.4.2"
 criterion = { version = "0.5", features = ["html_reports"] }
