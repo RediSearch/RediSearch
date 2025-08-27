@@ -17,7 +17,10 @@ use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
 /// An iterator that yields results according to an IDs list given on construction.
 pub struct IdList {
+    /// The list of document IDs to iterate over. Must be sorted, unique, and non-empty.
     ids: Vec<t_docId>,
+    /// The current position of the iterator (a.k.a the next document ID to return by `read`).
+    /// When `current` is equal to the length of `ids`, the iterator is at EOF.
     current: usize,
 }
 
@@ -32,15 +35,20 @@ impl IdList {
     }
 }
 
+impl IdList {
+    #[inline(always)]
+    fn get_current(&self) -> Option<t_docId> {
+        self.ids.get(self.current).copied()
+    }
+}
+
 impl RQEIterator for IdList {
     fn read(&mut self) -> Result<Option<RSIndexResult<'_, '_>>, RQEIteratorError> {
-        if self.at_eof() {
-            Ok(None)
-        } else {
-            let doc_id = self.ids[self.current];
-            self.current += 1;
-            Ok(Some(RSIndexResult::virt().doc_id(doc_id)))
-        }
+        let Some(doc_id) = self.get_current() else {
+            return Ok(None);
+        };
+        self.current += 1;
+        Ok(Some(RSIndexResult::virt().doc_id(doc_id)))
     }
 
     fn skip_to(
@@ -97,6 +105,6 @@ impl RQEIterator for IdList {
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.current >= self.ids.len()
+        self.get_current().is_none()
     }
 }
