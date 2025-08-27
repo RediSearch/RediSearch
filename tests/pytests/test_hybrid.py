@@ -289,9 +289,9 @@ class testHybridSearch:
             'format', 'STRING',
             'results',
             [
-                ['attributes', [['__key', 'both_01', '__score', '0.5']]],
-                ['attributes', [['__key', 'both_05', '__score', '0.5']]],
-                ['attributes', [['__key', 'vector_01', '__score', '0.333333333333']]]
+                ['attributes', ['__key', 'both_01', '__score', '0.5']],
+                ['attributes', ['__key', 'both_05', '__score', '0.5']],
+                ['attributes', ['__key', 'vector_01', '__score', '0.333333333333']]
             ],
             'total_results', 3,
             'warning', [],
@@ -310,13 +310,12 @@ class testHybridSearch:
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob,self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
-        # TODO: The attributes format is wrong, should be fixed by MOD-11034
         self.env.assertEqual(
             res[3][0][1],
-            [['my_key', 'text_04']])
+            ['my_key', 'text_04'])
         self.env.assertEqual(
             res[3][1][1],
-            [['my_key', 'both_04']])
+            ['my_key', 'both_04'])
 
     # # TODO: Enable this test after fixing MOD-10987
     # def test_knn_load_score(self):
@@ -328,10 +327,10 @@ class testHybridSearch:
     #     res = self.env.executeCommand(*hybrid_cmd)
     #     self.env.assertEqual(
     #         res[3][0][1],
-    #         [['my_score', '0.25']])
+    #         ['my_score', '0.25'])
     #     self.env.assertEqual(
     #         res[3][1][1],
-    #         [['my_score', '0.2']])
+    #         ['my_score', '0.2'])
 
     def test_knn_load_fields(self):
         """Test hybrid search using LOAD to load fields"""
@@ -346,14 +345,20 @@ class testHybridSearch:
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(
             res[3][0][1],
-            [['my_text', 'text four even',
-              'my_number', '4',
-              'my_tag', 'even']])
+            [
+                'my_text', 'text four even',
+                'my_number', '4',
+                'my_tag', 'even'
+            ]
+        )
         self.env.assertEqual(
             res[3][1][1],
-            [['my_text', 'both four even',
-              'my_number', '4',
-              'my_tag', 'even']])
+            [
+                'my_text', 'both four even',
+                'my_number', '4',
+                'my_tag', 'even'
+            ]
+        )
 
     def test_knn_apply_on_default_output(self):
         """Test hybrid search using APPLY on default output fields"""
@@ -368,7 +373,7 @@ class testHybridSearch:
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
 
-        res_1 = to_dict(res[3][0][1][0])
+        res_1 = to_dict(res[3][0][1])
         self.env.assertEqual(len(res_1), 4)
         self.env.assertEqual(res_1['__key'].upper(), res_1['upper_key'])
         self.env.assertAlmostEqual(
@@ -376,7 +381,7 @@ class testHybridSearch:
             float(res_1['double_score']),
             delta=0.0000001)
 
-        res_2 = to_dict(res[3][1][1][0])
+        res_2 = to_dict(res[3][1][1])
         self.env.assertEqual(len(res_2), 4)
         self.env.assertEqual(res_2['__key'].upper(), res_2['upper_key'])
         self.env.assertAlmostEqual(
@@ -398,7 +403,7 @@ class testHybridSearch:
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
 
-        res_1 = to_dict(res[3][0][1][0])
+        res_1 = to_dict(res[3][0][1])
         self.env.assertEqual(len(res_1), 4)
         self.env.assertEqual(res_1['my_text'].upper(), res_1['upper_text'])
         self.env.assertAlmostEqual(
@@ -406,7 +411,7 @@ class testHybridSearch:
             float(res_1['double_number']),
             delta=0.0000001)
 
-        res_2 = to_dict(res[3][1][1][0])
+        res_2 = to_dict(res[3][1][1])
         self.env.assertEqual(len(res_2), 4)
         self.env.assertEqual(res_2['my_text'].upper(), res_2['upper_text'])
         self.env.assertAlmostEqual(
@@ -457,9 +462,9 @@ class testHybridSearch:
             'format', 'STRING',
             'results',
             [
-                ['attributes', [['__key', 'vector_01', '__score', '0.333333333333']]],
-                ['attributes', [['__key', 'both_05', '__score', '0.5']]],
-                ['attributes', [['__key', 'both_01', '__score', '0.5']]],
+                ['attributes', ['__key', 'vector_01', '__score', '0.333333333333']],
+                ['attributes', ['__key', 'both_05', '__score', '0.5']],
+                ['attributes', ['__key', 'both_01', '__score', '0.5']],
             ],
             'total_results', 3,
             'warning', [],
@@ -480,9 +485,9 @@ class testHybridSearch:
             'format', 'STRING',
             'results',
             [
-                ['attributes', [['__key', 'vector_01', '__score', '0.333333333333']]],
-                ['attributes', [['__key', 'both_01', '__score', '0.5']]],
-                ['attributes', [['__key', 'both_05', '__score', '0.5']]],
+                ['attributes', ['__key', 'vector_01', '__score', '0.333333333333']],
+                ['attributes', ['__key', 'both_01', '__score', '0.5']],
+                ['attributes', ['__key', 'both_05', '__score', '0.5']],
             ],
             'total_results', 3,
             'warning', [],
@@ -509,9 +514,9 @@ class testHybridSearch:
             'format', 'STRING',
             'results',
             [
-                ['attributes', [['number', '5', '__key', 'both_05', '__score', '0.5', '10_minus_number', '5']]],
-                ['attributes', [['number', '1', '__key', 'both_01', '__score', '0.5', '10_minus_number', '9']]],
-                ['attributes', [['number', '1', '__key', 'vector_01', '__score', '0.333333333333', '10_minus_number', '9']]]
+                ['attributes', ['number', '5', '__key', 'both_05', '__score', '0.5', '10_minus_number', '5']],
+                ['attributes', ['number', '1', '__key', 'both_01', '__score', '0.5', '10_minus_number', '9']],
+                ['attributes', ['number', '1', '__key', 'vector_01', '__score', '0.333333333333', '10_minus_number', '9']]
             ],
             'total_results', 3,
             'warning', [],
@@ -615,7 +620,7 @@ class testHybridSearch:
             'format', 'STRING',
             'results',
             [
-                ['attributes', [['__key', 'both_01', '__score', '0.45']]]
+                ['attributes', ['__key', 'both_01', '__score', '0.45']]
             ],
             'total_results', 3,
             'warning', [],
@@ -718,7 +723,7 @@ def process_hybrid_response(hybrid_results, expected_results: Optional[List[Resu
 
     Args:
         hybrid_results: Raw Redis hybrid response like:
-             ['format', 'STRING', 'results', [['attributes', [['__key', 'both_02', 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', '0.0312805474096']]], ...]]
+             ['format', 'STRING', 'results', ['attributes', ['__key', 'both_02', 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', '0.0312805474096']], ...]
         expected_results: Optional list of expected Result objects for comparison
 
     Returns:
@@ -743,10 +748,10 @@ def process_hybrid_response(hybrid_results, expected_results: Optional[List[Resu
         if (len(result_item) >= 2 and
             result_item[0] == 'attributes' and
             result_item[1] and
-            isinstance(result_item[1][0], list)):
+            isinstance(result_item[1], list)):
 
             # Convert flat key-value list to dict using zip with slicing
-            attr_list = result_item[1][0]
+            attr_list = result_item[1]
             attrs = dict(zip(attr_list[::2], attr_list[1::2]))
 
             # Extract doc_id and score if both exist
