@@ -1287,3 +1287,104 @@ unsigned long InvertedIndex_MemUsage(const InvertedIndex *idx) {
   }
   return ret;
 }
+
+void InvertedIndex_RepairBlocks(
+    const InvertedIndex *idx, DocTable *dt,
+    IndexRepairParams *index_params,
+    IndexRepairBlocksParams *block_params
+) {
+    IndexRepairBlocksParams block_params_s = {0};
+    if (!block_params) {
+      block_params = &block_params_s;
+    }
+
+    IndexRepairParams index_param_s = {0};
+    if (!index_params) {
+      index_params = &index_param_s;
+    }
+
+    block_params->numBlocks = InvertedIndex_NumBlocks(idx);
+
+    if (block_params->fixedBlocks) {
+        array_clear(block_params->fixedBlocks);
+    } else {
+        block_params->fixedBlocks = array_new(FixedIndexBlock, 10);
+    }
+
+    if (block_params->deletedBlocks) {
+        array_clear(block_params->deletedBlocks);
+    } else {
+        block_params->deletedBlocks = array_new(DeletedIndexBlock, 10);
+    }
+
+    if (block_params->blockList) {
+        array_clear(block_params->blockList);
+        array_ensure_cap(&block_params->blockList, block_params->numBlocks);
+    } else {
+        block_params->blockList = array_new(IndexBlock, block_params->numBlocks);
+    }
+
+    for (size_t i = 0; i < block_params->numBlocks; ++i) {
+      index_params->bytesCollected = 0;
+      index_params->bytesBeforFix = 0;
+      index_params->bytesAfterFix = 0;
+      index_params->entriesCollected = 0;
+      IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
+      t_docId firstId = IndexBlock_FirstId(blk);
+      t_docId lastId = IndexBlock_LastId(blk);
+
+      if (lastId - firstId > UINT32_MAX) {
+        // Skip over blocks which have a wide variation.
+        array_append(block_params->blockList, *blk);
+        continue;
+      }
+
+      // Capture the pointer address before the block is cleared; otherwise
+      // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
+      void *bufptr = IndexBlock_Data(blk);
+      size_t nrepaired = IndexBlock_Repair(blk, dt, InvertedIndex_Flags(idx), index_params);
+      if (nrepaired == 0) {
+        // unmodified block
+        array_append(block_params->blockList, *blk);
+        continue;
+      }
+
+      uint64_t curr_bytesCollected = index_params->bytesBeforFix - index_params->bytesAfterFix;
+
+      uint16_t numEntries = IndexBlock_NumEntries(blk);
+      if (numEntries == 0) {
+        // this block should be removed
+        DeletedIndexBlock *delmsg = array_ensure_tail(&block_params->deletedBlocks, DeletedIndexBlock);
+        *delmsg = (DeletedIndexBlock){.block = *blk, .oldBlockIndex = i};
+        curr_bytesCollected += sizeof(IndexBlock);
+      } else {
+        array_append(block_params->blockList, *blk);
+        FixedIndexBlock *fixmsg = array_ensure_tail(&block_params->fixedBlocks, FixedIndexBlock);
+        fixmsg->newBlockIndex = array_len(block_params->blockList) - 1;
+        fixmsg->oldBlockIndex = i;
+        fixmsg->block = *blk;
+      }
+      block_params->nbytesCollected += curr_bytesCollected;
+      block_params->ndocsCollected += nrepaired;
+      block_params->nentriesCollected += index_params->entriesCollected;
+      // Save last block statistics because the main process might want to ignore the changes if
+      // the block was modified while the fork was running.
+      if (i == block_params->numBlocks - 1) {
+        block_params->lastblkBytesCollected = curr_bytesCollected;
+        block_params->lastblkDocsRemoved = nrepaired;
+        block_params->lastblkEntriesRemoved = index_params->entriesCollected;
+        // Save the original number of entries of the last block so we can compare
+        // this value to the number of entries exist in the main process, to conclude if any new entries
+        // were added during the fork process was running. If there were, the main process will discard the last block
+        // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
+        // or it will get to its maximum capacity and will no longer be the last block.
+        block_params->lastblkNumEntries = IndexBlock_NumEntries(blk) + index_params->entriesCollected;
+      }
+    }
+}
+
+void InvertedIndex_RemRepairBlocksParams(IndexRepairBlocksParams block_params) {
+    array_free(block_params.fixedBlocks);
+    array_free(block_params.blockList);
+    array_free(block_params.deletedBlocks);
+}

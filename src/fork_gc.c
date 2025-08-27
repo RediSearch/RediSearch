@@ -191,112 +191,69 @@ typedef struct {
 static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
                                   void (*headerCallback)(ForkGC *, void *), void *hdrarg,
                                   IndexRepairParams *params) {
-  size_t numBlocks = InvertedIndex_NumBlocks(idx);
-  MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);
-  MSG_DeletedBlock *deleted = array_new(MSG_DeletedBlock, 10);
-  IndexBlock *blocklist = array_new(IndexBlock, numBlocks);
-  MSG_IndexInfo ixmsg = {.nblocksOrig = numBlocks};
   bool rv = false;
   IndexRepairParams params_s = {0};
   if (!params) {
     params = &params_s;
   }
 
-  for (size_t i = 0; i < numBlocks; ++i) {
-    params->bytesCollected = 0;
-    params->bytesBeforFix = 0;
-    params->bytesAfterFix = 0;
-    params->entriesCollected = 0;
-    IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
-    t_docId firstId = IndexBlock_FirstId(blk);
-    t_docId lastId = IndexBlock_LastId(blk);
+  IndexRepairBlocksParams block_params = {0};
+  InvertedIndex_RepairBlocks(
+      idx,
+      &sctx->spec->docs,
+      params,
+      &block_params
+  );
 
-    if (lastId - firstId > UINT32_MAX) {
-      // Skip over blocks which have a wide variation. In the future we might
-      // want to split a block into two (or more) on high-delta boundaries.
-      // todo: is it ok??
-      // The above TODO was written 5 years ago. We currently don't split blocks,
-      // and it is also not clear why we care about high variations.
-      array_append(blocklist, *blk);
-      continue;
-    }
-
-    // Capture the pointer address before the block is cleared; otherwise
-    // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
-    void *bufptr = IndexBlock_Data(blk);
-    size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, InvertedIndex_Flags(idx), params);
-    if (nrepaired == 0) {
-      // unmodified block
-      array_append(blocklist, *blk);
-      continue;
-    }
-
-    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
-
-    uint16_t numEntries = IndexBlock_NumEntries(blk);
-    if (numEntries == 0) {
-      // this block should be removed
-      MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
-      *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
-      curr_bytesCollected += sizeof(IndexBlock);
-    } else {
-      array_append(blocklist, *blk);
-      MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
-      fixmsg->newix = array_len(blocklist) - 1;
-      fixmsg->oldix = i;
-      fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
-      ixmsg.nblocksRepaired++;
-    }
-    ixmsg.nbytesCollected += curr_bytesCollected;
-    ixmsg.ndocsCollected += nrepaired;
-    ixmsg.nentriesCollected += params->entriesCollected;
-    // Save last block statistics because the main process might want to ignore the changes if
-    // the block was modified while the fork was running.
-    if (i == numBlocks - 1) {
-      ixmsg.lastblkBytesCollected = curr_bytesCollected;
-      ixmsg.lastblkDocsRemoved = nrepaired;
-      ixmsg.lastblkEntriesRemoved = params->entriesCollected;
-      // Save the original number of entries of the last block so we can compare
-      // this value to the number of entries exist in the main process, to conclude if any new entries
-      // were added during the fork process was running. If there were, the main process will discard the last block
-      // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
-      // or it will get to its maximum capacity and will no longer be the last block.
-      ixmsg.lastblkNumEntries = IndexBlock_NumEntries(blk) + params->entriesCollected;
-    }
-  }
-
-  if (array_len(fixed) == 0 && array_len(deleted) == 0) {
+  if (array_len(block_params.deletedBlocks) == 0 && array_len(block_params.fixedBlocks) == 0) {
     // No blocks were removed or repaired
     goto done;
   }
 
+  // TODO[MM>glen]: do we need to abstract the below more?
+
   headerCallback(gc, hdrarg);
+
+  // TODO[MM>glen]: remove the need for this?
+  MSG_IndexInfo ixmsg = (MSG_IndexInfo){
+      .nblocksOrig = block_params.nblocksOrig,
+      .nblocksRepaired = array_len(block_params.fixedBlocks),
+      .nbytesCollected = block_params.nbytesCollected,
+      .nbytesAdded = block_params.nbytesAdded,
+      .ndocsCollected = block_params.ndocsCollected,
+      .nentriesCollected = block_params.nentriesCollected,
+
+      .lastblkDocsRemoved = block_params.lastblkDocsRemoved,
+      .lastblkBytesCollected = block_params.lastblkBytesCollected,
+      .lastblkNumEntries = block_params.lastblkNumEntries,
+      .lastblkEntriesRemoved = block_params.lastblkEntriesRemoved,
+  };
   FGC_sendFixed(gc, &ixmsg, sizeof ixmsg);
-  if (array_len(blocklist) == numBlocks) {
+
+  if (array_len(block_params.blockList) == block_params.numBlocks) {
     // no empty block, there is no need to send the blocks array. Don't send
     // any new blocks.
     size_t len = 0;
     FGC_SEND_VAR(gc, len);
   } else {
-    FGC_sendBuffer(gc, blocklist, array_len(blocklist) * sizeof(*blocklist));
+    FGC_sendBuffer(gc, block_params.blockList, array_len(block_params.blockList) * sizeof(*block_params.blockList));
   }
   // TODO: can we move it inside the if?
-  FGC_sendBuffer(gc, deleted, array_len(deleted) * sizeof(*deleted));
+  FGC_sendBuffer(gc, block_params.deletedBlocks, array_len(block_params.deletedBlocks) * sizeof(*block_params.deletedBlocks));
 
-  for (size_t i = 0; i < array_len(fixed); ++i) {
+  for (size_t i = 0; i < array_len(block_params.fixedBlocks); ++i) {
     // write fix block
-    const MSG_RepairedBlock *msg = fixed + i;
-    const IndexBlock *blk = blocklist + msg->newix;
+    const FixedIndexBlock *msg = block_params.fixedBlocks + i;
+    const IndexBlock *blk = block_params.blockList + msg->newBlockIndex;
     FGC_sendFixed(gc, msg, sizeof(*msg));
     // TODO: check why we need to send the data if its part of the blk struct.
+    // TODO[MM>glen]: does the line below need to be abstracted more?
     FGC_sendBuffer(gc, IndexBlock_Data(blk), IndexBlock_Len(blk));
   }
   rv = true;
 
 done:
-  array_free(fixed);
-  array_free(blocklist);
-  array_free(deleted);
+  InvertedIndex_RemRepairBlocksParams(block_params);
   return rv;
 }
 

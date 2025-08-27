@@ -80,6 +80,46 @@ typedef struct {
   void *arg;
 } IndexRepairParams;
 
+/* Information about a block to be repaired */
+typedef struct {
+  IndexBlock block;
+  size_t oldBlockIndex;
+  size_t newBlockIndex;
+} FixedIndexBlock;
+
+/* Information about a block to be deleted */
+typedef struct {
+  IndexBlock block;
+  size_t oldBlockIndex;
+} DeletedIndexBlock;
+
+typedef struct {
+  // array of blocks that are fixed
+  FixedIndexBlock* fixedBlocks;
+  // array of blocks that are deleted
+  DeletedIndexBlock* deletedBlocks;
+
+  size_t numBlocks;
+  IndexBlock *blockList;
+
+  // Number of blocks prior to repair
+  uint32_t nblocksOrig;
+  // Number of bytes cleaned in inverted index
+  uint64_t nbytesCollected;
+  // Number of bytes added to inverted index
+  uint64_t nbytesAdded;
+  // Number of document records removed
+  uint64_t ndocsCollected;
+  // Number of numeric records removed
+  uint64_t nentriesCollected;
+
+  /** Specific information about the _last_ index block */
+  size_t lastblkDocsRemoved;
+  size_t lastblkBytesCollected;
+  size_t lastblkNumEntries;
+  size_t lastblkEntriesRemoved;
+} IndexRepairBlocksParams;
+
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
   bool useFieldMask = flags & Index_StoreFieldFlags;
   bool useNumEntries = flags & Index_StoreNumeric;
@@ -290,6 +330,14 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
 unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
+
+void InvertedIndex_RepairBlocks(
+    const InvertedIndex *idx, DocTable *dt,
+    IndexRepairParams *index_params,
+    IndexRepairBlocksParams *block_params
+);
+
+void InvertedIndex_RemRepairBlocksParams(IndexRepairBlocksParams block_params);
 
 #ifdef __cplusplus
 }
