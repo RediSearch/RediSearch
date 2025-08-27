@@ -31,6 +31,19 @@
 
 #include <time.h>
 
+static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
+  if (suffix) {
+    RS_ASSERT(strlen(suffix) > 0);
+    char *expanded_warning = NULL;
+    rm_asprintf(&expanded_warning, "%s %s", message, suffix);
+    RedisModule_Reply_SimpleString(reply, expanded_warning);
+    rm_free(expanded_warning);
+  } else {
+    RedisModule_Reply_SimpleString(reply, message);
+  }
+}
+
+
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.
@@ -266,6 +279,23 @@ done:
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
+
+    for(size_t i = 0; i < hreq->nrequests; i++) {
+      QueryError* err = &hreq->errors[i];
+      char* suffix = i == 0 ? "(SEARCH)" : "(VSIM)";
+      int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
+      if (subQueryReturnCode == RS_RESULT_TIMEDOUT) {
+        ReplyWarning(reply, QueryError_Strerror(QUERY_ETIMEDOUT), suffix );
+        // RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+      } else if (subQueryReturnCode == RS_RESULT_ERROR) {
+        // Non-fatal error
+        ReplyWarning(reply, QueryError_GetUserError(err), suffix );
+        // RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
+      } else if (err->reachedMaxPrefixExpansions) {
+        ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix );
+        // RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+      }
+    }
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (rc == RS_RESULT_ERROR) {
@@ -274,6 +304,9 @@ done:
     } else if (qctx->err->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
+
+
+
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     // execution_time

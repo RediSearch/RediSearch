@@ -86,3 +86,33 @@ def test_hybrid_timeout_policy_return_results():
     env.assertTrue('Timeout limit was reached' in get_warnings(response))
     env.assertTrue('doc:3' in results.keys())
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
+
+def test_hybrid_warning_maxprefixexpansions():
+    env = Env(enableDebugCommand=True)
+    setup_index(env)
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', 'doc:5', 'description', 'runo')
+    conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+    #Only SEARCH returns results, VSIM returns empty
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
+                       '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01', 'PARAMS', '2', 'BLOB', query_vector)
+    env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in get_warnings(response))
+    #Only VSIM returns results, SEARCH returns empty
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', \
+                       '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
+    env.assertTrue('Max prefix expansions limit was reached (VSIM)' in get_warnings(response))
+    #Both SEARCH and VSIM return results
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
+                       '@embedding', '$BLOB', 'FILTER', '@description:run*', 'PARAMS', '2', 'BLOB', query_vector)
+    warning = get_warnings(response)
+    env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warning)
+    env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
+
+def test_tail_errors():
+    env = Env()
+    setup_index(env)
+    response = env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', \
+                          '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', \
+                          query_vector, 'LOAD', '1', '__key', 'APPLY', '2*@__score',\
+                          'AS', 'doubled_score').error().contains('Property `__score` not loaded nor in pipeline')
