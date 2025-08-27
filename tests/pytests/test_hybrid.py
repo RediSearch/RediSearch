@@ -533,46 +533,95 @@ class testHybridSearch:
         expected_result[9] = ANY # Ignore execution time
 
         # Use parameters in vector value
-        hybrid_query = (
-            "SEARCH '@text:(both) @number:[4 5]' "
-            "VSIM @vector $MYVECTOR FILTER '@number:[3 3]' "
-            "COMBINE RRF 2 K 1 "
-            f"PARAMS 2 MYVECTOR {self.vector_blob.decode('utf-8')} "
+        vector = f'{self.vector_blob.decode("utf-8")}'
+        hybrid_cmd = (
+            'FT.HYBRID', self.index_name,
+            'SEARCH', '@text:(both) @number:[4 5]',
+            'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[3 3]',
+            'COMBINE', 'RRF', '2', 'K', '1',
+            'PARAMS', '2', 'MYVECTOR', vector
         )
-        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
 
-        # # Use parameters in search term
-        # # TODO: MOD-10970 This test fails:
-        # # With DIALECT 1: Syntax error at offset 8 near MYTEXT
-        # # With DIALECT 2: returns 0 results
-        # hybrid_query = (
-        #     "SEARCH '@text:($MYTEXT) @number:[4 5]' "
-        #     "VSIM @vector $BLOB FILTER '@number:[3 3]' "
-        #     "COMBINE RRF 2 K 1 "
-        #     f"PARAMS 2 MYTEXT both "
-        #     "DIALECT 1"
-        # )
-        # hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
-        # print(hybrid_cmd)
-        # res = self.env.executeCommand(*hybrid_cmd)
-        # self.env.assertEqual(res, expected_result)
+        # Use parameters in SEARCH term
+        # TODO: MOD-10970 This requires DIALECT 2
+        hybrid_cmd = (
+            'FT.HYBRID', self.index_name,
+            'SEARCH', '@text:($MYTEXT) @number:[4 5]',
+            'VSIM', '@vector', vector, 'FILTER', '@number:[3 3]',
+            'COMBINE', 'RRF', '2', 'K', '1',
+            'PARAMS', '2', 'MYTEXT', 'both',
+            'DIALECT', '2'
+        )
+        res = self.env.executeCommand(*hybrid_cmd)
+        self.env.assertEqual(res, expected_result)
 
-        # # Use parameters in vsim filter
-        # # TODO: MOD-10970 This test fails with the following error:
-        # # With DIALECT 1: Syntax error at offset 10 near MYNUMBER
-        # # With DIALECT 2: returns 0 results
-        # hybrid_query = (
-        #     "SEARCH '@text:(both) @number:[4 5]' "
-        #     "VSIM @vector $BLOB FILTER '@number:[$MYNUMBER $MYNUMBER]' "
-        #     "COMBINE RRF 2 K 1 "
-        #     f"PARAMS 2 MYNUMBER 3 "
-        #     "DIALECT 2"
-        # )
-        # hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
-        # res = self.env.executeCommand(*hybrid_cmd)
-        # self.env.assertEqual(res, expected_result)
+        # Use parameters in VSIM FILTER
+        # TODO: MOD-10970 This requires DIALECT 2
+        hybrid_cmd = (
+            'FT.HYBRID', self.index_name,
+            'SEARCH', '@text:(both) @number:[4 5]',
+            'VSIM', '@vector', vector, 'FILTER', '@number:[$MYNUMBER 3]',
+            'COMBINE', 'RRF', '2', 'K', '1',
+            'PARAMS', '2', 'MYNUMBER', '3',
+            'DIALECT', '2'
+        )
+        res = self.env.executeCommand(*hybrid_cmd)
+        self.env.assertEqual(res, expected_result)
+
+        # Multiple parameters
+        hybrid_cmd = (
+            'FT.HYBRID', self.index_name,
+            'SEARCH', '@text:($MYTEXT) @number:[$FOUR $FIVE]',
+            'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[$THREE $THREE]',
+            'COMBINE', 'RRF', 2, 'K', 1,
+            'PARAMS', 10, 'MYTEXT', 'both', 'MYVECTOR', vector, 'THREE', 3,
+            'FOUR', 4, 'FIVE', 5,
+            'DIALECT', 2
+        )
+        res = self.env.executeCommand(*hybrid_cmd)
+        self.env.assertEqual(res, expected_result)
+
+
+    def test_knn_post_filter(self):
+        """Test hybrid search using KNN + post-filter"""
+        if CLUSTER:
+            raise SkipTest()
+        # Run query without post-filter
+        hybrid_cmd = [
+            'FT.HYBRID', self.index_name,
+            'SEARCH', '@text:(both) @number:[1 3]',
+            'VSIM', '@vector', f'{self.vector_blob.decode('utf-8')}',
+            'FILTER', '@text:(both) @number:[1 3]',
+            'COMBINE', 'RRF', '2', 'K', '3',
+            'LOAD', '2', '__key', '__score',
+        ]
+        unfiltered_res = self.env.executeCommand(*hybrid_cmd)
+        unfiltered_dict = to_dict(unfiltered_res)
+
+        # Add post-filter and re-run
+        hybrid_cmd.append('FILTER')
+        hybrid_cmd.append('@__key == "both_01"')
+        filtered_res = self.env.executeCommand(*hybrid_cmd)
+        filtered_dict = to_dict(filtered_res)
+
+        # total_results should be the number of results before filtering.
+        self.env.assertEqual(unfiltered_dict['total_results'], 3)
+        self.env.assertEqual(filtered_dict['total_results'], 3)
+
+        # But only 1 result is returned by the filtered query:
+        expected = [
+            'format', 'STRING',
+            'results',
+            [
+                ['attributes', [['__key', 'both_01', '__score', '0.45']]]
+            ],
+            'total_results', 3,
+            'warning', [],
+            'execution_time', ANY
+        ]
+        self.env.assertEqual(filtered_res, expected)
 
 
     ############################################################################
