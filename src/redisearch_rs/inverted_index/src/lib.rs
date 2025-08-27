@@ -309,6 +309,11 @@ impl<E: Encoder> InvertedIndex<E> {
         let decoder = E::decoder();
         IndexReader::new(&self.blocks, decoder)
     }
+
+    /// Returns the number of unique documents in the index.
+    pub fn unique_docs(&self) -> usize {
+        self.n_unique_docs
+    }
 }
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
