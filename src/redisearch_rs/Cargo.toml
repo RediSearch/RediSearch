@@ -93,7 +93,7 @@ pin-project = "1.1.10"
 strum = {version = "0.27.2",features = ["derive"]}
 
 [workspace.dependencies.bindgen]
-version = "0.71.1"
+version = "0.72"
 default-features = false
 
 [workspace.dependencies.redis-module]
