@@ -1515,12 +1515,11 @@ TEST_F(IndexTest, testRawDocId) {
   RSGlobalConfig.invertedIndexRawDocidEncoding = true;
   size_t index_memsize = 0;
   InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1, &index_memsize);
-  IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
     RSIndexResult rec = {.docId = id, .data = {.tag = RSResultData_Virtual}};
-    InvertedIndex_WriteEntryGeneric(idx, enc, &rec);
+    InvertedIndex_WriteEntryGeneric(idx, &rec);
   }
 
   // Test that we can read them back

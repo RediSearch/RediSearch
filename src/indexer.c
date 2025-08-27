@@ -300,9 +300,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
-    IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
     RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, &rec);
+    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
@@ -321,9 +320,8 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   }
 
   t_docId docId = aCtx->doc->docId;
-  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, enc, &rec);
+  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
 }
 
 /**

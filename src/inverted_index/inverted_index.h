@@ -271,8 +271,7 @@ bool read_raw_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx 
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
 
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
-                                       RSIndexResult *entry);
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, RSIndexResult *entry);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */

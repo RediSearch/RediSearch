@@ -278,11 +278,10 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntr
 
   RSTermRecord *term = IndexResult_TermRefMut(&rec);
   term->term = NULL;
-  IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
   if (ent->vw) {
     RSOffsetVector_SetData(&term->offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));
   }
-  return InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
+  return InvertedIndex_WriteEntryGeneric(idx, &rec);
 }
 
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {

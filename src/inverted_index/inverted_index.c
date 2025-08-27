@@ -624,8 +624,8 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 }
 
 /* Write a forward-index entry to an index writer */
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
-                                       RSIndexResult *entry) {
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, RSIndexResult *entry) {
+  IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
   t_docId docId = entry->docId;
   size_t sz = 0;
   RS_ASSERT(docId > 0);
@@ -700,7 +700,7 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
         .numeric = value,
       },
   };
-  return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, &rec);
+  return InvertedIndex_WriteEntryGeneric(idx, &rec);
 }
 
 /******************************************************************************

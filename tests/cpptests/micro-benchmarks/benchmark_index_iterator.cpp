@@ -84,6 +84,11 @@ public:
     }
 
     void createIndex(IndexFlags flags) {
+        if (flags == (Index_DocIdsOnly | Index_Temporary)) {
+            // Special case reserved for `Index_DocIdsOnly` with raw doc IDs
+            RSGlobalConfig.invertedIndexRawDocidEncoding = true; // Enable raw doc ID encoding, until the benchmark's tearDown
+        }
+
         // Create a new InvertedIndex with the given flags
         size_t dummy;
         index = NewInvertedIndex(flags, 1, &dummy);
@@ -98,16 +103,7 @@ public:
             // Populate the index with document IDs only
             for (size_t i = 0; i < ids.size(); ++i) {
                 RSIndexResult rec = {.docId = ids[i], .data = {.tag = RSResultData_Virtual}};
-                InvertedIndex_WriteEntryGeneric(index, encoder, &rec);
-            }
-        } else if (flags == (Index_DocIdsOnly | Index_Temporary)) {
-            // Special case reserved for `Index_DocIdsOnly` with raw doc IDs
-            RSGlobalConfig.invertedIndexRawDocidEncoding = true; // Enable raw doc ID encoding, until the benchmark's tearDown
-            RS_ASSERT_ALWAYS(encoder != InvertedIndex_GetEncoder(Index_DocIdsOnly)); // Ensure we are using the raw doc ID encoder
-            encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-            for (size_t i = 0; i < ids.size(); ++i) {
-                RSIndexResult rec = {.docId = ids[i], .data = {.tag = RSResultData_Virtual}};
-                InvertedIndex_WriteEntryGeneric(index, encoder, &rec);
+                InvertedIndex_WriteEntryGeneric(index, &rec);
             }
         } else {
             // Populate the index with term data
