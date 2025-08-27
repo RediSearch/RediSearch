@@ -294,7 +294,7 @@ const char *RPTypeToString(ResultProcessorType type);
  * returns timeout after N results, N >= 0.
  *******************************************************************************************************************/
 ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx);
-void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
 
 /*******************************************************************************************************************
  *  Crash Processor - DEBUG ONLY

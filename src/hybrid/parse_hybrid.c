@@ -725,6 +725,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
     hybridRequest->tailPipeline = tailPipeline;
     tailPipeline = NULL;  // Prevent double free
+    hybridRequest->reqConfig = mergeReqConfig;
   }
 
   return hybridRequest;

@@ -1226,12 +1226,11 @@ typedef struct {
 } RPTimeoutAfterCount;
 
 // Insert the result processor between the last result processor and its downstream result processor
-static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
-  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
+static void addResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  ResultProcessor *cur = qctx->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
 
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   // Search for the last result processor
   while (cur) {
     if (!cur->upstream) {
@@ -1252,9 +1251,9 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
  * @param results_count: number of results to return. should be greater equal 0.
  * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
  */
-void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count) {
-  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, r->sctx);
-  addResultProcessor(r, RPTimeoutAfterCount);
+void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count) {
+  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, sctx);
+  addResultProcessor(qctx, RPTimeoutAfterCount);
 }
 
 static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, RedisSearchCtx *sctx) {
@@ -1336,7 +1335,7 @@ ResultProcessor *RPCrash_New() {
 
 void PipelineAddCrash(struct AREQ *r) {
   ResultProcessor *crash = RPCrash_New();
-  addResultProcessor(r, crash);
+  addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
 }
 
  /*******************************************************************************************************************

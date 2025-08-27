@@ -55,6 +55,7 @@ int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *status) {
 
   ArgsCursor searchTimeoutArgs = {0};
   ArgsCursor vsimTimeoutArgs = {0};
+  ArgsCursor tailTimeoutArgs = {0};
 
   ACArgSpec debugArgsSpec[] = {
       // Component-specific timeouts
@@ -66,6 +67,11 @@ int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *status) {
       {.name = "TIMEOUT_AFTER_N_VSIM",
        .type = AC_ARGTYPE_SUBARGS_N,
        .target = &vsimTimeoutArgs,
+       .slicelen = 1},
+
+      {.name = "TIMEOUT_AFTER_N_TAIL",
+       .type = AC_ARGTYPE_SUBARGS_N,
+       .target = &tailTimeoutArgs,
        .slicelen = 1},
 
       {NULL}
@@ -104,9 +110,17 @@ int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *status) {
     params->vsim_timeout_set = 1;
   }
 
+  if (AC_IsInitialized(&tailTimeoutArgs)) {
+    if (AC_GetUnsignedLongLong(&tailTimeoutArgs, &params->tail_timeout_count, AC_F_GE0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N_TAIL count");
+      return REDISMODULE_ERR;
+    }
+    params->tail_timeout_set = 1;
+  }
+
   // Validate that at least one component timeout parameter was provided
-  if (!params->search_timeout_set && !params->vsim_timeout_set) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "At least one component timeout parameter (TIMEOUT_AFTER_N_SEARCH or TIMEOUT_AFTER_N_VSIM) must be specified");
+  if (!params->search_timeout_set && !params->vsim_timeout_set && !params->tail_timeout_set) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "At least one component timeout parameter (TIMEOUT_AFTER_N_SEARCH, TIMEOUT_AFTER_N_VSIM, or TIMEOUT_AFTER_N_TAIL) must be specified");
     return REDISMODULE_ERR;
   }
 
@@ -115,23 +129,27 @@ int parseHybridDebugParams(HybridRequest_Debug *debug_req, QueryError *status) {
 
 void extractHybridTimeoutValues(const HybridDebugParams *params,
                                 unsigned long long *search_timeout,
-                                unsigned long long *vsim_timeout) {
+                                unsigned long long *vsim_timeout,
+                                unsigned long long *tail_timeout) {
   // Extract search timeout if set, otherwise 0 (no timeout)
   *search_timeout = params->search_timeout_set ? params->search_timeout_count : 0;
 
   // Extract vector timeout if set, otherwise 0 (no timeout)
   *vsim_timeout = params->vsim_timeout_set ? params->vsim_timeout_count : 0;
+
+  // Extract tail timeout if set, otherwise 0 (no timeout)
+  *tail_timeout = params->tail_timeout_set ? params->tail_timeout_count : 0;
 }
 
 int applyHybridDebugToBuiltPipelines(HybridRequest_Debug *debug_req, QueryError *status) {
   HybridDebugParams *params = &debug_req->debug_params;
 
   // Extract timeout values from debug parameters
-  unsigned long long search_timeout, vsim_timeout;
-  extractHybridTimeoutValues(params, &search_timeout, &vsim_timeout);
+  unsigned long long search_timeout, vsim_timeout, tail_timeout;
+  extractHybridTimeoutValues(params, &search_timeout, &vsim_timeout, &tail_timeout);
 
   // Apply component-specific timeouts
-  if (applyHybridTimeout(debug_req->hreq, search_timeout, vsim_timeout) != REDISMODULE_OK) {
+  if (applyHybridTimeout(debug_req->hreq, search_timeout, vsim_timeout, tail_timeout) != REDISMODULE_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to apply timeout to built hybrid pipelines");
     return REDISMODULE_ERR;
   }
@@ -140,18 +158,29 @@ int applyHybridDebugToBuiltPipelines(HybridRequest_Debug *debug_req, QueryError 
 }
 
 int applyHybridTimeout(HybridRequest *hreq, unsigned long long search_timeout,
-                       unsigned long long vsim_timeout) {
-  // Apply component-specific timeouts to search and vector pipelines
+                       unsigned long long vsim_timeout, unsigned long long tail_timeout) {
+  // Apply component-specific timeouts to search, vector, and tail pipelines
   // A timeout value of 0 means no timeout for that component
 
-  // Apply timeout to search subquery (requests[0])
-  if (search_timeout > 0 && hreq->nrequests >= 1 && hreq->requests[0]) {
-    PipelineAddTimeoutAfterCount(hreq->requests[0], search_timeout);
+  RS_ASSERT(hreq->nrequests >= 2);
+  AREQ *search_req = hreq->requests[0];
+  AREQ *vector_req = hreq->requests[1];
+
+  // Apply timeout to search subquery
+  if (search_timeout > 0) {
+    PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(search_req), AREQ_SearchCtx(search_req), search_timeout);
   }
 
-  // Apply timeout to vector subquery (requests[1])
-  if (vsim_timeout > 0 && hreq->nrequests >= 2 && hreq->requests[1]) {
-    PipelineAddTimeoutAfterCount(hreq->requests[1], vsim_timeout);
+  // Apply timeout to vector subquery
+  if (vsim_timeout > 0) {
+    PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(vector_req), AREQ_SearchCtx(vector_req), vsim_timeout);
+  }
+
+  // Apply timeout to tail pipeline
+  if (tail_timeout > 0 && hreq->tailPipeline) {
+    // We need a search context for the timeout processor. Use the search context from the first subquery.
+    RedisSearchCtx *sctx = AREQ_SearchCtx(search_req);
+    PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, sctx, tail_timeout);
   }
 
   return REDISMODULE_OK;
