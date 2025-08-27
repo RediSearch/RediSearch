@@ -44,6 +44,7 @@
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
+#include "util/redis_mem_info.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -158,10 +159,9 @@ static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   if(RSGlobalConfig.indexingMemoryLimit == 0) {
     return false;
   }
-  // Get the memory limit and memory usage
-  setMemoryInfo(ctx);
+  float used_memory_ratio = RedisMemory_GetUsedMemoryRatio();
   // Check if used memory crossed the threshold
-  return (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit) ;
+  return (used_memory_ratio > ((float)RSGlobalConfig.indexingMemoryLimit / 100)) ;
 }
 /*
  * Initialize the spec's fields that are related to the cursors.
