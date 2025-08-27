@@ -1,7 +1,7 @@
 ## Dependencies
 
 Dependencies should be added to the `Cargo.toml` file in the root of the workspace.
-They can then be used in the crates `Cargo.toml` files using:
+They can then be used by workspace members via:
 
 ```toml
 [dependencies]
