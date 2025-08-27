@@ -39,7 +39,7 @@ impl QueryIterator {
 
     #[inline(always)]
     pub fn new_id_list(vec: Vec<u64>) -> Self {
-        // Convert the Rust vector to use C allocation
+        // Convert the Rust vector to use C allocation because the C iterator takes ownership of the array
         let len = vec.len();
         let data =
             unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };

@@ -32,6 +32,18 @@ fn empty_initialization() {
 }
 
 #[test]
+#[should_panic(expected = "IDs must be sorted and unique")]
+fn unsorted_initialization() {
+    let _ = IdList::new(vec![5, 3, 1, 4, 2]);
+}
+
+#[test]
+#[should_panic(expected = "IDs must be sorted and unique")]
+fn duplicate_initialization() {
+    let _ = IdList::new(vec![1, 2, 2, 3, 4]);
+}
+
+#[test]
 fn read() {
     for (i, &case) in CASES.iter().enumerate() {
         let mut it = IdList::new(case.to_vec());
@@ -79,11 +91,7 @@ fn skip_to() {
         assert_eq!(first_doc.doc_id, first_id, "Case {ci}");
         drop(first_doc); // Drop the result so we can immutable borrow the iterator (TODO: is this expected?)
         assert_eq!(it.last_doc_id(), first_id, "Case {ci}");
-        assert_eq!(
-            it.at_eof(),
-            first_id == case.last().copied().unwrap(),
-            "Case {ci}"
-        );
+        assert_eq!(it.at_eof(), Some(&first_id) == case.last(), "Case {ci}");
 
         // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
         let last = *case.last().unwrap();
@@ -91,7 +99,7 @@ fn skip_to() {
         assert!(matches!(res, Ok(None)), "Case {ci}");
         drop(res);
         assert!(it.at_eof(), "Case {ci}");
-        assert_eq!(it.last_doc_id(), case.last().copied().unwrap(), "Case {ci}");
+        assert_eq!(Some(&it.last_doc_id()), case.last(), "Case {ci}");
 
         // Rewind
         it.rewind();
@@ -114,7 +122,7 @@ fn skip_to() {
                 // Should land on next existing id
                 assert_eq!(
                     it.at_eof(),
-                    id == case.last().copied().unwrap(),
+                    Some(&id) == case.last(),
                     "Case {ci} probe {probe} -> unexpected EOF"
                 );
                 assert_eq!(
@@ -136,7 +144,7 @@ fn skip_to() {
             drop(res);
             assert_eq!(
                 it.at_eof(),
-                id == case.last().copied().unwrap(),
+                Some(&id) == case.last(),
                 "Case {ci} exact {id} unexpected EOF"
             );
             assert_eq!(it.last_doc_id(), id, "Case {ci} exact {id}");
@@ -158,13 +166,14 @@ fn skip_to() {
             assert_eq!(it.last_doc_id(), id, "Case {ci} second pass skip_to {id}");
             assert_eq!(
                 it.at_eof(),
-                id == case.last().copied().unwrap(),
+                Some(&id) == case.last(),
                 "Case {ci} premature EOF on second pass id {id}"
             );
         }
     }
 }
 
+/// Skip between any (ordered) pair of IDs in the list, testing all combinations
 #[test]
 fn skip_between_any_pair() {
     for (ci, &case) in CASES.iter().filter(|&&case| case.len() >= 2).enumerate() {
@@ -223,7 +232,7 @@ fn skip_between_any_pair() {
                 );
                 assert_eq!(
                     it.at_eof(),
-                    to_id == case.last().copied().unwrap(),
+                    Some(&to_id) == case.last(),
                     "Case {ci} pair ({from_idx},{to_idx}) EOF after to_id"
                 );
             }
