@@ -101,13 +101,8 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
   RMCK::ArgvList createArgs(ctx, "FT.CREATE", indexName, "ON", "HASH", "SKIPINITIALSCAN",
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
                             "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
-                            "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC", "COSINE");
   return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
 }
-
-/**
- * Helper function to parse a hybrid command and build the pipeline.
- * Reduces code duplication across tests by handling the common pattern of:
  * 1. Create index spec
  * 2. Parse hybrid command
  * 3. Build pipeline

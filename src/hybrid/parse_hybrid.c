@@ -700,7 +700,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ *vectorRequest = parsedCmdCtx->vector;
   AREQ *searchRequest = parsedCmdCtx->search;
-
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 
@@ -848,6 +847,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   hybridParams->aggregationParams = params;
   hybridParams->synchronize_read_locks = true;
+  // Add implicit sorting by score if no other sorting exists
+  AGPLN_GetOrCreateArrangeStep(parsedCmdCtx->tailPlan);
 
   return REDISMODULE_OK;
 
