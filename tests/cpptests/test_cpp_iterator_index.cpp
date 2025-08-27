@@ -93,7 +93,6 @@ private:
         // This function should populate the InvertedIndex with terms
         size_t memsize;
         idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
         ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr); // Expect a seeker with the default flags
         for (size_t i = 0; i < n_docs; ++i) {
             ForwardIndexEntry h = {0};
@@ -105,7 +104,7 @@ private:
 
             h.vw = NewVarintVectorWriter(8);
             VVW_Write(h.vw, i); // Just writing the index as a value
-            InvertedIndex_WriteForwardIndexEntry(idx, encoder, &h);
+            InvertedIndex_WriteForwardIndexEntry(idx, &h);
             VVW_Free(h.vw);
         }
     }
@@ -710,7 +709,6 @@ private:
         bool isNew;
         termIdx = Redis_OpenInvertedIndex(sctx, "term", strlen("term"), 1, &isNew);
         ASSERT_TRUE(termIdx != nullptr);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(termIdx));
 
         // Populate with term data
         for (size_t i = 0; i < n_docs; ++i) {
@@ -723,7 +721,7 @@ private:
 
             h.vw = NewVarintVectorWriter(8);
             VVW_Write(h.vw, i); // Just writing the index as a value
-            InvertedIndex_WriteForwardIndexEntry(termIdx, encoder, &h);
+            InvertedIndex_WriteForwardIndexEntry(termIdx, &h);
             VVW_Free(h.vw);
         }
 

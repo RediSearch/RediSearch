@@ -219,7 +219,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     }
     VVW_Truncate(h.vw);
 
-    InvertedIndex_WriteForwardIndexEntry(idx, enc, &h);
+    InvertedIndex_WriteForwardIndexEntry(idx, &h);
 
     // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
@@ -1319,9 +1319,8 @@ TEST_F(IndexTest, testIndexFlags) {
   // sizeof(IndexBlock)                   48
   // INDEX_BLOCK_INITIAL_CAP               6
   ASSERT_EQ(102, index_memsize);
-  IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(10, sz);
   InvertedIndex_Free(w);
 
@@ -1329,8 +1328,7 @@ TEST_F(IndexTest, testIndexFlags) {
   w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
   ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
-  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
-  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(sz2, 0);
   InvertedIndex_Free(w);
 
@@ -1338,18 +1336,16 @@ TEST_F(IndexTest, testIndexFlags) {
   w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
   ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
-  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
+  ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, &h));
   InvertedIndex_Free(w);
 
   flags |= Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
   ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
-  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(19, sz);
   InvertedIndex_Free(w);
 
@@ -1364,8 +1360,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(86, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
-  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
-  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(0, sz);
   InvertedIndex_Free(w);
 
@@ -1374,9 +1369,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
-  enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(w));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(4, sz);
   InvertedIndex_Free(w);
 
@@ -1483,19 +1477,18 @@ TEST_F(IndexTest, testDeltaSplits) {
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
 
-  IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
-  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 200;
-  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 1LLU << 48;
-  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
   ent.docId++;
-  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
   ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
   QueryIterator *ir = NewInvIndIterator_TermFull(idx);

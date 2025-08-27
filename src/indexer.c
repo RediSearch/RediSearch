@@ -27,9 +27,8 @@ extern void IncrementYieldCounter(void);
 
 #include <unistd.h>
 
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
-                            ForwardIndexEntry *entry) {
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, encoder, entry);
+static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
 
   // Update index statistics:
 
@@ -101,7 +100,6 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   while (entry != NULL) {
     bool isNew;
     InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
-    IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(invidx));
     if (isNew && strlen(entry->term) != 0) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
@@ -109,7 +107,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
       IndexerYieldWhileLoading(ctx->redisCtx);
-      writeIndexEntry(spec, invidx, encoder, entry);
+      writeIndexEntry(spec, invidx, entry);
       if (Index_StoreFieldMask(spec)) {
         InvertedIndex_OrFieldMask(invidx, entry->fieldMask);
       }

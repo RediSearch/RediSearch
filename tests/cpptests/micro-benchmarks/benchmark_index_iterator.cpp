@@ -121,7 +121,7 @@ public:
 
                 h.vw = NewVarintVectorWriter(8);
                 VVW_Write(h.vw, i); // Just writing the index as a value
-                InvertedIndex_WriteForwardIndexEntry(index, encoder, &h);
+                InvertedIndex_WriteForwardIndexEntry(index, &h);
                 VVW_Free(h.vw);
             }
         }

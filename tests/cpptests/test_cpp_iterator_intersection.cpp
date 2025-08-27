@@ -214,8 +214,7 @@ public:
     // Write the forward index entries to the inverted indexes
     for (auto &[term, entry] : entries) {
       InvertedIndex *index = invertedIndexes[term];
-      IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(index));
-      InvertedIndex_WriteForwardIndexEntry(index, enc, &entry);
+      InvertedIndex_WriteForwardIndexEntry(index, &entry);
       // Free the entry's vector writer
       VVW_Free(entry.vw);
     }
