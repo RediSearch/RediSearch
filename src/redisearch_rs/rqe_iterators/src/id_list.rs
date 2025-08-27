@@ -20,8 +20,8 @@ pub struct IdList {
     /// The list of document IDs to iterate over. Must be sorted, unique, and non-empty.
     ids: Vec<t_docId>,
     /// The current position of the iterator (a.k.a the next document ID to return by `read`).
-    /// When `current` is equal to the length of `ids`, the iterator is at EOF.
-    current: usize,
+    /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
+    offset: usize,
 }
 
 impl IdList {
@@ -31,14 +31,14 @@ impl IdList {
             ids.is_sorted_by(|a, b| a < b),
             "IDs must be sorted and unique"
         );
-        IdList { ids, current: 0 }
+        IdList { ids, offset: 0 }
     }
 }
 
 impl IdList {
     #[inline(always)]
     fn get_current(&self) -> Option<t_docId> {
-        self.ids.get(self.current).copied()
+        self.ids.get(self.offset).copied()
     }
 }
 
@@ -47,7 +47,7 @@ impl RQEIterator for IdList {
         let Some(doc_id) = self.get_current() else {
             return Ok(None);
         };
-        self.current += 1;
+        self.offset += 1;
         Ok(Some(RSIndexResult::virt().doc_id(doc_id)))
     }
 
@@ -57,29 +57,29 @@ impl RQEIterator for IdList {
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &doc_id {
-            self.current = self.ids.len(); // Move to EOF
+            self.offset = self.ids.len(); // Move to EOF
             return Ok(None);
         }
         debug_assert!(self.last_doc_id() < doc_id);
         // The top of the binary search is limited, The worst case scenario is when the List contains every DocId, and in that worst case
         // the search range is limited to a range of (docId - lastDocId) elements starting from current offset
         let top = min(
-            self.current + (doc_id - self.last_doc_id()) as usize,
+            self.offset + (doc_id - self.last_doc_id()) as usize,
             self.ids.len(),
         );
         // Pos is correct whether we found the element or not - it's the first element greater than or equal to doc_id
-        let pos = self.ids[self.current..top].binary_search(&doc_id);
+        let pos = self.ids[self.offset..top].binary_search(&doc_id);
         match pos {
             Ok(pos) => {
-                let pos = self.current + pos; // Convert relative to absolute index
-                self.current = pos + 1;
+                let pos = self.offset + pos; // Convert relative to absolute index
+                self.offset = pos + 1;
                 Ok(Some(SkipToOutcome::Found(
                     RSIndexResult::virt().doc_id(self.ids[pos]),
                 )))
             }
             Err(pos) => {
-                let pos = self.current + pos; // Convert relative to absolute index
-                self.current = pos + 1;
+                let pos = self.offset + pos; // Convert relative to absolute index
+                self.offset = pos + 1;
                 Ok(Some(SkipToOutcome::NotFound(
                     RSIndexResult::virt().doc_id(self.ids[pos]),
                 )))
@@ -88,7 +88,7 @@ impl RQEIterator for IdList {
     }
 
     fn rewind(&mut self) {
-        self.current = 0;
+        self.offset = 0;
     }
 
     fn num_estimated(&self) -> usize {
@@ -97,9 +97,9 @@ impl RQEIterator for IdList {
 
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        match self.current {
+        match self.offset {
             0 => 0,
-            _ => self.ids[self.current - 1],
+            _ => self.ids[self.offset - 1],
         }
     }
 
