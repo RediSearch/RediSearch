@@ -21,21 +21,36 @@ typedef struct HybridRequest {
     QueryError *errors;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
-    HybridPipelineParams *hybridParams;
+    CursorConfig cursorConfig;
     clock_t initClock;  // For timing execution
+    RedisSearchCtx *sctx;
+    QEFlags reqflags;
 } HybridRequest;
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
   HybridRequest *hreq;
+  HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
+  bool internal;
 } blockedClientHybridCtx;
 
-HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests);
-int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *params);
-int HREQ_GetError(HybridRequest *hreq, QueryError *status);
+/*
+ * Create a new HybridRequest that manages multiple search requests for hybrid search.
+ * This function initializes the hybrid request structure and sets up the tail pipeline
+ * that will be used to merge and process results from all individual search requests.
+ * @param sctx The main search context for the hybrid request - the redisCtx inside can change if moving to different thread
+ * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
+ * @param nrequests Number of requests in the array
+*/
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const HybridPipelineParams *params, arrayof(ResultProcessor*) depleters);
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params);
 void HybridRequest_Free(HybridRequest *req);
+int HybridRequest_GetError(HybridRequest *req, QueryError *status);
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
 
 #ifdef __cplusplus
 }

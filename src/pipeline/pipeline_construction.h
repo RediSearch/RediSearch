@@ -18,26 +18,6 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
 bool hasQuerySortby(const AGGPlan *pln);
 
-
-
-/**
- * Process a complete LOAD step: parse arguments, create RPLoader, and handle JSON specs.
-
- *
- * @param loadStep The LOAD step to process
- * @param lookup The RLookup context to use for creating keys
- * @param sctx The search context
- * @param reqflags Request flags
- * @param loadFlags Flags to pass to RLookup_GetKey_LoadEx
- * @param forceLoad Force loading flag for RPLoader_New
- * @param outStateFlags Output state flags pointer
- * @param status Error status object for reporting failures
- * @return ResultProcessor* on success, NULL on failure
- */
-ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
-                                RedisSearchCtx *sctx, uint32_t reqflags, uint32_t loadFlags,
-                                bool forceLoad, uint32_t *outStateFlags, QueryError *status);
-
 #ifdef __cplusplus
 }
 #endif
