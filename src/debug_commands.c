@@ -132,7 +132,7 @@ DEBUG_COMMAND(DumpTerms) {
 
 
 static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *invidx) {
-  InvertedIndexSummary summary = InvertedIndex_Summary(invidx);
+  IISummary summary = InvertedIndex_Summary(invidx);
   size_t invIdxBulkLen = 0;
 
   REPLY_WITH_LONG_LONG("numDocs", summary.number_of_docs, invIdxBulkLen);
@@ -146,7 +146,7 @@ static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *inv
   return invIdxBulkLen;
 }
 
-DEBUG_COMMAND(InvertedIndexSummaryCmd) {
+DEBUG_COMMAND(InvertedIndexSummary) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -168,10 +168,10 @@ DEBUG_COMMAND(InvertedIndexSummaryCmd) {
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
   size_t blockCount = 0;
-  InvertedIndexBlockSummary *blocksSummary = InvertedIndex_BlocksSummary(invidx, &blockCount);
+  IIBlockSummary *blocksSummary = InvertedIndex_BlocksSummary(invidx, &blockCount);
 
   for (size_t i = 0; i < blockCount; i++) {
-    InvertedIndexBlockSummary *blockSummary = blocksSummary + i;
+    IIBlockSummary *blockSummary = blocksSummary + i;
     size_t blockBulkLen = 0;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
@@ -358,7 +358,7 @@ DEBUG_COMMAND(DumpPrefixTrie) {
 }
 
 InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
-  InvertedIndexSummary summary = InvertedIndex_Summary(idx);
+  IISummary summary = InvertedIndex_Summary(idx);
   InvertedIndexStats indexStats = {.blocks_efficiency = summary.block_efficiency};
   START_POSTPONED_LEN_ARRAY(invertedIndexDump);
 
@@ -1847,7 +1847,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_PHONETIC_HASH", DumpPhoneticHash},
                                {"DUMP_SUFFIX_TRIE", DumpSuffix},
                                {"DUMP_TERMS", DumpTerms},
-                               {"INVIDX_SUMMARY", InvertedIndexSummaryCmd}, // Print info about an inverted index and each of its blocks.
+                               {"INVIDX_SUMMARY", InvertedIndexSummary}, // Print info about an inverted index and each of its blocks.
                                {"NUMIDX_SUMMARY", NumericIndexSummary}, // Quick summary of the numeric index
                                {"SPEC_INVIDXES_INFO", SpecInvertedIndexesInfo}, // Print general information about the inverted indexes in the spec
                                {"GC_FORCEINVOKE", GCForceInvoke},

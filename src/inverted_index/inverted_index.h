@@ -126,14 +126,14 @@ uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx);
 void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries);
 
 /* Retrieve comprehensive summary information about an inverted index */
-InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx);
+IISummary InvertedIndex_Summary(const InvertedIndex *idx);
 
 /* Retrieve basic summary information about an inverted index's blocks. The returned array should
  * be freed using `InvertedIndex_BlocksSummaryFree` */
-InvertedIndexBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count);
+IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count);
 
 /* Free the blocks summary */
-void InvertedIndex_BlocksSummaryFree(InvertedIndexBlockSummary *summaries);
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *summaries);
 
 t_docId IndexBlock_FirstId(const IndexBlock *b);
 t_docId IndexBlock_LastId(const IndexBlock *b);

@@ -1232,11 +1232,11 @@ double InvertedIndex_GetEfficiency(const InvertedIndex *idx) {
  * - number_of_blocks: Number of index blocks
  * - block_efficiency: Efficiency ratio (only for numeric indexes)
  * - has_efficiency: Whether efficiency calculation is applicable */
-InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx) {
+IISummary InvertedIndex_Summary(const InvertedIndex *idx) {
   IndexFlags flags = InvertedIndex_Flags(idx);
   bool hasEfficiency = (flags & Index_StoreNumeric) ? true : false;
 
-  InvertedIndexSummary summary = {
+  IISummary summary = {
     .number_of_docs = InvertedIndex_NumDocs(idx),
     .number_of_entries = InvertedIndex_NumEntries(idx),
     .last_doc_id = InvertedIndex_LastId(idx),
@@ -1253,16 +1253,16 @@ InvertedIndexSummary InvertedIndex_Summary(const InvertedIndex *idx) {
  * - first_doc_id: The first document ID in the block
  * - last_doc_id: The last document ID in the block
  * - number_of_entries: The number of endries in the block */
-InvertedIndexBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count) {
+IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count) {
   *count = InvertedIndex_NumBlocks(idx);
   if (*count == 0) {
     return NULL;
   }
 
-  InvertedIndexBlockSummary *summaries = rm_calloc(*count, sizeof(InvertedIndexBlockSummary));
+  IIBlockSummary *summaries = rm_calloc(*count, sizeof(IIBlockSummary));
   for (size_t i = 0; i < *count; i++) {
     IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
-    summaries[i] = (InvertedIndexBlockSummary){
+    summaries[i] = (IIBlockSummary){
       .first_doc_id = IndexBlock_FirstId(blk),
       .last_doc_id = IndexBlock_LastId(blk),
       .number_of_entries = IndexBlock_NumEntries(blk),
@@ -1272,6 +1272,6 @@ InvertedIndexBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx,
   return summaries;
 }
 
-void InvertedIndex_BlocksSummaryFree(InvertedIndexBlockSummary *summaries) {
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *summaries) {
   rm_free(summaries);
 }
