@@ -1466,6 +1466,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "rqe_iterators_bencher"
+version = "0.0.1"
+dependencies = [
+ "bindgen 0.71.1",
+ "build_utils",
+ "criterion",
+ "ffi",
+ "inverted_index",
+ "itertools 0.14.0",
+ "redis_mock",
+ "rqe_iterators",
+ "types_ffi",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
