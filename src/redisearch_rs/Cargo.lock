@@ -1469,7 +1469,7 @@ dependencies = [
 name = "rqe_iterators_bencher"
 version = "0.0.1"
 dependencies = [
- "bindgen 0.71.1",
+ "bindgen 0.72.0",
  "build_utils",
  "criterion",
  "ffi",
