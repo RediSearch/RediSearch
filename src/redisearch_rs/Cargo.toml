@@ -71,7 +71,7 @@ qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
 
-cbindgen = "0.28.0"
+cbindgen = "0.29"
 cc = "1"
 crc32fast = "1.4.2"
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -95,7 +95,7 @@ pin-project = "1.1.10"
 strum = {version = "0.27.2",features = ["derive"]}
 
 [workspace.dependencies.bindgen]
-version = "0.71.1"
+version = "0.72"
 default-features = false
 
 [workspace.dependencies.redis-module]
