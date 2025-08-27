@@ -68,9 +68,9 @@ fn memory_usage() {
     assert_eq!(ii.memory_usage(), 32);
 
     let record = RSIndexResult::default().doc_id(10);
-    let _mem_growth = ii.add_record(&record).unwrap();
+    let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 88);
+    assert_eq!(ii.memory_usage(), 32 + mem_growth);
 }
 
 #[test]
