@@ -8,7 +8,7 @@ They can then be used by workspace members via:
 thiserror.workspace = true
 ```
 
-They should be updated:
-- ASAP in case of advisories security vulnerabilities.
-- whenever we need newer features or bug fixes from the new version.
-- once in a while if neither of the two things above have happened.
+Dependency versions should be updated:
+- ASAP in case of security advisories.
+- Whenever we need newer features or bug fixes released in a newer version.
+- Once in a while, via `cargo update`, if neither of the two things above have happened.
