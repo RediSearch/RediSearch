@@ -200,12 +200,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   // see NewInvertedIndex() and sizeof_InvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
 
-  IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
-  IndexEncoder docIdEnc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-
-  ASSERT_TRUE(enc != NULL);
-  ASSERT_TRUE(docIdEnc != NULL);
-
   for (size_t i = 0; i < 200; i++) {
 
     ForwardIndexEntry h;
@@ -226,7 +220,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   }
 
   ASSERT_EQ(200, InvertedIndex_NumDocs(idx));
-  if (enc != docIdEnc) {
+  if ((indexFlags & INDEX_STORAGE_MASK) != Index_DocIdsOnly) {
     ASSERT_EQ(2, InvertedIndex_NumBlocks(idx));
   } else {
     ASSERT_EQ(1, InvertedIndex_NumBlocks(idx));
