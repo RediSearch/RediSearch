@@ -1216,3 +1216,62 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
   IndexResult_Free(res);
   return frags;
 }
+
+/* Calculate efficiency ratio of the inverted index: numEntries / numBlocks.
+ * Used to measure how well the index is utilizing its block structure. */
+double InvertedIndex_GetEfficiency(const InvertedIndex *idx) {
+  return ((double)InvertedIndex_NumEntries(idx))/(InvertedIndex_NumBlocks(idx));
+}
+
+/* Retrieve comprehensive summary information about an inverted index.
+ * Returns a stack-allocated struct containing all key metrics including:
+ * - number_of_docs: Number of documents in the index
+ * - number_of_entries: Total number of entries
+ * - last_doc_id: Last document ID
+ * - flags: Index configuration flags
+ * - number_of_blocks: Number of index blocks
+ * - block_efficiency: Efficiency ratio (only for numeric indexes)
+ * - has_efficiency: Whether efficiency calculation is applicable */
+IISummary InvertedIndex_Summary(const InvertedIndex *idx) {
+  IndexFlags flags = InvertedIndex_Flags(idx);
+  bool hasEfficiency = (flags & Index_StoreNumeric) ? true : false;
+
+  IISummary summary = {
+    .number_of_docs = InvertedIndex_NumDocs(idx),
+    .number_of_entries = InvertedIndex_NumEntries(idx),
+    .last_doc_id = InvertedIndex_LastId(idx),
+    .flags = flags,
+    .number_of_blocks = InvertedIndex_NumBlocks(idx),
+    .block_efficiency = hasEfficiency ? InvertedIndex_GetEfficiency(idx) : 0.0,
+    .has_efficiency = hasEfficiency
+  };
+  return summary;
+}
+
+/* Retrieve basic information about the blocks in an inverted index.
+ * Returns an array with `count` entries. Each entry includes:
+ * - first_doc_id: The first document ID in the block
+ * - last_doc_id: The last document ID in the block
+ * - number_of_entries: The number of endries in the block */
+IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count) {
+  *count = InvertedIndex_NumBlocks(idx);
+  if (*count == 0) {
+    return NULL;
+  }
+
+  IIBlockSummary *summaries = rm_calloc(*count, sizeof(IIBlockSummary));
+  for (size_t i = 0; i < *count; i++) {
+    IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
+    summaries[i] = (IIBlockSummary){
+      .first_doc_id = IndexBlock_FirstId(blk),
+      .last_doc_id = IndexBlock_LastId(blk),
+      .number_of_entries = IndexBlock_NumEntries(blk),
+    };
+  }
+
+  return summaries;
+}
+
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *summaries) {
+  rm_free(summaries);
+}

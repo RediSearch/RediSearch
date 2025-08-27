@@ -15,6 +15,7 @@ pub use index_result::{
     RSResultKind, RSResultKindMask, RSTermRecord,
 };
 
+pub mod debug;
 pub mod doc_ids_only;
 pub mod fields_offsets;
 pub mod fields_only;
