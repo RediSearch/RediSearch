@@ -145,7 +145,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
 
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
     // Add implicit sorting by score
@@ -191,6 +191,9 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
 
     // Initialize error tracking for each individual request
     hybridReq->errors = array_new(QueryError, nrequests);
+
+    // Initialize return codes array for tracking subqueries final states
+    hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(int));
 
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
@@ -245,6 +248,12 @@ void HybridRequest_Free(HybridRequest *req) {
     array_free(req->requests);
 
     array_free(req->errors);
+
+    // Free the return codes array
+    if (req->subqueriesReturnCodes) {
+        rm_free(req->subqueriesReturnCodes);
+        req->subqueriesReturnCodes = NULL;
+    }
 
     // Free the hybrid parameters
     if (req->hybridParams) {

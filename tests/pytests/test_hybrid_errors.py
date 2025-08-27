@@ -65,8 +65,6 @@ def test_hybrid_timeout_policy_fail():
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('Timeout limit was reached')
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('Timeout limit was reached')
 
-
-
 def test_hybrid_timeout_policy_return(env):
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_index(env)
@@ -88,4 +86,3 @@ def test_hybrid_timeout_policy_return_results():
     env.assertTrue('Timeout limit was reached' in get_warnings(response))
     env.assertTrue('doc:3' in results.keys())
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
-
