@@ -18,4 +18,11 @@ $MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
     bzip2-devel libffi-devel zlib-devel tar xz which rsync \
     clang curl clang-devel --nobest --skip-broken
 
+# We need Python headers to build psutil@5.x.y from
+# source, since it only started providing wheels for aarch64
+# in version 6.w.z.
+if [ "$(uname -m)" = "aarch64" ]; then
+    $MODE dnf install -y python3.12-devel
+fi
+
 cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
