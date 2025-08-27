@@ -25,7 +25,7 @@ impl IdList {
     pub fn new(ids: Vec<t_docId>) -> Self {
         debug_assert!(!ids.is_empty());
         debug_assert!(
-            ids.windows(2).all(|w| w[0] < w[1]),
+            ids.is_sorted_by(|a, b| a < b),
             "IDs must be sorted and unique"
         );
         IdList { ids, current: 0 }
@@ -45,22 +45,22 @@ impl RQEIterator for IdList {
 
     fn skip_to(
         &mut self,
-        _doc_id: t_docId,
+        doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
-        if self.at_eof() || self.ids.last().unwrap() < &_doc_id {
+        if self.at_eof() || self.ids.last().unwrap() < &doc_id {
             self.current = self.ids.len(); // Move to EOF
             return Ok(None);
         }
-        debug_assert!(self.last_doc_id() < _doc_id);
+        debug_assert!(self.last_doc_id() < doc_id);
         // The top of the binary search is limited, The worst case scenario is when the List contains every DocId, and in that worst case
         // the search range is limited to a range of (docId - lastDocId) elements starting from current offset
         let top = min(
-            self.current + (_doc_id - self.last_doc_id()) as usize,
+            self.current + (doc_id - self.last_doc_id()) as usize,
             self.ids.len(),
         );
-        // Pos is correct whether we found the element or not - it's the first element greater than or equal to _doc_id
-        let pos = self.ids[self.current..top].binary_search(&_doc_id);
+        // Pos is correct whether we found the element or not - it's the first element greater than or equal to doc_id
+        let pos = self.ids[self.current..top].binary_search(&doc_id);
         match pos {
             Ok(pos) => {
                 let pos = self.current + pos; // Convert relative to absolute index
