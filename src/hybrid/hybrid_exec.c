@@ -318,17 +318,6 @@ static void FreeHybridRequest(void *ptr) {
   HybridRequest_Free((HybridRequest *)ptr);
 }
 
-#define SEARCH_INDEX 0
-#define VECTOR_INDEX 1
-
-/**
- * Main command handler for FT.HYBRID command.
- *
- * @param hreq The HybridRequest with built pipeline
- * @param ctx Redis module context for sending the reply
- * @param sctx Redis search context
- */
-
 /*
  * Internal function to build the pipeline and execute the hybrid request.
  * This function is used by both the foreground and background execution paths.
@@ -425,6 +414,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
   cmd.vector = hybridRequest->requests[VECTOR_INDEX];
   cmd.cursorConfig = &hybridRequest->cursorConfig;
+  
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
   cmd.reqConfig = &hybridRequest->reqConfig;
