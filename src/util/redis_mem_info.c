@@ -26,5 +26,5 @@ float Unified_GetUsedMemoryRatio(RedisModuleCtx *ctx) {
   float used_memory = (float)RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
 
   RedisModule_FreeServerInfo(ctx, info);
-  return used_memory / maxmemory;
+  return used_memory / (float)maxmemory;
 }
