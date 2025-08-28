@@ -87,9 +87,14 @@ pub trait Encoder {
     fn delta_base(block: &IndexBlock) -> t_docId {
         block.last_doc_id
     }
+}
+
+/// Trait to model that an encoder can be decoded by a decoder.
+pub trait DecodedBy: Encoder {
+    type Decoder: Decoder;
 
     /// Create a new decoder that can be used to decode records encoded by this encoder.
-    fn decoder() -> impl Decoder;
+    fn decoder() -> Self::Decoder;
 }
 
 /// Decoder to read records from an index
@@ -304,15 +309,17 @@ impl<E: Encoder> InvertedIndex<E> {
         }
     }
 
-    /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
-        let decoder = E::decoder();
-        IndexReader::new(&self.blocks, decoder)
-    }
-
     /// Returns the number of unique documents in the index.
     pub fn unique_docs(&self) -> usize {
         self.n_unique_docs
+    }
+}
+
+impl<E: Encoder + DecodedBy> InvertedIndex<E> {
+    /// Create a new [`IndexReader`] for this inverted index.
+    pub fn reader(&self) -> IndexReader<'_, E::Decoder> {
+        let decoder = E::decoder();
+        IndexReader::new(&self.blocks, decoder)
     }
 }
 

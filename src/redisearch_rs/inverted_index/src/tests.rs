@@ -55,10 +55,6 @@ impl Encoder for Dummy {
 
         Ok(8)
     }
-
-    fn decoder() -> impl Decoder {
-        Dummy
-    }
 }
 
 #[test]
@@ -137,13 +133,6 @@ fn adding_same_record_twice() {
 
             Ok(1)
         }
-
-        fn decoder() -> impl Decoder {
-            panic!("AllowDupsDummy should not be used for decoding");
-            // need to return something to satisfy the compiler
-            #[allow(unreachable_code)]
-            Dummy
-        }
     }
 
     let mut ii = InvertedIndex::new(AllowDupsDummy);
@@ -189,13 +178,6 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
             writer.write_all(&[1])?;
 
             Ok(1)
-        }
-
-        fn decoder() -> impl Decoder {
-            panic!("SmallBlocksDummy should not be used for decoding");
-            // need to return something to satisfy the compiler
-            #[allow(unreachable_code)]
-            Dummy
         }
     }
 
