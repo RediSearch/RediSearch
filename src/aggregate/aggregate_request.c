@@ -304,6 +304,7 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
         *papCtx->reqflags |= QEXEC_F_NO_SORT;
       } else {
         QueryError_SetError(status, QUERY_EPARSEARGS, "SORTBY 0 is not supported in this type of query");
+        return ARG_ERROR;
       }
     } else {
       PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
