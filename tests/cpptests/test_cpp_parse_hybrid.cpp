@@ -33,6 +33,8 @@ class ParseHybridTest : public ::testing::Test {
   RedisModuleCtx *ctx;
   IndexSpec *spec;
   std::string index_name;
+  HybridRequest *hybridRequest;
+  HybridPipelineParams hybridParams;
   ParseHybridCommandCtx result;
 
   void SetUp() override {
@@ -58,17 +60,19 @@ class ParseHybridTest : public ::testing::Test {
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
-    result.search = AREQ_New();
-    result.vector = AREQ_New();
+    hybridRequest = MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true));
+
+    result.search = hybridRequest->requests[0];
+    result.vector = hybridRequest->requests[1];
+    result.tailPlan = &hybridRequest->tailPipeline->ap;
+    result.hybridParams = &hybridParams;
+    result.reqConfig = &hybridRequest->reqConfig;
+    result.cursorConfig = &hybridRequest->cursorConfig;
   }
 
   void TearDown() override {
-    // Free the result if it was set during the test
-    if (result.search) {
-      AREQ_Free(result.search);
-    }
-    if (result.vector) {
-      AREQ_Free(result.vector);
+    if (hybridRequest) {
+      HybridRequest_Free(hybridRequest);
     }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
@@ -309,7 +313,7 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
 
 TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
   // Test SORTBY 0 to disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "SORTBY", "0");
 
   parseCommand(args);
 
@@ -320,7 +324,7 @@ TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
 
 TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   // Test SORTBY with actual field (not 0) - should not disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "1", "@score");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "SORTBY", "1", "@score");
 
   parseCommand(args);
 
@@ -334,15 +338,15 @@ TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 }
 
-TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
+TEST_F(ParseHybridTest, testNoSortByWillHaveImplicitSort) {
   // Test without SORTBY - should not disable implicit sorting (default behavior)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
 
   parseCommand(args);
 
-  // Verify that no arrange step exists (so implicit sorting will be applied)
+  // Verify that an implicit sort-by-score step was created
   const PLN_BaseStep *arrangeStep = AGPLN_FindStep(result.tailPlan, NULL, NULL, PLN_T_ARRANGE);
-  ASSERT_TRUE(arrangeStep == NULL);
+  ASSERT_TRUE(arrangeStep != NULL);
 
   // Verify default RRF scoring type was set
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);

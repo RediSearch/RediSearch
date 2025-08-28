@@ -49,10 +49,6 @@ protected:
     if (result) {
       HybridRequest_Free(result);
     }
-    if (sctx) {
-      SearchCtx_Free(sctx);
-      sctx = nullptr;
-    }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;

@@ -298,8 +298,13 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
     const char *firstArg;
     bool isSortby0 = AC_GetString(ac, &firstArg, NULL, AC_F_NOADVANCE) == AC_OK
                         && !strcmp(firstArg, "0");
-    if (isSortby0 && *papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
-      AC_Advance(ac);  // Advance without adding SortBy step to the plan
+    if (isSortby0) {
+      if (*papCtx->reqflags & QEXEC_F_IS_HYBRID_TAIL) {
+        AC_Advance(ac);  // Advance without adding SortBy step to the plan
+        *papCtx->reqflags |= QEXEC_F_NO_SORT;
+      } else {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "SORTBY 0 is not supported in this type of query");
+      }
     } else {
       PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
       if (parseSortby(arng, ac, status, papCtx) != REDISMODULE_OK) {

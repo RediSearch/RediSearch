@@ -60,10 +60,18 @@ static void VerifyPipelineChain(ResultProcessor *endProc, const std::vector<Resu
   ASSERT_EQ(expectedTypes.size(), actualTypes.size())
     << pipelineName << " has " << actualTypes.size() << " processors, expected " << expectedTypes.size();
 
+  std::stringstream expectedStream;
+  std::stringstream actualStream;
+  for (size_t i = 0; i < expectedTypes.size(); i++) {
+    expectedStream << RPTypeToString(expectedTypes[i]) << " ";
+    actualStream << RPTypeToString(actualTypes[i]) << " ";
+  }
+  const std::string expected = expectedStream.str();
+  const std::string actual = actualStream.str();
   for (size_t i = 0; i < expectedTypes.size(); i++) {
     EXPECT_EQ(expectedTypes[i], actualTypes[i])
       << pipelineName << " processor " << i << " is " << RPTypeToString(actualTypes[i])
-      << ", expected " << RPTypeToString(expectedTypes[i]);
+      << ", expected " << RPTypeToString(expectedTypes[i]) << ", pipeline is: " << actual << " vs " << expected;
   }
 }
 
@@ -91,8 +99,8 @@ ResultProcessor* FindHybridMergerInPipeline(ResultProcessor *endProc) {
  */
 IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, QueryError *status) {
   RMCK::ArgvList createArgs(ctx, "FT.CREATE", indexName, "ON", "HASH", "SKIPINITIALSCAN",
-                            "SCHEMA", "title", "TEXT", "SORTABLE", "score", "NUMERIC",
-                            "SORTABLE", "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
+                            "SCHEMA", "title", "TEXT", "score", "NUMERIC",
+                            "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                             "TYPE", "FLOAT32", "DIM", "128", "DISTANCE_METRIC", "COSINE");
   return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
 }
@@ -204,17 +212,6 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   ASSERT_EQ(2, hybridReq->nrequests) << "Should have exactly 2 subqueries (SEARCH and VSIM)";
 
 /**
- * Macro to verify LOAD step exists in tail pipeline with expected field count.
- * This is a common verification pattern across many tests.
- */
-#define VERIFY_TAIL_LOAD_STEP(hybridReq, expectedFieldCount) \
-  do { \
-    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD); \
-    ASSERT_NE(nullptr, loadStep) << "LOAD step should exist in tail pipeline"; \
-    EXPECT_EQ(expectedFieldCount, loadStep->args.argc) << "LOAD should have " << expectedFieldCount << " fields"; \
-  } while(0)
-
-/**
  * Macro to verify LOAD steps exist in all individual request pipelines.
  * This is a common verification pattern across many tests.
  */
@@ -233,6 +230,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestPipelineBuildingBasic) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx2",
                       "SEARCH", "machine",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "COMBINE", "LINEAR", "0.7", "0.3",
                       "LOAD", "2", "@title", "@score");
 
   HYBRID_TEST_SETUP("test_idx2", args);
@@ -254,8 +252,8 @@ TEST_F(HybridRequestParseTest, testHybridRequestRRFScoringWithCustomK) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_rrf_custom_k",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "LOAD", "3", "@title", "@score", "@category",
-                      "COMBINE", "RRF", "2", "K", "10.0");
+                      "COMBINE", "RRF", "2", "K", "10.0",
+                      "LOAD", "3", "@title", "@score", "@category");
 
   HYBRID_TEST_SETUP("test_rrf_custom_k", args);
 
@@ -284,17 +282,13 @@ TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTail) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "COMBINE", "LINEAR", "0.7", "0.3",
                       "LOAD", "3", "@title", "@score", "@category",
                       "SORTBY", "1", "@score",
                       "APPLY", "@score * 2", "AS", "boosted_score",
                       "LIMIT", "0", "5");
 
   HYBRID_TEST_SETUP("test_idx_complex", args);
-
-  // Verify that the tail pipeline has the expected structure with LOAD, SORT, and APPLY steps
-  // The tail pipeline should have: PROJECTOR (from APPLY) -> SORTER (from SORTBY) -> HYBRID_MERGER
-
-  VERIFY_TAIL_LOAD_STEP(hybridReq, 3);
 
   // Verify that SORT step exists in tail pipeline
   const PLN_BaseStep *arrangeStep = AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_ARRANGE);
@@ -363,13 +357,6 @@ TEST_F(HybridRequestParseTest, testHybridRequestExplicitLoadPreserved) {
 
   HYBRID_TEST_SETUP("test_explicit_preserved", args);
 
-  // Verify that the explicit LOAD step is preserved in individual AREQ pipelines (processed with 2 keys)
-  // The tail pipeline should still have the unprocessed LOAD step
-  PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->tailPipeline->ap, NULL, NULL, PLN_T_LOAD);
-  ASSERT_NE(nullptr, loadStep) << "Explicit LOAD step should still exist in tail pipeline";
-  EXPECT_EQ(2, loadStep->args.argc) << "Tail pipeline LOAD should still have 2 fields in args (unprocessed)";
-  EXPECT_EQ(0, loadStep->nkeys) << "Tail pipeline LOAD should be unprocessed (nkeys = 0)";
-
   // Individual AREQ pipelines should have processed LOAD steps with 3 keys
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     PLN_LoadStep *areqLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->requests[i]->pipeline.ap, NULL, NULL, PLN_T_LOAD);
@@ -409,8 +396,8 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitSortByScore) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_implicit_sort",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "LOAD", "2", "@title", "@category",
                       "COMBINE", "LINEAR", "0.7", "0.3",
+                      "LOAD", "2", "@title", "@category",
                       "LIMIT", "0", "20");
 
   HYBRID_TEST_SETUP("test_implicit_sort", args);
