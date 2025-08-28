@@ -93,7 +93,7 @@ public:
 
         // Create a new InvertedIndex with the given flags
         size_t dummy;
-        index = NewInvertedIndex(flags, 1, &dummy);
+        index = NewInvertedIndex(flags, &dummy);
 
         if (flags == Index_StoreNumeric) {
             // Populate the index with numeric data

@@ -26,7 +26,7 @@ size_t addDocumentWrapper(RedisModuleCtx *ctx, RSIndex *index, const char *docid
 
 InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with) {
     size_t sz;
-    InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &sz);
+    InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &sz);
 
     t_docId id = start_with > 0 ? start_with : idStep;
     for (int i = 0; i < size; i++) {
