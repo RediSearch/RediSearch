@@ -171,8 +171,21 @@ class testHybridSearch:
         }
         run_test_scenario(self.env, self.index_name, scenario)
 
+    def test_knn_custom_rrf_constant(self):
+        """Test hybrid search using KNN with custom RRF CONSTANT"""
+        if CLUSTER:
+            raise SkipTest()
+        scenario = {
+            "test_name": "KNN with custom k",
+            "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 COMBINE RRF 2 K 50",
+            "search_equivalent": "even",
+            "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]",
+            "rrf_constant": 50
+        }
+        run_test_scenario(self.env, self.index_name, scenario)
+
     def test_knn_custom_rrf_window(self):
-        """Test hybrid search using KNN with custom k scenario"""
+        """Test hybrid search using KNN with custom RRF WINDOW"""
         if CLUSTER:
             raise SkipTest()
         scenario = {
@@ -987,7 +1000,8 @@ def run_test_scenario(env, index_name, scenario):
     # Process vector results
     vector_results = process_vector_response(vector_results_raw)
 
-    expected_rrf = rrf(search_results, vector_results)
+    rrf_constant = scenario.get('rrf_constant', 60)
+    expected_rrf = rrf(search_results, vector_results, k=rrf_constant)
     _sort_adjacent_same_scores(expected_rrf)
 
     hybrid_cmd = translate_hybrid_query(scenario['hybrid_query'], vector_blob, index_name)
