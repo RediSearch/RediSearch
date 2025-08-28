@@ -141,27 +141,23 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     return nullptr;
   }
 
-  // Allocate and initialize ParseHybridCommandCtx with all required fields
-  HybridPipelineParams *hybridParams = (HybridPipelineParams*)rm_calloc(1, sizeof(HybridPipelineParams));
-  RequestConfig *reqConfig = (RequestConfig*)rm_calloc(1, sizeof(RequestConfig));
-  CursorConfig *cursorConfig = (CursorConfig*)rm_calloc(1, sizeof(CursorConfig));
+  HybridPipelineParams hybridParams = {0};
+  RequestConfig reqConfig = {0};
+  CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
     .search = hybridReq->requests[0],
     .vector = hybridReq->requests[1],
     .tailPlan = &hybridReq->tailPipeline->ap,
-    .hybridParams = hybridParams,
-    .reqConfig = reqConfig,
-    .cursorConfig = cursorConfig
+    .hybridParams = &hybridParams,
+    .reqConfig = &reqConfig,
+    .cursorConfig = &cursorConfig
   };
 
   // Parse the hybrid command - this fills out hybridParams
   int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, specName, &cmd, status);
   if (rc != REDISMODULE_OK) {
     HybridRequest_Free(hybridReq);
-    rm_free(hybridParams);
-    rm_free(reqConfig);
-    rm_free(cursorConfig);
     return nullptr;
   }
 
@@ -169,16 +165,8 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams);
   if (rc != REDISMODULE_OK) {
     HybridRequest_Free(hybridReq);
-    rm_free(hybridParams);
-    rm_free(reqConfig);
-    rm_free(cursorConfig);
     return nullptr;
   }
-
-  // Clean up allocated structures (hybridParams ownership is transferred to pipeline)
-  rm_free(reqConfig);
-  rm_free(cursorConfig);
-
   return hybridReq;
 }
 

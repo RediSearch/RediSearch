@@ -459,11 +459,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
   }
 
   return REDISMODULE_OK;
-
 error:
-  if (combineCtx->scoringType == HYBRID_SCORING_LINEAR && combineCtx->linearCtx.linearWeights) {
-    rm_free(combineCtx->linearCtx.linearWeights);
-  }
   return REDISMODULE_ERR;
 }
 
@@ -743,5 +739,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   return REDISMODULE_OK;
 
 error:
+  if (hybridParams->scoringCtx) {
+    HybridScoringContext_Free(hybridParams->scoringCtx);
+    hybridParams->scoringCtx = NULL;
+  }
   return REDISMODULE_ERR;
 }

@@ -50,6 +50,9 @@ protected:
     if (result) {
       HybridRequest_Free(result);
     }
+    if (hybridParams.scoringCtx) {
+      HybridScoringContext_Free(hybridParams.scoringCtx);
+    }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;
@@ -66,8 +69,7 @@ protected:
   bool parseCommand(RMCK::ArgvList& args) {
     QueryError status = {QueryErrorCode(0)};
 
-    RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-    EXPECT_TRUE(test_sctx != NULL) << "Failed to create search context";
+    EXPECT_TRUE(result->sctx != NULL) << "Failed to create search context";
 
     ParseHybridCommandCtx cmd = {0};
     cmd.search = result->requests[0];
@@ -77,10 +79,9 @@ protected:
     cmd.reqConfig = &result->reqConfig;
     cmd.cursorConfig = &result->cursorConfig;
 
-    int rc =  parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &cmd, &status);
+    int rc =  parseHybridCommand(ctx, args, args.size(), result->sctx, index_name.c_str(), &cmd, &status);
     if (rc != REDISMODULE_OK) {
       HybridRequest_Free(result);
-      SearchCtx_Free(test_sctx);
       result = nullptr;
     }
 
