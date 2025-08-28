@@ -25,6 +25,8 @@ mod bindings {
 }
 
 use bindings::{IteratorStatus, ValidateStatus};
+use ffi::RedisModule_Alloc;
+use inverted_index::RSIndexResult;
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -37,6 +39,18 @@ impl QueryIterator {
     }
 
     #[inline(always)]
+    pub fn new_id_list(vec: Vec<u64>) -> Self {
+        // Convert the Rust vector to use C allocation because the C iterator takes ownership of the array
+        let len = vec.len();
+        let data =
+            unsafe { RedisModule_Alloc.unwrap()(len * std::mem::size_of::<u64>()) as *mut u64 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
+        }
+        Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
+    }
+
+    #[inline(always)]
     pub fn num_estimated(&self) -> usize {
         unsafe { (*self.0).NumEstimated.unwrap()(self.0) }
     }
@@ -44,6 +58,11 @@ impl QueryIterator {
     #[inline(always)]
     pub fn at_eof(&self) -> bool {
         unsafe { (*self.0).atEOF }
+    }
+
+    #[inline(always)]
+    pub fn last_doc_id(&self) -> u64 {
+        unsafe { (*self.0).lastDocId }
     }
 
     #[inline(always)]
@@ -67,8 +86,13 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn free(self) {
+    pub fn free(&self) {
         unsafe { (*self.0).Free.unwrap()(self.0) }
+    }
+
+    #[inline(always)]
+    pub fn current(&self) -> *mut RSIndexResult<'static> {
+        unsafe { (*self.0).current }
     }
 }
 
