@@ -158,7 +158,7 @@ jobs:
         working-directory: redis
         run:  ${{ steps.mode.outputs.mode }} make install
               BUILD_TLS=yes
-              SANITIZER=${{ inputs.san }}
+              SANITIZER=thread
 
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
