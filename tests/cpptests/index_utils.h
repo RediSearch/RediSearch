@@ -44,7 +44,7 @@ void freeSpec(RefManager *ism);
  *
  * this function also verifies that the memory counter of each range is equal to its actual memory.
  * if not, if will set @param failed_range to point to the range that failed the check.
- * Then, you can get the range memory by calling NumericRangeGetMemory(failed_range);
+ * Then, you can get the range memory by calling InvertedIndex_MemUsage(failed_range);
  * NOTE: Upon early bail out, the returned value will **not** include the memory used by the failed range.
  */
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range);
