@@ -37,9 +37,11 @@ impl Encoder for FreqsOffsets {
     ) -> std::io::Result<usize> {
         assert!(matches!(record.data, RSResultData::Term(_)));
 
-        let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, record.offsets_sz])?;
-
         let offsets = offsets(record);
+        let offsets_sz = offsets.len() as u32;
+
+        let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, offsets_sz])?;
+
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)

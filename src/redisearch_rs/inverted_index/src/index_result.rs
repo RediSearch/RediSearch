@@ -509,10 +509,6 @@ pub struct RSIndexResult<'index> {
     /// The total frequency of all the records in this result
     pub freq: u32,
 
-    /// For term records only. This is used as an optimization, allowing the result to be loaded
-    /// directly into memory
-    pub offsets_sz: u32,
-
     /// The actual data of the result
     pub data: RSResultData<'index>,
 
@@ -537,7 +533,6 @@ impl<'index> RSIndexResult<'index> {
             dmd: ptr::null(),
             field_mask: 0,
             freq: 1,
-            offsets_sz: 0,
             data: RSResultData::Virtual,
             metrics: ptr::null_mut(),
             weight: 0.0,
@@ -607,13 +602,11 @@ impl<'index> RSIndexResult<'index> {
         field_mask: t_fieldMask,
         freq: u32,
     ) -> RSIndexResult<'index> {
-        let offsets_sz = offsets.len;
         Self {
             data: RSResultData::Term(RSTermRecord::with_term(term, offsets)),
             doc_id,
             field_mask,
             freq,
-            offsets_sz,
             dmd: std::ptr::null(),
             metrics: std::ptr::null_mut(),
             weight: 0.0,
