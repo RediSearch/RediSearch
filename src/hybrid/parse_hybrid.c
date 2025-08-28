@@ -687,6 +687,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, vectorRequest->parsedVectorData, hybridParams);
   }
 
+  // In the search subquery we want the sorter result processor to be in the upstream of the loader
+  // This is because the sorter limits the number of results and can reduce the amount of work the loader needs to do
+  // So it is important this is done before we add the load step to the subqueries plan
+  AGPLN_GetOrCreateArrangeStep(&parsedCmdCtx->search->pipeline.ap);
+
   // We need a load step, implicit or an explicit one
   PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
   if (!loadStep) {
@@ -699,6 +704,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Free the source load step
   loadStep->base.dtor(&loadStep->base);
   loadStep = NULL;
+
+  if (!(*mergeReqflags & QEXEC_F_NO_SORT)) {
+    // No SORTBY 0 - add implicit sort-by-score
+    AGPLN_GetOrCreateArrangeStep(parsedCmdCtx->tailPlan);
+  }
 
 
   // Apply KNN K ≤ WINDOW constraint after all parameter resolution is complete
@@ -727,8 +737,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   hybridParams->aggregationParams = params;
   hybridParams->synchronize_read_locks = true;
-  // Add implicit sorting by score if no other sorting exists
-  AGPLN_GetOrCreateArrangeStep(parsedCmdCtx->tailPlan);
 
   return REDISMODULE_OK;
 

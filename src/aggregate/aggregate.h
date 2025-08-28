@@ -114,6 +114,10 @@ typedef enum {
   // The query is a Vector Subquery of a Hybrid Request (aggregate equivalent)
   QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY = 0x2000000,
 
+  // The query has an explicit SORT BY 0 step - no sorting at all 
+  // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
+  QEXEC_F_NO_SORT = 0x4000000,
+
   // The query is for debugging. Note that this is the last bit of uint32_t
   QEXEC_F_DEBUG = 0x80000000,
 
