@@ -79,7 +79,8 @@ static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_r
   } else {
     // Replace the worst result and reuse its memory.
     *vec_res = mmh_exchange_max(hr->topResults, *vec_res);
-    ResultMetrics_Free(*vec_res); // Reuse
+    ResultMetrics_Free((*vec_res)->metrics); // Reuse
+    (*vec_res)->metrics = NULL;
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);

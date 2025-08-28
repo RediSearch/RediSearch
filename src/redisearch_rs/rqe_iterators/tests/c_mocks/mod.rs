@@ -21,12 +21,7 @@ use ffi::RSQueryTerm;
 use inverted_index::{RSIndexResult, RSTermRecord};
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
-    if result.is_null() {
-        panic!("did not expect `RSIndexResult` to be null");
-    }
-
-    let metrics = unsafe { (*result).metrics };
+pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }

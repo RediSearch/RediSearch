@@ -15,12 +15,7 @@ pub mod ffi;
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(result: *mut inverted_index::RSIndexResult) {
-    if result.is_null() {
-        panic!("did not expect `RSIndexResult` to be null");
-    }
-
-    let metrics = unsafe { (*result).metrics };
+pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
