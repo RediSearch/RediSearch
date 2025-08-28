@@ -62,6 +62,7 @@ class testHybridSearch:
         self._create_index(self.index_name, self.dim)
         self._generate_hybrid_test_data(self.dim)
         self.vector_blob = create_np_array_typed([2.3] * self.dim).tobytes()
+        self.vector_blob_utf8 = f'{self.vector_blob.decode("utf-8")}'
 
 
     def _create_index(self, index_name: str, dim: int):
@@ -539,7 +540,7 @@ class testHybridSearch:
             'SEARCH', '@text:(both) @number:[4 5]',
             'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[3 3]',
             'COMBINE', 'RRF', '2', 'K', '1',
-            'PARAMS', '2', 'MYVECTOR', vector
+            'PARAMS', '2', 'MYVECTOR', self.vector_blob_utf8
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
@@ -549,7 +550,7 @@ class testHybridSearch:
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:($MYTEXT) @number:[4 5]',
-            'VSIM', '@vector', vector, 'FILTER', '@number:[3 3]',
+            'VSIM', '@vector', self.vector_blob_utf8, 'FILTER', '@number:[3 3]',
             'COMBINE', 'RRF', '2', 'K', '1',
             'PARAMS', '2', 'MYTEXT', 'both',
             'DIALECT', '2'
@@ -562,7 +563,8 @@ class testHybridSearch:
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[4 5]',
-            'VSIM', '@vector', vector, 'FILTER', '@number:[$MYNUMBER 3]',
+            'VSIM', '@vector', self.vector_blob_utf8,
+            'FILTER', '@number:[$MYNUMBER 3]',
             'COMBINE', 'RRF', '2', 'K', '1',
             'PARAMS', '2', 'MYNUMBER', '3',
             'DIALECT', '2'
@@ -576,8 +578,8 @@ class testHybridSearch:
             'SEARCH', '@text:($MYTEXT) @number:[$FOUR $FIVE]',
             'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[$THREE $THREE]',
             'COMBINE', 'RRF', 2, 'K', 1,
-            'PARAMS', 10, 'MYTEXT', 'both', 'MYVECTOR', vector, 'THREE', 3,
-            'FOUR', 4, 'FIVE', 5,
+            'PARAMS', 10, 'MYTEXT', 'both', 'MYVECTOR', self.vector_blob_utf8,
+            'THREE', 3, 'FOUR', 4, 'FIVE', 5,
             'DIALECT', 2
         )
         res = self.env.executeCommand(*hybrid_cmd)
@@ -592,7 +594,7 @@ class testHybridSearch:
         hybrid_cmd = [
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[1 3]',
-            'VSIM', '@vector', f'{self.vector_blob.decode('utf-8')}',
+            'VSIM', '@vector', self.vector_blob_utf8,
             'FILTER', '@text:(both) @number:[1 3]',
             'COMBINE', 'RRF', '2', 'K', '3',
             'LOAD', '2', '__key', '__score',
@@ -946,6 +948,8 @@ def translate_hybrid_query(hybrid_query, vector_blob, index_name):
     cmd = f'FT.HYBRID {index_name} {cmd}'
     # Split into command parts, keeping single quoted strings together
     command_parts = [p for p in re.split(r" (?=(?:[^']*'[^']*')*[^']*$)", cmd) if p]
+    # Remove single quotes from command parts
+    command_parts = [p.replace("'", "") for p in command_parts]
     return command_parts
 
 # =============================================================================
