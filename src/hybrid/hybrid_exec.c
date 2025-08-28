@@ -63,7 +63,6 @@ static inline bool handleQueryError(RedisModule_Reply *reply, QueryError *err, i
   return timeoutOccurred;
 }
 
-
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.

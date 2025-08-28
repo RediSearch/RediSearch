@@ -247,7 +247,7 @@ void HybridRequest_Free(HybridRequest *req) {
     }
     array_free(req->requests);
 
-    array_free(req->errors);
+    array_free_ex(req->errors, QueryError_ClearError((QueryError*)ptr));
 
     // Free the return codes array
     if (req->subqueriesReturnCodes) {
@@ -273,6 +273,9 @@ void HybridRequest_Free(HybridRequest *req) {
       rm_free(req->tailPipeline);
       req->tailPipeline = NULL;
     }
+
+    // Clean up the tail pipeline error
+    QueryError_ClearError(&req->tailPipelineError);
 
     rm_free(req);
 }
