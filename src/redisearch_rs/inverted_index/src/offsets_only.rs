@@ -13,7 +13,7 @@ use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, RSResultData,
+    DecodedBy, Decoder, Encoder, RSIndexResult, RSResultData,
     full::{decode_term_record_offsets, offsets},
 };
 
@@ -44,8 +44,12 @@ impl Encoder for OffsetsOnly {
 
         Ok(bytes_written)
     }
+}
 
-    fn decoder() -> impl Decoder {
+impl DecodedBy for OffsetsOnly {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
         Self
     }
 }

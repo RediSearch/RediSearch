@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode the delta and field mask of a record.
 ///
@@ -42,8 +42,12 @@ impl Encoder for FieldsOnly {
         let bytes_written = qint_encode(&mut writer, [delta, field_mask])?;
         Ok(bytes_written)
     }
+}
 
-    fn decoder() -> impl Decoder {
+impl DecodedBy for FieldsOnly {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
         Self
     }
 }
@@ -88,8 +92,12 @@ impl Encoder for FieldsOnlyWide {
         bytes_written += record.field_mask.write_as_varint(&mut writer)?;
         Ok(bytes_written)
     }
+}
 
-    fn decoder() -> impl Decoder {
+impl DecodedBy for FieldsOnlyWide {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
         Self
     }
 }
