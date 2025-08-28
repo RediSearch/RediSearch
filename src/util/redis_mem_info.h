@@ -12,6 +12,8 @@
 #include "redismodule.h"
 #include <stdbool.h>
 
+#define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
+
 /** Unified Memory Consumption Checker
  *
  * This component provides a thin wrapper around the existing Redis Modules API
@@ -39,3 +41,10 @@ static inline bool RedisMemory_isOutOfMemory(void) {
 static inline float RedisMemory_GetUsedMemoryRatio(void) {
   return RedisModule_GetUsedMemoryRatio();
 }
+
+// Get the used memory ratio from Redis server info.
+// Same function as before
+// GIL must be held before calling this function
+float Unified_GetUsedMemoryRatio(RedisModuleCtx *ctx);
+
+#undef MIN_NOT_0
