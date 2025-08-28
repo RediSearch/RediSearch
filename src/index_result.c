@@ -41,10 +41,10 @@ void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *chi
   }
 }
 
-/* Clear / free the metrics of a result */
-void ResultMetrics_Free(RSIndexResult *r) {
-  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
-  r->metrics = NULL;
+/* Free the metrics */
+void ResultMetrics_Free(RSYieldableMetric *metrics) {
+  // array_free_ex is NULL safe
+  array_free_ex(metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
 }
 
 /* Allocate a new intersection result with a given capacity*/
@@ -222,7 +222,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
 
 void IndexResult_Free(RSIndexResult *r) {
   if (!r) return;
-  ResultMetrics_Free(r);
+  ResultMetrics_Free(r->metrics);
   if (r->data.tag == RSResultData_Intersection || r->data.tag == RSResultData_Union || r->data.tag == RSResultData_HybridMetric) {
     // for deep-copy results we also free the children
     if (r->data.union_.tag == RSAggregateResult_Owned) {
