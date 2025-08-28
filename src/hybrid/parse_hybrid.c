@@ -609,6 +609,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   // Individual variables used for parsing the tail of the command
   uint32_t *mergeReqflags = &hybridParams->aggregationParams.common.reqflags;
+  // Don't expect any flag to be on yet
+  RS_ASSERT(*mergeReqflags == 0);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
   RSSearchOptions mergeSearchopts = {0};
   size_t mergeMaxSearchResults = RSGlobalConfig.maxSearchResults;
