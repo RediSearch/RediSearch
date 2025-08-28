@@ -190,7 +190,7 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create_if_missing) {
-      iv = NewInvertedIndex(Index_DocIdsOnly, 1, sz);
+      iv = NewInvertedIndex(Index_DocIdsOnly, sz);
       TrieMap_Add(idx->values, value, len, iv, NULL);
     }
   }

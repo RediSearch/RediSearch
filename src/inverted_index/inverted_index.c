@@ -37,7 +37,7 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
   return INDEX_LAST_BLOCK(idx);
 }
 
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize) {
+InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize) {
   RS_ASSERT(memsize != NULL);
   int useFieldMask = flags & Index_StoreFieldFlags;
   int useNumEntries = flags & Index_StoreNumeric;
@@ -56,9 +56,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
   } else if (useNumEntries) {
     idx->numEntries = 0;
   }
-  if (initBlock) {
-    InvertedIndex_AddBlock(idx, 0, memsize);
-  }
+  InvertedIndex_AddBlock(idx, 0, memsize);
   return idx;
 }
 

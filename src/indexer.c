@@ -294,7 +294,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->fieldName);
     if (iiMissingDocs == NULL) {
       size_t index_size;
-      iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
+      iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
         aCtx->spec->stats.invertedSize += index_size;
       dictAdd(spec->missingFieldDict, (void*)fs->fieldName, iiMissingDocs);
     }
@@ -315,7 +315,7 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   if (!sctx->spec->existingDocs) {
     // Create the inverted index if it doesn't exist
     size_t index_size;
-    aCtx->spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
+    aCtx->spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
     aCtx->spec->stats.invertedSize += index_size;
   }
 
