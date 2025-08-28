@@ -15,6 +15,7 @@
 // Get the used memory ratio from Redis server info.
 // Same function as before
 // GIL must be held before calling this function
+// Returns 0 if maxmemory is 0
 float Unified_GetUsedMemoryRatio(RedisModuleCtx *ctx) {
 
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
@@ -26,5 +27,5 @@ float Unified_GetUsedMemoryRatio(RedisModuleCtx *ctx) {
   float used_memory = (float)RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
 
   RedisModule_FreeServerInfo(ctx, info);
-  return used_memory / (float)maxmemory;
+  return maxmemory ? used_memory / (float)maxmemory : 0;
 }

@@ -44,6 +44,7 @@
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
+#include "util/redis_mem_info.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 

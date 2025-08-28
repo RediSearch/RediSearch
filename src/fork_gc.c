@@ -1257,9 +1257,7 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
-  float used_memory_ratio = Unified_GetUsedMemoryRatio(ctx);
-  RedisModule_Log(ctx, "debug", "ForkGC - checking memory: used_memory_ratio = %f", used_memory_ratio);
-  return used_memory_ratio > 1;
+  return Unified_GetUsedMemoryRatio(ctx) > 1;
 }
 
 static int periodicCb(void *privdata) {
