@@ -1287,3 +1287,186 @@ unsigned long InvertedIndex_MemUsage(const InvertedIndex *idx) {
   }
   return ret;
 }
+
+// pointer to the current block while reading the index
+#define CURRENT_BLOCK(ir) (InvertedIndex_BlockRef((ir)->idx, (ir)->currentBlock))
+#define CURRENT_BLOCK_READER_AT_END(ir) BufferReader_AtEnd(&(ir)->blockReader.buffReader)
+
+static inline void SetCurrentBlockReader(IndexReader *ir) {
+  ir->blockReader = (IndexBlockReader) {
+    NewBufferReader(IndexBlock_Buffer(CURRENT_BLOCK(ir))),
+    IndexBlock_FirstId(CURRENT_BLOCK(ir)),
+  };
+}
+
+static inline void AdvanceBlock(IndexReader *ir) {
+  ir->currentBlock++;
+  SetCurrentBlockReader(ir);
+}
+
+// A while-loop helper to advance the iterator to the next block or break if we are at the end.
+static __attribute__((always_inline)) inline bool NotAtEnd(IndexReader *ir) {
+  if (!CURRENT_BLOCK_READER_AT_END(ir)) {
+    return true; // still have entries in the current block
+  }
+  if (ir->currentBlock + 1 < InvertedIndex_NumBlocks(ir->idx)) {
+    // we have more blocks to read, so we can advance to the next block
+    AdvanceBlock(ir);
+    return true;
+  }
+  // no more blocks to read, so we are at the end
+  return false;
+}
+
+IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx *ctx) {
+  IndexReader *ir = rm_calloc(1, sizeof(IndexReader));
+
+  ir->idx = idx;
+  ir->currentBlock = 0;
+  ir->gcMarker = InvertedIndex_GcMarker(idx);
+  ir->decoders = InvertedIndex_GetDecoder(InvertedIndex_Flags(idx));
+  ir->decoderCtx = *ctx;
+
+  SetCurrentBlockReader(ir);
+
+  return ir;
+}
+
+void IndexReader_Free(IndexReader *ir) {
+  rm_free(ir);
+}
+
+void IndexReader_Reset(IndexReader *ir) {
+  ir->currentBlock = 0;
+  ir->gcMarker = InvertedIndex_GcMarker(ir->idx);
+  SetCurrentBlockReader(ir);
+}
+
+size_t IndexReader_NumEstimated(const IndexReader *ir) {
+  return InvertedIndex_NumDocs(ir->idx);
+}
+
+
+bool IndexReader_IsIndex(const IndexReader *ir, const InvertedIndex *idx) {
+  RS_ASSERT(ir->idx);
+
+  return ir->idx == idx;
+}
+
+bool IndexReader_Revalidate(IndexReader *ir) {
+  // the gc marker tells us if there is a chance the keys have undergone GC while we were asleep
+  if (ir->gcMarker == InvertedIndex_GcMarker(ir->idx)) {
+    // no GC - we just go to the same offset we were at.
+    // Reset the buffer pointer in case it was reallocated
+    ir->blockReader.buffReader.buf = IndexBlock_Buffer(CURRENT_BLOCK(ir));
+
+    return false;
+  }
+
+  return true;
+}
+
+bool IndexReader_HasSeeker(const IndexReader *ir) {
+  return ir->decoders.seeker != NULL;
+}
+
+#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(blk) <= docId && docId <= IndexBlock_LastId(blk))
+
+// Assumes there is a valid block to skip to (matching or past the requested docId)
+static inline void SkipToBlock(IndexReader *ir, t_docId docId) {
+  const InvertedIndex *idx = ir->idx;
+  uint32_t top = InvertedIndex_NumBlocks(idx) - 1;
+  uint32_t bottom = ir->currentBlock + 1;
+  IndexBlock *bottomBlock = InvertedIndex_BlockRef(idx, bottom);
+
+  if (docId <= IndexBlock_LastId(bottomBlock)) {
+    // the next block is the one we're looking for, although it might not contain the docId
+    ir->currentBlock = bottom;
+    goto new_block;
+  }
+
+  uint32_t i;
+  while (bottom <= top) {
+    i = (bottom + top) / 2;
+    IndexBlock *block = InvertedIndex_BlockRef(idx, i);
+    if (BLOCK_MATCHES(block, docId)) {
+      ir->currentBlock = i;
+      goto new_block;
+    }
+
+    t_docId firstId = IndexBlock_FirstId(block);
+    if (docId < firstId) {
+      top = i - 1;
+    } else {
+      bottom = i + 1;
+    }
+  }
+
+  // We didn't find a matching block. According to the assumptions, there must be a block past the
+  // requested docId, and the binary search brought us to it or the one before it.
+  ir->currentBlock = i;
+  t_docId lastId = IndexBlock_LastId(CURRENT_BLOCK(ir));
+  if (lastId < docId) {
+    ir->currentBlock++; // It's not the current block. Advance
+    RS_ASSERT(IndexBlock_FirstId(CURRENT_BLOCK(ir)) > docId); // Not a match but has to be past it
+  }
+
+new_block:
+  RS_LOG_ASSERT(ir->currentBlock < idx->size, "Invalid block index");
+  SetCurrentBlockReader(ir);
+}
+
+bool IndexReader_Next(IndexReader *ir, RSIndexResult *res) {
+  while (NotAtEnd(ir)) {
+    // The decoder also acts as a filter. If the decoder returns false, the
+    // current record should not be processed.
+    // Since we are not at the end of the block (previous check), the decoder is guaranteed
+    // to read a record (advanced by at least one entry).
+    if (ir->decoders.decoder(&ir->blockReader, &ir->decoderCtx, res)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool IndexReader_SkipTo(IndexReader *ir, t_docId docId) {
+  if (docId > InvertedIndex_LastId(ir->idx)) {
+    return false;
+  }
+
+  t_docId lastId = IndexBlock_LastId(CURRENT_BLOCK(ir));
+  if (lastId < docId) {
+    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
+    // lastId, which either contains the requested docId or higher ids. We can skip to it.
+    SkipToBlock(ir, docId);
+  }
+
+  return true;
+}
+
+bool IndexReader_Seek(IndexReader *ir, t_docId docId, RSIndexResult *res) {
+  return ir->decoders.seeker(&ir->blockReader, &ir->decoderCtx, docId, res);
+}
+
+bool IndexReader_HasMulti(const IndexReader *ir) {
+  return InvertedIndex_Flags(ir->idx) & Index_HasMultiValue;
+}
+
+IndexFlags IndexReader_Flags(const IndexReader *ir) {
+  return InvertedIndex_Flags(ir->idx);
+}
+
+const NumericFilter *IndexReader_NumericFilter(const IndexReader *ir) {
+  return ir->decoderCtx.filter;
+}
+
+void IndexReader_SwapIndex(IndexReader *ir, const InvertedIndex *newIdx) {
+  const InvertedIndex *oldIdx = ir->idx;
+  ir->idx = newIdx;
+  newIdx = oldIdx;
+}
+
+InvertedIndex *IndexReader_II(const IndexReader *ir) {
+  return (InvertedIndex *)ir->idx;
+}
