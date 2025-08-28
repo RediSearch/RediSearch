@@ -100,7 +100,7 @@ public:
             for (size_t i = 0; i < ids.size(); ++i) {
                 InvertedIndex_WriteNumericEntry(index, ids[i], static_cast<double>(i));
             }
-        } else if (flags == Index_DocIdsOnly) {
+        } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
             // Populate the index with document IDs only
             for (size_t i = 0; i < ids.size(); ++i) {
                 RSIndexResult rec = {.docId = ids[i], .data = {.tag = RSResultData_Virtual}};
