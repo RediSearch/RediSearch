@@ -194,7 +194,7 @@ public:
     for (auto &term : terms) {
       if (invertedIndexes.find(term) == invertedIndexes.end()) {
         // Create a new inverted index for the term if it doesn't exist
-        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &dummy);
+        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &dummy);
       }
     }
     t_docId docId = ++num_docs;
@@ -400,7 +400,7 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
   children[2] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   // Create a READER Iterator and set the `isWildCard` flag so that it is removed by the reducer
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
   ASSERT_TRUE(idx != nullptr);
   ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
