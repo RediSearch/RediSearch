@@ -75,12 +75,9 @@ def validate_cursor_response_format(env, cursor_response):
     env.assertTrue(len(results_array) > 0)
 
 
-
+@skip(cluster=True)
 def test_basic_hybrid_internal_withcursor(env):
     """Test basic _FT.HYBRID command with WITHCURSOR functionality
-
-    NOTE: This test is currently skipped due to an assertion failure in
-    HybridRequest_StartCursors function at hybrid_exec.c:355.
 
     Expected behavior when fixed:
     - Should return a map with VSIM and SEARCH cursor IDs
@@ -113,6 +110,7 @@ def test_basic_hybrid_internal_withcursor(env):
     env.assertTrue(isinstance(search_cursor, (int, str)))
 
 
+@skip(cluster=True)
 def test_hybrid_internal_with_count_parameter(env):
     """Test _FT.HYBRID with WITHCURSOR and COUNT parameter"""
     setup_hybrid_test_data(env)
@@ -145,6 +143,7 @@ def test_hybrid_internal_with_count_parameter(env):
             env.assertTrue(isinstance(results, list))
 
 
+@skip(cluster=True)
 def test_hybrid_internal_cursor_interaction(env):
     """Test reading from both VSIM and SEARCH cursors and compare with equivalent FT.SEARCH commands"""
     setup_hybrid_test_data(env)
@@ -199,6 +198,7 @@ def test_hybrid_internal_cursor_interaction(env):
         env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
 
 
+@skip(cluster=True)
 def test_hybrid_internal_with_params(env):
     """Test _FT.HYBRID with WITHCURSOR and PARAMS functionality"""
     setup_hybrid_test_data(env)
@@ -240,6 +240,7 @@ def test_hybrid_internal_with_params(env):
     env.assertEqual(cursor_results['VSIM'], expected_vector_docs)
 
 
+@skip(cluster=True)
 def test_hybrid_internal_error_cases(env):
     """Test error cases with _FT.HYBRID (without WITHCURSOR)"""
     setup_hybrid_test_data(env)
