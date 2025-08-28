@@ -305,9 +305,7 @@ done:
       char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
       int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
 
-      if (handleQueryError(reply, err, subQueryReturnCode, suffix, false)) {
-        TimeoutInSubquery = true;
-      }
+      TimeoutInSubquery = handleQueryError(reply, err, subQueryReturnCode, suffix, false);
     }
     // Handle main query errors (POST PROCESSING)
     handleQueryError(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, TimeoutInSubquery);
