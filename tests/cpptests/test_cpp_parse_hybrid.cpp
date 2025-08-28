@@ -75,6 +75,9 @@ class ParseHybridTest : public ::testing::Test {
     if (hybridRequest) {
       HybridRequest_Free(hybridRequest);
     }
+    if (hybridParams.scoringCtx) {
+      HybridScoringContext_Free(hybridParams.scoringCtx);
+    }
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = NULL;
@@ -102,10 +105,9 @@ class ParseHybridTest : public ::testing::Test {
   int parseCommand(RMCK::ArgvList& args) {
     QueryError status = {QueryErrorCode(0)};
 
-    RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-    EXPECT_TRUE(test_sctx != NULL) << "Failed to create search context";
+    EXPECT_TRUE(hybridRequest->sctx != NULL) << "Failed to create search context";
 
-    int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &result, &status);
+    int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status);
 
     EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
     EXPECT_TRUE(rc == REDISMODULE_OK) << "parseHybridCommand returned REDISMODULE_ERR";

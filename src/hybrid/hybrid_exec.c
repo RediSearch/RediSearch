@@ -326,7 +326,6 @@ static int HybridRequest_InternalBuildPipelineAndExecute(HybridRequest *hreq, Hy
   // Build the pipeline and execute
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
-    rm_free(hybridParams);
     return REDISMODULE_ERR;
   }
 
@@ -411,7 +410,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
   cmd.vector = hybridRequest->requests[VECTOR_INDEX];
   cmd.cursorConfig = &hybridRequest->cursorConfig;
-  cmd.hybridParams = rm_new(HybridPipelineParams);
+  cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
   cmd.reqConfig = &hybridRequest->reqConfig;
 
@@ -433,6 +432,9 @@ error:
     HybridRequest_Free(hybridRequest);
   }
   if (cmd.hybridParams) {
+    if (cmd.hybridParams->scoringCtx) {
+      HybridScoringContext_Free(cmd.hybridParams->scoringCtx);
+    }
     rm_free(cmd.hybridParams);
   }
 
@@ -448,6 +450,12 @@ error:
 static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
   if (BCHCtx->hreq) {
     HybridRequest_Free(BCHCtx->hreq);
+  }
+  if (BCHCtx->hybridParams) {
+    if (BCHCtx->hybridParams->scoringCtx) {
+      HybridScoringContext_Free(BCHCtx->hybridParams->scoringCtx);
+    }
+    rm_free(BCHCtx->hybridParams);
   }
   RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
