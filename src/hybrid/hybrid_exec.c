@@ -310,8 +310,6 @@ done:
     // Handle main query errors (POST PROCESSING)
     handleQueryError(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, TimeoutInSubquery);
 
-
-
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     // execution_time
