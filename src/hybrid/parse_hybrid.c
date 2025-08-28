@@ -312,7 +312,8 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   pvd->fieldName = fieldNameWithPrefix + 1;
 
   const char *vectorParam;
-  if (AC_GetString(ac, &vectorParam, NULL, 0) != AC_OK) {
+  size_t vectorParamLen;
+  if (AC_GetString(ac, &vectorParam, &vectorParamLen, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector parameter");
     goto error;
   }
@@ -320,6 +321,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   if (vectorParam[0] == '$') {
     // PARAMETER CASE: store parameter name for later resolution
     vectorParam++;  // Skip '$'
+    vectorParamLen--;  // Adjust length for skipped '$'
     pvd->isParameter = true;
   }
 
@@ -363,11 +365,11 @@ final:
   switch (vq->type) {
     case VECSIM_QT_KNN:
       vq->knn.vector = (void*)vectorParam;
-      vq->knn.vecLen = strlen(vectorParam);
+      vq->knn.vecLen = vectorParamLen;
       break;
     case VECSIM_QT_RANGE:
       vq->range.vector = (void*)vectorParam;
-      vq->range.vecLen = strlen(vectorParam);
+      vq->range.vecLen = vectorParamLen;
       break;
   }
 
