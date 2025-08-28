@@ -164,14 +164,14 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
     int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
-    if (rc != REDISMODULE_OK) {
-        return rc;
-    };
-
     // Restore the LOAD step to the tail pipeline for proper cleanup
     if (loadStep) {
         AGPLN_AddStep(&req->tailPipeline->ap, &loadStep->base);
     }
+    if (rc != REDISMODULE_OK) {
+        return rc;
+    };
+
     return REDISMODULE_OK;
 }
 
