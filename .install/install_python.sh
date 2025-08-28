@@ -10,5 +10,5 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # Verify uv is in path
 uv -vV
-# Print where `cargo` is located for debugging purposes
+# Print where `uv` is located for debugging purposes
 echo "uv binary location: $(which uv)"
