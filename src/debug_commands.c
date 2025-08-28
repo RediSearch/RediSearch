@@ -1501,12 +1501,6 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  // Minimum args: _FT.DEBUG FT.HYBRID <index> SEARCH <query> VSIM <field> <vector> TIMEOUT_AFTER_N <N> DEBUG_PARAMS_COUNT <count>
-  if (argc < 11) {
-    return RedisModule_WrongArity(ctx);
-  }
-
-  // Single shard mode only - skip _FT.DEBUG and call our handler
   return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
 }
 
@@ -1825,11 +1819,9 @@ DEBUG_COMMAND(YieldCounter) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-
   if (argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
-
   // Check if we need to reset the counter
   if (argc == 3) {
     size_t len;
@@ -1841,7 +1833,6 @@ DEBUG_COMMAND(YieldCounter) {
       return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
     }
   }
-
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
 }
