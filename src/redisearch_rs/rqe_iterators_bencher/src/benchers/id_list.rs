@@ -74,107 +74,141 @@ impl Bencher {
 
     fn c_read_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("C", |b| {
-            let data = (1..1_000_000).collect();
-            let it = ffi::QueryIterator::new_id_list(data);
-            b.iter(|| {
-                it.read();
-                if it.at_eof() {
-                    it.rewind();
-                }
-            });
-            it.free();
+            b.iter_batched_ref(
+                || {
+                    let data = (1..1_000_000).collect();
+                    ffi::QueryIterator::new_id_list(data)
+                },
+                |it| {
+                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
+                        criterion::black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput
+            );
         });
     }
     fn c_read_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("C", |b| {
-            let data = (1..1_000_000).step_by(1000).collect();
-            let it = ffi::QueryIterator::new_id_list(data);
-            b.iter(|| {
-                it.read();
-                if it.at_eof() {
-                    it.rewind();
-                }
-            });
-            it.free();
+            b.iter_batched_ref(
+                || {
+                    let data = (1..1_000_000).map(|x| x * 1000).collect();
+                    ffi::QueryIterator::new_id_list(data)
+                },
+                |it| {
+                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
+                        criterion::black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput
+            );
         });
     }
 
     fn rust_read_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
-            let data = (1..1_000_000).collect();
-            let mut it = IdList::new(data);
-            b.iter(|| {
-                let _ = it.read();
-                if it.at_eof() {
-                    it.rewind();
-                }
-            });
+            b.iter_batched_ref(
+                || {
+                    let data = (1..1_000_000).collect();
+                    IdList::new(data)
+                },
+                |it| {
+                    while let Ok(Some(current)) = it.read() {
+                        criterion::black_box(current);
+                    }
+                },
+                criterion::BatchSize::SmallInput
+            );
         });
     }
     fn rust_read_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
-            let data = (1..1_000_000).step_by(1000).collect();
-            let mut it = IdList::new(data);
-            b.iter(|| {
-                let _ = it.read();
-                if it.at_eof() {
-                    it.rewind();
-                }
-            });
+            b.iter_batched_ref(
+                || {
+                    let data = (1..1_000_000).map(|x| x * 1000).collect();
+                    IdList::new(data)
+                },
+                |it| {
+                    while let Ok(Some(current)) = it.read() {
+                        criterion::black_box(current);
+                    }
+                },
+                criterion::BatchSize::SmallInput
+            );
         });
     }
 
     fn c_skip_to_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("C", |b| {
-            let data = (1..1_000_000).collect();
-            let it = ffi::QueryIterator::new_id_list(data);
             let step = 100;
-            b.iter(|| {
-                it.skip_to(it.last_doc_id() + step);
-                if it.at_eof() {
-                    it.rewind();
-                }
-            });
-            it.free();
+            b.iter_batched_ref(
+                || {
+                    let data = (1..1_000_000).collect();
+                    ffi::QueryIterator::new_id_list(data)
+                },
+                |it| {
+                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF {
+                        criterion::black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput
+            );
         });
     }
     fn c_skip_to_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("C", |b| {
-            let data = (1..1_000_000).step_by(1000).collect();
-            let it = ffi::QueryIterator::new_id_list(data);
             let step = 100;
-            b.iter(|| {
-                it.skip_to(it.last_doc_id() + step);
-                if it.at_eof() {
-                    it.rewind();
-                }
-            });
-            it.free();
+            b.iter_batched_ref(
+                || {
+                    let data = (1..1_000_000).map(|x| x * 1000).collect();
+                    ffi::QueryIterator::new_id_list(data)
+                },
+                |it| {
+                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF {
+                        criterion::black_box(it.current());
+                    }
+                    it.free();
+                },
+                criterion::BatchSize::SmallInput
+            );
         });
     }
 
     fn rust_skip_to_dense<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
-            let data = (1..1_000_000).collect();
-            let mut it = IdList::new(data);
             let step = 100;
-            b.iter(|| {
-                if matches!(it.skip_to(it.last_doc_id() + step), Ok(None)) {
-                    it.rewind();
-                }
-            });
+            b.iter_batched_ref(
+                || {
+                    let data = (1..1_000_000).collect();
+                    IdList::new(data)
+                },
+                |it| {
+                    while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
+                        criterion::black_box(current);
+                    }
+                },
+                criterion::BatchSize::SmallInput
+            );
         });
     }
     fn rust_skip_to_sparse<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
         group.bench_function("Rust", |b| {
-            let data = (1..1_000_000).step_by(1000).collect();
-            let mut it = IdList::new(data);
             let step = 100;
-            b.iter(|| {
-                if matches!(it.skip_to(it.last_doc_id() + step), Ok(None)) {
-                    it.rewind();
-                }
-            });
+            b.iter_batched_ref(
+                || {
+                    let data = (1..1_000_000).map(|x| x * 1000).collect();
+                    IdList::new(data)
+                },
+                |it| {
+                    while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
+                        criterion::black_box(current);
+                    }
+                },
+                criterion::BatchSize::SmallInput
+            );
         });
     }
 }

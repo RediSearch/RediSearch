@@ -26,6 +26,7 @@ mod bindings {
 
 use bindings::{IteratorStatus, ValidateStatus};
 use ffi::RedisModule_Alloc;
+use inverted_index::RSIndexResult;
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -85,8 +86,13 @@ impl QueryIterator {
     }
 
     #[inline(always)]
-    pub fn free(self) {
+    pub fn free(&self) {
         unsafe { (*self.0).Free.unwrap()(self.0) }
+    }
+
+    #[inline(always)]
+    pub fn current(&self) -> *mut RSIndexResult<'static> {
+        unsafe { (*self.0).current }
     }
 }
 
