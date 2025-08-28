@@ -992,25 +992,24 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             // setting the iterator's idx pointer to a different value than what
             // the lookup would return. This simulates the GC scenario.
             InvIndIterator *invIt = (InvIndIterator *)iterator;
-            const InvertedIndex *originalIdx = invIt->idx;
 
             // Create a dummy index to simulate the "new" index that would be returned
             // by the lookup after GC
             size_t memsize;
             InvertedIndex *dummyIdx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
 
-            // Temporarily replace the iterator's index pointer (need to cast away const)
-            *((InvertedIndex **)&invIt->idx) = dummyIdx;
+            // Temporarily replace the iterator's index pointer
+            IndexReader_SwapIndex(invIt->reader, dummyIdx);
 
             // Now Revalidate should return VALIDATE_ABORTED because the stored index
             // doesn't match what the lookup returns
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
 
+            // Restore the original index pointer for proper cleanup
+            IndexReader_SwapIndex(invIt->reader, dummyIdx);
+
             // Clean up the dummy index
             InvertedIndex_Free(dummyIdx);
-
-            // Restore the original index pointer for proper cleanup
-            *((const InvertedIndex **)&invIt->idx) = originalIdx;
         } else {
             FAIL() << "RevalidateAfterIndexDisappears not implemented for this iterator type";
         }
@@ -1048,9 +1047,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     // 4. This should cause SkipTo(thirdDocId) to return ITERATOR_NOTFOUND
 
     InvIndIterator *invIt = (InvIndIterator *)iterator;
-    InvertedIndex *idx = const_cast<InvertedIndex *>(invIt->idx);
-    uint32_t originalGcMarker = invIt->gcMarker;
-    uint32_t originalIndexGcMarker = InvertedIndex_GcMarker(idx);
+    InvertedIndex *idx = IndexReader_II(invIt->reader);
+    uint32_t originalGcMarker = InvertedIndex_GcMarker(idx);
 
     // We need access to the DocTable to mark documents as deleted
     // For this test, we'll create a temporary DocTable and mark thirdDocId as deleted
@@ -1159,8 +1157,4 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     }
 
     DocTable_Free(&tempDocTable);
-
-    // Restore the original index state
-    InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) + repairParams.entriesCollected); // Restore original numDocs
-    InvertedIndex_SetGcMarker(idx, originalIndexGcMarker);
 }
