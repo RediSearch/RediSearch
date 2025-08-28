@@ -33,11 +33,20 @@ typedef struct BgIndexingDebugCtx {
 
 } BgIndexingDebugCtx;
 
+// Struct used for debugging queries
+// Note: unrelated to timeout debugging
+typedef struct QueryDebugCtx {
+  volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
+  bool pauseOnOOM; // Whether to pause on OOM
+} QueryDebugCtx;
+
 // General debug context
 typedef struct DebugCTX {
   bool debugMode; // Indicates whether debug mode is enabled
   BgIndexingDebugCtx bgIndexing; // Background indexing debug context
+  QueryDebugCtx query; // Query debug context
 } DebugCTX;
 
 // Should be called after each debug command that changes the debugCtx
+// Exception for QueryDebugCtx
 void validateDebugMode(DebugCTX *debugCtx);
