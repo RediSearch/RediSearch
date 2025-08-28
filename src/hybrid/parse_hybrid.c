@@ -777,25 +777,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       goto error;
     }
 
-    PLN_LoadStep *loadStep = (PLN_LoadStep *)AGPLN_FindStep(parsedCmdCtx->tailPlan, NULL, NULL, PLN_T_LOAD);
-    if (!loadStep) {
-      loadStep = createImplicitLoadStep();
-    } else {
-      AGPLN_PopStep(&loadStep->base);
-    }
-
-    AGPLN_AddStep(&searchRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-    AGPLN_AddStep(&vectorRequest->pipeline.ap, &PLNLoadStep_Clone(loadStep)->base);
-    // Free the source load step
-    loadStep->base.dtor(&loadStep->base);
-    loadStep = NULL;
-
     if (mergeSearchopts.params) {
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       Param_DictFree(mergeSearchopts.params);
     }
-    
+
     if (*mergeReqflags & QEXEC_F_IS_CURSOR) {
       // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
       searchRequest->reqflags |= QEXEC_F_IS_CURSOR;
