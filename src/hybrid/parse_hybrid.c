@@ -847,8 +847,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   hybridParams->aggregationParams = params;
   hybridParams->synchronize_read_locks = true;
-  // Add implicit sorting by score if no other sorting exists
-  AGPLN_GetOrCreateArrangeStep(parsedCmdCtx->tailPlan);
 
   return REDISMODULE_OK;
 
