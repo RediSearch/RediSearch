@@ -208,8 +208,7 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
   b->buf = buf;
 }
 
-void InvertedIndex_Free(void *ctx) {
-  InvertedIndex *idx = ctx;
+void InvertedIndex_Free(InvertedIndex *idx) {
   size_t numBlocks = InvertedIndex_NumBlocks(idx);
   TotalIIBlocks -= numBlocks;
   for (uint32_t i = 0; i < numBlocks; i++) {
@@ -1274,4 +1273,17 @@ IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *co
 
 void InvertedIndex_BlocksSummaryFree(IIBlockSummary *summaries) {
   rm_free(summaries);
+}
+
+unsigned long InvertedIndex_MemUsage(const InvertedIndex *idx) {
+  unsigned long ret = sizeof_InvertedIndex(InvertedIndex_Flags(idx));
+
+    // iterate idx blocks
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  for (size_t i = 0; i < numBlocks; i++) {
+    ret += sizeof(IndexBlock);
+    IndexBlock *block = InvertedIndex_BlockRef(idx, i);
+    ret += IndexBlock_Cap(block);
+  }
+  return ret;
 }

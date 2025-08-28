@@ -62,6 +62,18 @@ impl Encoder for Dummy {
 }
 
 #[test]
+fn memory_usage() {
+    let mut ii = InvertedIndex::new(Dummy);
+
+    assert_eq!(ii.memory_usage(), 32);
+
+    let record = RSIndexResult::default().doc_id(10);
+    let mem_growth = ii.add_record(&record).unwrap();
+
+    assert_eq!(ii.memory_usage(), 32 + mem_growth);
+}
+
+#[test]
 fn adding_records() {
     let mut ii = InvertedIndex::new(Dummy);
     let record = RSIndexResult::default().doc_id(10);

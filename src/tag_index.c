@@ -287,7 +287,7 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
 
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;
-  TrieMap_Free(idx->values, InvertedIndex_Free);
+  TrieMap_Free(idx->values, (void (*)(void *))InvertedIndex_Free);
   TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);
 }

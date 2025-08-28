@@ -89,23 +89,6 @@ NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
   return openNumericKeysDict(spec, fmtkey, DONT_CREATE_INDEX);
 }
 
-size_t NumericRangeGetMemory(const NumericRangeNode *Node) {
-    InvertedIndex *idx = Node->range->entries;
-
-    size_t curr_node_memory = sizeof_InvertedIndex(Index_StoreNumeric);
-
-    // iterate idx blocks
-    size_t num_blocks = InvertedIndex_NumBlocks(idx);
-    for (size_t i = 0; i < num_blocks; ++i) {
-        curr_node_memory += sizeof(IndexBlock);
-        IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
-        curr_node_memory += IndexBlock_Cap(blk);
-    }
-
-    return curr_node_memory;
-
-}
-
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range) {
     if (!rt) {
         return 0;
@@ -120,7 +103,7 @@ size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNod
         if (!currNode->range) {
             continue;
         }
-        size_t curr_node_memory = NumericRangeGetMemory(currNode);
+        size_t curr_node_memory = InvertedIndex_MemUsage(currNode->range->entries);
 
         // Ensure stats are correct
         if (curr_node_memory != currNode->range->invertedIndexSize) {

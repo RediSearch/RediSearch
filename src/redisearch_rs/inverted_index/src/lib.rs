@@ -208,6 +208,17 @@ impl<E: Encoder> InvertedIndex<E> {
         }
     }
 
+    /// The memory size of the index in bytes.
+    pub fn memory_usage(&self) -> usize {
+        let blocks_size: usize = self
+            .blocks
+            .iter()
+            .map(|b| IndexBlock::SIZE + b.buffer.capacity())
+            .sum();
+
+        std::mem::size_of::<Self>() + blocks_size
+    }
+
     /// Add a new record to the index and return by how much memory grew. It is expected that
     /// the document ID of the record is greater than or equal the last document ID in the index.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
