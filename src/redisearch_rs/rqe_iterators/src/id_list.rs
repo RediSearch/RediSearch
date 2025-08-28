@@ -22,6 +22,8 @@ pub struct IdList {
     /// The current position of the iterator (a.k.a the next document ID to return by `read`).
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
+    /// A reusable result object to avoid allocations on each `read` call.
+    result: RSIndexResult<'static>,
 }
 
 impl IdList {
@@ -31,7 +33,11 @@ impl IdList {
             ids.is_sorted_by(|a, b| a < b),
             "IDs must be sorted and unique"
         );
-        IdList { ids, offset: 0 }
+        IdList {
+            ids,
+            offset: 0,
+            result: RSIndexResult::virt(),
+        }
     }
 }
 
@@ -43,18 +49,19 @@ impl IdList {
 }
 
 impl RQEIterator for IdList {
-    fn read(&mut self) -> Result<Option<RSIndexResult<'_>>, RQEIteratorError> {
+    fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
         let Some(doc_id) = self.get_current() else {
             return Ok(None);
         };
         self.offset += 1;
-        Ok(Some(RSIndexResult::virt().doc_id(doc_id)))
+        self.result.doc_id = doc_id;
+        Ok(Some(&self.result))
     }
 
     fn skip_to(
         &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &doc_id {
             self.offset = self.ids.len(); // Move to EOF
@@ -73,16 +80,14 @@ impl RQEIterator for IdList {
             Ok(pos) => {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
-                Ok(Some(SkipToOutcome::Found(
-                    RSIndexResult::virt().doc_id(self.ids[pos]),
-                )))
+                self.result.doc_id = self.ids[pos];
+                Ok(Some(SkipToOutcome::Found(&self.result)))
             }
             Err(pos) => {
                 let pos = self.offset + pos; // Convert relative to absolute index
                 self.offset = pos + 1;
-                Ok(Some(SkipToOutcome::NotFound(
-                    RSIndexResult::virt().doc_id(self.ids[pos]),
-                )))
+                self.result.doc_id = self.ids[pos];
+                Ok(Some(SkipToOutcome::NotFound(&self.result)))
             }
         }
     }

@@ -85,7 +85,7 @@ impl Bencher {
                     }
                     it.free();
                 },
-                criterion::BatchSize::SmallInput
+                criterion::BatchSize::SmallInput,
             );
         });
     }
@@ -102,7 +102,7 @@ impl Bencher {
                     }
                     it.free();
                 },
-                criterion::BatchSize::SmallInput
+                criterion::BatchSize::SmallInput,
             );
         });
     }
@@ -119,7 +119,7 @@ impl Bencher {
                         criterion::black_box(current);
                     }
                 },
-                criterion::BatchSize::SmallInput
+                criterion::BatchSize::SmallInput,
             );
         });
     }
@@ -135,7 +135,7 @@ impl Bencher {
                         criterion::black_box(current);
                     }
                 },
-                criterion::BatchSize::SmallInput
+                criterion::BatchSize::SmallInput,
             );
         });
     }
@@ -149,12 +149,13 @@ impl Bencher {
                     ffi::QueryIterator::new_id_list(data)
                 },
                 |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF {
+                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
+                    {
                         criterion::black_box(it.current());
                     }
                     it.free();
                 },
-                criterion::BatchSize::SmallInput
+                criterion::BatchSize::SmallInput,
             );
         });
     }
@@ -167,12 +168,13 @@ impl Bencher {
                     ffi::QueryIterator::new_id_list(data)
                 },
                 |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF {
+                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
+                    {
                         criterion::black_box(it.current());
                     }
                     it.free();
                 },
-                criterion::BatchSize::SmallInput
+                criterion::BatchSize::SmallInput,
             );
         });
     }
@@ -190,7 +192,7 @@ impl Bencher {
                         criterion::black_box(current);
                     }
                 },
-                criterion::BatchSize::SmallInput
+                criterion::BatchSize::SmallInput,
             );
         });
     }
@@ -207,7 +209,7 @@ impl Bencher {
                         criterion::black_box(current);
                     }
                 },
-                criterion::BatchSize::SmallInput
+                criterion::BatchSize::SmallInput,
             );
         });
     }
