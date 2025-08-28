@@ -424,12 +424,10 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     isCursor = true;
     depleters = HybridRequest_BuildDepletionPipeline(hreq, hybridParams);
     if (!depleters) {
-      rm_free(hybridParams);
       return REDISMODULE_ERR;
     }
   } else {
     if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
-      rm_free(hybridParams);
       return REDISMODULE_ERR;
     }
   }
@@ -453,6 +451,8 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     // Hybrid query doesn't support cursors.
     HybridRequest_Execute(hreq, ctx, sctx);
   }
+  // free hybridParams - ownership of scoringCtx was transferred to the pipeline
+  rm_free(hybridParams);
   return REDISMODULE_OK;
 }
 
@@ -525,10 +525,10 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
   cmd.vector = hybridRequest->requests[VECTOR_INDEX];
+  cmd.reqConfig = &hybridRequest->reqConfig;
   cmd.cursorConfig = &hybridRequest->cursorConfig;
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
-  cmd.hybridParams = rm_new(HybridPipelineParams);
 
   int rc = parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status);
   if (rc != REDISMODULE_OK) {
