@@ -185,7 +185,8 @@ static int applyHybridDebugToBuiltPipelines(HybridRequest_Debug *debug_req, Quer
   return REDISMODULE_OK;
 }
 
-static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, QueryError *status) {
+static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                                     RedisSearchCtx *sctx, const char *indexname, QueryError *status) {
   // Parse debug parameters first
   HybridDebugParams debug_params = parseHybridDebugParamsCount(argv, argc, status);
   if (debug_params.debug_params_count == 0) {
@@ -196,20 +197,6 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>`
   int hybrid_argc = argc - debug_argv_count;
 
-  // Get index name for creating search context
-  if (hybrid_argc < 2) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing index name");
-    return NULL;
-  }
-
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-  if (!sctx) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ENOINDEX, "No such index", " %s", indexname);
-    return NULL;
-  }
-
-  // Parse the hybrid command (without debug parameters)
   HybridRequest *hreq = parseHybridCommand(ctx, argv, hybrid_argc, sctx, indexname, status);
   if (!hreq) {
     return NULL;
@@ -242,9 +229,19 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   QueryError status = {0};
 
-  // Create debug hybrid request
-  HybridRequest_Debug *debug_req = HybridRequest_Debug_New(ctx, argv, argc, &status);
+  // Get index name and create search context (same pattern as regular hybridCommandHandler)
+  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
+  if (!sctx) {
+    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  // Create debug hybrid request using the same sctx
+  HybridRequest_Debug *debug_req = HybridRequest_Debug_New(ctx, argv, argc, sctx, indexname, &status);
   if (!debug_req) {
+    // parseHybridCommand takes ownership of sctx but doesn't free it on error - we need to clean it up
+    SearchCtx_Free(sctx);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
@@ -268,17 +265,8 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Execute and send results
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-  if (!sctx) {
-    HybridRequest_Debug_Free(debug_req);
-    QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
   // Execute the hybrid request
-  HREQ_Execute(hreq, ctx, sctx);
+  HREQ_Execute(hreq, ctx);
 
   // Note: hreq is freed by HREQ_Execute, but we need to free the debug wrapper
   debug_req->hreq = NULL;

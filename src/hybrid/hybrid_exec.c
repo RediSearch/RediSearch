@@ -185,13 +185,13 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
     return len;
 }
 
-static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
-                    RedisSearchCtx *sctx) {
+static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx) {
   RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
   RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
 
   if (RunInThread()) {
     // Multi-threaded execution path
+    RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     // TODO: Dump the entire hreq when explain is implemented
@@ -218,7 +218,7 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     } else {
-      HREQ_Execute(hreq, ctx, sctx);
+      HREQ_Execute(hreq, ctx);
       return REDISMODULE_OK;
     }
   }
@@ -358,7 +358,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx) != REDISMODULE_OK) {
+  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx) != REDISMODULE_OK) {
     HREQ_GetError(hybridRequest, &status);
     goto error;
   }
@@ -381,9 +381,8 @@ error:
  *
  * @param hreq The HybridRequest with built pipeline
  * @param ctx Redis module context for sending the reply
- * @param sctx Redis search context
  */
-void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
+void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx) {
     AGGPlan *plan = &hreq->tailPipeline->ap;
     cachedVars cv = {
         .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
@@ -444,7 +443,7 @@ void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // hreq will be freed by blockedClientHybridCtx_destroy since execution failed
   } else {
     // Hybrid query doesn't support cursors.
-    HREQ_Execute(hreq, outctx, sctx);
+    HREQ_Execute(hreq, outctx);
     // Set hreq to NULL so it won't be freed in destroy (it was freed by HREQ_Execute)
     BCHCtx->hreq = NULL;
   }
