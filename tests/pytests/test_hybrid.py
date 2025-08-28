@@ -325,7 +325,7 @@ class testHybridSearch:
             raise SkipTest()
         hybrid_query = (
             "SEARCH '-@text:(both) -@text:(text)' "
-            "VSIM @vector $BLOB FILTER @tag:{{invalid_tag}} "
+            "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
             "COMBINE RRF 4 K 3 WINDOW 2 "
             "LOAD 3 __score AS my_score"
         )
