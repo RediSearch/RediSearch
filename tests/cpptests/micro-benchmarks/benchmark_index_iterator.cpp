@@ -99,6 +99,11 @@ public:
                 InvertedIndex_WriteNumericEntry(index, ids[i], static_cast<double>(i));
             }
         } else if (flags == Index_DocIdsOnly) {
+            if (flags == (Index_DocIdsOnly | Index_Temporary)) {
+                // Ensure we are using the raw doc ID encoder
+                RS_ASSERT_ALWAYS(InvertedIndex_GetEncoder(InvertedIndex_Flags(index)) != InvertedIndex_GetEncoder(Index_DocIdsOnly));
+            }
+
             // Populate the index with document IDs only
             for (size_t i = 0; i < ids.size(); ++i) {
                 RSIndexResult rec = {.docId = ids[i], .data = {.tag = RSResultData_Virtual}};
