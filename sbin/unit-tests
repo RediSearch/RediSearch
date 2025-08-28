@@ -41,7 +41,6 @@ show_help() {
         BINDIR=path   Path to repo binary dir
         TEST=name      Run only the specified test
         VERBOSE=1      Show more detailed output
-        GDB=1          Run tests with interactive gdb debugger (stops on crashes)
         HELP=1         Show this help message
 END
 }
@@ -86,51 +85,9 @@ run_single_test() {
     TEST_NAME="$test_name" setup_sanitizer
     LOG_FILE="${LOGS_DIR}/${log_prefix}${test_name}.log"
 
-    # Prepare test command
-    local test_cmd="$test_path"
-    if [[ $GDB == 1 ]]; then
-        # Run with gdb interactively, but with commands that auto-continue on success
-        echo "Running test with gdb: $test_name"
-        echo "GDB will stop on crashes/signals for debugging. Test will exit automatically on success."
-        echo "Starting GDB session for: $test_name"
-        echo "----------------------------------------"
-
-        # Create a temporary gdb command file
-        local gdb_cmd_file=$(mktemp)
-        cat > "$gdb_cmd_file" << 'EOF'
-set confirm off
-set pagination off
-set height 0
-set width 0
-set startup-quietly on
-set verbose off
-handle SIGSEGV stop print nopass
-handle SIGABRT stop print nopass
-define hook-stop
-  if $_exitcode != -1
-    quit
-  end
-  echo \n=== Program stopped due to signal ===\n
-  bt
-  echo \n=== Use 'continue' to proceed, 'quit' to exit ===\n
-end
-run
-EOF
-
-        # Use environment variables to disable paging completely and reduce startup text
-        LINES=50000 COLUMNS=200 PAGER= GDB_COLORS= gdb --quiet -iex "set pagination off" -iex "set height 0" -iex "set width 0" -iex "set startup-quietly on" -iex "set verbose off" -x "$gdb_cmd_file" --args $test_path 2>/dev/null || true
-        test_result=$?
-        rm -f "$gdb_cmd_file"
-        (( EXIT_CODE |= $test_result ))
-        echo "----------------------------------------"
-        echo "GDB session ended for: $test_name"
-        return
-    else
-        echo -n "Running test: $test_name (log: $LOG_FILE) ... "
-    fi
-
-    # Run the test (non-GDB path)
-    { $test_cmd > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+    # Run the test
+    echo -n "Running test: $test_name (log: $LOG_FILE) ... "
+    { $test_path > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
     # Report results
     if [[ $test_result -eq 0 ]]; then
@@ -179,90 +136,20 @@ run_cpp_tests() {
     if [[ -z $TEST ]]; then
         # Run all C++ tests
         LOG_FILE="${LOGS_DIR}/rstest.log"
-        if [[ $GDB == 1 ]]; then
-            echo "Running all C++ tests with gdb"
-            echo "GDB will stop on crashes/signals for debugging. Test will exit automatically on success."
-            echo "Starting GDB session for: rstest (all C++ tests)"
-            echo "----------------------------------------"
+        echo "Running all C++ tests (log: $LOG_FILE)"
+        { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-            # Create a temporary gdb command file
-            local gdb_cmd_file=$(mktemp)
-            cat > "$gdb_cmd_file" << 'EOF'
-set confirm off
-set pagination off
-set height 0
-set width 0
-set startup-quietly on
-set verbose off
-handle SIGSEGV stop print nopass
-handle SIGABRT stop print nopass
-define hook-stop
-  if $_exitcode != -1
-    quit
-  end
-  echo \n=== Program stopped due to signal ===\n
-  bt
-  echo \n=== Use 'continue' to proceed, 'quit' to exit ===\n
-end
-run
-EOF
-
-            LINES=50000 COLUMNS=200 PAGER= GDB_COLORS= gdb --quiet -iex "set pagination off" -iex "set height 0" -iex "set width 0" -iex "set startup-quietly on" -iex "set verbose off" -x "$gdb_cmd_file" --args $CPP_TESTS_DIR/rstest 2>/dev/null || true
-            test_result=$?
-            rm -f "$gdb_cmd_file"
-            (( EXIT_CODE |= $test_result ))
-            echo "----------------------------------------"
-            echo "GDB session ended for: rstest (all C++ tests)"
-        else
-            echo "Running all C++ tests (log: $LOG_FILE)"
-            { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-            # Parse and display individual test results
-            parse_cpp_test_results "$LOG_FILE"
-        fi
+        # Parse and display individual test results
+        parse_cpp_test_results "$LOG_FILE"
     else
         # Run single C++ test if requested
         if [[ -f $CPP_TESTS_DIR/rstest ]]; then
             LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
-            if [[ $GDB == 1 ]]; then
-                echo "Running C++ test with gdb: $TEST"
-                echo "GDB will stop on crashes/signals for debugging. Test will exit automatically on success."
-                echo "Starting GDB session for: rstest --gtest_filter=$TEST"
-                echo "----------------------------------------"
+            echo "Running C++ test: $TEST (log: $LOG_FILE)"
+            { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-                # Create a temporary gdb command file
-                local gdb_cmd_file=$(mktemp)
-                cat > "$gdb_cmd_file" << 'EOF'
-set confirm off
-set pagination off
-set height 0
-set width 0
-set startup-quietly on
-set verbose off
-handle SIGSEGV stop print nopass
-handle SIGABRT stop print nopass
-define hook-stop
-  if $_exitcode != -1
-    quit
-  end
-  echo \n=== Program stopped due to signal ===\n
-  bt
-  echo \n=== Use 'continue' to proceed, 'quit' to exit ===\n
-end
-run
-EOF
-
-                LINES=50000 COLUMNS=200 PAGER= GDB_COLORS= gdb --quiet -iex "set pagination off" -iex "set height 0" -iex "set width 0" -iex "set startup-quietly on" -iex "set verbose off" -x "$gdb_cmd_file" --args $CPP_TESTS_DIR/rstest --gtest_filter=$TEST 2>/dev/null || true
-                test_result=$?
-                rm -f "$gdb_cmd_file"
-                (( EXIT_CODE |= $test_result ))
-                echo "----------------------------------------"
-                echo "GDB session ended for: rstest --gtest_filter=$TEST"
-            else
-                echo "Running C++ test: $TEST (log: $LOG_FILE)"
-                { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-                # Parse and display results
-                parse_cpp_test_results "$LOG_FILE"
-            fi
+            # Parse and display results
+            parse_cpp_test_results "$LOG_FILE"
         else
             echo "C++ test binary not found: $CPP_TESTS_DIR/rstest"
         fi
@@ -309,26 +196,17 @@ run_coordinator_tests() {
     print_separator
     echo "# Running coordinator unit tests"
 
-    # Only look in coord_tests directory - C++ tests are handled by run_cpp_tests()
-    COORD_TESTS_DIR="$BINDIR/tests/ctests/coord_tests"
-
-    # Check if the directory exists
-    if [[ ! -d "$COORD_TESTS_DIR" ]]; then
-        echo "Coordinator tests directory not found: $COORD_TESTS_DIR"
-        return 0
-    fi
-
-    if [[ -z $TEST ]]; then
-        # Run all coordinator tests
-        for test in $(find "$COORD_TESTS_DIR" -maxdepth 1 -name "test_*" -type f -print); do
-            run_single_test "$test" "coord_"
-        done
-    elif [[ -f "$COORD_TESTS_DIR/$TEST" ]]; then
-        # Run single coordinator test
-        run_single_test "$COORD_TESTS_DIR/$TEST" "coord_"
-    else
-        echo "Coordinator test not found: $TEST in $COORD_TESTS_DIR"
-    fi
+    for TESTS_DIR in "$(cd $BINDIR/tests/ctests/coord_tests; pwd)" "$(cd $BINDIR/tests/cpptests; pwd)"; do
+        if [[ -z $TEST ]]; then
+            # Run all coordinator tests
+            for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
+                run_single_test "$test" "coord_"
+            done
+        elif [[ -f $TESTS_DIR/$TEST ]]; then
+            # Run single coordinator test
+            run_single_test "$TESTS_DIR/$TEST" "coord_"
+        fi
+    done
 }
 
 #------------------------------------------------------------------------------
@@ -377,23 +255,6 @@ generate_summary() {
 detect_platform
 
 # Setup paths and variables
-# Calculate BINDIR from BINROOT if not already set
-if [[ -z $BINDIR ]]; then
-    if [[ -n $BINROOT ]]; then
-        # Default to OSS build path - make it absolute
-        if [[ "$BINROOT" = /* ]]; then
-            # BINROOT is already absolute
-            BINDIR="$BINROOT/search-community"
-        else
-            # BINROOT is relative to ROOT_DIR
-            BINDIR="$ROOT_DIR/$BINROOT/search-community"
-        fi
-    else
-        echo "Error: Neither BINDIR nor BINROOT is set"
-        exit 1
-    fi
-fi
-
 export EXT_TEST_PATH=${BINDIR}/example_extension/libexample_extension.so
 
 # No test scope configuration needed
