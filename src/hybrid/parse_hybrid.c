@@ -444,10 +444,10 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
           goto error;
         }
 
-        if (strcasecmp(paramName, "K") == 0) {
+        if (strcasecmp(paramName, "CONSTANT") == 0) {
           double k;
           if (AC_GetDouble(&params, &k, 0) != AC_OK || k <= 0) {
-            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value in RRF");
+            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
             goto error;
           }
           combineCtx->rrfCtx.k = k;
