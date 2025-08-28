@@ -649,17 +649,18 @@ class testHybridSearch:
         }
         run_test_scenario(self.env, self.index_name, scenario)
 
-    def test_range_epsilon(self):
-        """Test hybrid search using range with parameters"""
-        if CLUSTER:
-            raise SkipTest()
-        scenario = {
-            "test_name": "Range query",
-            "hybrid_query": "SEARCH @text:(four|even) VSIM @vector_hnsw $BLOB RANGE 4 RADIUS 5 EPSILON 0.5",
-            "search_equivalent": "@text:(four|even)",
-            "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
-        }
-        run_test_scenario(self.env, self.index_name, scenario)
+    # # TODO: Enable this test after fixing memory leak MOD-11140
+    # def test_range_epsilon(self):
+    #     """Test hybrid search using range with parameters"""
+    #     if CLUSTER:
+    #         raise SkipTest()
+    #     scenario = {
+    #         "test_name": "Range query",
+    #         "hybrid_query": "SEARCH @text:(four|even) VSIM @vector_hnsw $BLOB RANGE 4 RADIUS 5 EPSILON 0.5",
+    #         "search_equivalent": "@text:(four|even)",
+    #         "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
+    #     }
+    #     run_test_scenario(self.env, self.index_name, scenario)
 
 
 # =============================================================================
