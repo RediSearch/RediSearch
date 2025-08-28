@@ -176,8 +176,8 @@ class testHybridSearch:
         if CLUSTER:
             raise SkipTest()
         scenario = {
-            "test_name": "KNN with custom k",
-            "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 COMBINE RRF 2 K 50",
+            "test_name": "KNN with custom RRF CONSTANT",
+            "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 COMBINE RRF 2 CONSTANT 50",
             "search_equivalent": "even",
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]",
             "rrf_constant": 50
