@@ -320,6 +320,17 @@ static void FreeHybridRequest(void *ptr) {
   HybridRequest_Free((HybridRequest *)ptr);
 }
 
+/*
+ * Internal function to build the pipeline and execute the hybrid request.
+ * This function is used by both the foreground and background execution paths.
+ * @param hreq The HybridRequest to build and execute
+ * @param hybridParams The pipeline parameters for building the hybrid request - must be allocated with rm_calloc, freed by this function on success
+ * @param ctx Redis module context for sending the reply
+ * @param sctx Redis search context
+ * @param status Output parameter for error reporting
+ * @param internal Whether the request is internal (not exposed to the user)
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
+*/
 static int HybridRequest_InternalBuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams,
                                                          RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
                                                          bool internal) {
@@ -331,6 +342,7 @@ static int HybridRequest_InternalBuildPipelineAndExecute(HybridRequest *hreq, Hy
 
   // Hybrid query doesn't support cursors.
   HybridRequest_Execute(hreq, ctx, sctx);
+  rm_free(hybridParams);
   return REDISMODULE_OK;
 }
 
@@ -348,6 +360,9 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
   return ret;
 }
 
+// Build the pipeline and execute
+// if result is REDISMODULE_OK, the hreq and hybridParams are freed by the function thread
+// otherwise, the caller is responsible for freeing them
 static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
   if (RunInThread()) {
@@ -405,11 +420,12 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   QueryError status = {0};
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
-
+  HybridPipelineParams hybridParams = {0};
   ParseHybridCommandCtx cmd = {0};
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
   cmd.vector = hybridRequest->requests[VECTOR_INDEX];
   cmd.cursorConfig = &hybridRequest->cursorConfig;
+
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
   cmd.reqConfig = &hybridRequest->reqConfig;
@@ -494,8 +510,9 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   }
 
   if (HybridRequest_InternalBuildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, BCHCtx->internal) == REDISMODULE_OK) {
-    // Set hreq to NULL so it won't be freed in destroy (it was freed by HybridRequest_Execute)
+    // Set hreq and hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hreq = NULL;
+    BCHCtx->hybridParams = NULL;
   } else if (QueryError_HasError(&status)) {
     QueryError_ReplyAndClear(outctx, &status);
   }

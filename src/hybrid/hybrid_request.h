@@ -46,8 +46,49 @@ typedef struct blockedClientHybridCtx {
  * @param nrequests Number of requests in the array
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+/**
+ * Build the depletion pipeline for hybrid search processing.
+ * This function constructs the first part of the hybrid search pipeline that:
+ * 1. Builds individual pipelines for each AREQ (search request)
+ * 2. Creates depleter processors to extract results from each pipeline concurrently
+ * 3. Sets up synchronization between depleters for thread-safe operation
+ *
+ * The depletion pipeline architecture:
+ * AREQ1 -> [Individual Pipeline] -> Depleter1
+ * AREQ2 -> [Individual Pipeline] -> Depleter2
+ * AREQ3 -> [Individual Pipeline] -> Depleter3
+ *
+ * @param req The HybridRequest containing multiple AREQ search requests
+ * @param params Pipeline parameters including synchronization settings
+ * @return Array of depleter processors that will feed the merge pipeline, or NULL on failure
+ */
 arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const HybridPipelineParams *params, arrayof(ResultProcessor*) depleters);
+/**
+ * Build the merge pipeline for hybrid search processing.
+ * This function constructs the second part of the hybrid search pipeline that:
+ * 1. Sets up a hybrid merger to combine and score results from all depleter processors
+ * 2. Applies aggregation processing (sorting, filtering, field loading) to merged results
+ * 3. Configures the final output pipeline for result delivery
+ *
+ * The merge pipeline architecture:
+ * Depleter1 \
+ * Depleter2  -> HybridMerger -> Aggregation -> Output
+ * Depleter3 /
+ *
+ * @param req The HybridRequest containing the tail pipeline for merging
+ * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
+ * @param depleters Array of depleter processors from the depletion pipeline
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, arrayof(ResultProcessor*) depleters);
+/**
+ * Build the complete hybrid search pipeline.
+ * This function orchestrates the construction of both the depletion and merge pipelines.
+ *
+ * @param req The HybridRequest to build the pipeline for
+ * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
+ */
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params);
 void HybridRequest_Free(HybridRequest *req);
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);

@@ -18,22 +18,6 @@ extern "C" {
 
 #define SEARCH_INDEX 0
 
-/**
- * Build the depletion pipeline for hybrid search processing.
- * This function constructs the first part of the hybrid search pipeline that:
- * 1. Builds individual pipelines for each AREQ (search request)
- * 2. Creates depleter processors to extract results from each pipeline concurrently
- * 3. Sets up synchronization between depleters for thread-safe operation
- *
- * The depletion pipeline architecture:
- * AREQ1 -> [Individual Pipeline] -> Depleter1
- * AREQ2 -> [Individual Pipeline] -> Depleter2
- * AREQ3 -> [Individual Pipeline] -> Depleter3
- *
- * @param req The HybridRequest containing multiple AREQ search requests
- * @param params Pipeline parameters including synchronization settings
- * @return Array of depleter processors that will feed the merge pipeline, or NULL on failure
- */
 arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -73,24 +57,7 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
     return depleters;
 }
 
-/**
- * Build the merge pipeline for hybrid search processing.
- * This function constructs the second part of the hybrid search pipeline that:
- * 1. Sets up a hybrid merger to combine and score results from all depleter processors
- * 2. Applies aggregation processing (sorting, filtering, field loading) to merged results
- * 3. Configures the final output pipeline for result delivery
- *
- * The merge pipeline architecture:
- * Depleter1 \
- * Depleter2  -> HybridMerger -> Aggregation -> Output
- * Depleter3 /
- *
- * @param req The HybridRequest containing the tail pipeline for merging
- * @param params Pipeline parameters including aggregation settings and scoring context
- * @param depleters Array of depleter processors from the depletion pipeline
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const HybridPipelineParams *params, arrayof(ResultProcessor*) depleters) {
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, arrayof(ResultProcessor*) depleters) {
     // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
     // and contain only keys from the loading step
     // Init lookup since we dont call buildQueryPart
@@ -100,8 +67,8 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const HybridPipelinePar
 
     // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
-
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey);
+    params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
     // Build the aggregation part of the tail pipeline for final result processing
