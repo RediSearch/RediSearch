@@ -40,7 +40,7 @@ pub extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
 pub extern "C" fn NewVirtualResult(
     weight: f64,
     field_mask: ::ffi::t_fieldMask,
-) -> *mut inverted_index::RSIndexResult<'static, 'static> {
+) -> *mut inverted_index::RSIndexResult<'static> {
     let result = inverted_index::RSIndexResult::virt()
         .field_mask(field_mask)
         .weight(weight);

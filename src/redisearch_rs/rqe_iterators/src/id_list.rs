@@ -43,7 +43,7 @@ impl IdList {
 }
 
 impl RQEIterator for IdList {
-    fn read(&mut self) -> Result<Option<RSIndexResult<'_, '_>>, RQEIteratorError> {
+    fn read(&mut self) -> Result<Option<RSIndexResult<'_>>, RQEIteratorError> {
         let Some(doc_id) = self.get_current() else {
             return Ok(None);
         };
@@ -54,7 +54,7 @@ impl RQEIterator for IdList {
     fn skip_to(
         &mut self,
         doc_id: t_docId,
-    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_>>, RQEIteratorError> {
         // Safe to unwrap as we are not at eof + the list must not be empty
         if self.at_eof() || self.ids.last().unwrap() < &doc_id {
             self.offset = self.ids.len(); // Move to EOF
