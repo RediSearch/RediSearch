@@ -11,7 +11,7 @@ use std::io::{Cursor, Seek, Write};
 
 use ffi::t_docId;
 
-use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, IndexBlock, RSIndexResult};
 
 /// Encode and decode only the raw document ID delta without any compression.
 ///
@@ -56,5 +56,9 @@ impl Decoder for RawDocIdsOnly {
 
         let record = RSIndexResult::term().doc_id(base + delta as t_docId);
         Ok(record)
+    }
+
+    fn base_id(block: &IndexBlock, _last_doc_id: t_docId) -> t_docId {
+        block.first_doc_id
     }
 }
