@@ -27,9 +27,8 @@ extern void IncrementYieldCounter(void);
 
 #include <unistd.h>
 
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
-                            ForwardIndexEntry *entry) {
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, encoder, entry);
+static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
 
   // Update index statistics:
 
@@ -97,7 +96,6 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-  IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
 
   while (entry != NULL) {
     bool isNew;
@@ -109,7 +107,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
       IndexerYieldWhileLoading(ctx->redisCtx);
-      writeIndexEntry(spec, invidx, encoder, entry);
+      writeIndexEntry(spec, invidx, entry);
       if (Index_StoreFieldMask(spec)) {
         InvertedIndex_OrFieldMask(invidx, entry->fieldMask);
       }
@@ -302,9 +300,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
-    IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
     RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, &rec);
+    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
@@ -323,9 +320,8 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   }
 
   t_docId docId = aCtx->doc->docId;
-  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, enc, &rec);
+  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
 }
 
 /**

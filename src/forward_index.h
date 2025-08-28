@@ -89,8 +89,7 @@ ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, u
 
 /* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
  */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
-                                            ForwardIndexEntry *ent);
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
 
 #ifdef __cplusplus
 }
