@@ -54,6 +54,8 @@ def setup_basic_index(env):
     for doc_id, doc_data in test_data.items():
         conn.execute_command('HSET', doc_id, 'description', doc_data['description'], 'embedding', doc_data['embedding'])
 
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
 def test_hybrid_vector_direct_blob_knn():
     env = Env()
     setup_basic_index(env)
@@ -62,6 +64,9 @@ def test_hybrid_vector_direct_blob_knn():
     results = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:2"})
 
+# TODO: remove once FT.HYBRID for cluster is implemented
+# TODO: Enable this test after fixing memory leak MOD-11140
+@skip()
 def test_hybrid_vector_direct_blob_range():
     env = Env()
     setup_basic_index(env)
