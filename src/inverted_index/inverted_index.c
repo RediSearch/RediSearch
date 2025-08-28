@@ -224,8 +224,9 @@ void InvertedIndex_Free(InvertedIndex *idx) {
 ENCODER(encodeFull) {
   uint32_t offsets_len;
   const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+  uint32_t offsetsSz = RSOffsetVector_Len(offsets);
   const char *offsets_data = RSOffsetVector_GetData(offsets, &offsets_len);
-  size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
+  size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, offsetsSz);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
 }
@@ -233,8 +234,9 @@ ENCODER(encodeFull) {
 ENCODER(encodeFullWide) {
   uint32_t offsets_len;
   const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+  uint32_t offsetsSz = RSOffsetVector_Len(offsets);
   const char *offsets_data = RSOffsetVector_GetData(offsets, &offsets_len);
-  size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
+  size_t sz = qint_encode3(bw, delta, res->freq, offsetsSz);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -737,12 +739,13 @@ DECODER(readFreqsFlagsWide) {
 
 DECODER(readFreqOffsetsFlags) {
   uint32_t delta, fieldMask;
-  qint_decode4(&blockReader->buffReader, &delta, &res->freq, &fieldMask, &res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  uint32_t offsetsSz = RSOffsetVector_Len(offsets);
+  qint_decode4(&blockReader->buffReader, &delta, &res->freq, &fieldMask, &offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
-  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
-  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
-  Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
+  Buffer_Skip(&blockReader->buffReader, offsetsSz);
   return fieldMask & ctx->mask;
 }
 
@@ -767,7 +770,6 @@ SKIPPER(seekFreqOffsetsFlags) {
   res->docId = did;
   res->freq = freq;
   res->fieldMask = fm;
-  res->offsetsSz = offsz;
   RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader) - offsz, offsz);
 
@@ -776,12 +778,13 @@ SKIPPER(seekFreqOffsetsFlags) {
 
 DECODER(readFreqOffsetsFlagsWide) {
   uint32_t delta;
-  qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  uint32_t offsetsSz = RSOffsetVector_Len(offsets);
+  qint_decode3(&blockReader->buffReader, &delta, &res->freq, &offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
-  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
-  Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
+  Buffer_Skip(&blockReader->buffReader, offsetsSz);
   return res->fieldMask & ctx->wideMask;
 }
 
@@ -875,44 +878,48 @@ DECODER(readFlagsWide) {
 
 DECODER(readFieldsOffsets) {
   uint32_t delta, mask;
-  qint_decode3(&blockReader->buffReader, &delta, &mask, &res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  uint32_t offsetsSz = RSOffsetVector_Len(offsets);
+  qint_decode3(&blockReader->buffReader, &delta, &mask, &offsetsSz);
   res->fieldMask = mask;
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
-  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
-  Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
+  Buffer_Skip(&blockReader->buffReader, offsetsSz);
   return mask & ctx->mask;
 }
 
 DECODER(readFieldsOffsetsWide) {
   uint32_t delta;
-  qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  uint32_t offsetsSz = RSOffsetVector_Len(offsets);
+  qint_decode2(&blockReader->buffReader, &delta, &offsetsSz);
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
-  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
 
-  Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
+  Buffer_Skip(&blockReader->buffReader, offsetsSz);
   return res->fieldMask & ctx->wideMask;
 }
 
 DECODER(readOffsetsOnly) {
   uint32_t delta;
-  qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
-  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
-  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
-  Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
+  uint32_t offsetsSz = RSOffsetVector_Len(offsets);
+  qint_decode2(&blockReader->buffReader, &delta, &offsetsSz);
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
+  Buffer_Skip(&blockReader->buffReader, offsetsSz);
   return 1;
 }
 
 DECODER(readFreqsOffsets) {
   uint32_t delta;
-  qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
-  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
-  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
-  Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
+  uint32_t offsetsSz = RSOffsetVector_Len(offsets);
+  qint_decode3(&blockReader->buffReader, &delta, &res->freq, &offsetsSz);
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
+  Buffer_Skip(&blockReader->buffReader, offsetsSz);
   return 1;
 }
 
