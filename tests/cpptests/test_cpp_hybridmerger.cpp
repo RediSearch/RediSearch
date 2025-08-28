@@ -138,7 +138,9 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams);
 
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
+  // Create dummy return codes array for tests that don't need to track return codes
+  static int dummyReturnCodes[8] = {0}; // Static array, supports up to 8 upstreams for tests
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -146,7 +148,9 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewRRF(k, window, false);
 
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL);
+  // Create dummy return codes array for tests that don't need to track return codes
+  static int dummyReturnCodes[8] = {0}; // Static array, supports up to 8 upstreams for tests
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes);
 }
 
 
@@ -1301,6 +1305,50 @@ static SearchResult* createTestSearchResult(uint8_t flags) {
   memset(&result->rowdata, 0, sizeof(RLookupRow));
 
   return result;
+}
+
+/*
+ * Test that return codes are properly captured from upstreams
+ */
+TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
+  // Test array to capture return codes
+  int returnCodes[3] = {RS_RESULT_OK, RS_RESULT_OK, RS_RESULT_OK};
+
+  // Create upstreams with different final return states
+  MockUpstream upstream1(0, {1.0}, {1}); // Will return RS_RESULT_EOF after 1 result
+  MockUpstream upstream2(1, {2.0}, {2}); // Will return RS_RESULT_TIMEDOUT after 1 result
+  MockUpstream upstream3(0, {3.0}, {3}, 0, 1); // Will return RS_RESULT_ERROR after 1 result
+
+  ResultProcessor *rp1 = &upstream1;
+  ResultProcessor *rp2 = &upstream2;
+  ResultProcessor *rp3 = &upstream3;
+
+  // Create hybrid merger with return codes tracking
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, rp1);
+  array_ensure_append_1(upstreams, rp2);
+  array_ensure_append_1(upstreams, rp3);
+  double weights[] = {0.33, 0.33, 0.34};
+
+  // Create HybridScoringContext using constructor
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, 3);
+  ResultProcessor *hybridMerger = RPHybridMerger_New(hybridScoringCtx, upstreams, 3, NULL, returnCodes);
+
+  // Process results - this should capture the return codes
+  SearchResult r = {0};
+  int result;
+  while ((result = hybridMerger->Next(hybridMerger, &r)) == RS_RESULT_OK) {
+    SearchResult_Clear(&r);
+  }
+
+  // Verify return codes were captured correctly
+  // Note: upstream1 completes normally (EOF), upstream2 times out, upstream3 errors
+  EXPECT_EQ(RS_RESULT_EOF, returnCodes[0]);      // upstream1: normal completion
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[1]); // upstream2: timeout
+  EXPECT_EQ(RS_RESULT_ERROR, returnCodes[2]);    // upstream3: error
+
+  SearchResult_Destroy(&r);
+  hybridMerger->Free(hybridMerger);
 }
 
 /*
