@@ -181,6 +181,8 @@ class TestRealTimeouts(object):
     """Tests for real timeout conditions with large datasets"""
 
     def __init__(self):
+        #TODO: remove once FT.HYBRID for cluster is implemented
+        skipTest(cluster=True)
         self.dim = 4
         self.num_docs = 10000
         self.timeout_ms = 1  # Very short timeout to ensure timeout occurs
@@ -195,8 +197,6 @@ class TestRealTimeouts(object):
                    'description', 'TEXT',
                    'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(self.dim), 'DISTANCE_METRIC', 'L2').ok()
 
-    #TODO: remove once FT.HYBRID for cluster is implemented
-    @skip(cluster=True)
     def test_vector_only_fail(self):
         """Test real timeout - vector only with FAIL policy"""
         env = Env(moduleArgs='ON_TIMEOUT FAIL')
@@ -210,8 +210,6 @@ class TestRealTimeouts(object):
                    'PARAMS', '2', 'BLOB', query_vector.tobytes(),
                    'TIMEOUT', str(self.timeout_ms)).error().contains('Timeout limit was reached')
 
-    #TODO: remove once FT.HYBRID for cluster is implemented
-    @skip(cluster=True)
     def test_vector_only_return(self):
         """Test real timeout - vector only with RETURN policy"""
         env = Env(moduleArgs='ON_TIMEOUT RETURN')
@@ -228,8 +226,6 @@ class TestRealTimeouts(object):
         warnings = get_warnings(response)
         env.assertTrue('Timeout limit was reached (VSIM)' in warnings)
 
-    #TODO: remove once FT.HYBRID for cluster is implemented
-    @skip(cluster=True)
     def test_text_only_fail(self):
         """Test real timeout - text only with FAIL policy"""
         env = Env(moduleArgs='ON_TIMEOUT FAIL')
@@ -246,8 +242,6 @@ class TestRealTimeouts(object):
                    'PARAMS', '2', 'BLOB', query_vector.tobytes(),
                    'TIMEOUT', str(self.timeout_ms)).error().contains('Timeout limit was reached')
 
-    #TODO: remove once FT.HYBRID for cluster is implemented
-    @skip(cluster=True)
     def test_text_only_return(self):
         """Test real timeout - text only with RETURN policy"""
         env = Env(moduleArgs='ON_TIMEOUT RETURN')
@@ -267,8 +261,6 @@ class TestRealTimeouts(object):
         warnings = get_warnings(response)
         env.assertTrue('Timeout limit was reached (SEARCH)' in warnings)
 
-    #TODO: remove once FT.HYBRID for cluster is implemented
-    @skip(cluster=True)
     def test_hybrid_fail(self):
         """Test real timeout - hybrid (both text and vector) with FAIL policy"""
         env = Env(moduleArgs='ON_TIMEOUT FAIL')
@@ -283,8 +275,6 @@ class TestRealTimeouts(object):
                    '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector.tobytes(),
                    'TIMEOUT', str(self.timeout_ms)).error().contains('Timeout limit was reached')
 
-    #TODO: remove once FT.HYBRID for cluster is implemented
-    @skip(cluster=True)
     def test_hybrid_return(self):
         """Test real timeout - hybrid (both text and vector) with RETURN policy"""
         env = Env(moduleArgs='ON_TIMEOUT RETURN')
