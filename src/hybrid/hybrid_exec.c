@@ -299,16 +299,16 @@ done:
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
 
-    bool TimeoutInSubquery = false;
-    for(size_t i = 0; i < hreq->nrequests; i++) {
+    bool timeoutInSubquery = false;
+    for (size_t i = 0; i < hreq->nrequests; ++i) {
       QueryError* err = &hreq->errors[i];
-      char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
-      int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
+      const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
+      const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
 
-      TimeoutInSubquery = handleQueryError(reply, err, subQueryReturnCode, suffix, false);
+      timeoutInSubquery = timeoutInSubquery || handleQueryError(reply, err, subQueryReturnCode, suffix, false);
     }
     // Handle main query errors (POST PROCESSING)
-    handleQueryError(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, TimeoutInSubquery);
+    handleQueryError(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, timeoutInSubquery);
 
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 

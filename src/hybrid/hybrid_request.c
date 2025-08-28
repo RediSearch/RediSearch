@@ -168,11 +168,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     if (loadStep) {
         AGPLN_AddStep(&req->tailPipeline->ap, &loadStep->base);
     }
-    if (rc != REDISMODULE_OK) {
-        return rc;
-    };
-
-    return REDISMODULE_OK;
+    return rc;
 }
 
 /**
