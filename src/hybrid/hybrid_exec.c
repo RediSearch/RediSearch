@@ -74,7 +74,6 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
       size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
 
-      RedisModule_Reply_Map(reply);
       int i = 0;
       for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
         if (!kk->name || !skipFieldIndex[i++]) {
@@ -107,7 +106,6 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
         }
         RSValue_SendReply(reply, v, flags);
       }
-      RedisModule_Reply_MapEnd(reply);
     }
     RedisModule_Reply_MapEnd(reply); // >attributes
   }

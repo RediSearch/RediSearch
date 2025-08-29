@@ -107,7 +107,7 @@ def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Res
 
     Args:
         hybrid_results: Raw Redis hybrid response like:
-             ['format', 'STRING', 'results', [['attributes', [['__key', 'both_02', 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', '0.0312805474096']]], ...]]
+             ['format', 'STRING', 'results', ['attributes', ['__key', 'both_02', 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', '0.0312805474096']], ...]
         expected_results: Optional list of expected Result objects for comparison
 
     Returns:
@@ -132,10 +132,10 @@ def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Res
         if (len(result_item) >= 2 and
             result_item[0] == 'attributes' and
             result_item[1] and
-            isinstance(result_item[1][0], list)):
+            isinstance(result_item[1], list)):
 
             # Convert flat key-value list to dict using zip with slicing
-            attr_list = result_item[1][0]
+            attr_list = result_item[1]
             attrs = dict(zip(attr_list[::2], attr_list[1::2]))
 
             # Extract doc_id and score if both exist
