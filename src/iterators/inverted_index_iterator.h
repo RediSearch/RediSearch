@@ -20,23 +20,7 @@ extern "C" {
 typedef struct InvIndIterator {
   QueryIterator base;
 
-  const InvertedIndex *idx;
-
-  // the underlying data buffer iterator
-  IndexBlockReader blockReader;
-
-  /* The decoding function for reading the index */
-  IndexDecoderProcs decoders;
-  /* The decoder's filtering context. It may be a number or a pointer. The number is used for
-   * filtering field masks, the pointer for numeric filtering */
-  IndexDecoderCtx decoderCtx;
-
-  uint32_t currentBlock;
-
-  /* This marker lets us know whether the garbage collector has visited this index while the reading
-   * thread was asleep, and reset the state in a deeper way
-   */
-  uint32_t gcMarker;
+  IndexReader *reader;
 
   // Whether to skip multi values from the same doc
   // Stores the original requested value, even if skipping multi values is not needed (based on other information),
