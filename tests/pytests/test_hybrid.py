@@ -20,7 +20,6 @@ class testHybridSearch:
         self._create_index(self.index_name, self.dim)
         self._generate_hybrid_test_data(self.dim)
         self.vector_blob = create_np_array_typed([2.3] * self.dim).tobytes()
-        self.vector_blob_utf8 = f'{self.vector_blob.decode("utf-8")}'
 
 
     def _create_index(self, index_name: str, dim: int):
@@ -102,7 +101,7 @@ class testHybridSearch:
             "search_equivalent": "two",
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_wildcard_search(self):
         """Test hybrid search using KNN + wildcard search scenario"""
@@ -115,7 +114,7 @@ class testHybridSearch:
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
         # TODO: Why the search_equivalent query returns 'vector_' docs with higher scores than the ones from 'both_' docs?
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_custom_k(self):
         """Test hybrid search using KNN with custom k scenario"""
@@ -127,7 +126,7 @@ class testHybridSearch:
             "search_equivalent": "even",
             "vector_equivalent": "*=>[KNN 5 @vector $BLOB AS vector_distance]"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_custom_rrf_constant(self):
         """Test hybrid search using KNN with custom RRF CONSTANT"""
@@ -140,7 +139,7 @@ class testHybridSearch:
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]",
             "rrf_constant": 50
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_custom_rrf_window(self):
         """Test hybrid search using KNN with custom RRF WINDOW"""
@@ -153,7 +152,7 @@ class testHybridSearch:
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]",
             "vector_suffix": "LIMIT 0 2"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_ef_runtime(self):
         """Test hybrid search using KNN + EF_RUNTIME parameter"""
@@ -165,7 +164,7 @@ class testHybridSearch:
             "search_equivalent": "even",
             "vector_equivalent": "*=>[KNN 10 @vector_hnsw $BLOB EF_RUNTIME 100]=>{$YIELD_DISTANCE_AS: vector_distance}"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     # # TODO: Enable this test after adding support for YIELD_DISTANCE_AS in VSIM
     # def test_knn_yield_distance_as(self):
@@ -190,7 +189,7 @@ class testHybridSearch:
             "search_equivalent": "@text:(even)",
             "vector_equivalent": "(@text:(two|four|six))=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_numeric_vector_prefilter(self):
         """Test hybrid search using KNN + numeric prefilter"""
@@ -203,7 +202,7 @@ class testHybridSearch:
             "vector_equivalent": "(@number:[2 5])=>[KNN 10 @vector $BLOB AS vector_distance]",
             "vector_suffix": "LIMIT 0 10"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_tag_vector_prefilter(self):
         """Test hybrid search using KNN + tag prefilter"""
@@ -215,7 +214,7 @@ class testHybridSearch:
             "search_equivalent": "@text:even",
             "vector_equivalent": "(@tag:{odd})=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_no_vector_results(self):
         """Test hybrid search using KNN + vector prefilter that returns zero results"""
@@ -227,7 +226,7 @@ class testHybridSearch:
             "search_equivalent": "@text:even",
             "vector_equivalent": "(@tag:{invalid_tag})=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_no_text_results(self):
         """Test hybrid search using KNN + text prefilter that returns zero results"""
@@ -239,7 +238,7 @@ class testHybridSearch:
             "search_equivalent": "@text:(invalid_text)",
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     def test_knn_default_output(self):
         """Test hybrid search using default output fields"""
@@ -505,13 +504,12 @@ class testHybridSearch:
         expected_result[9] = ANY # Ignore execution time
 
         # Use parameters in vector value
-        vector = f'{self.vector_blob.decode("utf-8")}'
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[4 5]',
             'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[3 3]',
             'COMBINE', 'RRF', '2', 'K', '1',
-            'PARAMS', '2', 'MYVECTOR', self.vector_blob_utf8
+            'PARAMS', '2', 'MYVECTOR', self.vector_blob
         )
         res = self.env.executeCommand(*hybrid_cmd)
         self.env.assertEqual(res, expected_result)
@@ -521,7 +519,7 @@ class testHybridSearch:
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:($MYTEXT) @number:[4 5]',
-            'VSIM', '@vector', self.vector_blob_utf8, 'FILTER', '@number:[3 3]',
+            'VSIM', '@vector', self.vector_blob, 'FILTER', '@number:[3 3]',
             'COMBINE', 'RRF', '2', 'K', '1',
             'PARAMS', '2', 'MYTEXT', 'both',
             'DIALECT', '2'
@@ -534,7 +532,7 @@ class testHybridSearch:
         hybrid_cmd = (
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[4 5]',
-            'VSIM', '@vector', self.vector_blob_utf8,
+            'VSIM', '@vector', self.vector_blob,
             'FILTER', '@number:[$MYNUMBER 3]',
             'COMBINE', 'RRF', '2', 'K', '1',
             'PARAMS', '2', 'MYNUMBER', '3',
@@ -549,7 +547,7 @@ class testHybridSearch:
             'SEARCH', '@text:($MYTEXT) @number:[$FOUR $FIVE]',
             'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[$THREE $THREE]',
             'COMBINE', 'RRF', 2, 'K', 1,
-            'PARAMS', 10, 'MYTEXT', 'both', 'MYVECTOR', self.vector_blob_utf8,
+            'PARAMS', 10, 'MYTEXT', 'both', 'MYVECTOR', self.vector_blob,
             'THREE', 3, 'FOUR', 4, 'FIVE', 5,
             'DIALECT', 2
         )
@@ -565,7 +563,7 @@ class testHybridSearch:
         hybrid_cmd = [
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[1 3]',
-            'VSIM', '@vector', self.vector_blob_utf8,
+            'VSIM', '@vector', self.vector_blob,
             'FILTER', '@text:(both) @number:[1 3]',
             'COMBINE', 'RRF', '2', 'K', '3',
             'LOAD', '2', '__key', '__score',
@@ -610,7 +608,7 @@ class testHybridSearch:
             "search_equivalent": "@text:(four|even)",
             "vector_equivalent": "@vector:[VECTOR_RANGE 5 $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
         }
-        run_test_scenario(self.env, self.index_name, scenario)
+        run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
     # # TODO: Enable this test after fixing memory leak MOD-11140
     # def test_range_epsilon(self):
