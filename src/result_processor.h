@@ -61,9 +61,10 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_MAX,
   RP_TIMEOUT, // DEBUG ONLY
   RP_CRASH, // DEBUG ONLY
-  RP_MAX,
+  RP_PAUSE, // DEBUG ONLY
 } ResultProcessorType;
 
 struct ResultProcessor;
