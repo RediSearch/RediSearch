@@ -284,6 +284,19 @@ void Profile_AddRPs(QueryProcessingCtx *qiter);
 const char *RPTypeToString(ResultProcessorType type);
 
 /*******************************************************************************************************************
+ *  Normalizer Result Processor
+ *
+ * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+ * First accumulates all results from the upstream, then normalizes and yields them.
+ *******************************************************************************************************************/
+ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+/*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
+
+/*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY
  *
  * returns timeout after N results, N >= 0.
@@ -299,13 +312,6 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 ResultProcessor *RPCrash_New();
 void PipelineAddCrash(struct AREQ *r);
 
- /*******************************************************************************************************************
-  *  Normalizer Result Processor
-  *
-  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
-  * First accumulates all results from the upstream, then normalizes and yields them.
-  *******************************************************************************************************************/
- ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
 #ifdef __cplusplus
 }
