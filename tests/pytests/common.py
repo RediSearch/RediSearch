@@ -12,7 +12,7 @@ import itertools
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Dict
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -24,6 +24,7 @@ from unittest import SkipTest
 import inspect
 import subprocess
 import math
+import faker
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -942,3 +943,58 @@ def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
+
+def get_results_from_hybrid_response(response) -> Dict[str, float]:
+    """Assuming score and key in response, extract only them to the tuple
+
+    Args:
+        response: Hybrid search response containing results
+
+    Returns:
+        Dict mapping key -> score from the results list
+    """
+    # return dict mapping key -> score from the results list
+    res_results_index = recursive_index(response, 'results')
+    res_results_index[-1] += 1
+
+    results = {}
+    for result in access_nested_list(response, res_results_index):
+        key_index = recursive_index(result, '__key')
+        key_index[-1] += 1
+        score_index = recursive_index(result, '__score')
+        score_index[-1] += 1
+
+        key = access_nested_list(result, key_index)
+        score = float(access_nested_list(result, score_index))
+
+        results[key] = score
+    return results
+
+def populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345, offset=0):
+    """Populate database with faker-generated text documents
+
+    Args:
+        env: Test environment
+        num_docs: Number of documents to create
+        doc_len: Number of words per document (equivalent to dim parameter)
+        seed: Random seed for reproducibility
+        offset: Starting offset for document IDs (equivalent to ids_offset)
+    """
+    conn = getConnectionByEnv(env)
+    fake = faker.Faker()
+    fake.seed_instance(seed)
+
+    # Use pipeline for better performance
+    pipeline = conn.pipeline(transaction=False)
+    for i in range(num_docs):
+        # Generate sentences with specified number of words
+        text = fake.sentence(nb_words=doc_len, variable_nb_words=False).rstrip('.')
+        pipeline.execute_command('HSET', f'{offset + i}', 'description', text)
+
+        # Execute pipeline every 1000 docs to avoid memory issues
+        if i % 1000 == 0:
+            pipeline.execute()
+            pipeline = conn.pipeline(transaction=False)
+
+    # Execute remaining docs
+    pipeline.execute()
