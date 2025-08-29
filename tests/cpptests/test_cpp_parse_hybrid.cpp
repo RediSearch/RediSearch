@@ -214,9 +214,12 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
 }
 
-TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
-  // Test with RRF combine method with explicit K parameter
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "1.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+TEST_F(ParseHybridTest, testWithCombineRRFWithConstant) {
+  // Test with RRF combine method with explicit CONSTANT parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "2", "CONSTANT", "1.5",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -240,9 +243,12 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
-TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
-  // Test with RRF combine method with both K and WINDOW parameters
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "4", "K", "160", "WINDOW", "25", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+TEST_F(ParseHybridTest, testWithCombineRRFWithConstantAndWindow) {
+  // Test with RRF combine method with both CONSTANT and WINDOW parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "4", "CONSTANT", "160", "WINDOW", "25",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -253,9 +259,12 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
-TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
-  // Test with RRF combine method with floating-point K parameter
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "1.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+TEST_F(ParseHybridTest, testWithCombineRRFWithFloatConstant) {
+  // Test with RRF combine method with floating-point CONSTANT parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "2", "CONSTANT", "1.5",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -862,8 +871,11 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 // QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
 // These validation tests should be in execution tests, not parsing tests.
 
-TEST_F(ParseHybridTest, testCombineRRFInvalidKValue) {
-  // Test RRF with invalid K value (non-numeric)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value in RRF");
+TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
+  // Test RRF with invalid CONSTANT value (non-numeric)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "2", "CONSTANT", "invalid",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
 }

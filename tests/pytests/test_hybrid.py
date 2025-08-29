@@ -134,8 +134,8 @@ class testHybridSearch:
         if CLUSTER:
             raise SkipTest()
         scenario = {
-            "test_name": "KNN with custom k",
-            "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 COMBINE RRF 2 K 50",
+            "test_name": "KNN with custom RRF CONSTANT",
+            "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 2 K 10 COMBINE RRF 2 CONSTANT 50",
             "search_equivalent": "even",
             "vector_equivalent": "*=>[KNN 10 @vector $BLOB AS vector_distance]",
             "rrf_constant": 50
@@ -248,7 +248,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH '@text:(both) @number:[5 5]' "
             "VSIM @vector $BLOB FILTER '@number:[1 1]' "
-            "COMBINE RRF 2 K 1"
+            "COMBINE RRF 2 CONSTANT 1"
         )
         # DocId     | SEARCH_RANK | VECTOR_RANK | SCORE
         # ----------------------------------------------------
@@ -420,7 +420,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH '@text:(both) @number:[5 5]' "
             "VSIM @vector $BLOB FILTER '@number:[1 1]' "
-            "COMBINE RRF 2 K 1 "
+            "COMBINE RRF 2 CONSTANT 1 "
             "SORTBY 4 @__key DESC @__score ASC "
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
@@ -443,7 +443,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH '@text:(both) @number:[5 5]' "
             "VSIM @vector $BLOB FILTER '@number:[1 1]' "
-            "COMBINE RRF 2 K 1 "
+            "COMBINE RRF 2 CONSTANT 1 "
             "SORTBY 4 @__score ASC @__key ASC"
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
@@ -470,7 +470,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH '@text:(both) @number:[5 5]' "
             "VSIM @vector $BLOB FILTER '@number:[1 1]' "
-            "COMBINE RRF 2 K 1 "
+            "COMBINE RRF 2 CONSTANT 1 "
             "LOAD 3 @number @__key @__score "
             "APPLY 10-@number AS 10_minus_number "
             "SORTBY 6 @10_minus_number ASC @__key ASC @__score ASC"
@@ -498,7 +498,7 @@ class testHybridSearch:
         hybrid_query = (
             "SEARCH '@text:(both) @number:[4 5]' "
             "VSIM @vector $BLOB FILTER '@number:[3 3]' "
-            "COMBINE RRF 2 K 1"
+            "COMBINE RRF 2 CONSTANT 1"
         )
         hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
         expected_result = self.env.executeCommand(*hybrid_cmd)
@@ -510,7 +510,7 @@ class testHybridSearch:
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:(both) @number:[4 5]',
             'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[3 3]',
-            'COMBINE', 'RRF', '2', 'K', '1',
+            'COMBINE', 'RRF', '2', 'CONSTANT', '1',
             'PARAMS', '2', 'MYVECTOR', self.vector_blob_utf8
         )
         res = self.env.executeCommand(*hybrid_cmd)
@@ -522,7 +522,7 @@ class testHybridSearch:
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:($MYTEXT) @number:[4 5]',
             'VSIM', '@vector', self.vector_blob_utf8, 'FILTER', '@number:[3 3]',
-            'COMBINE', 'RRF', '2', 'K', '1',
+            'COMBINE', 'RRF', '2', 'CONSTANT', '1',
             'PARAMS', '2', 'MYTEXT', 'both',
             'DIALECT', '2'
         )
@@ -536,7 +536,7 @@ class testHybridSearch:
             'SEARCH', '@text:(both) @number:[4 5]',
             'VSIM', '@vector', self.vector_blob_utf8,
             'FILTER', '@number:[$MYNUMBER 3]',
-            'COMBINE', 'RRF', '2', 'K', '1',
+            'COMBINE', 'RRF', '2', 'CONSTANT', '1',
             'PARAMS', '2', 'MYNUMBER', '3',
             'DIALECT', '2'
         )
@@ -548,7 +548,7 @@ class testHybridSearch:
             'FT.HYBRID', self.index_name,
             'SEARCH', '@text:($MYTEXT) @number:[$FOUR $FIVE]',
             'VSIM', '@vector', '$MYVECTOR', 'FILTER', '@number:[$THREE $THREE]',
-            'COMBINE', 'RRF', 2, 'K', 1,
+            'COMBINE', 'RRF', 2, 'CONSTANT', 1,
             'PARAMS', 10, 'MYTEXT', 'both', 'MYVECTOR', self.vector_blob_utf8,
             'THREE', 3, 'FOUR', 4, 'FIVE', 5,
             'DIALECT', 2
@@ -567,7 +567,7 @@ class testHybridSearch:
             'SEARCH', '@text:(both) @number:[1 3]',
             'VSIM', '@vector', self.vector_blob_utf8,
             'FILTER', '@text:(both) @number:[1 3]',
-            'COMBINE', 'RRF', '2', 'K', '3',
+            'COMBINE', 'RRF', '2', 'CONSTANT', '3',
             'LOAD', '2', '__key', '__score',
         ]
         unfiltered_res = self.env.executeCommand(*hybrid_cmd)
