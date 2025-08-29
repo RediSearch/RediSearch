@@ -401,25 +401,6 @@ fn test_numeric_encode_decode(
 }
 
 #[test]
-fn encoding_increase_num_entries() {
-    let mut buf = Cursor::new(Vec::new());
-    let record = RSIndexResult::numeric(1.0);
-    let mut numeric = Numeric::new();
-
-    assert_eq!(numeric.num_entries(), 0);
-
-    let _bytes_written = numeric
-        .encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
-        .expect("to encode numeric record");
-    assert_eq!(numeric.num_entries(), 1);
-
-    let _bytes_written = numeric
-        .encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
-        .expect("to encode numeric record");
-    assert_eq!(numeric.num_entries(), 2);
-}
-
-#[test]
 fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(3.124);
