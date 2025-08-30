@@ -82,10 +82,19 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  // Handle crash
   if (crash) {
     PipelineAddCrash(&debug_req->r);
   }
 
+  // Error handling: Verify internal_only is used with timeout
+  if (internal_only && !AC_IsInitialized(&timeoutArgs)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS,
+                        "INTERNAL_ONLY must be used with TIMEOUT_AFTER_N");
+    return REDISMODULE_ERR;
+  }
+
+  // Handle timeout
   if (AC_IsInitialized(&timeoutArgs)) {
     unsigned long long results_count = -1;
     if (AC_GetUnsignedLongLong(&timeoutArgs, &results_count, AC_F_GE0) != AC_OK) {
@@ -115,13 +124,10 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       // Take this into account when adding more debug types that are modifying the rp pipeline.
       PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
     }
-  } else {
-    if (internal_only) {
-      QueryError_SetError(status, QUERY_EPARSEARGS,
-                          "INTERNAL_ONLY must be used with TIMEOUT_AFTER_N");
-      return REDISMODULE_ERR;
-    }
   }
+
+  // Handle out of memory
+
 
   return REDISMODULE_OK;
 }
