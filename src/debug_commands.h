@@ -11,6 +11,7 @@
 #include "redismodule.h"
 #include  <stdbool.h>
 #include <stdatomic.h>
+#include "result_processor.h"
 
 #define RS_DEBUG_FLAGS 0, 0, 0
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -38,6 +39,7 @@ typedef struct BgIndexingDebugCtx {
 typedef struct QueryDebugCtx {
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
   bool pauseOnOOM; // Whether to pause on OOM
+  ResultProcessor *debugRP; // Result processor for debugging, supports debugging one query at a time
 } QueryDebugCtx;
 
 // General debug context

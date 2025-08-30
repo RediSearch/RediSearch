@@ -1830,6 +1830,68 @@ DEBUG_COMMAND(YieldCounter) {
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
 }
 
+/**
+ * FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME
+ */
+DEBUG_COMMAND(setPauseRPResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  globalDebugCtx.query.pause = false;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER GET_IS_RP_PAUSED
+ */
+DEBUG_COMMAND(getIsRPPaused) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Check availability of the debug RP
+  if (globalDebugCtx.query.debugRP == NULL) {
+    return RedisModule_ReplyWithError(ctx, "Result processor is not available");
+  }
+
+  // Verify the type of the debug RP
+  if (globalDebugCtx.query.debugRP->type != RP_PAUSE) {
+    return RedisModule_ReplyWithError(ctx, "Result processor is not of type PAUSE");
+  }
+
+  return RedisModule_ReplyWithLongLong(ctx, globalDebugCtx.query.pause);
+}
+
+/**
+ * FT.DEBUG QUERY_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(queryController) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_PAUSE_RP_RESUME", op)) {
+    return setPauseRPResume(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("GET_IS_RP_PAUSED", op)) {
+    return getIsRPPaused(ctx, argv + 1, argc - 1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1866,6 +1928,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"QUERY_CONTROLLER", queryController},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
