@@ -314,6 +314,14 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 ResultProcessor *RPCrash_New();
 void PipelineAddCrash(struct AREQ *r);
 
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPPauseAfterCount_New(size_t count);
+void PipelineAddPauseAfterCount(struct AREQ *r, size_t results_count);
+
 
 #ifdef __cplusplus
 }

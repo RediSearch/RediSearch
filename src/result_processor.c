@@ -17,6 +17,7 @@
 #include "util/arr.h"
 #include "iterators/empty_iterator.h"
 #include "rs_wall_clock.h"
+#include "debug_commands.h"
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1287,19 +1288,6 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  *
  * *******************************************************************************************************************/
 
-/*******************************************************************************************************************
- *  Timeout Processor - DEBUG ONLY
- *
- * returns timeout after N results, N >= 0.
- * If N is larger than the actual results, EOF is returned.
- *******************************************************************************************************************/
-
-typedef struct {
-  ResultProcessor base;
-  uint32_t count;
-  uint32_t remaining;
-} RPTimeoutAfterCount;
-
 // Insert the result processor between the last result processor and its downstream result processor
 static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
   ResultProcessor *cur = r->qiter.endProc;
@@ -1320,6 +1308,20 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
   // Update the endProc to the new head in case it was changed
   r->qiter.endProc = dummyHead.upstream;
 }
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ * If N is larger than the actual results, EOF is returned.
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  uint32_t count;
+  uint32_t remaining;
+} RPTimeoutAfterCount;
+
 
 /** For debugging purposes
  * Will add a result processor that will return timeout according to the results count specified.
@@ -1416,8 +1418,62 @@ void PipelineAddCrash(struct AREQ *r) {
  *  Pause Processor - DEBUG ONLY
  * TBD
  *******************************************************************************************************************/
+extern DebugCTX globalDebugCtx;
+
+
 typedef struct {
   ResultProcessor base;
   uint32_t count;
   uint32_t remaining;
-} RPTimeoutAfterCount;
+  bool paused;
+} RPPauseAfterCount;
+
+void PipelineAddPauseAfterCount(AREQ *r, size_t results_count) {
+  ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
+  addResultProcessor(r, RPPauseAfterCount);
+}
+
+static void RPPauseAfterCount_Pause(RPPauseAfterCount *self) {
+
+  globalDebugCtx.query.pause = true;
+  self->paused = true;
+  while (globalDebugCtx.query.pause) { // volatile variable
+    usleep(1000);
+  }
+  self->paused = false;
+}
+
+static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
+  RPPauseAfterCount *self = (RPPauseAfterCount *)base;
+
+  // If we've reached COUNT:
+  if (!self->remaining) {
+    RPPauseAfterCount_Pause(self);
+  }
+
+  self->remaining--;
+  return base->upstream->Next(base->upstream, r);
+}
+
+static void RPPauseAfterCount_Free(ResultProcessor *base) {
+  rm_free(base);
+  // Clear the debugRP pointer if it points to us
+  if (globalDebugCtx.query.debugRP == base) {
+    globalDebugCtx.query.debugRP = NULL;
+  }
+}
+
+ResultProcessor *RPPauseAfterCount_New(size_t count) {
+  RPPauseAfterCount *ret = rm_calloc(1, sizeof(RPPauseAfterCount));
+  ret->count = count;
+  ret->remaining = count;
+  ret->base.type = RP_PAUSE;
+  ret->base.Next = RPPauseAfterCount_Next;
+  ret->base.Free = RPPauseAfterCount_Free;
+
+  // Expect query.debugRP to be NULL
+  // TODO - assert/expect/crash if not null
+  globalDebugCtx.query.debugRP = &ret->base;
+
+  return &ret->base;
+}

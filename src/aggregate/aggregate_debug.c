@@ -54,6 +54,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   ArgsCursor timeoutArgs = {0};
   int crash = 0;
   int internal_only = 0;
+  ArgsCursor pauseArgs = {0};
   ACArgSpec debugArgsSpec[] = {
       // Getting TIMEOUT_AFTER_N as an array to use AC_IsInitialized API.
       {.name = "TIMEOUT_AFTER_N",
@@ -64,6 +65,11 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       {.name = "CRASH", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash},
       // optional arg for TIMEOUT_AFTER_N
       {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
+      // pause after N results
+      {.name = "PAUSE_AFTER_N",
+       .type = AC_ARGTYPE_SUBARGS_N,
+       .target = &pauseArgs,
+       .slicelen = 1},
       {NULL}};
 
   ACArgSpec *errSpec = NULL;
@@ -126,7 +132,15 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     }
   }
 
-  // Handle out of memory
+  // Handle pause
+  if (AC_IsInitialized(&pauseArgs)) {
+    unsigned long long results_count = -1;
+    if (AC_GetUnsignedLongLong(&pauseArgs, &results_count, AC_F_GE0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid PAUSE_AFTER_N count");
+      return REDISMODULE_ERR;
+    }
+    PipelineAddPauseAfterCount(&debug_req->r, results_count);
+  }
 
 
   return REDISMODULE_OK;
