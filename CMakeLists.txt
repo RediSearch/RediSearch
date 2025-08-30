@@ -304,7 +304,7 @@ set_target_properties(redisearch
     C_STANDARD 17
     C_STANDARD_REQUIRED ON)
 setup_shared_object_target(redisearch "")
-target_link_libraries(redisearch
+target_link_libraries(redisearch PUBLIC
         redisearch-geometry
         redisearch-hash
         VectorSimilarity
@@ -319,6 +319,10 @@ target_link_libraries(redisearch
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
+
+target_compile_options(redisearch PRIVATE -static-libstdc++)
+target_link_libraries(redisearch PRIVATE -static-libstdc++)
+set_target_properties(redisearch PROPERTIES INTERFACE_LINK_LIBRARIES "")
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
