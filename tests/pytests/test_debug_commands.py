@@ -58,6 +58,7 @@ class TestDebugCommands(object):
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
             'YIELDS_ON_LOAD_COUNTER',
+            'QUERY_CONTROLLER',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
@@ -1034,3 +1035,67 @@ def test_yield_counter(env):
     # Giving wrong subcommand
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
     .contains('Unknown subcommand')
+
+@skip(cluster=True)
+def test_query_controller(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'NOT_A_COMMAND').error()\
+    .contains("Invalid command for 'QUERY_CONTROLLER'")
+
+@skip(cluster=True)
+def test_query_controller_pause_and_resume(env):
+    import threading
+    import time
+
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+
+    # Set workers to 1 to make sure the query can be paused
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
+
+    # Create 1 docs
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    queries_completed = 0
+
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads (note: pass the function to target, don't call it)
+        t_query = threading.Thread(
+            target=_call_and_store,
+            args=(runDebugQueryCommandPauseAfterN,
+                (env, [query_type, 'idx', '*'], 0),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+
+        # If we are here, the query is paused
+        # Verify workers status
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], queries_completed)
+
+        # Resume the query
+        setPauseRPResume(env)
+
+        t_query.join()
+
+        queries_completed += 1
+
+        # Verify the query returned only 1 result
+        env.assertEqual(query_result[0][0], 1)
