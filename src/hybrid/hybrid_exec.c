@@ -331,7 +331,7 @@ static void FreeHybridRequest(void *ptr) {
  * @param internal Whether the request is internal (not exposed to the user)
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
 */
-static int HybridRequest_InternalBuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams,
+static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams,
                                                          RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
                                                          bool internal) {
   // Build the pipeline and execute
@@ -376,7 +376,8 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, hybridParams, blockedClient, spec_ref, internal);
 
-    // TODO mark the hreq as running in the background
+    // Mark the hreq as running in the background
+    HREQ_AddRequestFlags(hreq, QEXEC_F_RUN_IN_BACKGROUND);
     // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
@@ -388,7 +389,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     return REDISMODULE_OK;
   } else {
     // Single-threaded execution path
-    return HybridRequest_InternalBuildPipelineAndExecute(hreq, hybridParams, ctx, sctx, status, internal);
+    return buildPipelineAndExecute(hreq, hybridParams, ctx, sctx, status, internal);
   }
 }
 
@@ -509,7 +510,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     sctx->redisCtx = outctx;
   }
 
-  if (HybridRequest_InternalBuildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, BCHCtx->internal) == REDISMODULE_OK) {
+  if (buildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, BCHCtx->internal) == REDISMODULE_OK) {
     // Set hreq and hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hreq = NULL;
     BCHCtx->hybridParams = NULL;

@@ -34,6 +34,7 @@ typedef struct blockedClientHybridCtx {
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
+  // We need to know what kind of cursor to open, either multiple cursors if it is an internal command(shard) or single if it is a user command(coordinator)
   bool internal;
 } blockedClientHybridCtx;
 
@@ -46,6 +47,7 @@ typedef struct blockedClientHybridCtx {
  * @param nrequests Number of requests in the array
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+
 /**
  * Build the depletion pipeline for hybrid search processing.
  * This function constructs the first part of the hybrid search pipeline that:
@@ -63,6 +65,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @return Array of depleter processors that will feed the merge pipeline, or NULL on failure
  */
 arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
+
 /**
  * Build the merge pipeline for hybrid search processing.
  * This function constructs the second part of the hybrid search pipeline that:
@@ -81,6 +84,7 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
 int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, arrayof(ResultProcessor*) depleters);
+
 /**
  * Build the complete hybrid search pipeline.
  * This function orchestrates the construction of both the depletion and merge pipelines.
@@ -90,8 +94,11 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params);
+
 void HybridRequest_Free(HybridRequest *req);
+
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
+
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
 
 /**

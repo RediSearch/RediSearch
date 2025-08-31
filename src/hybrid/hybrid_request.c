@@ -41,7 +41,7 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
             return NULL;
         }
 
-        // Set resultLimit for individual AREQ pipelines using the same logic as sendChunk()
+        // Obtain the query processing context for the current AREQ
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
