@@ -336,7 +336,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(hreq, hybridParams, blockedClient, spec_ref, internal);
 
     // Mark the hreq as running in the background
-    HREQ_AddRequestFlags(hreq, QEXEC_F_RUN_IN_BACKGROUND);
+    hreq->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
     // Mark the requests as thread safe, so that the pipeline will be built in a thread safe manner
     for (size_t i = 0; i < hreq->nrequests; i++) {
       AREQ_AddRequestFlags(hreq->requests[i], QEXEC_F_RUN_IN_BACKGROUND);
