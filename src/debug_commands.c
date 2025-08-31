@@ -1861,11 +1861,6 @@ DEBUG_COMMAND(getIsRPPaused) {
     return RedisModule_WrongArity(ctx);
   }
 
-  // Check availability of the debug RP
-  if (globalDebugCtx.query.debugRP == NULL) {
-    return RedisModule_ReplyWithError(ctx, "Result processor is not available");
-  }
-
   // Verify the type of the debug RP
   if (globalDebugCtx.query.debugRP->type != RP_PAUSE) {
     return RedisModule_ReplyWithError(ctx, "Result processor is not of type PAUSE");
