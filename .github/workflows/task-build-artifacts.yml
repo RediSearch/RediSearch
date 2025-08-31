@@ -157,7 +157,7 @@ jobs:
         env:
           COORD: rlec
           MAX_WORKER_THREADS: ${{ vars.MAX_WORKER_THREADS }}
-          SVS_PRE_COMPILED_LIB: 1
+          SVS_BASE_URL: ${{ vars.SVS_BASE_URL }}
         run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
