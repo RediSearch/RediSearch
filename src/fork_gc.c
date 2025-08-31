@@ -34,6 +34,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
+#include "util/redis_mem_info.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -1256,22 +1257,11 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
-  #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
-  RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+  // Debug log the memory ratio
+  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+  RedisModule_Log(ctx, "debug", "ForkGC - used memory ratio: %f", used_memory_ratio);
 
-  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
-  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
-  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
-
-  size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
-  maxmemory = MIN_NOT_0(maxmemory, total_system_memory);
-
-  size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
-
-  RedisModule_FreeServerInfo(ctx, info);
-
-  RedisModule_Log(ctx, "debug", "ForkGC - checking memory: maxmemory=%zu, used_memory=%zu", maxmemory, used_memory);
-  return used_memory > maxmemory;
+  return used_memory_ratio > 1;
 }
 
 static int periodicCb(void *privdata) {
