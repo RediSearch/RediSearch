@@ -21,7 +21,7 @@
  *
  * */
 
-// Get the used memory ratio from Redis.
+// Get the used memory ratio from Redis modules API.
 // If the ratio is 1 or more, we are out of memory.
 // The memory limit is calculated against the following:
 // OSS : maxmemory
@@ -31,7 +31,7 @@ static inline bool RedisMemory_isOutOfMemory(void) {
   return RedisModule_GetUsedMemoryRatio() >= 1;
 }
 
-// Get the used memory ratio from Redis.
+// Get the used memory ratio from Redis modules API.
 // The ratio is calculated by dividing the used memory by the memory limit.
 // OSS : maxmemory
 // Enterprise : MIN(max_process_mem, maxmemory)
@@ -43,4 +43,6 @@ static inline float RedisMemory_GetUsedMemoryRatio(void) {
 // Get the used memory ratio from Redis server info.
 // Same function as before
 // GIL must be held before calling this function
+// Returns 0 if maxmemory is 0
+// TODO: remove this function and use RedisMemory_GetUsedMemoryRatio instead after benchmarking
 float Unified_GetUsedMemoryRatio(RedisModuleCtx *ctx);
