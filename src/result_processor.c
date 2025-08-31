@@ -1309,6 +1309,30 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
   r->qiter.endProc = dummyHead.upstream;
 }
 
+// Insert the result processor before the first occurrence of a specific RP type
+static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultProcessorType target_type) {
+  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor dummyHead = { .upstream = cur };
+  ResultProcessor *downstream = &dummyHead;
+
+  // Search for the target result processor type
+  while (cur) {
+    if (cur->type == target_type) {
+      rp->parent = &r->qiter;
+      downstream->upstream = rp;
+      rp->upstream = cur;
+      // Update the endProc to the new head in case it was changed
+      r->qiter.endProc = dummyHead.upstream;
+      return true;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+  // Target type not found
+  return false;
+}
+
+
 /*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY
  *
