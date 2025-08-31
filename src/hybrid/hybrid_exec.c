@@ -293,6 +293,17 @@ done_err:
     finishSendChunk_HREQ(hreq, results, &r, clock() - hreq->initClock);
 }
 
+static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
+  if (hybridParams == NULL) {
+    return;
+  }
+  if (hybridParams->scoringCtx) {
+    HybridScoringContext_Free(hybridParams->scoringCtx);
+    hybridParams->scoringCtx = NULL;
+  }
+  rm_free(hybridParams);
+}
+
 /**
  * Destroy a blocked client hybrid context and clean up resources.
  *
@@ -418,22 +429,26 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
   arrayof(ResultProcessor*) depleters = NULL;
+  int rc = REDISMODULE_OK;
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
     depleters = HybridRequest_BuildDepletionPipeline(hreq, hybridParams);
     if (!depleters) {
-      return REDISMODULE_ERR;
+      rc = REDISMODULE_ERR;
     }
-  } else {
-    if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
-    }
+  } else if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
+    rc = REDISMODULE_ERR;
   }
 
+  freeHybridParams(hybridParams);
+  hybridParams = NULL;
+  if (rc != REDISMODULE_OK) {
+    return rc;
+  }
+  
   if (isCursor) {
-    int rc = REDISMODULE_OK;
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     StrongRef hybrid_ref = StrongRef_New(hreq, &FreeHybridRequest);
     RS_ASSERT(depleters);
@@ -450,10 +465,8 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   } else {
     // Hybrid query doesn't support cursors.
     HybridRequest_Execute(hreq, ctx, sctx);
+    return REDISMODULE_OK;
   }
-  // free hybridParams - ownership of scoringCtx was transferred to the pipeline
-  rm_free(hybridParams);
-  return REDISMODULE_OK;
 }
 
 // Background execution functions implementation
@@ -547,13 +560,7 @@ error:
   if (hybridRequest) {
     HybridRequest_Free(hybridRequest);
   }
-  if (cmd.hybridParams) {
-    if (cmd.hybridParams->scoringCtx) {
-      HybridScoringContext_Free(cmd.hybridParams->scoringCtx);
-    }
-    rm_free(cmd.hybridParams);
-  }
-
+  freeHybridParams(cmd.hybridParams);
   CurrentThread_ClearIndexSpec();
   return QueryError_ReplyAndClear(ctx, &status);
 }
@@ -567,12 +574,7 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
   if (BCHCtx->hreq) {
     HybridRequest_Free(BCHCtx->hreq);
   }
-  if (BCHCtx->hybridParams) {
-    if (BCHCtx->hybridParams->scoringCtx) {
-      HybridScoringContext_Free(BCHCtx->hybridParams->scoringCtx);
-    }
-    rm_free(BCHCtx->hybridParams);
-  }
+  freeHybridParams(BCHCtx->hybridParams);
   RedisModule_BlockedClientMeasureTimeEnd(BCHCtx->blockedClient);
   void *privdata = RedisModule_BlockClientGetPrivateData(BCHCtx->blockedClient);
   RedisModule_UnblockClient(BCHCtx->blockedClient, privdata);
