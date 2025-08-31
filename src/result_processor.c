@@ -223,7 +223,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 
         // Consume one ready dmd from the disk doc-table
         DiskDocumentMetadata ddmd = SearchDisk_WaitDmd(spec->diskSpec,
-                                      (long long) (RP_SCTX(base)->time.timeout.tv_sec * 1000),
+                                      (long long) (RP_SCTX(base)->time.timeout.tv_sec * 1000 * 1000), // TODO: Remove last *1000, temporarily high for debugging.
                                       &sdsnewlen);
         if (!ddmd.key) {
           // Timeout or no ready completion yet — retry in next rpidxNext iteration
