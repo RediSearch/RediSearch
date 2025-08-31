@@ -30,6 +30,7 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
+#include "hybrid/parse/hybrid_optional_args.h"
 
 
 static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
@@ -372,97 +373,6 @@ error:
   return REDISMODULE_ERR;
 }
 
-/**
- * Parse COMBINE clause parameters for hybrid scoring configuration.
- *
- * Supports LINEAR (requires numWeights weight values) and RRF (optional K and WINDOW parameters).
- * Defaults to RRF if no method specified. Uses hybrid-specific defaults: RRF K=60, WINDOW=20.
- * WINDOW parameter controls the number of results consumed from each subquery before fusion.
- * When WINDOW is not explicitly set, it can be overridden by LIMIT parameter in fallback logic.
- *
- * @param ac Arguments cursor positioned after "COMBINE"
- * @param combineCtx Hybrid scoring context to populate (window field and hasExplicitWindow flag are set)
- * @param numWeights Number of weight values required for LINEAR scoring
- * @param status Output parameter for error reporting
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
- */
-static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t numWeights, QueryError *status) {
-  // Check if a specific method is provided
-  if (AC_AdvanceIfMatch(ac, "LINEAR")) {
-    combineCtx->scoringType = HYBRID_SCORING_LINEAR;
-  } else if (AC_AdvanceIfMatch(ac, "RRF")) {
-    combineCtx->scoringType = HYBRID_SCORING_RRF;
-  } else {
-    combineCtx->scoringType = HYBRID_SCORING_RRF;
-  }
-
-  // Parse parameters based on scoring type
-  if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
-    combineCtx->linearCtx.numWeights = numWeights;
-
-    // Parse the weight values directly
-    for (size_t i = 0; i < numWeights; i++) {
-      double weight;
-      if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
-        goto error;
-      }
-      combineCtx->linearCtx.linearWeights[i] = weight;
-    }
-  } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
-    // For RRF, we need k and window parameters
-    ArgsCursor params = {0};
-    int rv = AC_GetVarArgs(ac, &params);
-
-    // Initialize with defaults
-    combineCtx->rrfCtx.k = HYBRID_DEFAULT_RRF_K;
-    combineCtx->rrfCtx.window = HYBRID_DEFAULT_WINDOW;
-    combineCtx->rrfCtx.hasExplicitWindow = false;
-
-    if (rv == AC_OK) {
-      // Parameters were provided
-      if (params.argc % 2 != 0) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "RRF parameters must be in name-value pairs");
-        goto error;
-      }
-
-      // Parse the specified parameters
-      while (!AC_IsAtEnd(&params)) {
-        const char *paramName = AC_GetStringNC(&params, NULL);
-        if (!paramName) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter name in RRF");
-          goto error;
-        }
-
-        if (strcasecmp(paramName, "K") == 0) {
-          double k;
-          if (AC_GetDouble(&params, &k, 0) != AC_OK || k <= 0) {
-            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value in RRF");
-            goto error;
-          }
-          combineCtx->rrfCtx.k = k;
-        } else if (strcasecmp(paramName, "WINDOW") == 0) {
-          long long window;
-          if (AC_GetLongLong(&params, &window, 0) != AC_OK || window <= 0) {
-            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid WINDOW value in RRF");
-            goto error;
-          }
-          combineCtx->rrfCtx.window = window;
-          combineCtx->rrfCtx.hasExplicitWindow = true;
-        } else {
-          QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RRF", paramName);
-          goto error;
-        }
-      }
-    }
-  }
-
-  return REDISMODULE_OK;
-error:
-  return REDISMODULE_ERR;
-}
-
 
 // Copy request configuration from source to destination
 static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
@@ -636,36 +546,27 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  // Look for optional COMBINE parameter
-  if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
-    if (parseCombine(&ac, hybridParams->scoringCtx, HYBRID_REQUEST_NUM_SUBQUERIES, status) != REDISMODULE_OK) {
-      goto error;
-    }
+  HybridParseContext hybridParseCtx = {
+      .status = status,
+      .hadAdditionalArgs = false,
+      .dialectSpecified = false,
+      .hybridScoringCtx = hybridParams->scoringCtx,
+      .numSubqueries = HYBRID_REQUEST_NUM_SUBQUERIES,
+      .plan = parsedCmdCtx->tailPlan,
+      .reqflags = mergeReqflags,
+      .searchopts = &mergeSearchopts,
+      .cursorConfig = parsedCmdCtx->cursorConfig,
+      .reqConfig = parsedCmdCtx->reqConfig,
+      .maxResults = &mergeMaxSearchResults,
+  };
+  if (HybridParseOptionalArgs(&hybridParseCtx, &ac) != REDISMODULE_OK) {
+    goto error;
   }
 
   // Save the current position to determine remaining arguments for the merge part
-  const int remainingOffset = (int) ac.offset;
-  const int remainingArgs = argc - 2 - remainingOffset;
-
-  // If there are remaining arguments, parse them into the aggregate plan
-  if (remainingArgs > 0) {
+  if (hybridParseCtx.hadAdditionalArgs) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
     RSSearchOptions_Init(&mergeSearchopts);
-
-    ParseAggPlanContext papCtx = {
-      .plan = parsedCmdCtx->tailPlan,
-      .reqflags = mergeReqflags,
-      .reqConfig = parsedCmdCtx->reqConfig,
-      .searchopts = &mergeSearchopts,
-      .prefixesOffset = NULL,               // Invalid in FT.HYBRID
-      .cursorConfig = parsedCmdCtx->cursorConfig,
-      .requiredFields = NULL,               // Invalid in FT.HYBRID
-      .maxSearchResults = &mergeMaxSearchResults,
-      .maxAggregateResults = &mergeMaxAggregateResults
-    };
-    if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
-      goto error;
-    }
 
     if (mergeSearchopts.params) {
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
