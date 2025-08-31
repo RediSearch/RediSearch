@@ -31,4 +31,9 @@ if [[ $BOOST_EXIT_CODE -ne 0 ]]; then
     exit $BOOST_EXIT_CODE
 fi
 
+# Install Rust and Python here since they're needed on all platforms and
+# the installer doesn't rely on any platform-specific tools (e.g. the package manager)
+source install_rust.sh
+source install_python.sh
+
 git config --global --add safe.directory '*'
