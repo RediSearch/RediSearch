@@ -30,6 +30,7 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
+#include "hybrid/parse/hybrid_optional_args.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -727,11 +728,21 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  // Look for optional COMBINE argument
-  if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
-    if (parseCombine(&ac, hybridParams->scoringCtx, HYBRID_REQUEST_NUM_SUBQUERIES, status) != REDISMODULE_OK) {
-      goto error;
-    }
+  HybridParseContext hybridParseCtx = {
+      .status = status,
+      .hadAdditionalArgs = false,
+      .dialectSpecified = false,
+      .hybridScoringCtx = hybridParams->scoringCtx,
+      .numSubqueries = HYBRID_REQUEST_NUM_SUBQUERIES,
+      .plan = parsedCmdCtx->tailPlan,
+      .reqflags = mergeReqflags,
+      .searchopts = &mergeSearchopts,
+      .cursorConfig = parsedCmdCtx->cursorConfig,
+      .reqConfig = parsedCmdCtx->reqConfig,
+      .maxResults = &mergeMaxSearchResults,
+  };
+  if (HybridParseOptionalArgs(&hybridParseCtx, &ac) != REDISMODULE_OK) {
+    goto error;
   }
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
@@ -755,28 +766,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
   // Save the current position to determine remaining arguments for the merge part
-  const int remainingOffset = (int) ac.offset;
-  const int remainingArgs = argc - 2 - remainingOffset;
-
-  // If there are remaining arguments, parse them into the aggregate plan
-  if (remainingArgs > 0) {
+  if (hybridParseCtx.hadAdditionalArgs) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
     RSSearchOptions_Init(&mergeSearchopts);
-
-    ParseAggPlanContext papCtx = {
-      .plan = parsedCmdCtx->tailPlan,
-      .reqflags = mergeReqflags,
-      .reqConfig = parsedCmdCtx->reqConfig,
-      .searchopts = &mergeSearchopts,
-      .prefixesOffset = NULL,               // Invalid in FT.HYBRID
-      .cursorConfig = parsedCmdCtx->cursorConfig,
-      .requiredFields = NULL,               // Invalid in FT.HYBRID
-      .maxSearchResults = &mergeMaxSearchResults,
-      .maxAggregateResults = &mergeMaxAggregateResults
-    };
-    if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
-      goto error;
-    }
 
     if (mergeSearchopts.params) {
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
