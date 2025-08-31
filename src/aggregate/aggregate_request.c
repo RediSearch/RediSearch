@@ -1189,8 +1189,11 @@ static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
 
-  QueryNode_AddChild(vecNode, ast->root);
+  // Set vector node as ast->root and use setFilterNode for proper filter integration
+  // setFilterNode handles both KNN (child relationship) and RANGE (intersection) properly
+  QueryNode *oldRoot = ast->root;
   ast->root = vecNode;
+  setFilterNode(ast, oldRoot);
 
   return REDISMODULE_OK;
 }

@@ -397,7 +397,7 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   return ret;
 }
 
-static void setFilterNode(QueryAST *q, QueryNode *n) {
+void setFilterNode(QueryAST *q, QueryNode *n) {
   if (q->root == NULL || n == NULL) return;
 
   // for a simple phrase node we just add the numeric node
