@@ -208,8 +208,7 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
   b->buf = buf;
 }
 
-void InvertedIndex_Free(void *ctx) {
-  InvertedIndex *idx = ctx;
+void InvertedIndex_Free(InvertedIndex *idx) {
   size_t numBlocks = InvertedIndex_NumBlocks(idx);
   TotalIIBlocks -= numBlocks;
   for (uint32_t i = 0; i < numBlocks; i++) {
@@ -232,8 +231,8 @@ void InvertedIndex_Free(void *ctx) {
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
   uint32_t offsets_len;
-  const RSTermRecord *term = IndexResult_TermRef(res);
-  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
+  const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(offsets, &offsets_len);
   size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -241,8 +240,8 @@ ENCODER(encodeFull) {
 
 ENCODER(encodeFullWide) {
   uint32_t offsets_len;
-  const RSTermRecord *term = IndexResult_TermRef(res);
-  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
+  const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(offsets, &offsets_len);
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
@@ -279,8 +278,8 @@ ENCODER(encodeFieldsOnlyWide) {
 // 5. (field, offset)
 ENCODER(encodeFieldsOffsets) {
   uint32_t offsets_len;
-  const RSTermRecord *term = IndexResult_TermRef(res);
-  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
+  const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(offsets, &offsets_len);
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, offsets_len);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -288,8 +287,8 @@ ENCODER(encodeFieldsOffsets) {
 
 ENCODER(encodeFieldsOffsetsWide) {
   uint32_t offsets_len;
-  const RSTermRecord *term = IndexResult_TermRef(res);
-  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
+  const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(offsets, &offsets_len);
   size_t sz = qint_encode2(bw, delta, offsets_len);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
@@ -299,8 +298,8 @@ ENCODER(encodeFieldsOffsetsWide) {
 // 6. Offsets only
 ENCODER(encodeOffsetsOnly) {
   uint32_t offsets_len;
-  const RSTermRecord *term = IndexResult_TermRef(res);
-  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
+  const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(offsets, &offsets_len);
   size_t sz = qint_encode2(bw, delta, offsets_len);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -309,8 +308,8 @@ ENCODER(encodeOffsetsOnly) {
 // 7. Offsets and freqs
 ENCODER(encodeFreqsOffsets) {
   uint32_t offsets_len;
-  const RSTermRecord *term = IndexResult_TermRef(res);
-  const char *offsets_data = RSOffsetVector_GetData(&term->offsets, &offsets_len);
+  const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
+  const char *offsets_data = RSOffsetVector_GetData(offsets, &offsets_len);
   size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, offsets_len);
   sz += Buffer_Write(bw, offsets_data, offsets_len);
   return sz;
@@ -624,8 +623,8 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
 }
 
 /* Write a forward-index entry to an index writer */
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
-                                       RSIndexResult *entry) {
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, RSIndexResult *entry) {
+  IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
   t_docId docId = entry->docId;
   size_t sz = 0;
   RS_ASSERT(docId > 0);
@@ -700,7 +699,7 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
         .numeric = value,
       },
   };
-  return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, &rec);
+  return InvertedIndex_WriteEntryGeneric(idx, &rec);
 }
 
 /******************************************************************************
@@ -746,8 +745,8 @@ DECODER(readFreqOffsetsFlags) {
   qint_decode4(&blockReader->buffReader, &delta, &res->freq, &fieldMask, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
-  RSTermRecord *term = IndexResult_TermRefMut(res);
-  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return fieldMask & ctx->mask;
 }
@@ -774,8 +773,8 @@ SKIPPER(seekFreqOffsetsFlags) {
   res->freq = freq;
   res->fieldMask = fm;
   res->offsetsSz = offsz;
-  RSTermRecord *term = IndexResult_TermRefMut(res);
-  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader) - offsz, offsz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader) - offsz, offsz);
 
   return rc;
 }
@@ -785,8 +784,8 @@ DECODER(readFreqOffsetsFlagsWide) {
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  RSTermRecord *term = IndexResult_TermRefMut(res);
-  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return res->fieldMask & ctx->wideMask;
 }
@@ -884,8 +883,8 @@ DECODER(readFieldsOffsets) {
   qint_decode3(&blockReader->buffReader, &delta, &mask, &res->offsetsSz);
   res->fieldMask = mask;
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSTermRecord *term = IndexResult_TermRefMut(res);
-  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return mask & ctx->mask;
 }
@@ -895,8 +894,8 @@ DECODER(readFieldsOffsetsWide) {
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSTermRecord *term = IndexResult_TermRefMut(res);
-  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
 
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return res->fieldMask & ctx->wideMask;
@@ -906,8 +905,8 @@ DECODER(readOffsetsOnly) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSTermRecord *term = IndexResult_TermRefMut(res);
-  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
@@ -916,8 +915,8 @@ DECODER(readFreqsOffsets) {
   uint32_t delta;
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  RSTermRecord *term = IndexResult_TermRefMut(res);
-  RSOffsetVector_SetData(&term->offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(res);
+  RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), res->offsetsSz);
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
@@ -1215,4 +1214,76 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
 
   IndexResult_Free(res);
   return frags;
+}
+
+/* Calculate efficiency ratio of the inverted index: numEntries / numBlocks.
+ * Used to measure how well the index is utilizing its block structure. */
+double InvertedIndex_GetEfficiency(const InvertedIndex *idx) {
+  return ((double)InvertedIndex_NumEntries(idx))/(InvertedIndex_NumBlocks(idx));
+}
+
+/* Retrieve comprehensive summary information about an inverted index.
+ * Returns a stack-allocated struct containing all key metrics including:
+ * - number_of_docs: Number of documents in the index
+ * - number_of_entries: Total number of entries
+ * - last_doc_id: Last document ID
+ * - flags: Index configuration flags
+ * - number_of_blocks: Number of index blocks
+ * - block_efficiency: Efficiency ratio (only for numeric indexes)
+ * - has_efficiency: Whether efficiency calculation is applicable */
+IISummary InvertedIndex_Summary(const InvertedIndex *idx) {
+  IndexFlags flags = InvertedIndex_Flags(idx);
+  bool hasEfficiency = (flags & Index_StoreNumeric) ? true : false;
+
+  IISummary summary = {
+    .number_of_docs = InvertedIndex_NumDocs(idx),
+    .number_of_entries = InvertedIndex_NumEntries(idx),
+    .last_doc_id = InvertedIndex_LastId(idx),
+    .flags = flags,
+    .number_of_blocks = InvertedIndex_NumBlocks(idx),
+    .block_efficiency = hasEfficiency ? InvertedIndex_GetEfficiency(idx) : 0.0,
+    .has_efficiency = hasEfficiency
+  };
+  return summary;
+}
+
+/* Retrieve basic information about the blocks in an inverted index.
+ * Returns an array with `count` entries. Each entry includes:
+ * - first_doc_id: The first document ID in the block
+ * - last_doc_id: The last document ID in the block
+ * - number_of_entries: The number of endries in the block */
+IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count) {
+  *count = InvertedIndex_NumBlocks(idx);
+  if (*count == 0) {
+    return NULL;
+  }
+
+  IIBlockSummary *summaries = rm_calloc(*count, sizeof(IIBlockSummary));
+  for (size_t i = 0; i < *count; i++) {
+    IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
+    summaries[i] = (IIBlockSummary){
+      .first_doc_id = IndexBlock_FirstId(blk),
+      .last_doc_id = IndexBlock_LastId(blk),
+      .number_of_entries = IndexBlock_NumEntries(blk),
+    };
+  }
+
+  return summaries;
+}
+
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *summaries) {
+  rm_free(summaries);
+}
+
+unsigned long InvertedIndex_MemUsage(const InvertedIndex *idx) {
+  unsigned long ret = sizeof_InvertedIndex(InvertedIndex_Flags(idx));
+
+    // iterate idx blocks
+  size_t numBlocks = InvertedIndex_NumBlocks(idx);
+  for (size_t i = 0; i < numBlocks; i++) {
+    ret += sizeof(IndexBlock);
+    IndexBlock *block = InvertedIndex_BlockRef(idx, i);
+    ret += IndexBlock_Cap(block);
+  }
+  return ret;
 }

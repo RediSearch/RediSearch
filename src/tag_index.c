@@ -202,10 +202,9 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
   size_t sz;
-  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  return InvertedIndex_WriteEntryGeneric(iv, enc, &rec) + sz;
+  return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */
@@ -287,7 +286,7 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
 
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;
-  TrieMap_Free(idx->values, InvertedIndex_Free);
+  TrieMap_Free(idx->values, (void (*)(void *))InvertedIndex_Free);
   TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);
 }

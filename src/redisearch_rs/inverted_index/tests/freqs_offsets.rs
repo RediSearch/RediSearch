@@ -9,7 +9,7 @@
 
 use std::io::Cursor;
 
-use ffi::{RSQueryTerm, RSTermRecord};
+use ffi::RSQueryTerm;
 use inverted_index::{
     Decoder, Encoder,
     freqs_offsets::FreqsOffsets,
@@ -17,12 +17,7 @@ use inverted_index::{
 };
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(result: *mut inverted_index::RSIndexResult) {
-    if result.is_null() {
-        panic!("did not expect `RSIndexResult` to be null");
-    }
-
-    let metrics = unsafe { (*result).metrics };
+pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
@@ -31,11 +26,6 @@ pub extern "C" fn ResultMetrics_Free(result: *mut inverted_index::RSIndexResult)
         "did not expect any test to set metrics, but got: {:?}",
         unsafe { *metrics }
     );
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn Term_Offset_Data_Free(_tr: *mut RSTermRecord) {
-    panic!("Nothing should have copied the term record to require this call");
 }
 
 #[unsafe(no_mangle)]

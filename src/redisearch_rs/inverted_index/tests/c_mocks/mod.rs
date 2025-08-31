@@ -17,16 +17,10 @@
 //! mod c_mocks;
 //! ```
 
-use ffi::RSQueryTerm;
-use inverted_index::{RSIndexResult, RSTermRecord};
+use ffi::{RSQueryTerm, RSYieldableMetric};
 
 #[unsafe(no_mangle)]
-pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
-    if result.is_null() {
-        panic!("did not expect `RSIndexResult` to be null");
-    }
-
-    let metrics = unsafe { (*result).metrics };
+pub extern "C" fn ResultMetrics_Free(metrics: *mut ffi::RSYieldableMetric) {
     if metrics.is_null() {
         return;
     }
@@ -38,16 +32,11 @@ pub extern "C" fn ResultMetrics_Free(result: *mut RSIndexResult) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn IndexResult_ConcatMetrics(
-    _parent: *mut RSIndexResult,
-    _child: *const RSIndexResult,
+pub extern "C" fn RSYieldableMetric_Concat(
+    _parent: *mut *mut RSYieldableMetric,
+    _child: *const RSYieldableMetric,
 ) {
     // Do nothing since the code will call this
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn Term_Offset_Data_Free(_tr: *mut RSTermRecord) {
-    panic!("Nothing should have copied the term record to require this call");
 }
 
 #[unsafe(no_mangle)]

@@ -214,8 +214,7 @@ public:
     // Write the forward index entries to the inverted indexes
     for (auto &[term, entry] : entries) {
       InvertedIndex *index = invertedIndexes[term];
-      IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(index));
-      InvertedIndex_WriteForwardIndexEntry(index, enc, &entry);
+      InvertedIndex_WriteForwardIndexEntry(index, &entry);
       // Free the entry's vector writer
       VVW_Free(entry.vw);
     }
@@ -404,7 +403,6 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
   InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
   ASSERT_TRUE(idx != nullptr);
   ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
-  auto encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
@@ -412,7 +410,7 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
       .freq = 1,
       .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
     };
-    InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
+    InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
   QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);

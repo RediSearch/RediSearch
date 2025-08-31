@@ -1089,7 +1089,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     if (InvertedIndex_NumDocs(idx) == 0) {
       // get memory before deleting the inverted index
       info.nbytesCollected += InvertedIndex_MemUsage(idx);
-      TrieMap_Delete(tagIdx->values, tagVal, tagValLen, InvertedIndex_Free);
+      TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 
       if (tagIdx->suffix) {
         deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);

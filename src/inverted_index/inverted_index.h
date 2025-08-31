@@ -104,7 +104,7 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
 */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize);
 size_t indexBlock_Free(IndexBlock *blk);
-void InvertedIndex_Free(void *idx);
+void InvertedIndex_Free(InvertedIndex *idx);
 
 IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex);
 IndexBlock InvertedIndex_Block(InvertedIndex *idx, size_t blockIndex);
@@ -124,6 +124,16 @@ t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx);
 void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask);
 uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx);
 void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries);
+
+/* Retrieve comprehensive summary information about an inverted index */
+IISummary InvertedIndex_Summary(const InvertedIndex *idx);
+
+/* Retrieve basic summary information about an inverted index's blocks. The returned array should
+ * be freed using `InvertedIndex_BlocksSummaryFree` */
+IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count);
+
+/* Free the blocks summary */
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *summaries);
 
 t_docId IndexBlock_FirstId(const IndexBlock *b);
 t_docId IndexBlock_LastId(const IndexBlock *b);
@@ -271,14 +281,15 @@ bool read_raw_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx 
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
 
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
-                                       RSIndexResult *entry);
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, RSIndexResult *entry);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
+
+unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
 
 #ifdef __cplusplus
 }

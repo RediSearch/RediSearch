@@ -24,13 +24,11 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-/* Add the metrics of a child to a parent index result. */
-void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
+/* Add the metrics of a child to a parent. */
+void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child);
 
-/* Clear / free the metrics of a result */
-void ResultMetrics_Free(RSIndexResult *r);
-
-void Term_Offset_Data_Free(RSTermRecord *tr);
+/* Free the metrics */
+void ResultMetrics_Free(RSYieldableMetric *metrics);
 
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
@@ -49,7 +47,8 @@ static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
   r->freq = 0;
   r->fieldMask = 0;
   IndexResult_AggregateReset(r);
-  ResultMetrics_Free(r);
+  ResultMetrics_Free(r->metrics);
+  r->metrics = NULL;
 }
 /* Allocate a new intersection result with a given capacity*/
 RSIndexResult *NewIntersectResult(size_t cap, double weight);

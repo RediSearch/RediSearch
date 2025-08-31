@@ -28,7 +28,6 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
     size_t sz;
     InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &sz);
 
-    IndexEncoder enc = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
     t_docId id = start_with > 0 ? start_with : idStep;
     for (int i = 0; i < size; i++) {
         // if (i % 10000 == 1) {
@@ -47,7 +46,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
             VVW_Write(h.vw, n);
         }
 
-        InvertedIndex_WriteForwardIndexEntry(idx, enc, &h);
+        InvertedIndex_WriteForwardIndexEntry(idx, &h);
         VVW_Free(h.vw);
 
         id += idStep;
@@ -89,23 +88,6 @@ NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
   return openNumericKeysDict(spec, fmtkey, DONT_CREATE_INDEX);
 }
 
-size_t NumericRangeGetMemory(const NumericRangeNode *Node) {
-    InvertedIndex *idx = Node->range->entries;
-
-    size_t curr_node_memory = sizeof_InvertedIndex(Index_StoreNumeric);
-
-    // iterate idx blocks
-    size_t num_blocks = InvertedIndex_NumBlocks(idx);
-    for (size_t i = 0; i < num_blocks; ++i) {
-        curr_node_memory += sizeof(IndexBlock);
-        IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
-        curr_node_memory += IndexBlock_Cap(blk);
-    }
-
-    return curr_node_memory;
-
-}
-
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range) {
     if (!rt) {
         return 0;
@@ -120,7 +102,7 @@ size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNod
         if (!currNode->range) {
             continue;
         }
-        size_t curr_node_memory = NumericRangeGetMemory(currNode);
+        size_t curr_node_memory = InvertedIndex_MemUsage(currNode->range->entries);
 
         // Ensure stats are correct
         if (curr_node_memory != currNode->range->invertedIndexSize) {

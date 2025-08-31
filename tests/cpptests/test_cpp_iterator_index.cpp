@@ -93,7 +93,6 @@ private:
         // This function should populate the InvertedIndex with terms
         size_t memsize;
         idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
         ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr); // Expect a seeker with the default flags
         for (size_t i = 0; i < n_docs; ++i) {
             ForwardIndexEntry h = {0};
@@ -105,7 +104,7 @@ private:
 
             h.vw = NewVarintVectorWriter(8);
             VVW_Write(h.vw, i); // Just writing the index as a value
-            InvertedIndex_WriteForwardIndexEntry(idx, encoder, &h);
+            InvertedIndex_WriteForwardIndexEntry(idx, &h);
             VVW_Free(h.vw);
         }
     }
@@ -123,10 +122,9 @@ private:
         // This function should populate the InvertedIndex with generic data
         size_t memsize;
         idx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
         for (size_t i = 0; i < n_docs; ++i) {
             RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
-            InvertedIndex_WriteEntryGeneric(idx, encoder, &rec);
+            InvertedIndex_WriteEntryGeneric(idx, &rec);
         }
     }
 };
@@ -302,7 +300,6 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
     ASSERT_TRUE(idx != nullptr);
     ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
-    auto encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(idx));
     for (t_docId i = 1; i < 1000; ++i) {
         auto res = (RSIndexResult) {
             .docId = i,
@@ -310,7 +307,7 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
             .freq = 1,
             .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
         };
-        InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
+        InvertedIndex_WriteEntryGeneric(idx, &res);
     }
     // Create an iterator that reads only entries with field mask 2
     QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
@@ -345,15 +342,14 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           }
 
           // Add docs to the index
-          IndexEncoder encoder = InvertedIndex_GetEncoder(flags);
           RSIndexResult res = {
               .fieldMask = fieldMask,
               .data = {.term_tag = RSResultData_Term},
           };
           for (size_t i = 1; i <= n_docs; ++i) {
               res.docId = i;
-              InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
-              InvertedIndex_WriteEntryGeneric(idx, encoder, &res); // Second write will fail if multi-value is not supported
+              InvertedIndex_WriteEntryGeneric(idx, &res);
+              InvertedIndex_WriteEntryGeneric(idx, &res); // Second write will fail if multi-value is not supported
           }
 
           // Make every even document ID field expired
@@ -710,7 +706,6 @@ private:
         bool isNew;
         termIdx = Redis_OpenInvertedIndex(sctx, "term", strlen("term"), 1, &isNew);
         ASSERT_TRUE(termIdx != nullptr);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(InvertedIndex_Flags(termIdx));
 
         // Populate with term data
         for (size_t i = 0; i < n_docs; ++i) {
@@ -723,7 +718,7 @@ private:
 
             h.vw = NewVarintVectorWriter(8);
             VVW_Write(h.vw, i); // Just writing the index as a value
-            InvertedIndex_WriteForwardIndexEntry(termIdx, encoder, &h);
+            InvertedIndex_WriteForwardIndexEntry(termIdx, &h);
             VVW_Free(h.vw);
         }
 
@@ -770,10 +765,9 @@ private:
         tagInvIdx = TagIndex_OpenIndex(tagIdx, "test_tag", 8, CREATE_INDEX, &sz);
 
         // Populate with tag data using the simpler approach
-        IndexEncoder encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
         for (size_t i = 0; i < n_docs; ++i) {
             RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
-            InvertedIndex_WriteEntryGeneric(tagInvIdx, encoder, &rec);
+            InvertedIndex_WriteEntryGeneric(tagInvIdx, &rec);
         }
 
         // Create iterator based on type
@@ -808,12 +802,11 @@ private:
         // Create the existingDocs index that wildcard iterator expects
         size_t memsize;
         spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(spec->existingDocs->flags);
 
         // Populate with document data for wildcard matching
         for (size_t i = 0; i < n_docs; ++i) {
             RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
-            InvertedIndex_WriteEntryGeneric(spec->existingDocs, encoder, &rec);
+            InvertedIndex_WriteEntryGeneric(spec->existingDocs, &rec);
         }
 
         // Create wildcard iterator using the existingDocs index
@@ -843,12 +836,11 @@ private:
         // Create a missing field index for the field
         size_t memsize;
         termIdx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
-        IndexEncoder encoder = InvertedIndex_GetEncoder(termIdx->flags);
 
         // Populate with some data (for missing iterator, the content represents what's missing)
         for (size_t i = 0; i < n_docs; ++i) {
             RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
-            InvertedIndex_WriteEntryGeneric(termIdx, encoder, &rec);
+            InvertedIndex_WriteEntryGeneric(termIdx, &rec);
         }
 
         // For test purposes, we'll add the missing index to the missingFieldDict
