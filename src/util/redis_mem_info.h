@@ -45,4 +45,4 @@ static inline float RedisMemory_GetUsedMemoryRatio(void) {
 // GIL must be held before calling this function
 // Returns 0 if maxmemory is 0
 // TODO: remove this function and use RedisMemory_GetUsedMemoryRatio instead after benchmarking
-float Unified_GetUsedMemoryRatio(RedisModuleCtx *ctx);
+float RedisMemory_GetUsedMemoryRatioUnified(RedisModuleCtx *ctx);
