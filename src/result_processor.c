@@ -1686,19 +1686,37 @@ dictType dictTypeHybridSearchResult = {
   * It takes results from both upstreams and applies the provided function to combine their scores.
   *******************************************************************************************************************/
  typedef struct {
-  ResultProcessor base;
-  HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
-  ResultProcessor **upstreams;  // Dynamic array of upstream processors
-  size_t numUpstreams;         // Number of upstream processors
-  dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
-  dictIterator *iterator; // Iterator for yielding results
-  bool timedOut;
-  bool error;
-  const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
-  int *upstreamReturnCodes;  // Final return codes from each upstream
+ ResultProcessor base;
+ HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
+ ResultProcessor **upstreams;  // Dynamic array of upstream processors
+ size_t numUpstreams;         // Number of upstream processors
+ dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
+ dictIterator *iterator; // Iterator for yielding results
+ const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
+ int *upstreamReturnCodes;  // Final return codes from each upstream
 } RPHybridMerger;
 
- /* Helper function to store a result from an upstream into the hybrid merger's dictionary
+/* Generic helper function to check if any upstream has a specific return code */
+static bool RPHybridMerger_HasReturnCode(const RPHybridMerger *self, int returnCode) {
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    if (self->upstreamReturnCodes[i] == returnCode) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Helper function to check if any upstream timed out */
+static inline bool RPHybridMerger_TimedOut(const RPHybridMerger *self) {
+  return RPHybridMerger_HasReturnCode(self, RS_RESULT_TIMEDOUT);
+}
+
+/* Helper function to check if any upstream errored */
+static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
+  return RPHybridMerger_HasReturnCode(self, RS_RESULT_ERROR);
+}
+
+/* Helper function to store a result from an upstream into the hybrid merger's dictionary
   * @param r - the result to store
   * @param hybridResults - the dictionary to store the result in
   * @param upstreamIndex - the index of the upstream that provided the result
@@ -1748,11 +1766,11 @@ dictType dictTypeHybridSearchResult = {
    RS_ASSERT(self->iterator);
    // Get next entry from iterator
    dictEntry *entry = dictNext(self->iterator);
-   if (!entry) {
-     // No more results to yield
-     int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-     return ret;
-   }
+     if (!entry) {
+    // No more results to yield
+    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    return ret;
+  }
 
    // Get the key and value before removing the entry
    void *key = dictGetKey(entry);
@@ -1808,11 +1826,6 @@ dictType dictTypeHybridSearchResult = {
       // Currently continues processing other upstreams.
       // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error.
       // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
-      if (rc == RS_RESULT_TIMEDOUT){
-        self->timedOut = true;
-      } else if (rc == RS_RESULT_ERROR){
-        self->error = true;
-      }
       consumed[i] = true;
       numConsumed++;
     }
@@ -1821,9 +1834,9 @@ dictType dictTypeHybridSearchResult = {
   // Free the consumed tracking array
   rm_free(consumed);
 
-  if (self->error) {
+  if (RPHybridMerger_Error(self)) {
     return RS_RESULT_ERROR;
-  } else if (self->timedOut && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
+  } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     return RS_RESULT_TIMEDOUT;
   }
 

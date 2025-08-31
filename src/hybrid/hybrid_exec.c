@@ -246,7 +246,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     // If an error occurred, or a timeout in strict mode - return a simple error
     QueryError err = {0};
     HREQ_GetError(hreq, &err);
-    if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
+    if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
@@ -304,8 +304,7 @@ done:
       QueryError* err = &hreq->errors[i];
       const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
       const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
-
-      timeoutInSubquery = timeoutInSubquery || handleQueryError(reply, err, subQueryReturnCode, suffix, false);
+      timeoutInSubquery = handleQueryError(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
     }
     // Handle main query errors (POST PROCESSING)
     handleQueryError(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, timeoutInSubquery);
