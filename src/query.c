@@ -1756,8 +1756,15 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
 
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QAST_ValidationFlags validationFlags) {
-  // Check for weight attribute
-  if ((validationFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) && n->opts.explicitWeight) {
+  // Check if this node is exempt from hybrid validation
+  QAST_ValidationFlags effectiveFlags = validationFlags;
+  if (n->opts.flags & QueryNode_HybridValidationExempt) {
+    // Temporarily disable hybrid validation flags for this node
+    effectiveFlags &= ~(QAST_HYBRID_VSIM_FILTER_CLAUSE | QAST_HYBRID_SEARCH_CLAUSE);
+  }
+
+  // Check for weight attribute (now using effective flags)
+  if ((effectiveFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) && n->opts.explicitWeight) {
     QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, NULL);
     return REDISMODULE_ERR;
   }
@@ -1807,10 +1814,10 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_VECTOR:
-      if (validationFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) {
+      if (effectiveFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) {
         QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, NULL);
         res = REDISMODULE_ERR;
-      } else if (validationFlags & QAST_HYBRID_SEARCH_CLAUSE) {
+      } else if (effectiveFlags & QAST_HYBRID_SEARCH_CLAUSE) {
         QueryError_SetError(status, QUERY_EHYBRID_SEARCH_INVALID_QUERY, NULL);
         res = REDISMODULE_ERR;
       }
@@ -1846,16 +1853,6 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
       !(spec->flags & Index_HasNonEmpty) &&
       (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
   ) {
-    return REDISMODULE_OK;
-  }
-
-  // Skip root validation and validate only children
-  if (q->validationFlags & QAST_SKIP_ROOT_VALIDATION) {
-    for (size_t ii = 0; ii < QueryNode_NumChildren(q->root); ++ii) {
-      if (QueryNode_CheckIsValid(q->root->children[ii], spec, opts, status, q->validationFlags) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-      }
-    }
     return REDISMODULE_OK;
   }
 

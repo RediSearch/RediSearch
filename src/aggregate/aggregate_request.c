@@ -1160,6 +1160,9 @@ static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   // Always yield distance for hybrid vector subqueries
   vecNode->opts.flags |= QueryNode_YieldsDistance;
 
+  // Mark this vector node as exempt from hybrid validation
+  vecNode->opts.flags |= QueryNode_HybridValidationExempt;
+
   if (pvd->isParameter) {
     // PARAMETER CASE: Set up parameter for evalnode to resolve later
     QueryToken vecToken = {
@@ -1275,8 +1278,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
-    // After vector is added, skip root in validation
-    ast->validationFlags |= QAST_SKIP_ROOT_VALIDATION;
   }
 
   if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
