@@ -1258,7 +1258,7 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   // Debug log the memory ratio
-  float used_memory_ratio = Unified_GetUsedMemoryRatio(ctx);
+  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
   RedisModule_Log(ctx, "debug", "ForkGC - used memory ratio: %f", used_memory_ratio);
 
   return used_memory_ratio > 1;
