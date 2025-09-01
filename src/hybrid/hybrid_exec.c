@@ -367,12 +367,12 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModule_Reply *reply, a
         Cursor_Free(cursors[i]);
       }
       array_free(cursors);
-      QueryError_SetError(&req->tailPipelineError, QUERY_ELIMIT, "Failed to allocate enough cursors");
+      // verify error exists
+      RS_ASSERT(QueryError_HasError(&req->tailPipelineError));
       return REDISMODULE_ERR;
     }
 
     int rc = RPDepleter_DepleteAll(depleters, req->nrequests);
-    array_free(depleters);
     if (rc != RS_RESULT_OK) {
       for (size_t i = 0; i < array_len(cursors); i++) {
         Cursor_Free(cursors[i]);
@@ -385,7 +385,6 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModule_Reply *reply, a
       }
       return REDISMODULE_ERR;
     }
-
 
     // We only support 2 subqueries
     RS_ASSERT(array_len(cursors) == 2);
@@ -407,6 +406,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModule_Reply *reply, a
     RedisModule_Reply_MapEnd(reply);
     RedisModule_EndReply(reply);
     array_free(cursors);
+    // Free the depleters array only on success
+    array_free(depleters);
     return REDISMODULE_OK;
 }
 
@@ -445,6 +446,8 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     RS_ASSERT(depleters);
     if (HybridRequest_StartCursors(hybrid_ref, reply, depleters, status) != REDISMODULE_OK) {
+      // If we failed starting the cursors we need to free the depleters array
+      array_free(depleters);
       QueryError status = {0};
       HybridRequest_GetError(hreq, &status);
       QueryError_ReplyAndClear(ctx, &status);
