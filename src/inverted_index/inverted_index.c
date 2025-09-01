@@ -138,12 +138,6 @@ t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx) {
   return (t_fieldMask)0; // No field mask stored
 }
 
-void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask) {
-  if (idx->flags & Index_StoreFieldFlags) {
-    idx->fieldMask |= fieldMask;
-  }
-}
-
 uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx) {
   return idx->numEntries;
 }
@@ -682,6 +676,9 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, RSIndexResult *entry)
   }
   if (encoder == encodeNumeric) {
     ++idx->numEntries;
+  }
+  if (idx->flags & Index_StoreFieldFlags) {
+    idx->fieldMask |= entry->fieldMask;
   }
 
   return sz;

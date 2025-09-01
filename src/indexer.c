@@ -108,9 +108,6 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
       IndexerYieldWhileLoading(ctx->redisCtx);
       writeIndexEntry(spec, invidx, entry);
-      if (Index_StoreFieldMask(spec)) {
-        InvertedIndex_OrFieldMask(invidx, entry->fieldMask);
-      }
     }
 
     if (spec->suffixMask & entry->fieldMask
