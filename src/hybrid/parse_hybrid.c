@@ -522,8 +522,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RS_ASSERT(*mergeReqflags == 0);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
   RSSearchOptions mergeSearchopts = {0};
-  size_t mergeMaxSearchResults = RSGlobalConfig.maxSearchResults;
-  size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
+  size_t maxHybridResults = RSGlobalConfig.maxSearchResults;
 
   AREQ *vectorRequest = parsedCmdCtx->vector;
   AREQ *searchRequest = parsedCmdCtx->search;
@@ -548,8 +547,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   HybridParseContext hybridParseCtx = {
       .status = status,
-      .hadAdditionalArgs = false,
-      .dialectSpecified = false,
+      .specifiedArgs = 0,
       .hybridScoringCtx = hybridParams->scoringCtx,
       .numSubqueries = HYBRID_REQUEST_NUM_SUBQUERIES,
       .plan = parsedCmdCtx->tailPlan,
@@ -557,14 +555,15 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       .searchopts = &mergeSearchopts,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
-      .maxResults = &mergeMaxSearchResults,
+      .maxResults = &maxHybridResults,
   };
   if (HybridParseOptionalArgs(&hybridParseCtx, &ac) != REDISMODULE_OK) {
     goto error;
   }
 
   // Save the current position to determine remaining arguments for the merge part
-  if (hybridParseCtx.hadAdditionalArgs) {
+  const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
+  if (hadArgumentBesidesCombine) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
     RSSearchOptions_Init(&mergeSearchopts);
 
@@ -588,10 +587,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
 
     // Copy max results limits
-    searchRequest->maxSearchResults = mergeMaxSearchResults;
-    searchRequest->maxAggregateResults = mergeMaxAggregateResults;
-    vectorRequest->maxSearchResults = mergeMaxSearchResults;
-    vectorRequest->maxAggregateResults = mergeMaxAggregateResults;
+    searchRequest->maxSearchResults = maxHybridResults;
+    searchRequest->maxAggregateResults = maxHybridResults;
+    vectorRequest->maxSearchResults = maxHybridResults;
+    vectorRequest->maxAggregateResults = maxHybridResults;
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
@@ -644,7 +643,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
               .optimizer = NULL,  // is it?
           },
       .outFields = NULL,
-      .maxResultsLimit = mergeMaxAggregateResults,
+      .maxResultsLimit = maxHybridResults,
       .language = searchRequest->searchopts.language,
   };
 

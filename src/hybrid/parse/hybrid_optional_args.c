@@ -13,7 +13,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
     ArgParser *parser = ArgParser_New(ac, "HybridOptionalArgs");
     if (!parser) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser");
-        return -1;
+        return REDISMODULE_ERR;
     }
 
     // Add all supported arguments with their callbacks
@@ -56,11 +56,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                       ARG_OPT_OPTIONAL, ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
-    ArgParser_AddSubArgsV(parser, "DIALECT", "Query dialect version",
-                         NULL, 1, 1,
-                         ARG_OPT_OPTIONAL,
-                         ARG_OPT_CALLBACK, handleDialect, ctx,
-                         ARG_OPT_END);
+    ArgParser_AddIntV(parser, "DIALECT", "Query dialect version",
+                      &ctx->reqConfig->dialectVersion, 1, 1,
+                      ARG_OPT_RANGE, (long long)MIN_DIALECT_VERSION, (long long)MAX_DIALECT_VERSION,
+                      ARG_OPT_CALLBACK, handleDialect, ctx,
+                      ARG_OPT_OPTIONAL,
+                      ARG_OPT_END);
 
     // FORMAT format - output format
     ArgParser_AddSubArgsV(parser, "FORMAT", "Output format",
@@ -84,6 +85,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                          NULL, 1, -1,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleCombine, ctx,
+                         ARG_OPT_POSITION, 1,
                          ARG_OPT_END);
 
     // TODO: Add YIELD_SCORE_AS support for score aliasing
@@ -94,23 +96,28 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
     // Check for errors from callbacks
     if (QueryError_HasError(status)) {
         ArgParser_Free(parser);
-        return -1; // ARG_ERROR
+        return REDISMODULE_ERR; // ARG_ERROR
+    }
+    if (!parseResult.success) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
+        ArgParser_Free(parser);
+        return REDISMODULE_ERR; // ARG_ERROR
     }
 
     ArgParser_Free(parser);
 
     // Copy temporary timeout value to actual config
     if (tempTimeout > 0) {
-        ctx->reqConfig->requestConfigParams.queryTimeoutMS = tempTimeout;
+        ctx->reqConfig->queryTimeoutMS = tempTimeout;
     }
 
     // Handle dialect-specific validation (replicated from original)
-    if (ctx->dialectSpecified && ctx->reqConfig->requestConfigParams.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST &&
+    if (ctx->specifiedArgs & SPECIFIED_ARG_DIALECT && ctx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST &&
         (*(ctx->reqflags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not supported in this dialect version");
         return -1;
     }
 
-    return parseResult.success ? 1 : -1;
+    return parseResult.success ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 

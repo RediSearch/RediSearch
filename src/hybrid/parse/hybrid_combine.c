@@ -9,6 +9,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
     HybridScoringContext *combineCtx = ctx->hybridScoringCtx;
+    ctx->specifiedArgs |= SPECIFIED_ARG_COMBINE;
     size_t numWeights = ctx->numSubqueries;
 
     // Exact implementation of ParseCombine from hybrid_args.c

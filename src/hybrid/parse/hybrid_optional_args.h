@@ -10,14 +10,26 @@
 extern "C" {
 #endif
 
+typedef enum {
+    SPECIFIED_ARG_NONE,
+    SPECIFIED_ARG_LIMIT,
+    SPECIFIED_ARG_SORTBY,
+    SPECIFIED_ARG_WITHCURSOR,
+    SPECIFIED_ARG_PARAMS,
+    SPECIFIED_ARG_DIALECT,
+    SPECIFIED_ARG_FORMAT,
+    SPECIFIED_ARG_WITHSCORES,
+    SPECIFIED_ARG_EXPLAINSCORE,
+    SPECIFIED_ARG_COMBINE,
+} SpecifiedArg;
+
 /**
  * Context structure for parsing common arguments in hybrid queries
  * Contains both aggregate plan context and hybrid-specific context
  */
 typedef struct {
     QueryError *status;                     // Error reporting
-    bool hadAdditionalArgs;                 // Did encounter additional arguments related to the tail
-    bool dialectSpecified;                  // Whether DIALECT was explicitly set
+    SpecifiedArg specifiedArgs;             // Bitmask of specified arguments
     HybridScoringContext *hybridScoringCtx; // Hybrid scoring context for COMBINE
     size_t numSubqueries;                   // Number of subqueries for weight validation
 
@@ -25,7 +37,7 @@ typedef struct {
     uint32_t *reqflags;                     // Request flags
     RSSearchOptions *searchopts;            // Search options for PARAMS
     CursorConfig *cursorConfig;             // Cursor configuration
-    RSConfig *reqConfig;                    // Request configuration for DIALECT/TIMEOUT
+    RequestConfig *reqConfig;               // Request configuration for DIALECT/TIMEOUT
     QEFlags *reqFlags;                      // Request flags
     size_t *maxResults;                     // Maximum results
 } HybridParseContext;

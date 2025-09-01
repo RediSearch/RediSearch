@@ -31,6 +31,7 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
+    ctx->specifiedArgs |= SPECIFIED_ARG_LIMIT;
 
     // Replicate exact original logic: lines 260-262
     if (AC_NumRemaining(ac) < 2) {
@@ -71,6 +72,7 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
+    ctx->specifiedArgs |= SPECIFIED_ARG_SORTBY;
 
     // Replicate exact original logic: lines 299-301
     if (AC_NumRemaining(ac) < 1) {
@@ -128,6 +130,7 @@ void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
+    ctx->specifiedArgs |= SPECIFIED_ARG_WITHCURSOR;
 
     // Parse cursor settings inline (merged from parseCursorSettings)
     ACArgSpec specs[] = {{.name = "MAXIDLE",
@@ -159,6 +162,7 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
     dict **destParams = &(ctx->searchopts->params);
+    ctx->specifiedArgs |= SPECIFIED_ARG_PARAMS;
 
     // Early validation checks
     if (*destParams) {
@@ -205,17 +209,7 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
 // DIALECT callback - implements EXACT original logic from lines 341-349
 void handleDialect(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
-    QueryError *status = ctx->status;
-
-    // Replicate exact original logic: lines 342-349
-    long long dialect;
-    if (AC_GetLongLong(ac, &dialect, AC_F_GE1) != AC_OK) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT requires a positive integer");
-        return;
-    }
-    ctx->reqConfig->requestConfigParams.dialectVersion = dialect;
-    ctx->dialectSpecified = true;
+    ctx->specifiedArgs |= SPECIFIED_ARG_DIALECT;
 }
 
 // FORMAT callback - implements EXACT original logic from lines 359-366
@@ -223,6 +217,7 @@ void handleFormat(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
+    ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
 
     const char *fmt = AC_GetStringNC(ac, NULL);
     if (!fmt) {
