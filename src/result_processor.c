@@ -1072,6 +1072,15 @@ const char *RPTypeToString(ResultProcessorType type) {
   return RPTypeLookup[type];
 }
 
+ResultProcessorType StringToRPType(const char *str) {
+  for (int i = 0; i < RP_MAX; i++) {
+    if (!strcmp(str, RPTypeLookup[i])) {
+      return i;
+    }
+  }
+  return RP_MAX;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 /// Profile RP                                                               ///
@@ -1309,25 +1318,84 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
   r->qiter.endProc = dummyHead.upstream;
 }
 
-// Insert the result processor before the first occurrence of a specific RP type
+// Insert the result processor before the first occurrence of a specific RP type in the upstream
 static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultProcessorType target_type) {
   ResultProcessor *cur = r->qiter.endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
 
+  bool found = false;
+
   // Search for the target result processor type
   while (cur) {
+    // Change downstream -> cur(type) -> cur->upstream
+    // To: downstream -> rp -> cur(type) -> cur->upstream
     if (cur->type == target_type) {
       rp->parent = &r->qiter;
       downstream->upstream = rp;
       rp->upstream = cur;
-      // Update the endProc to the new head in case it was changed
-      r->qiter.endProc = dummyHead.upstream;
-      return true;
+      found = true;
+      break;
     }
     downstream = cur;
     cur = cur->upstream;
   }
+
+  // This loop is to find the last RP in the stream
+  if (found) {
+    while (cur) {
+      if (!cur->upstream) {
+        break;
+      }
+      downstream = cur;
+      cur = cur->upstream;
+    }
+    // Update the endProc to the new head in case it was changed
+    r->qiter.endProc = dummyHead.upstream;
+    return true;
+  }
+
+  // Target type not found
+  return false;
+}
+
+// Insert the result processor after the first occurrence of a specific RP type in the upstream
+static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProcessorType target_type) {
+  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor dummyHead = { .upstream = cur };
+  ResultProcessor *downstream = &dummyHead;
+
+  bool found = false;
+
+  // Search for the target result processor type
+  while (cur) {
+    // Change downstream -> cur(type) -> cur->upstream
+    // To: downstream -> cur(type) -> rp-> cur->upstream
+    if (cur->type == target_type) {
+      rp->upstream = cur->upstream;
+      cur->upstream = rp;
+      rp->parent = &r->qiter;
+      found = true;
+      break;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+
+  // This loop is to find the last RP in the stream
+  if (found) {
+    while (cur) {
+      if (!cur->upstream) {
+        break;
+      }
+      downstream = cur;
+      cur = cur->upstream;
+    }
+    // Update the endProc to the new head in case it was changed
+    r->qiter.endProc = dummyHead.upstream;
+    return true;
+  }
+
   // Target type not found
   return false;
 }
@@ -1457,6 +1525,15 @@ void PipelineAddPauseAfterCount(AREQ *r, size_t results_count) {
   addResultProcessor(r, RPPauseAfterCount);
 }
 
+void PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type) {
+  ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
+  if (before) {
+    addResultProcessorBeforeType(r, RPPauseAfterCount, rp_type);
+  } else {
+    addResultProcessorAfterType(r, RPPauseAfterCount, rp_type);
+  }
+}
+
 static void RPPauseAfterCount_Pause(RPPauseAfterCount *self) {
 
   globalDebugCtx.query.pause = true;
@@ -1495,8 +1572,6 @@ ResultProcessor *RPPauseAfterCount_New(size_t count) {
   ret->base.Next = RPPauseAfterCount_Next;
   ret->base.Free = RPPauseAfterCount_Free;
 
-  // Expect query.debugRP to be NULL
-  // TODO - assert/expect/crash if not null
   globalDebugCtx.query.debugRP = &ret->base;
 
   return &ret->base;
