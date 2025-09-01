@@ -682,84 +682,37 @@ static void checkLastBlock(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *in
 static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_IndexInfo *info,
                                    InvertedIndex *idx) {
   checkLastBlock(gc, idxData, info, idx);
-  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
-    MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
-    IndexBlock *block = InvertedIndex_BlockRef(idx, blockModified->oldix);
-    indexBlock_Free(block);
-  }
-  for (size_t i = 0; i < idxData->numDelBlocks; ++i) {
-    // Blocks that were deleted entirely:
-    MSG_DeletedBlock *delinfo = idxData->delBlocks + i;
-    rm_free(delinfo->ptr);
-  }
-  TotalIIBlocks -= idxData->numDelBlocks;
-  rm_free(idxData->delBlocks); // Consume del block array
-  idxData->delBlocks = NULL;
 
-  // Ensure the old index is at least as big as the new index' size
-  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Current index size should be larger or equal to original index size");
-
-  if (idxData->newBlocklist) { // the child removed some of the blocks, but not all of them
-    /**
-     * At this point, we check if the last block has had new data added to it,
-     * but was _not_ repaired. We check for a repaired last block in
-     * checkLastBlock().
+  // If the child did not touch the last block, prefer the parent's last block pointer
+  if (idxData->newBlocklist && !info->lastblkDocsRemoved) {
+    /*
+     * Last block was unmodified-- let's prefer the last block's pointer
+     * over our own (which may be stale).
+     * If the last block was repaired, this is handled above in checkLastBlock()
      */
-
-    if (!info->lastblkDocsRemoved) {
-      /**
-       * Last block was unmodified-- let's prefer the last block's pointer
-       * over our own (which may be stale).
-       * If the last block was repaired, this is handled above in checkLastBlock()
-       */
-      idxData->newBlocklist[idxData->newBlocklistSize - 1] = InvertedIndex_Block(idx, info->nblocksOrig - 1);
-    }
-
-    // Number of blocks added in the parent process since the last scan
-    size_t newAddedLen = InvertedIndex_NumBlocks(idx) - info->nblocksOrig; // TODO: can we just decrease by number of deleted.
-
-    // The final size is the reordered block size, plus the number of blocks
-    // which we haven't scanned yet, because they were added in the parent
-    size_t totalLen = idxData->newBlocklistSize + newAddedLen;
-
-    idxData->newBlocklist =
-        rm_realloc(idxData->newBlocklist, totalLen * sizeof(*idxData->newBlocklist));
-
-    if (newAddedLen > 0) {
-      memcpy(idxData->newBlocklist + idxData->newBlocklistSize, InvertedIndex_BlockRef(idx, info->nblocksOrig),
-            newAddedLen * sizeof(*idxData->newBlocklist));
-    }
-
-    InvertedIndex_SetBlocks(idx, idxData->newBlocklist, totalLen); // Consume new blocks array
-    idxData->newBlocklist = NULL;
-    idxData->newBlocklistSize += newAddedLen;
-  } else if (idxData->numDelBlocks) {
-    // if idxData->newBlocklist == NULL it's either because all the blocks the child has seen are gone or we didn't change the
-    // size of the index (idxData->numDelBlocks == 0).
-    // So if we enter here (idxData->numDelBlocks != 0) it's the first case, all blocks the child has seen need to be deleted.
-    // Note that we might want to keep the last block, although deleted by the child. In this case numDelBlocks will *not include*
-    // the last block.
-    size_t numBlocks = InvertedIndex_BlocksShift(idx, idxData->numDelBlocks);
-
-    if (numBlocks == 0) {
-      InvertedIndex_AddBlock(idx, 0, (size_t*)(&info->nbytesAdded));
-    }
+    idxData->newBlocklist[idxData->newBlocklistSize - 1] =
+        InvertedIndex_Block(idx, info->nblocksOrig - 1);
   }
 
-  // TODO : can we skip if we have newBlocklist?
-  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
-    MSG_RepairedBlock *blockModified = idxData->changedBlocks + i;
-    InvertedIndex_SetBlock(idx, blockModified->newix, blockModified->blk);
-  }
-  // Consume changed blocks array
-  rm_free(idxData->changedBlocks);
+  InvertedIndexGcDelta delta = {
+    .new_blocklist = idxData->newBlocklist,
+    .new_blocklist_size = idxData->newBlocklistSize,
+    .deleted = (void *)idxData->delBlocks,
+    .deleted_len = idxData->numDelBlocks,
+    .repaired = (void *)idxData->changedBlocks,
+    .repaired_len = info->nblocksRepaired,
+    .last_block_ignored = idxData->lastBlockIgnored,
+  };
+
+  InvertedIndex_ApplyGcDelta(idx, &delta, info->nblocksOrig, &info->nbytesAdded);
+
+  // consume block arrays from InvIdxBuffers
+  // (in future, when InvIdxBuffers stops existing this will be cleaner)
   idxData->changedBlocks = NULL;
+  idxData->delBlocks = NULL;
+  idxData->newBlocklist = NULL;
 
   InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - info->ndocsCollected);
-  InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
-  RS_LOG_ASSERT(idx->size, "Index should have at least one block");
-  IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-  InvertedIndex_SetLastId(idx, IndexBlock_LastId(lastBlock)); // Update lastId
 }
 
 typedef struct {
