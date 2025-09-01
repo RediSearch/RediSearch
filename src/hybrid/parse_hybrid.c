@@ -609,7 +609,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
-  if (hybridParseCtx.specifiedArgs != 0) {
+  // Save the current position to determine remaining arguments for the merge part
+  const bool hadArgumentBesidesCombine = (hybridParseCtx.specifiedArgs & ~SPECIFIED_ARG_COMBINE) != 0;
+  if (hadArgumentBesidesCombine) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
     if (mergeSearchopts.params) {
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
