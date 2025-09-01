@@ -333,6 +333,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     }
 }
 
+/// A wrapper around the inverted index which tracks the fields for all the records in the index
+/// using a mask. This makes is easy to know if the index has any records for a specific field.
 pub struct FieldMaskTrackingIndex<E> {
     /// The underlying inverted index that stores the records.
     index: InvertedIndex<E>,
