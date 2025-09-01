@@ -160,7 +160,7 @@ static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
     return false;
   }
 
-  float used_memory_ratio = Unified_GetUsedMemoryRatio(ctx);
+  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
   float memory_limit_ratio = (float)RSGlobalConfig.indexingMemoryLimit / 100;
 
   return (used_memory_ratio > memory_limit_ratio) ;
