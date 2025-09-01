@@ -68,7 +68,7 @@ typedef struct DocTableDiskAPI {
   /**
    * @brief Schedule an async dmd read for a given docId
    */
-  bool (*loadDmdAsync)(RedisSearchDiskIndexSpec* handle, t_docId docId);
+  void (*loadDmdAsync)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 
   /**
    * @brief Wait until a completion is available (or timeout_ms) and extract fields
@@ -80,29 +80,11 @@ typedef struct DocTableDiskAPI {
    * Returns 0 on timeout, -1 on error/failed read
    */
   int (*waitDmd)(RedisSearchDiskIndexSpec* handle,
-                 t_docId* docIdOut,
-                 char** keyOut, size_t* keyLenOut,
-                 double* scoreOut, uint32_t* flagsOut, uint32_t* maxFreqOut,
+                 RSDocumentMetadata* dmd,
                  long long timeout_ms,
                  AllocateKeyCallback allocateKey);
 
 } DocTableDiskAPI;
-
-/**
- * @brief POD returned by waitDmd when a document’s metadata is ready
- *
- * key is allocated via the provided AllocateKeyCallback and should be owned by the caller
- * (no extra free helper is required).
- * If key is NULL, the call either timed out or failed; in that case other fields are undefined.
- */
-typedef struct DiskDocumentMetadata {
-  t_docId docId;
-  char* key;
-  size_t keyLen;
-  double score;
-  uint32_t flags;
-  uint32_t maxFreq;
-} DiskDocumentMetadata;
 
 /**
  * @brief Wait until a completion is available (or timeout_ms) and return its metadata
@@ -110,7 +92,8 @@ typedef struct DiskDocumentMetadata {
  * On success, returns a DiskDocumentMetadata with a non-NULL key allocated via AllocateKeyCallback.
  * On timeout or failure, returns a struct with key == NULL.
  */
-DiskDocumentMetadata SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
+void SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
+                                        RSDocumentMetadata* dmd,
                                         long long timeout_ms,
                                         AllocateKeyCallback allocateKey);
 

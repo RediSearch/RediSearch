@@ -76,9 +76,9 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
 }
 
 // Async DMD helpers wrappers (queue managed internally by disk)
-bool SearchDisk_LoadDmdAsync(RedisSearchDiskIndexSpec *handle, t_docId docId) {
+void SearchDisk_LoadDmdAsync(RedisSearchDiskIndexSpec *handle, t_docId docId) {
     RS_ASSERT(disk && handle);
-    return disk->docTable.loadDmdAsync(handle, docId);
+    disk->docTable.loadDmdAsync(handle, docId);
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
@@ -87,17 +87,13 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
 }
 
 
-DiskDocumentMetadata SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
+void SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
+                                        RSDocumentMetadata *dmd, // OUT
                                         long long timeout_ms,
                                         AllocateKeyCallback allocateKey) {
-    DiskDocumentMetadata out = (DiskDocumentMetadata){0};
     RS_ASSERT(disk && handle);
-    t_docId did = 0; char* key = NULL; size_t keyLen = 0; double score = 0; uint32_t flags = 0, maxFreq = 0;
-    int rc = disk->docTable.waitDmd(handle, &did, &key, &keyLen, &score, &flags, &maxFreq, timeout_ms, allocateKey);
-    if (rc > 0) {
-        out.docId = did; out.key = key; out.keyLen = keyLen; out.score = score; out.flags = flags; out.maxFreq = maxFreq;
-    } else {
-        out.key = NULL;
+    int rc = disk->docTable.waitDmd(handle, dmd, timeout_ms, allocateKey);
+    if (rc == 0) {
+      dmd->keyPtr = NULL;
     }
-    return out;
 }
