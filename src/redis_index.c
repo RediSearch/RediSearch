@@ -165,7 +165,7 @@ static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleSt
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->dtor = (void (*)(void *))InvertedIndex_Free;
   size_t index_size;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &index_size);
+  kdv->p = NewInvertedIndex(ctx->spec->flags, &index_size);
   ctx->spec->stats.invertedSize += index_size;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
