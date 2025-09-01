@@ -1161,7 +1161,7 @@ static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   vecNode->opts.flags |= QueryNode_YieldsDistance;
 
   // Mark this vector node as exempt from hybrid validation
-  vecNode->opts.flags |= QueryNode_HybridValidationExempt;
+  vecNode->opts.flags |= QueryNode_NoHybridValidation;
 
   if (pvd->isParameter) {
     // PARAMETER CASE: Set up parameter for evalnode to resolve later
@@ -1196,7 +1196,7 @@ static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   // setFilterNode handles both KNN (child relationship) and RANGE (intersection) properly
   QueryNode *oldRoot = ast->root;
   ast->root = vecNode;
-  setFilterNode(ast, oldRoot);
+  SetFilterNode(ast, oldRoot);
 
   return REDISMODULE_OK;
 }

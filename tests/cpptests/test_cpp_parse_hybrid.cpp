@@ -375,7 +375,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   // Verify QueryNode structure
   QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
-  ASSERT_EQ(vn->opts.flags & QueryNode_HybridValidationExempt, QueryNode_HybridValidationExempt); // Should be exempt from hybrid validation
+  ASSERT_EQ(vn->opts.flags & QueryNode_NoHybridValidation, QueryNode_NoHybridValidation); // Should be exempt from hybrid validation
   ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
   // Verify parameters
@@ -535,7 +535,7 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
-  ASSERT_EQ(vn->opts.flags & QueryNode_HybridValidationExempt, QueryNode_HybridValidationExempt); // Should be exempt from hybrid validation
+  ASSERT_EQ(vn->opts.flags & QueryNode_NoHybridValidation, QueryNode_NoHybridValidation); // Should be exempt from hybrid validation
   ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
   // Verify parameters
@@ -580,7 +580,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
 
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
-  ASSERT_EQ(vn->opts.flags & QueryNode_HybridValidationExempt, QueryNode_HybridValidationExempt); // Should be exempt from hybrid validation
+  ASSERT_EQ(vn->opts.flags & QueryNode_NoHybridValidation, QueryNode_NoHybridValidation); // Should be exempt from hybrid validation
 
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
@@ -626,7 +626,7 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
   QueryNode *vn = vecReq->ast.root;
-  ASSERT_EQ(vn->opts.flags & QueryNode_HybridValidationExempt, QueryNode_HybridValidationExempt); // Should be exempt from hybrid validation
+  ASSERT_EQ(vn->opts.flags & QueryNode_NoHybridValidation, QueryNode_NoHybridValidation); // Should be exempt from hybrid validation
   ASSERT_EQ(QueryNode_NumParams(vn), 0);  // No parameters for direct vector data
 
   // Verify VectorQuery structure in the AST

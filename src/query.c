@@ -397,31 +397,31 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   return ret;
 }
 
-void setFilterNode(QueryAST *q, QueryNode *n) {
-  if (q->root == NULL || n == NULL) return;
+void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
+  if (q->root == NULL || filterNode == NULL) return;
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator.
-    q->root->children = array_ensure_prepend(q->root->children, &n, 1, QueryNode *);
+    q->root->children = array_ensure_prepend(q->root->children, &filterNode, 1, QueryNode *);
     q->numTokens++;
   // vector node of type KNN should always be in the root, so we have a special case here.
   } else if (q->root->type == QN_VECTOR && q->root->vn.vq->type == VECSIM_QT_KNN) {
     // for non-hybrid - add the filter node as the child of the vector node.
     if (QueryNode_NumChildren(q->root) == 0) {
-      QueryNode_AddChild(q->root, n);
+      QueryNode_AddChild(q->root, filterNode);
     // otherwise, add a new phrase node as the parent of the current child of the hybrid vector node,
     // and set its children to be the previous child and the new filter node.
     } else {
       RS_LOG_ASSERT(QueryNode_NumChildren(q->root) == 1, "Vector query node can have at most one child");
       QueryNode *nr = NewPhraseNode(0);
-      QueryNode_AddChild(nr, n);
+      QueryNode_AddChild(nr, filterNode);
       QueryNode_AddChild(nr, q->root->children[0]);
       q->root->children[0] = nr;
     }
   } else {  // for other types, we need to create a new phrase node
     QueryNode *nr = NewPhraseNode(0);
-    QueryNode_AddChild(nr, n);
+    QueryNode_AddChild(nr, filterNode);
     QueryNode_AddChild(nr, q->root);
     q->numTokens++;
     q->root = nr;
@@ -430,23 +430,23 @@ void setFilterNode(QueryAST *q, QueryNode *n) {
 
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
   if (options->empty) {
-    setFilterNode(ast, NewQueryNode(QN_NULL));
+    SetFilterNode(ast, NewQueryNode(QN_NULL));
   }
   if (options->numeric) {
     QueryNode *n = NewQueryNode(QN_NUMERIC);
     n->nn.nf = options->numeric;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
   if (options->geo) {
     QueryNode *n = NewQueryNode(QN_GEO);
     n->gn.gf = options->geo;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
   if (options->keys) {
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.keys = options->keys;
     n->fn.len = options->nkeys;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
 }
 
@@ -1758,7 +1758,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
   QueryError *status, QAST_ValidationFlags validationFlags) {
   // Check if this node is exempt from hybrid validation
   QAST_ValidationFlags effectiveFlags = validationFlags;
-  if (n->opts.flags & QueryNode_HybridValidationExempt) {
+  if (n->opts.flags & QueryNode_NoHybridValidation) {
     // Temporarily disable hybrid validation flags for this node
     effectiveFlags &= ~(QAST_HYBRID_VSIM_FILTER_CLAUSE | QAST_HYBRID_SEARCH_CLAUSE);
   }

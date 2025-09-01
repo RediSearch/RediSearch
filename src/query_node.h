@@ -156,7 +156,7 @@ typedef enum {
   QueryNode_YieldsDistance = 0x04,
   QueryNode_IndexesEmpty = 0x08,
   QueryNode_IsTag = 0x10,
-  QueryNode_HybridValidationExempt = 0x20,  // Exempt from hybrid validation restrictions
+  QueryNode_NoHybridValidation = 0x20,  // Exempt from hybrid validation restrictions
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.

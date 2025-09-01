@@ -112,7 +112,7 @@ typedef struct {
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options);
 
 /** Set a filter node on the AST, handling different node types appropriately */
-void setFilterNode(QueryAST *q, QueryNode *n);
+void SetFilterNode(QueryAST *q, QueryNode *filterNode);
 
 /**
  * Open the result iterator on the filters. Returns the iterator for the root node.
