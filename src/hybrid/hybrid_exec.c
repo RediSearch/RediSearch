@@ -31,6 +31,43 @@
 
 #include <time.h>
 
+#define SEARCH_SUFFIX "(SEARCH)"
+#define VSIM_SUFFIX "(VSIM)"
+#define POST_PROCESSING_SUFFIX "(POST PROCESSING)"
+
+// Send a warning message to the client, optionally appending a suffix to identify the source
+static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
+  if (suffix) {
+    RS_ASSERT(strlen(suffix) > 0);
+    char *expanded_warning = NULL;
+    rm_asprintf(&expanded_warning, "%s %s", message, suffix);
+    RedisModule_Reply_SimpleString(reply, expanded_warning);
+    rm_free(expanded_warning);
+  } else {
+    RedisModule_Reply_SimpleString(reply, message);
+  }
+}
+
+// Handles query errors and sends warnings to client.
+// ignoreTimeout: ignore timeout in tail if there's a timeout in subquery
+// suffix: identifies where the error occurred ("SEARCH"/"VSIM"/"POST PROCESSING")
+// Returns true if a timeout occurred and was processed as a warning
+static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
+  bool timeoutOccurred = false;
+
+  if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
+    ReplyWarning(reply, QueryError_Strerror(QUERY_ETIMEDOUT), suffix);
+    timeoutOccurred = true;
+  } else if (returnCode == RS_RESULT_ERROR) {
+    // Non-fatal error
+    ReplyWarning(reply, QueryError_GetUserError(err), suffix);
+  } else if (err->reachedMaxPrefixExpansions) {
+    ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
+  }
+
+  return timeoutOccurred;
+}
+
 // Serializes a result for the `FT.HYBRID` command.
 // The format is consistent, i.e., does not change according to the values of
 // the reply, or the RESP protocol used.
@@ -150,13 +187,13 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
     return len;
 }
 
-static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx,
-                    RedisSearchCtx *sctx) {
+static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx) {
   RedisSearchCtx *sctx1 = hreq->requests[0]->sctx;
   RedisSearchCtx *sctx2 = hreq->requests[1]->sctx;
 
   if (RunInThread()) {
     // Multi-threaded execution path
+    RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
     // TODO: Dump the entire hreq when explain is implemented
@@ -183,7 +220,7 @@ static int HREQ_BuildPipelineAndExecute(HybridRequest *hreq, RedisModuleCtx *ctx
     if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     } else {
-      HREQ_Execute(hreq, ctx, sctx);
+      HREQ_Execute(hreq, ctx);
       return REDISMODULE_OK;
     }
   }
@@ -210,9 +247,10 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp->parent->err, hreq->reqConfig.timeoutPolicy, false)) {  // hybrid doesn't support profiling yet
-      // TODO: take to error using HREQ_GetError
-      RedisModule_Reply_Error(reply, QueryError_GetUserError(qctx->err));
+    QueryError err = {0};
+    HREQ_GetError(hreq, &err);
+    if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
       goto done_err;
     } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, false)) {
       ReplyWithTimeoutError(reply);
@@ -258,19 +296,22 @@ done:
     RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // warnings
-    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
-    if (rc == RS_RESULT_TIMEDOUT) {
-      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-    } else if (rc == RS_RESULT_ERROR) {
-      // Non-fatal error
-      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
-    } else if (qctx->err->reachedMaxPrefixExpansions) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+
+    bool timeoutInSubquery = false;
+    for (size_t i = 0; i < hreq->nrequests; ++i) {
+      QueryError* err = &hreq->errors[i];
+      const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
+      const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
+      timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
     }
+    // Handle main query errors (POST PROCESSING)
+    handleAndReplyWarning(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
     // execution_time
@@ -314,7 +355,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto error;
   }
 
-  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx, sctx) != REDISMODULE_OK) {
+  if (HREQ_BuildPipelineAndExecute(hybridRequest, ctx) != REDISMODULE_OK) {
     HREQ_GetError(hybridRequest, &status);
     goto error;
   }
@@ -337,9 +378,8 @@ error:
  *
  * @param hreq The HybridRequest with built pipeline
  * @param ctx Redis module context for sending the reply
- * @param sctx Redis search context
  */
-void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
+void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx) {
     AGGPlan *plan = &hreq->tailPipeline->ap;
     cachedVars cv = {
         .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
@@ -400,7 +440,7 @@ void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // hreq will be freed by blockedClientHybridCtx_destroy since execution failed
   } else {
     // Hybrid query doesn't support cursors.
-    HREQ_Execute(hreq, outctx, sctx);
+    HREQ_Execute(hreq, outctx);
     // Set hreq to NULL so it won't be freed in destroy (it was freed by HREQ_Execute)
     BCHCtx->hreq = NULL;
   }
