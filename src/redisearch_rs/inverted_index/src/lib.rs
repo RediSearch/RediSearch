@@ -333,6 +333,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     }
 }
 
+/// A wrapper around the inverted index to track the total number of entries in the index.
+/// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
 pub struct EntriesTrackingIndex<E> {
     /// The underlying inverted index that stores the entries.
     index: InvertedIndex<E>,
