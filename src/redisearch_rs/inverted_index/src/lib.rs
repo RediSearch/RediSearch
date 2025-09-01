@@ -12,7 +12,9 @@ use std::{
     io::{BufRead, Cursor, Seek, Write},
 };
 
-use ffi::FieldSpec;
+use ffi::{
+    FieldSpec, IndexFlags, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
+};
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
@@ -198,6 +200,10 @@ pub struct InvertedIndex<E> {
     /// number of unique documents that have been indexed.
     n_unique_docs: usize,
 
+    /// The flags of this index. This is used to determine the type of index and how it should be
+    /// handled.
+    flags: IndexFlags,
+
     /// The encoder to use when adding new entries to the index
     encoder: E,
 }
@@ -255,10 +261,11 @@ impl IndexBlock {
 impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index with the given encoder. The encoder is used to write new
     /// entries to the index.
-    pub fn new(encoder: E) -> Self {
+    pub fn new(flags: IndexFlags, encoder: E) -> Self {
         Self {
             blocks: Vec::new(),
             n_unique_docs: 0,
+            flags,
             encoder,
         }
     }
@@ -338,6 +345,8 @@ impl<E: Encoder> InvertedIndex<E> {
 
         if !same_doc {
             self.n_unique_docs += 1;
+        } else {
+            self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
         Ok(buf_growth + mem_growth)
@@ -374,6 +383,11 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn unique_docs(&self) -> usize {
         self.n_unique_docs
     }
+
+    /// Returns the flags of this index.
+    pub fn flags(&self) -> IndexFlags {
+        self.flags
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -397,9 +411,9 @@ pub struct EntriesTrackingIndex<E> {
 
 impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Create a new entries tracking index with the given encoder.
-    pub fn new(encoder: E) -> Self {
+    pub fn new(flags: IndexFlags, encoder: E) -> Self {
         Self {
-            index: InvertedIndex::new(encoder),
+            index: InvertedIndex::new(flags, encoder),
             number_of_entries: 0,
         }
     }
@@ -448,9 +462,14 @@ pub struct FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// Create a new field mask tracking index with the given encoder.
-    pub fn new(encoder: E) -> Self {
+    pub fn new(flags: IndexFlags, encoder: E) -> Self {
+        debug_assert!(
+            flags & IndexFlags_Index_StoreFieldFlags > 1,
+            "FieldMaskTrackingIndex should only be used with indices that store field flags"
+        );
+
         Self {
-            index: InvertedIndex::new(encoder),
+            index: InvertedIndex::new(flags, encoder),
             field_mask: 0,
         }
     }

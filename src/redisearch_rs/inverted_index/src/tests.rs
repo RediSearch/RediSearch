@@ -15,6 +15,9 @@ use crate::{
     IndexBlock, IndexReader, InvertedIndex, RSAggregateResult, RSIndexResult, RSResultData,
     RSResultKind, RSTermRecord, SkipDuplicatesReader,
 };
+use ffi::{
+    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
+};
 use pretty_assertions::assert_eq;
 
 #[unsafe(no_mangle)]
@@ -54,19 +57,19 @@ impl Encoder for Dummy {
 
 #[test]
 fn memory_usage() {
-    let mut ii = InvertedIndex::new(Dummy);
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 32);
+    assert_eq!(ii.memory_usage(), 40);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 32 + mem_growth);
+    assert_eq!(ii.memory_usage(), 40 + mem_growth);
 }
 
 #[test]
 fn adding_records() {
-    let mut ii = InvertedIndex::new(Dummy);
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
     let record = RSIndexResult::default().doc_id(10);
 
     let mem_growth = ii.add_record(&record).unwrap();
@@ -97,13 +100,14 @@ fn adding_records() {
 
 #[test]
 fn adding_same_record_twice() {
-    let mut ii = InvertedIndex::new(Dummy);
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
     let record = RSIndexResult::default().doc_id(10);
 
     ii.add_record(&record).unwrap();
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
     assert_eq!(ii.blocks[0].num_entries, 1);
+    assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     let mem_growth = ii.add_record(&record).unwrap();
 
@@ -121,6 +125,7 @@ fn adding_same_record_twice() {
     assert_eq!(ii.blocks[0].first_doc_id, 10);
     assert_eq!(ii.blocks[0].last_doc_id, 10);
     assert_eq!(ii.n_unique_docs, 1, "this second doc was not added");
+    assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     /// Dummy encoder which allows duplicates for testing
     struct AllowDupsDummy;
@@ -142,11 +147,12 @@ fn adding_same_record_twice() {
         }
     }
 
-    let mut ii = InvertedIndex::new(AllowDupsDummy);
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, AllowDupsDummy);
 
     ii.add_record(&record).unwrap();
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [255]);
+    assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     let _mem_growth = ii.add_record(&record).unwrap();
 
@@ -162,6 +168,11 @@ fn adding_same_record_twice() {
     assert_eq!(
         ii.n_unique_docs, 1,
         "this doc was added but should not affect the count"
+    );
+    assert_eq!(
+        ii.flags(),
+        IndexFlags_Index_DocIdsOnly | IndexFlags_Index_HasMultiValue,
+        "the index now has multi values"
     );
 }
 
@@ -188,7 +199,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         }
     }
 
-    let mut ii = InvertedIndex::new(SmallBlocksDummy);
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, SmallBlocksDummy);
 
     let mem_growth = ii.add_record(&RSIndexResult::default().doc_id(10)).unwrap();
     assert_eq!(
@@ -231,7 +242,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
 
 #[test]
 fn adding_big_delta_makes_new_block() {
-    let mut ii = InvertedIndex::new(Dummy);
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
     let record = RSIndexResult::default().doc_id(10);
 
     let mem_growth = ii.add_record(&record).unwrap();
@@ -269,15 +280,15 @@ fn adding_big_delta_makes_new_block() {
 
 #[test]
 fn adding_tracks_entries() {
-    let mut ii = EntriesTrackingIndex::new(Dummy);
+    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 40);
+    assert_eq!(ii.memory_usage(), 48);
     assert_eq!(ii.number_of_entries(), 0);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 40 + mem_growth);
+    assert_eq!(ii.memory_usage(), 48 + mem_growth);
     assert_eq!(ii.number_of_entries(), 1);
 
     let record = RSIndexResult::default().doc_id(10);
@@ -288,9 +299,9 @@ fn adding_tracks_entries() {
 
 #[test]
 fn adding_track_field_mask() {
-    let mut ii = FieldMaskTrackingIndex::new(Dummy);
+    let mut ii = FieldMaskTrackingIndex::new(IndexFlags_Index_StoreFieldFlags, Dummy);
 
-    assert_eq!(ii.memory_usage(), 48);
+    assert_eq!(ii.memory_usage(), 56);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
