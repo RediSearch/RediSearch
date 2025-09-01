@@ -13,7 +13,8 @@ use std::io::{Cursor, Read};
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterMaskReader, IdDelta,
     IndexBlock, IndexReader, InvertedIndex, RSAggregateResult, RSIndexResult, RSResultData,
-    RSResultKind, RSTermRecord, SkipDuplicatesReader, debug::Summary,
+    RSResultKind, RSTermRecord, SkipDuplicatesReader,
+    debug::{BlockSummary, Summary},
 };
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
@@ -657,5 +658,113 @@ fn summary_store_numeric() {
             block_efficiency: 1.0,
             has_efficiency: true,
         }
+    );
+}
+
+#[test]
+fn blocks_summary() {
+    /// Dummy encoder which only allows 2 entries per block for testing
+    struct SmallBlocksDummy;
+
+    impl Encoder for SmallBlocksDummy {
+        type Delta = u32;
+
+        const ALLOW_DUPLICATES: bool = true;
+        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&[1])?;
+
+            Ok(1)
+        }
+    }
+
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, SmallBlocksDummy);
+
+    assert_eq!(ii.blocks_summary().len(), 0);
+
+    let record = RSIndexResult::default().doc_id(10);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    let record = RSIndexResult::default().doc_id(11);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    let record = RSIndexResult::default().doc_id(12);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    let summaries = ii.blocks_summary();
+    assert_eq!(
+        summaries,
+        vec![
+            BlockSummary {
+                first_doc_id: 10,
+                last_doc_id: 11,
+                number_of_entries: 2,
+            },
+            BlockSummary {
+                first_doc_id: 12,
+                last_doc_id: 12,
+                number_of_entries: 1,
+            }
+        ]
+    );
+}
+
+#[test]
+fn blocks_summary_store_numeric() {
+    /// Dummy encoder which only allows 2 entries per block for testing
+    struct SmallBlocksDummy;
+
+    impl Encoder for SmallBlocksDummy {
+        type Delta = u32;
+
+        const ALLOW_DUPLICATES: bool = true;
+        const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&[1])?;
+
+            Ok(1)
+        }
+    }
+
+    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric, SmallBlocksDummy);
+
+    assert_eq!(ii.blocks_summary().len(), 0);
+
+    let record = RSIndexResult::default().doc_id(10);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    let record = RSIndexResult::default().doc_id(11);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    let record = RSIndexResult::default().doc_id(12);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    let summaries = ii.blocks_summary();
+    assert_eq!(
+        summaries,
+        vec![
+            BlockSummary {
+                first_doc_id: 10,
+                last_doc_id: 11,
+                number_of_entries: 2,
+            },
+            BlockSummary {
+                first_doc_id: 12,
+                last_doc_id: 12,
+                number_of_entries: 1,
+            }
+        ]
     );
 }

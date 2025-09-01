@@ -12,7 +12,7 @@ use std::{
     io::{BufRead, Cursor, Seek, Write},
 };
 
-use debug::Summary;
+use debug::{BlockSummary, Summary};
 use ffi::{
     FieldSpec, IndexFlags, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreNumeric,
@@ -411,6 +411,18 @@ impl<E: Encoder> InvertedIndex<E> {
             has_efficiency,
         }
     }
+
+    /// Return basic information about the blocks in this inverted index.
+    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.blocks
+            .iter()
+            .map(|b| BlockSummary {
+                first_doc_id: b.first_doc_id,
+                last_doc_id: b.last_doc_id,
+                number_of_entries: b.num_entries,
+            })
+            .collect()
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -471,6 +483,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         summary.number_of_entries = self.number_of_entries;
 
         summary
+    }
+
+    /// Return basic information about the blocks in this inverted index.
+    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.index.blocks_summary()
     }
 }
 
