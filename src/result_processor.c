@@ -1824,7 +1824,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
       self->upstreamReturnCodes[i] = rc;
 
       // Currently continues processing other upstreams.
-      // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error.
+      // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error : MOD-11004
       // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
       consumed[i] = true;
       numConsumed++;
