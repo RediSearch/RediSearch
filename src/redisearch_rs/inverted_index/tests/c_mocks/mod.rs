@@ -45,3 +45,11 @@ pub extern "C" fn Term_Free(t: *mut RSQueryTerm) {
         panic!("No test created a term record");
     }
 }
+
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+unsafe fn RSYieldableMetrics_Clone(
+    _src: *mut ffi::RSYieldableMetric,
+) -> *mut ffi::RSYieldableMetric {
+    panic!("none of the tests should set any metrics");
+}

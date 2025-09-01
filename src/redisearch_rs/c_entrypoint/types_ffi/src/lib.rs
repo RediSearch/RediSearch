@@ -9,7 +9,7 @@
 
 //! This module contains pure Rust types that we want to expose to C code.
 
-use std::{alloc::Layout, ffi::c_char, ptr};
+use std::{ffi::c_char, ptr};
 
 use inverted_index::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
@@ -90,10 +90,9 @@ pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
     // an `RSIndexResult`.
     let result = unsafe { &*result };
 
-    result.as_term().map_or(ptr::null_mut(), |term| match term {
-        RSTermRecord::Borrowed { term, .. } => *term,
-        RSTermRecord::Owned { term, .. } => *term,
-    })
+    result
+        .as_term()
+        .map_or(ptr::null_mut(), |term| term.query_term())
 }
 
 /// Get the term offsets from a result if it is a term result. If the result is not a term, then
@@ -488,23 +487,7 @@ pub unsafe extern "C" fn RSOffsetVector_CopyData(
     // SAFETY: Caller is to ensure `dest` is non-null and point to a valid RSOffsetVector.
     let dest = unsafe { &mut *dest };
 
-    dest.len = src.len;
-
-    if src.len > 0 {
-        debug_assert!(!src.data.is_null(), "src data must not be null");
-        let layout = Layout::array::<c_char>(src.len as usize).unwrap();
-        // SAFETY: we just checked that len > 0
-        dest.data = unsafe { std::alloc::alloc(layout).cast() };
-        // SAFETY:
-        // - The source buffer and the destination buffer don't overlap because
-        //   they belong to distinct non-overlapping allocations.
-        // - The destination buffer is valid for writes of `src.len` elements
-        //   since it was just allocated with capacity `src.len`.
-        // - The source buffer is valid for reads of `src.len` elements as a call invariant.
-        unsafe { std::ptr::copy_nonoverlapping(src.data, dest.data, src.len as usize) };
-    } else {
-        dest.data = std::ptr::null_mut();
-    }
+    *dest = src.to_owned();
 }
 
 /// Retrieve the number of offsets in [`RSOffsetVector`].
