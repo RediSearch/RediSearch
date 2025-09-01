@@ -232,7 +232,7 @@ fn to_owned_a_term_index_result() {
     };
 
     let mut offsets: [i8; 1] = [0];
-    let offsets = RSOffsetVector::with_data(offsets.as_mut_ptr(), offsets.len() as _);
+    let offsets = RSOffsetVector::with_data(offsets.as_mut_ptr() as _, offsets.len() as _);
 
     let ir = RSIndexResult::term_with_term_ptr(&mut term, offsets, 7, 1, 1);
     let mut ir_copy = ir.to_owned();
