@@ -1865,6 +1865,44 @@ DEBUG_COMMAND(getIsRPPaused) {
 }
 
 /**
+ * FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM
+ */
+DEBUG_COMMAND(printRPStream) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (!globalDebugCtx.query.debugRP) {
+    return RedisModule_ReplyWithNull(ctx);
+  }
+
+  ResultProcessor* root = globalDebugCtx.query.debugRP->parent->endProc;
+  ResultProcessor *cur = root;
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+
+
+  size_t resultSize = 0;
+
+  while (cur) {
+    if (cur->type < RP_MAX) {
+      RedisModule_ReplyWithSimpleString(ctx, RPTypeToString(cur->type));
+    }
+    else {
+      RedisModule_ReplyWithSimpleString(ctx, "DEBUG_RP");
+    }
+    cur = cur->upstream;
+    resultSize++;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+
+  return REDISMODULE_OK;
+}
+
+/**
  * FT.DEBUG QUERY_CONTROLLER <command> [options]
  */
 DEBUG_COMMAND(queryController) {
@@ -1882,6 +1920,9 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("GET_IS_RP_PAUSED", op)) {
     return getIsRPPaused(ctx, argv + 1, argc - 1);
+  }
+  if (!strcmp("PRINT_RP_STREAM", op)) {
+    return printRPStream(ctx, argv + 1, argc - 1);
   }
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");
 }

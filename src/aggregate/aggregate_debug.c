@@ -55,6 +55,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   int crash = 0;
   int internal_only = 0;
   ArgsCursor pauseArgs = {0};
+  ArgsCursor pauseBeforeArgs = {0};
+  ArgsCursor pauseAfterArgs = {0};
   ACArgSpec debugArgsSpec[] = {
       // Getting TIMEOUT_AFTER_N as an array to use AC_IsInitialized API.
       {.name = "TIMEOUT_AFTER_N",
@@ -70,6 +72,16 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
        .type = AC_ARGTYPE_SUBARGS_N,
        .target = &pauseArgs,
        .slicelen = 1},
+      // pause after specific RP after N results
+      {.name = "PAUSE_AFTER_RP_N",
+       .type = AC_ARGTYPE_SUBARGS_N,
+       .target = &pauseAfterArgs,
+       .slicelen = 2},
+      // pause after specific RP before N results
+      {.name = "PAUSE_BEFORE_RP_N",
+       .type = AC_ARGTYPE_SUBARGS_N,
+       .target = &pauseBeforeArgs,
+       .slicelen = 2},
       {NULL}};
 
   ACArgSpec *errSpec = NULL;
@@ -132,7 +144,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     }
   }
 
-  // Handle pause
+  // Handle pause after N
   if (AC_IsInitialized(&pauseArgs)) {
     unsigned long long results_count = -1;
     if (AC_GetUnsignedLongLong(&pauseArgs, &results_count, AC_F_GE0) != AC_OK) {
@@ -142,6 +154,28 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     PipelineAddPauseAfterCount(&debug_req->r, results_count);
   }
 
+  // Handle pause before/after RP after N (contains the same logic)
+  if (AC_IsInitialized(&pauseAfterArgs) || AC_IsInitialized(&pauseBeforeArgs)) {
+    bool before = AC_IsInitialized(&pauseBeforeArgs);
+    ArgsCursor *pauseArgs = before ? &pauseBeforeArgs : &pauseAfterArgs;
+    unsigned long long results_count = -1;
+    if (AC_GetUnsignedLongLong(pauseArgs, &results_count, AC_F_GE0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid PAUSE_AFTER_N count");
+      return REDISMODULE_ERR;
+    }
+    const char *rp_type_str = NULL;
+    if (AC_GetString(pauseArgs, &rp_type_str, NULL, 0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid PAUSE_AFTER_N RP type");
+      return REDISMODULE_ERR;
+    }
+    ResultProcessorType rp_type = StringToRPType(rp_type_str);
+    if (rp_type == RP_MAX) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid PAUSE_AFTER_N RP type");
+      return REDISMODULE_ERR;
+    }
+
+    PipelineAddPauseRPcount(&debug_req->r, results_count, before, rp_type);
+  }
 
   return REDISMODULE_OK;
 }
