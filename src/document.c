@@ -920,6 +920,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   int rc = REDISMODULE_ERR;
   RSExpr *e = NULL;
   RedisSearchCtx_LockSpecRead(sctx);
+  RedisModule_Log(RSDummyContext, "notice", "Document_EvalExpression: locking index %s for read", sctx->spec->name);
+
   const RSDocumentMetadata *dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
   if (!dmd) {
     // We don't know the document...
@@ -963,6 +965,8 @@ done:
   ExprAST_Free(e);
   DMD_Return(dmd);
   RedisSearchCtx_UnlockSpec(sctx);
+  RedisModule_Log(RSDummyContext, "notice", "Document_EvalExpression: unlocking index %s for read", sctx->spec->name);
+
   return rc;
 }
 

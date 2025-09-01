@@ -101,6 +101,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Lock the spec
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisSearchCtx_LockSpecRead(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "IndexInfoCommand: locking index %s for read", sp->name);
 
   REPLY_KVSTR_SAFE("index_name", sp->name);
 
@@ -268,6 +269,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Unlock spec
   RedisSearchCtx_UnlockSpec(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "IndexInfoCommand: unlocking index %s for read", sp->name);
 
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);

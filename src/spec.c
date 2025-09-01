@@ -3006,6 +3006,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   RedisSearchCtx_LockSpecWrite(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_UpdateDoc: locking index %s for write", spec->name);
   IndexSpec_IncrActiveWrites(spec);
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
@@ -3017,6 +3018,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startDocTime);
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_UpdateDoc: unlocking index %s for write", spec->name);
   return REDISMODULE_OK;
 }
 
@@ -3054,9 +3056,11 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   // TODO: is this necessary?
   RedisSearchCtx_LockSpecRead(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_DeleteDoc: locking index %s for read", spec->name);
   // Get the doc ID
   t_docId id = DocTable_GetIdR(&spec->docs, key);
   RedisSearchCtx_UnlockSpec(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_DeleteDoc: unlocking index %s for read", spec->name);
 
   if (id == 0) {
     // ID does not exist.
@@ -3064,10 +3068,12 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   RedisSearchCtx_LockSpecWrite(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_DeleteDoc: locking index %s for write", spec->name);
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, id);
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_DeleteDoc: unlocking index %s for write", spec->name);
   return REDISMODULE_OK;
 }
 
@@ -3271,8 +3277,10 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
     if (entry) {
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
+      RedisModule_Log(RSDummyContext, "notice", "Indexes_ReplaceMatchingWithSchemaRules: locking index %s for write", spec->name);
       DocTable_Replace(&spec->docs, from_str, from_len, to_str, to_len);
       RedisSearchCtx_UnlockSpec(&sctx);
+      RedisModule_Log(RSDummyContext, "notice", "Indexes_ReplaceMatchingWithSchemaRules: unlocking index %s for write", spec->name);
       size_t index = entry->v.u64;
       dictDelete(to_specs->specs, spec->name);
       array_del_fast(to_specs->specsOps, index);

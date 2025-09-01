@@ -758,6 +758,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   RedisSearchCtx *sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
+  RedisModule_Log(RSDummyContext, "notice", "FGC_parentHandleTerms: locking index %s for write", sctx->spec->name);
 
   InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, DONT_CREATE_INDEX, NULL);
 
@@ -798,6 +799,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 cleanup:
   if (sp) {
     RedisSearchCtx_UnlockSpec(sctx);
+    RedisModule_Log(RSDummyContext, "notice", "FGC_parentHandleTerms: unlocking index %s for write", sctx->spec->name);
     StrongRef_Release(spec_ref);
   }
   rm_free(term);
@@ -934,6 +936,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     RedisSearchCtx *sctx = &_sctx;
 
     RedisSearchCtx_LockSpecWrite(sctx);
+    RedisModule_Log(RSDummyContext, "notice", "FGC_parentHandleNumeric: locking index %s for write", sctx->spec->name);
 
     if (!initialized) {
       fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
@@ -969,6 +972,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);
+      RedisModule_Log(RSDummyContext, "notice", "FGC_parentHandleNumeric: unlocking index %s for write", sctx->spec->name);
       StrongRef_Release(cur_iter_spec_ref);
     }
   }
@@ -982,12 +986,14 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (!sp) return FGC_SPEC_DELETED;
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
     RedisSearchCtx_LockSpecWrite(&sctx);
+    RedisModule_Log(RSDummyContext, "notice", "FGC_parentHandleNumeric: locking index %s for write", (&sctx)->spec->name);
     if (rt->emptyLeaves >= rt->numRanges / 2) { // TODO: count `numLeaves` in the tree and use it here
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
-      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
+      FGC_updateStats(gc, (&sctx), 0, -rv.sz, 0);
     }
     RedisSearchCtx_UnlockSpec(&sctx);
+    RedisModule_Log(RSDummyContext, "notice", "FGC_parentHandleNumeric: unlocking index %s for write", (&sctx)->spec->name);
     StrongRef_Release(spec_ref);
   }
 
@@ -1040,7 +1046,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     }
 
     RedisSearchCtx_LockSpecWrite(sctx);
-
+    RedisModule_Log(RSDummyContext, "notice", "FGC_parentHandleTags: locking index %s for write", sctx->spec->name);
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
     tagIdx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
 
@@ -1073,6 +1079,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
+    RedisModule_Log(RSDummyContext, "notice", "FGC_parentHandleTags: unlocking index %s for write", sctx->spec->name);
     StrongRef_Release(cur_iter_spec_ref);
     if (status != FGC_COLLECTED) {
       freeInvIdx(&idxbufs, &info);
