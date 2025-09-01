@@ -215,20 +215,10 @@ void handleDialect(ArgParser *parser, const void *value, void *user_data) {
 // FORMAT callback - implements EXACT original logic from lines 359-366
 void handleFormat(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
+    const char *format = *(char**)value;
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
-
-    const char *fmt = AC_GetStringNC(ac, NULL);
-    if (!fmt) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "FORMAT requires a format argument");
-        return;
-    }
-
-    if (strcasecmp(fmt, "STRING") == 0) {
+    if (strcasecmp(format, "STRING") == 0) {
         *ctx->reqFlags |= QEXEC_F_SEND_NOFIELDS;
-    } else {
-        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown format", " `%s`", fmt);
-        return;
     }
 }

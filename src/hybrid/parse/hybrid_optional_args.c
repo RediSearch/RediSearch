@@ -64,9 +64,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                       ARG_OPT_END);
 
     // FORMAT format - output format
-    ArgParser_AddSubArgsV(parser, "FORMAT", "Output format",
-                         NULL, 1, 1,
+    const char *formatTarget = NULL;
+    static const char *allowedFormats[] = {"STRING", NULL};
+    ArgParser_AddStringV(parser, "FORMAT", "Output format",
+                         &formatTarget, 1, 1,
                          ARG_OPT_OPTIONAL,
+                         ARG_OPT_ALLOWED_VALUES, allowedFormats,
                          ARG_OPT_CALLBACK, handleFormat, ctx,
                          ARG_OPT_END);
 
@@ -80,10 +83,14 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                           ctx->reqflags, sizeof(*ctx->reqflags), QEXEC_F_SEND_SCOREEXPLAIN,
                           ARG_OPT_OPTIONAL, ARG_OPT_END);
 
+    // Local variable to store the selected method for the lifetime of this function
+    const char *methodTarget = NULL;
+    static const char *allowedCombineMethods[] = {"RRF", "LINEAR", NULL};
     // COMBINE [RRF [K k] [WINDOW window]] | [LINEAR weight1 weight2 ...] - hybrid fusion method
-    ArgParser_AddSubArgsV(parser, "COMBINE", "Fusion method for hybrid search",
-                         NULL, 1, -1,
+    ArgParser_AddStringV(parser, "COMBINE", "Fusion method for hybrid search",
+                         &methodTarget, 1, -1,
                          ARG_OPT_OPTIONAL,
+                         ARG_OPT_ALLOWED_VALUES, allowedCombineMethods,
                          ARG_OPT_CALLBACK, handleCombine, ctx,
                          ARG_OPT_POSITION, 1,
                          ARG_OPT_END);

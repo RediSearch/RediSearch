@@ -6,7 +6,7 @@
 // COMBINE callback - implements exact ParseCombine behavior from hybrid_args.c
 void handleCombine(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
+    const char *method = *(const char**)value;
     QueryError *status = ctx->status;
     HybridScoringContext *combineCtx = ctx->hybridScoringCtx;
     ctx->specifiedArgs |= SPECIFIED_ARG_COMBINE;
@@ -14,15 +14,18 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
 
     // Exact implementation of ParseCombine from hybrid_args.c
     // Check if a specific method is provided
-    if (AC_AdvanceIfMatch(ac, "LINEAR")) {
-        combineCtx->scoringType = HYBRID_SCORING_LINEAR;
-    } else if (AC_AdvanceIfMatch(ac, "RRF")) {
-        combineCtx->scoringType = HYBRID_SCORING_RRF;
+    HybridScoringType parsedScoringType;
+    if (strcasecmp(method, "LINEAR") == 0) {
+        parsedScoringType = HYBRID_SCORING_LINEAR;
+    } else if (strcasecmp(method, "RRF") == 0) {
+        parsedScoringType = HYBRID_SCORING_RRF;
     } else {
-        combineCtx->scoringType = HYBRID_SCORING_RRF;
+        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown COMBINE method", " `%s`", method);
+        return;
     }
 
-    if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
+    ArgsCursor *ac = parser->cursor;
+    if (parsedScoringType == HYBRID_SCORING_LINEAR) {
         // Parse LINEAR weights
         ArgsCursor weights = {0};
         int rv = AC_GetVarArgs(ac, &weights);
@@ -36,6 +39,8 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
             return;
         }
 
+        // Change the scoring type to the parsed type only when we actually allocate
+        combineCtx->scoringType = parsedScoringType;
         combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
         combineCtx->linearCtx.numWeights = numWeights;
 
@@ -49,10 +54,11 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
             }
             combineCtx->linearCtx.linearWeights[i] = weight;
         }
-    } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
+    } else if (parsedScoringType) {
         // Parse RRF parameters
         ArgsCursor params = {0};
         int rv = AC_GetVarArgs(ac, &params);
+        combineCtx->scoringType = parsedScoringType;
         if (rv == AC_OK) {
             while (!AC_IsAtEnd(&params)) {
                 const char *paramName = AC_GetStringNC(&params, NULL);

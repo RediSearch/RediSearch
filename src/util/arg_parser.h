@@ -107,9 +107,9 @@ struct ArgParseResult {
 struct ArgParser {
     ArgsCursor *cursor;         // Underlying cursor
     ArgDefinition *definitions; // Array of argument definitions
-    size_t def_count;          // Number of definitions
+    size_t def_count;           // Number of definitions
     const char *command_name;   // Command name for error messages
-    bool strict_mode;          // Whether to fail on unknown arguments
+    bool strict_mode;           // Whether to fail on unknown arguments
 
     // Internal state
     bool *parsed_flags;        // Track which arguments have been parsed
