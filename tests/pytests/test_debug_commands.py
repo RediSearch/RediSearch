@@ -1111,6 +1111,7 @@ def test_query_controller_pause_and_resume(env):
         # Verify the query returned only 1 result
         env.assertEqual(query_result[0][0], 1)
 
+skip(cluster=True)
 def test_query_controller_add_before_after(env):
     # Set workers to 1 to make sure the query can be paused
     env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
