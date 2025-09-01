@@ -294,7 +294,7 @@ const char *RPTypeToString(ResultProcessorType type);
  * returns timeout after N results, N >= 0.
  *******************************************************************************************************************/
 ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx);
-void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count);
 
 /*******************************************************************************************************************
  *  Crash Processor - DEBUG ONLY
@@ -357,7 +357,8 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
-                                     const RLookupKey *scoreKey);
+                                     const RLookupKey *scoreKey,
+                                     RPStatus *subqueriesReturnCodes);
 
  /*
   * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

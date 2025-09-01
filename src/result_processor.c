@@ -1226,12 +1226,11 @@ typedef struct {
 } RPTimeoutAfterCount;
 
 // Insert the result processor between the last result processor and its downstream result processor
-static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
-  ResultProcessor *cur = AREQ_QueryProcessingCtx(r)->endProc;
+static void addResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  ResultProcessor *cur = qctx->endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
 
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   // Search for the last result processor
   while (cur) {
     if (!cur->upstream) {
@@ -1252,9 +1251,9 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
  * @param results_count: number of results to return. should be greater equal 0.
  * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
  */
-void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count) {
-  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, r->sctx);
-  addResultProcessor(r, RPTimeoutAfterCount);
+void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count) {
+  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, sctx);
+  addResultProcessor(qctx, RPTimeoutAfterCount);
 }
 
 static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, RedisSearchCtx *sctx) {
@@ -1336,7 +1335,7 @@ ResultProcessor *RPCrash_New() {
 
 void PipelineAddCrash(struct AREQ *r) {
   ResultProcessor *crash = RPCrash_New();
-  addResultProcessor(r, crash);
+  addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
 }
 
  /*******************************************************************************************************************
@@ -1687,18 +1686,37 @@ dictType dictTypeHybridSearchResult = {
   * It takes results from both upstreams and applies the provided function to combine their scores.
   *******************************************************************************************************************/
  typedef struct {
-   ResultProcessor base;
-   HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
-   ResultProcessor **upstreams;  // Dynamic array of upstream processors
-   size_t numUpstreams;         // Number of upstream processors
-   dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
-   dictIterator *iterator; // Iterator for yielding results
-   bool timedOut;
-   bool error;
-   const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
- } RPHybridMerger;
+ ResultProcessor base;
+ HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
+ ResultProcessor **upstreams;  // Dynamic array of upstream processors
+ size_t numUpstreams;         // Number of upstream processors
+ dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
+ dictIterator *iterator; // Iterator for yielding results
+ const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
+ RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
+} RPHybridMerger;
 
- /* Helper function to store a result from an upstream into the hybrid merger's dictionary
+/* Generic helper function to check if any upstream has a specific return code */
+static bool RPHybridMerger_HasReturnCode(const RPHybridMerger *self, int returnCode) {
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    if (self->upstreamReturnCodes[i] == returnCode) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Helper function to check if any upstream timed out */
+static inline bool RPHybridMerger_TimedOut(const RPHybridMerger *self) {
+  return RPHybridMerger_HasReturnCode(self, RS_RESULT_TIMEDOUT);
+}
+
+/* Helper function to check if any upstream errored */
+static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
+  return RPHybridMerger_HasReturnCode(self, RS_RESULT_ERROR);
+}
+
+/* Helper function to store a result from an upstream into the hybrid merger's dictionary
   * @param r - the result to store
   * @param hybridResults - the dictionary to store the result in
   * @param upstreamIndex - the index of the upstream that provided the result
@@ -1748,11 +1766,11 @@ dictType dictTypeHybridSearchResult = {
    RS_ASSERT(self->iterator);
    // Get next entry from iterator
    dictEntry *entry = dictNext(self->iterator);
-   if (!entry) {
-     // No more results to yield
-     int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-     return ret;
-   }
+     if (!entry) {
+    // No more results to yield
+    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    return ret;
+  }
 
    // Get the key and value before removing the entry
    void *key = dictGetKey(entry);
@@ -1801,14 +1819,13 @@ dictType dictTypeHybridSearchResult = {
         // Upstream is still active but not ready to provide results. Skip to the next.
         continue;
       }
+
+      // Store the final return code for this upstream
+      self->upstreamReturnCodes[i] = rc;
+
       // Currently continues processing other upstreams.
-      // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error.
+      // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error : MOD-11004
       // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
-      else if (rc == RS_RESULT_TIMEDOUT){
-        self->timedOut = true;
-      } else if (rc == RS_RESULT_ERROR){
-        self->error = true;
-      }
       consumed[i] = true;
       numConsumed++;
     }
@@ -1817,9 +1834,9 @@ dictType dictTypeHybridSearchResult = {
   // Free the consumed tracking array
   rm_free(consumed);
 
-  if (self->error) {
+  if (RPHybridMerger_Error(self)) {
     return RS_RESULT_ERROR;
-  } else if (self->timedOut && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
+  } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -1864,27 +1881,32 @@ dictType dictTypeHybridSearchResult = {
  }
 
  /* Create a new Hybrid Merger processor */
- ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
-                                     ResultProcessor **upstreams,
-                                     size_t numUpstreams,
-                                     const RLookupKey *scoreKey) {
-   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
+ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
+                                    ResultProcessor **upstreams,
+                                    size_t numUpstreams,
+                                    const RLookupKey *scoreKey,
+                                    RPStatus *subqueriesReturnCodes) {
+  RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
-   RS_ASSERT(numUpstreams > 0);
-   ret->numUpstreams = numUpstreams;
+  RS_ASSERT(numUpstreams > 0);
+  ret->numUpstreams = numUpstreams;
 
-   // Store the context by pointer - RPHybridMerger takes ownership and is responsible for freeing it
-   ret->hybridScoringCtx = hybridScoringCtx;
+  // Store the context by pointer - RPHybridMerger takes ownership and is responsible for freeing it
+  RS_ASSERT(hybridScoringCtx);
+  ret->hybridScoringCtx = hybridScoringCtx;
 
-   // Store the scoreKey for writing scores as fields when QEXEC_F_SEND_SCORES_AS_FIELD is set
-   ret->scoreKey = scoreKey;
+  // Store the scoreKey for writing scores as fields when QEXEC_F_SEND_SCORES_AS_FIELD is set
+  ret->scoreKey = scoreKey;
+
+  // Store reference to the hybrid request's subqueries return codes array
+  RS_ASSERT(subqueriesReturnCodes);
+  ret->upstreamReturnCodes = subqueriesReturnCodes;
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
    // Calculate maximal dictionary size based on scoring type
-   RS_ASSERT(hybridScoringCtx);
    size_t maximalSize;
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
      maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;

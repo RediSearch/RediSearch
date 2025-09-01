@@ -1,7 +1,6 @@
 from RLTest import Env
 from includes import *
 from common import *
-from typing import Dict
 
 def setup_hybrid_tag_scoring_index(env):
     """Setup index and populate test data"""
@@ -32,26 +31,10 @@ def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
     hybrid_res_results_index = recursive_index(hybrid_res_no_tag, 'results')
     hybrid_res_results_index[-1] += 1
 
-    def get_results(response) -> Dict[str, float]:
-        # return dict mapping key -> score from the results list
-        res_results_index = recursive_index(response, 'results')
-        res_results_index[-1] += 1
 
-        results = {}
-        for result in access_nested_list(response, res_results_index):
-            key_index = recursive_index(result, '__key')
-            key_index[-1] += 1
-            score_index = recursive_index(result, '__score')
-            score_index[-1] += 1
 
-            key = access_nested_list(result, key_index)
-            score = float(access_nested_list(result, score_index))
-
-            results[key] = score
-        return results
-
-    results_no_tag = get_results(hybrid_res_no_tag)
-    results_with_tag = get_results(hybrid_res_with_tag) #type: ignore
+    results_no_tag = get_results_from_hybrid_response(hybrid_res_no_tag)
+    results_with_tag = get_results_from_hybrid_response(hybrid_res_with_tag)
     shared_keys = results_no_tag.keys() & results_with_tag.keys()
     for key in shared_keys:
         score_no_tag = results_no_tag[key]
