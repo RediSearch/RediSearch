@@ -678,7 +678,6 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   ASSERT_STREQ(status.detail, expected_detail);
 
   // Clean up
-  SearchCtx_Free(test_sctx);
   QueryError_ClearError(&status);
 }
 
