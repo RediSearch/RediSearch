@@ -100,6 +100,8 @@ void HybridRequest_Free(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
+void HybridRequest_ClearErrors(HybridRequest *req);
+
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
 
 #ifdef __cplusplus
