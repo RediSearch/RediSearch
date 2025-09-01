@@ -333,6 +333,52 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     }
 }
 
+pub struct FieldMaskTrackingIndex<E> {
+    /// The underlying inverted index that stores the records.
+    index: InvertedIndex<E>,
+
+    /// A field mask of all the entries in the index. This is used to quickly determine if a
+    /// record with a specific field mask exists in the index.
+    field_mask: t_fieldMask,
+}
+
+impl<E: Encoder> FieldMaskTrackingIndex<E> {
+    /// Create a new field mask tracking index with the given encoder.
+    pub fn new(encoder: E) -> Self {
+        Self {
+            index: InvertedIndex::new(encoder),
+            field_mask: 0,
+        }
+    }
+
+    /// Add a new record to the index and return by how much memory grew. It is expected that
+    /// the document ID of the record is greater than or equal the last document ID in the index.
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+        let mem_growth = self.index.add_record(record)?;
+
+        self.field_mask |= record.field_mask;
+
+        Ok(mem_growth)
+    }
+
+    /// The memory size of the index in bytes.
+    pub fn memory_usage(&self) -> usize {
+        self.index.memory_usage() + std::mem::size_of::<t_fieldMask>()
+    }
+
+    /// Get the combined field mask of all records in the index.
+    pub fn field_mask(&self) -> t_fieldMask {
+        self.field_mask
+    }
+}
+
+impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
+    /// Create a new [`IndexReader`] for this inverted index.
+    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
+        self.index.reader()
+    }
+}
+
 /// Reader that is able to read the records from an [`InvertedIndex`]
 pub struct IndexReader<'index, D> {
     /// The block of the inverted index that is being read from. This might be used to determine the
