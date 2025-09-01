@@ -358,7 +358,7 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
                                      const RLookupKey *scoreKey,
-                                     int *subqueriesReturnCodes);
+                                     RPStatus *subqueriesReturnCodes);
 
  /*
   * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

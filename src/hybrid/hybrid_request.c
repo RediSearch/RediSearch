@@ -189,7 +189,7 @@ HybridRequest *HybridRequest_New(AREQ **requests, size_t nrequests) {
     hybridReq->errors = array_new(QueryError, nrequests);
 
     // Initialize return codes array for tracking subqueries final states
-    hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(int));
+    hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
 
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
@@ -245,11 +245,8 @@ void HybridRequest_Free(HybridRequest *req) {
 
     array_free_ex(req->errors, QueryError_ClearError((QueryError*)ptr));
 
-    // Free the return codes array
-    if (req->subqueriesReturnCodes) {
-        rm_free(req->subqueriesReturnCodes);
-        req->subqueriesReturnCodes = NULL;
-    }
+    rm_free(req->subqueriesReturnCodes);
+    req->subqueriesReturnCodes = NULL;
 
     // Free the hybrid parameters
     if (req->hybridParams) {

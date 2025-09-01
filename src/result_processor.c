@@ -1693,7 +1693,7 @@ dictType dictTypeHybridSearchResult = {
  dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
  dictIterator *iterator; // Iterator for yielding results
  const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
- int *upstreamReturnCodes;  // Final return codes from each upstream
+ RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
 } RPHybridMerger;
 
 /* Generic helper function to check if any upstream has a specific return code */
@@ -1885,7 +1885,7 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
                                     const RLookupKey *scoreKey,
-                                    int *subqueriesReturnCodes) {
+                                    RPStatus *subqueriesReturnCodes) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   RS_ASSERT(numUpstreams > 0);

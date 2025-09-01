@@ -293,7 +293,7 @@ done:
     RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // warnings
-    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
     if (sctx->spec && sctx->spec->scan_failed_OOM) {
       RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
