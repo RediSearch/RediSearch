@@ -408,7 +408,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     if (HybridRequest_StartCursors(hybrid_ref, reply, depleters, status) != REDISMODULE_OK) {
       QueryError status = {0};
       HybridRequest_GetError(hreq, &status);
-      RedisModule_Reply_Error(reply, QueryError_GetUserError(&status));
+      QueryError_ReplyAndClear(ctx, &status);
       RedisModule_EndReply(reply);
       return REDISMODULE_ERR;
     }
