@@ -87,9 +87,14 @@ pub trait Encoder {
     fn delta_base(block: &IndexBlock) -> t_docId {
         block.last_doc_id
     }
+}
+
+/// Trait to model that an encoder can be decoded by a decoder.
+pub trait DecodedBy: Encoder {
+    type Decoder: Decoder;
 
     /// Create a new decoder that can be used to decode records encoded by this encoder.
-    fn decoder() -> impl Decoder;
+    fn decoder() -> Self::Decoder;
 }
 
 /// Decoder to read records from an index
@@ -151,7 +156,6 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[allow(dead_code)] // TODO: remove after the DocId encoder is implemented
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -315,8 +319,15 @@ impl<E: Encoder> InvertedIndex<E> {
         }
     }
 
+    /// Returns the number of unique documents in the index.
+    pub fn unique_docs(&self) -> usize {
+        self.n_unique_docs
+    }
+}
+
+impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
+    pub fn reader(&self) -> IndexReader<'_, E::Decoder> {
         let decoder = E::decoder();
         IndexReader::new(&self.blocks, decoder)
     }
