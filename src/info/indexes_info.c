@@ -27,7 +27,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       continue;
     }
     // Lock for read
-    pthread_rwlock_rdlock(&sp->rwlock);
+    // pthread_rwlock_rdlock(&sp->rwlock);
+    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: SKIPPING locking index %s for read", sp->name);
 
     // Vector index stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
@@ -65,7 +66,9 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       info.max_indexing_failures = index_error_count;
     }
     info.background_indexing_failures_OOM += sp->scan_failed_OOM;
-    pthread_rwlock_unlock(&sp->rwlock);
+    // pthread_rwlock_unlock(&sp->rwlock);
+    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: SKIPING unlocking index %s for read", sp->name);
+
   }
   dictReleaseIterator(iter);
   if (info.min_mem == -1) info.min_mem = 0;             // No index found

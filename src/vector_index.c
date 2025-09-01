@@ -534,6 +534,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   // Lock the spec for reading
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(NULL, sp);
   RedisSearchCtx_LockSpecRead(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "VecSim_CallTieredIndexesGC: locking index %s for read", sp->name);
   // Iterate over the fields and call the GC for each tiered index
   if (sp->flags & Index_HasVecSim) { // Early return if the spec doesn't have vector indexes
     for (size_t ii = 0; ii < sp->numFields; ++ii) {
@@ -549,6 +550,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   }
   // Cleanup and return success
   RedisSearchCtx_UnlockSpec(&sctx);
+  RedisModule_Log(RSDummyContext, "notice", "VecSim_CallTieredIndexesGC: unlocking index %s for read", sp->name);
   StrongRef_Release(strong);
   return 1;
 }

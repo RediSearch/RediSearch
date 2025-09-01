@@ -95,6 +95,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
     RedisSearchCtx_LockSpecRead(RP_SCTX(base));
+    RedisModule_Log(RSDummyContext, "notice", "rpidxNext: locking index %s for read", RP_SCTX(base)->spec->name);
     ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
   }
 
@@ -106,14 +107,20 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   while (1) {
     // check for timeout in case we are encountering a lot of deleted documents
     if (TimedOut_WithCounter(&RP_SCTX(base)->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      RedisModule_Log(RSDummyContext, "notice", "rpidxNext: TIMED_OUT, unlocking index %s for read", RP_SCTX(base)->spec->name);
+
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     }
     rc = it->Read(it->ctx, &r);
     // This means we are done!
     switch (rc) {
     case INDEXREAD_EOF:
+      RedisModule_Log(RSDummyContext, "notice", "rpidxNext: INDEXREAD_EOF, unlocking index %s for read", RP_SCTX(base)->spec->name);
+
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
     case INDEXREAD_TIMEOUT:
+      RedisModule_Log(RSDummyContext, "notice", "rpidxNext: INDEXREAD_TIMEOUT, unlocking index %s for read", RP_SCTX(base)->spec->name);
+
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     case INDEXREAD_NOTFOUND:
       continue;
