@@ -41,6 +41,7 @@ std::string HREQ_GetUserError(HybridRequest* req) {
   QueryError error;
   QueryError_Init(&error);
   HybridRequest_GetError(req, &error);
+  HybridRequest_ClearErrors(req);
   return QueryError_GetUserError(&error);
 }
 

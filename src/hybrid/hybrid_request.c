@@ -239,22 +239,27 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 
     // Priority 1: Tail pipeline error (affects final result processing)
     if (hreq->tailPipelineError.code != QUERY_OK) {
-        QueryError_SetError(status, hreq->tailPipelineError.code,
-                           hreq->tailPipelineError.detail);
+        QueryError_CloneFrom(status, &hreq->tailPipelineError);
         return REDISMODULE_ERR;
     }
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
         if (hreq->errors[i].code != QUERY_OK) {
-            QueryError_SetError(status, hreq->errors[i].code,
-                               hreq->errors[i].detail);
+            QueryError_CloneFrom(status, &hreq->errors[i]);
             return REDISMODULE_ERR;
         }
     }
 
     // No errors found
     return REDISMODULE_OK;
+}
+
+void HybridRequest_ClearErrors(HybridRequest *req) {
+  QueryError_ClearError(&req->tailPipelineError);
+  for (size_t i = 0; i < req->nrequests; i++) {
+    QueryError_ClearError(&req->errors[i]);
+  }
 }
 
 /**
