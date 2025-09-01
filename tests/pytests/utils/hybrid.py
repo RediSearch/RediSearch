@@ -107,7 +107,7 @@ def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Res
 
     Args:
         hybrid_results: Raw Redis hybrid response like:
-             ['format', 'STRING', 'results', [['attributes', [['__key', 'both_02', 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', '0.0312805474096']]], ...]]
+             ['format', 'STRING', 'results', ['attributes', ['__key', 'both_02', 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', '0.0312805474096']], ...]
         expected_results: Optional list of expected Result objects for comparison
 
     Returns:
@@ -132,10 +132,10 @@ def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Res
         if (len(result_item) >= 2 and
             result_item[0] == 'attributes' and
             result_item[1] and
-            isinstance(result_item[1][0], list)):
+            isinstance(result_item[1], list)):
 
             # Convert flat key-value list to dict using zip with slicing
-            attr_list = result_item[1][0]
+            attr_list = result_item[1]
             attrs = dict(zip(attr_list[::2], attr_list[1::2]))
 
             # Extract doc_id and score if both exist
@@ -334,33 +334,30 @@ def translate_hybrid_query(hybrid_query, vector_blob, index_name):
     Returns:
         list: Command parts for redis_client.execute_command
     """
-    cmd = hybrid_query.replace('$BLOB', vector_blob.decode('utf-8'))
-    cmd = f'FT.HYBRID {index_name} {cmd}'
+    cmd = f'FT.HYBRID {index_name} {hybrid_query}'
     # Split into command parts, keeping single quoted strings together
     command_parts = [p for p in re.split(r" (?=(?:[^']*'[^']*')*[^']*$)", cmd) if p]
     # Remove single quotes from command parts
     command_parts = [p.replace("'", "") for p in command_parts]
+    # Add PARAMS section with the vector blob
+    command_parts.extend(['PARAMS', '2', 'BLOB', vector_blob])
     return command_parts
 
 # =============================================================================
 # TEST EXECUTION
 # =============================================================================
 
-def run_test_scenario(env, index_name, scenario):
+def run_test_scenario(env, index_name, scenario, vector_blob):
     """
     Run a test scenario from dict
 
     Args:
         scenario: Dict with test scenario
         index_name: Redis index name
+        vector_blob: Vector data as bytes
     """
 
     conn = getConnectionByEnv(env)
-
-    # Create test vector (zero vector for now)
-    dim = 128
-    test_vector = create_np_array_typed([3.1415] * dim)
-    vector_blob = test_vector.tobytes()
 
     # Execute search query
     search_cmd = translate_search_query(scenario['search_equivalent'], index_name)
@@ -370,7 +367,9 @@ def run_test_scenario(env, index_name, scenario):
     search_results = _process_search_response(search_results_raw)
 
     # Execute vector query using translation
-    vector_cmd = translate_vector_query(scenario['vector_equivalent'], vector_blob, index_name, scenario.get('vector_suffix', ''))
+    vector_cmd = translate_vector_query(
+                    scenario['vector_equivalent'], vector_blob,
+                    index_name, scenario.get('vector_suffix', ''))
     vector_results_raw = conn.execute_command(*vector_cmd)
 
     # Process vector results
@@ -380,7 +379,8 @@ def run_test_scenario(env, index_name, scenario):
     expected_rrf = rrf(search_results, vector_results, k=rrf_constant)
     _sort_adjacent_same_scores(expected_rrf)
 
-    hybrid_cmd = translate_hybrid_query(scenario['hybrid_query'], vector_blob, index_name)
+    hybrid_cmd = translate_hybrid_query(
+                scenario['hybrid_query'], vector_blob, index_name)
     hybrid_results_raw = conn.execute_command(*hybrid_cmd)
 
     hybrid_results, ranking_info = _process_hybrid_response(hybrid_results_raw)
