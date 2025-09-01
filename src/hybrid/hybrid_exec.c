@@ -52,7 +52,7 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
 // ignoreTimeout: ignore timeout in tail if there's a timeout in subquery
 // suffix: identifies where the error occurred ("SEARCH"/"VSIM"/"POST PROCESSING")
 // Returns true if a timeout occurred and was processed as a warning
-static inline bool handleQueryError(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
+static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
   bool timeoutOccurred = false;
 
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
@@ -309,10 +309,10 @@ done:
       QueryError* err = &hreq->errors[i];
       const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
       const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
-      timeoutInSubquery = handleQueryError(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+      timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
     }
     // Handle main query errors (POST PROCESSING)
-    handleQueryError(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+    handleAndReplyWarning(reply, qctx->err, rc, POST_PROCESSING_SUFFIX, timeoutInSubquery);
 
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
