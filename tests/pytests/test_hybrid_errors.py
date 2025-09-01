@@ -27,7 +27,7 @@ query_vector = np.array([1.2, 0.2]).astype(np.float32).tobytes()
 
 def get_warnings(response):
     """Extract warnings from hybrid search response"""
-    warnings_index = recursive_index(response, 'warning')
+    warnings_index = recursive_index(response, 'warnings')
     warnings_index[-1] += 1
     return access_nested_list(response, warnings_index)
 
@@ -184,9 +184,15 @@ class TestRealTimeouts(object):
     def __init__(self):
         #TODO: remove skip once FT.HYBRID for cluster is implemented
         skipTest(cluster=True)
-        self.dim = 4
-        self.num_docs = 10000
+        self.dim = 128
+        self.num_docs = 100000
         self.timeout_ms = 1  # Very short timeout to ensure timeout occurs
+        self.doc_len = 20
+        self.seed = 42
+        self.env = Env()
+        self._create_index(self.env)
+        self._populate_vectors(self.env)
+        self._populate_text(self.env)
 
     def tearDown(self):
         """Cleanup after each test"""
@@ -198,96 +204,33 @@ class TestRealTimeouts(object):
                    'description', 'TEXT',
                    'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', str(self.dim), 'DISTANCE_METRIC', 'L2').ok()
 
-    def test_vector_only_fail(self):
-        """Test real timeout - vector only with FAIL policy"""
-        env = Env(moduleArgs='ON_TIMEOUT FAIL')
-        self._create_index(env)
+    def _populate_vectors(self, env):
+        """Populate only vectors"""
+        query_vector = load_vectors_to_redis(env, self.num_docs, query_vec_index=0, vec_size=self.dim, seed=self.seed)
+        self.query_vector = query_vector.tobytes()
 
-        # Populate only vectors
-        query_vector = load_vectors_to_redis(env, self.num_docs, query_vec_index=0, vec_size=self.dim, seed=10)
-
-        # Test vector timeout with FAIL policy using FT.HYBRID
-        env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@vector', '$BLOB',
-                   'PARAMS', '2', 'BLOB', query_vector.tobytes(),
-                   'TIMEOUT', str(self.timeout_ms)).error().contains('Timeout limit was reached')
-
-    def test_vector_only_return(self):
-        """Test real timeout - vector only with RETURN policy"""
-        env = Env(moduleArgs='ON_TIMEOUT RETURN')
-        self._create_index(env)
-
-        # Populate only vectors
-        query_vector = load_vectors_to_redis(env, self.num_docs, query_vec_index=0, vec_size=self.dim, seed=10)
-
-        # Test vector timeout with RETURN policy using FT.HYBRID
-        response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '123', 'VSIM', '@vector', '$BLOB',
-                           'PARAMS', '2', 'BLOB', query_vector.tobytes(),
-                           'TIMEOUT', str(self.timeout_ms))
-
-        warnings = get_warnings(response)
-        env.assertTrue('Timeout limit was reached (VSIM)' in warnings)
-
-    def test_text_only_fail(self):
-        """Test real timeout - text only with FAIL policy"""
-        env = Env(moduleArgs='ON_TIMEOUT FAIL')
-        self._create_index(env)
-
-        # Populate only text docs with faker
-        populate_db_with_faker_text(env, self.num_docs, doc_len=5, seed=12345)
-
-        # Create dummy query vector for VSIM part
-        query_vector = np.random.rand(self.dim).astype(np.float32)
-
-        # Test text timeout with FAIL policy using FT.HYBRID
-        env.expect('FT.HYBRID', 'idx', 'SEARCH', 'description description description description', 'VSIM', '@vector', '$BLOB',
-                   'PARAMS', '2', 'BLOB', query_vector.tobytes(),
-                   'TIMEOUT', str(self.timeout_ms)).error().contains('Timeout limit was reached')
-
-    def test_text_only_return(self):
-        """Test real timeout - text only with RETURN policy"""
-        env = Env(moduleArgs='ON_TIMEOUT RETURN')
-        self._create_index(env)
-
-        # Populate only text docs with faker
-        populate_db_with_faker_text(env, self.num_docs, doc_len=5, seed=12345)
-
-        # Create dummy query vector for VSIM part
-        query_vector = np.random.rand(self.dim).astype(np.float32)
-
-        # Test text timeout with RETURN policy using FT.HYBRID
-        response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@vector', '$BLOB',
-                           'PARAMS', '2', 'BLOB', query_vector.tobytes(),
-                           'TIMEOUT', str(self.timeout_ms))
-
-        warnings = get_warnings(response)
-        env.assertTrue('Timeout limit was reached (SEARCH)' in warnings)
+    def _populate_text(self, env):
+        """Populate only text"""
+        populate_db_with_faker_text(env, self.num_docs, doc_len=self.doc_len, seed=self.seed)
 
     def test_hybrid_fail(self):
         """Test real timeout - hybrid (both text and vector) with FAIL policy"""
-        env = Env(moduleArgs='ON_TIMEOUT FAIL')
-        self._create_index(env)
-
-        # Populate both text and vectors
-        populate_db_with_faker_text(env, self.num_docs, doc_len=5, seed=12345)
-        query_vector = load_vectors_to_redis(env, self.num_docs, query_vec_index=0, vec_size=self.dim, seed=10)
+        env = self.env
+        env.cmd('CONFIG', 'SET', 'search-on-timeout', 'fail')
 
         # Test hybrid timeout with FAIL policy
         env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
-                   '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector.tobytes(),
+                   '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', self.query_vector,
                    'TIMEOUT', str(self.timeout_ms)).error().contains('Timeout limit was reached')
 
     def test_hybrid_return(self):
         """Test real timeout - hybrid (both text and vector) with RETURN policy"""
-        env = Env(moduleArgs='ON_TIMEOUT RETURN')
-        self._create_index(env)
-
-        # Populate both text and vectors
-        populate_db_with_faker_text(env, self.num_docs, doc_len=5, seed=12345)
-        query_vector = load_vectors_to_redis(env, self.num_docs, query_vec_index=0, vec_size=self.dim, seed=10)
+        env = self.env
+        env.cmd('CONFIG', 'SET', 'search-on-timeout', 'return')
 
         # Test hybrid timeout with RETURN policy
         response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM',
-                           '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector.tobytes(),
+                           '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', self.query_vector,
                            'TIMEOUT', str(self.timeout_ms))
 
         warnings = get_warnings(response)

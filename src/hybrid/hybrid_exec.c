@@ -35,6 +35,7 @@
 #define VSIM_SUFFIX "(VSIM)"
 #define POST_PROCESSING_SUFFIX "(POST PROCESSING)"
 
+// Send a warning message to the client, optionally appending a suffix to identify the source
 static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
   if (suffix) {
     RS_ASSERT(strlen(suffix) > 0);
@@ -47,6 +48,10 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
   }
 }
 
+// Handles query errors and sends warnings to client.
+// ignoreTimeout: ignore timeout in tail if there's a timeout in subquery
+// suffix: identifies where the error occurred ("SEARCH"/"VSIM"/"POST PROCESSING")
+// Returns true if a timeout occurred and was processed as a warning
 static inline bool handleQueryError(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
   bool timeoutOccurred = false;
 
