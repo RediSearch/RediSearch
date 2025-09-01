@@ -208,7 +208,14 @@ void handleFormat(ArgParser *parser, const void *value, void *user_data) {
     const char *format = *(char**)value;
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
-    if (strcasecmp(format, "STRING") == 0) {
+
+    const char *fmt = AC_GetStringNC(ac, NULL);
+    if (!fmt) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "FORMAT requires a format argument");
+        return;
+    }
+
+    if (strcasecmp(fmt, "STRING") == 0) {
         *ctx->reqFlags |= QEXEC_F_SEND_NOFIELDS;
     }
 }
