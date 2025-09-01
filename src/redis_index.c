@@ -208,6 +208,8 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   RS_ASSERT(sctx);
   if (sctx->flags == RS_CTX_UNSET) {
+  RedisModule_Log(RSDummyContext, "notice", "RedisSearchCtx_UnlockSpec: sctx->flags == RS_CTX_UNSET for unlocking index %s. skip unlocking", sctx->spec->name);
+
     return;
   }
   if (sctx->flags == RS_CTX_READONLY) {
