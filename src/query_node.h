@@ -156,7 +156,9 @@ typedef enum {
   QueryNode_YieldsDistance = 0x04,
   QueryNode_IndexesEmpty = 0x08,
   QueryNode_IsTag = 0x10,
-  QueryNode_NoHybridValidation = 0x20,  // Exempt from hybrid validation restrictions
+// Bypasses hybrid validation checks (QAST_HYBRID_VSIM_FILTER_CLAUSE, QAST_HYBRID_SEARCH_CLAUSE)
+// Allows the main vector query node to skip validation that prevents vector queries in FT.HYBRID VSIM FILTER clause
+  QueryNode_NoHybridValidation = 0x20,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
