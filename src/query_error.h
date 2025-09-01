@@ -74,7 +74,6 @@ extern "C" {
   X(QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER") \
   X(QUERY_EHYBRID_SEARCH_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID SEARCH subquery") \
   X(QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM")        \
-  X(QUERY_EHYBRID_AGGREGATE_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID AGGREGATE subquery") \
   //TODO: remove QUERY_EHYBRID_HYBRID_ALIAS after YIELD_DISTANCE_AS is enabled
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"

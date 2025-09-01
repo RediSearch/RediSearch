@@ -1273,7 +1273,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   if (req->parsedVectorData) {
-    ast->validationFlags |= QAST_HYBRID_VSIM_FILTER_CLAUSE;
     int rv = ApplyVectorQuery(req, sctx, ast, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
