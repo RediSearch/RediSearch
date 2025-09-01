@@ -255,3 +255,25 @@ def test_hybrid_internal_error_cases(env):
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                'VSIM', '@nonexistent', '$vec_param', 'DIALECT', '2',
                'PARAMS', '2', 'vec_param', query_vec.tobytes()).error()
+
+
+@skip(cluster=True)
+def test_hybrid_internal_cursor_limit(env):
+    """Test _FT.HYBRID cursor limit per shard
+
+    A single _FT.HYBRID command tries to create two cursors (VSIM and SEARCH).
+    When INDEX_CURSOR_LIMIT is set to 1, this should fail with 'Failed to allocate enough cursors' error.
+    """
+    # Set cursor limit to 1 for this test
+    env.cmd('CONFIG', 'SET', 'search-index-cursor-limit', '1')
+
+    setup_hybrid_test_data(env)
+
+    # _FT.HYBRID command should fail because it tries to create 2 cursors but limit is 1
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+               'VSIM', '@embedding', '$vec_param', 'WITHCURSOR', 'DIALECT', '2',
+               'PARAMS', '2', 'vec_param', query_vec.tobytes()).error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
+
+    # Reset cursor limit to default for other tests
+    env.cmd('CONFIG', 'SET', 'search-index-cursor-limit', '128')
