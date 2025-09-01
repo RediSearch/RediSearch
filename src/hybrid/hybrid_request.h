@@ -33,7 +33,7 @@ typedef struct HybridRequest {
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
   // We keep a strong ref mainly for the sake of cursors amd life time management
-  // On the caller side it needs to know when he can free the hybrid request - especially when an error occured.
+  // On the caller side it needs to know when he can free the hybrid request - especially when an error occurred.
   StrongRef hybrid_ref;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
