@@ -1,4 +1,6 @@
 from common import *
+import threading
+import time
 
 class TestDebugCommands(object):
 
@@ -1047,11 +1049,13 @@ def test_query_controller(env):
 
 @skip(cluster=True)
 def test_query_controller_pause_and_resume(env):
-    import threading
-    import time
 
     # Giving wrong arity
     env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM', 'ExtraARG').error()\
     .contains('wrong number of arguments')
 
     # Set workers to 1 to make sure the query can be paused
@@ -1071,7 +1075,7 @@ def test_query_controller_pause_and_resume(env):
         # We need to call the queries in MT so the paused query won't block the test
         query_result = []
 
-        # Build threads (note: pass the function to target, don't call it)
+        # Build threads
         t_query = threading.Thread(
             target=_call_and_store,
             args=(runDebugQueryCommandPauseAfterN,
@@ -1090,6 +1094,13 @@ def test_query_controller_pause_and_resume(env):
         # Verify workers status
         env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], queries_completed)
 
+        # Test PRINT_RP_STREAM
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','Scorer','DEBUG_RP','Index'])
+        if query_type == 'FT.AGGREGATE':
+            env.assertEqual(rp_stream, ['DEBUG_RP','Index'])
+
         # Resume the query
         setPauseRPResume(env)
 
@@ -1099,3 +1110,36 @@ def test_query_controller_pause_and_resume(env):
 
         # Verify the query returned only 1 result
         env.assertEqual(query_result[0][0], 1)
+
+def test_query_controller_add_before_after(env):
+    # Set workers to 1 to make sure the query can be paused
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
+
+    # Create 1 docs
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+    for before in [True, False]:
+
+        target_func = runDebugQueryCommandPauseBeforeRPAfterN if before else runDebugQueryCommandPauseAfterRPAfterN
+        # Build threads
+        t_query = threading.Thread(
+            target=target_func,
+            args=(env,['FT.SEARCH', 'idx', '*'], 0, 'Sorter'),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if before:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','DEBUG_RP','Sorter','Scorer','Index'])
+        else:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','DEBUG_RP','Scorer','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+        t_query.join()

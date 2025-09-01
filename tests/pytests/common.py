@@ -863,6 +863,14 @@ def runDebugQueryCommandPauseAfterN(env, query_cmd, pause_after_n):
     debug_params = ['PAUSE_AFTER_N', pause_after_n]
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
+def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, pause_after_n, rp_type):
+    debug_params = ['PAUSE_AFTER_RP_N', pause_after_n, rp_type]
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandPauseBeforeRPAfterN(env, query_cmd, pause_after_n, rp_type):
+    debug_params = ['PAUSE_BEFORE_RP_N', pause_after_n, rp_type]
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
 def getIsRPPaused(env):
     return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED')
 
