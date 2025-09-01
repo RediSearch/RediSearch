@@ -76,6 +76,7 @@ fn read() {
 }
 
 #[test]
+#[cfg(not(miri))] // Take too long with Miri, causing CI to timeout
 fn skip_to() {
     for (ci, &case) in CASES.iter().enumerate() {
         let mut it = IdList::new(case.to_vec());
