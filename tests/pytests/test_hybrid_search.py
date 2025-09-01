@@ -23,8 +23,7 @@ test_data = {
 }
 
 def setup_basic_index(env):
-    """Setup basic index with test data for debug timeout testing"""
-    dim = 2
+    """Setup basic index with test data"""
     conn = env.getClusterConnectionIfNeeded()
     env.expect('FT.CREATE idx SCHEMA description TEXT embedding VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok
 
@@ -35,7 +34,7 @@ def setup_basic_index(env):
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_search_invalid_query_with_vector():
-    """Test that hybrid vector filter fails when it contains weight attribute"""
+    """Test that hybrid search subquery fails when it contains vector query"""
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
