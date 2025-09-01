@@ -170,7 +170,11 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     }
-    rc = it->Read(it->ctx, &r);
+    if (!RP_SPEC(base)->diskSpec || (RP_SPEC(base)->flags & Index_DiskSyncDmd) || !self->diskIterEOF) {
+      // Non-disk index, or disk index with sync DMDs, or non-depleted index
+      // in async read case.
+      rc = it->Read(it->ctx, &r);
+    }
     if (!RP_SPEC(base)->diskSpec || (RP_SPEC(base)->flags & Index_DiskSyncDmd)) {
       switch (rc) {
       case INDEXREAD_EOF:
@@ -245,7 +249,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
           if (SearchDisk_DocIdDeleted(spec->diskSpec, r2->docId)) {
             continue;
           }
-          // TODO: Try to avoid - expensive.
+          // TODO: Try to avoid this copy - expensive.
           RSIndexResult *copy = IndexResult_DeepCopy(r2);
           dictAdd(self->diskInFlight, (void*)copy->docId, copy);
           SearchDisk_LoadDmdAsync(spec->diskSpec, r2->docId);
@@ -272,7 +276,6 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         dmd = diskDmd;
 
         // Find the IndexResult matching the doc-id
-        RSIndexResult *emit = NULL;
         dictEntry *de = dictFind(self->diskInFlight, (void*)diskDmd->id);
         RS_LOG_ASSERT_FMT(de, "Failed to find in-flight index result for doc-id %lu", diskDmd->id);
         r = dictGetVal(de);
@@ -318,6 +321,10 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 }
 
 static void rpidxFree(ResultProcessor *iter) {
+  RPIndexIterator *self = (RPIndexIterator *)iter;
+  if (self->diskInFlight) {
+    dictRelease(self->diskInFlight);
+  }
   rm_free(iter);
 }
 
