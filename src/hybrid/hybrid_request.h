@@ -23,6 +23,7 @@ typedef struct HybridRequest {
     RequestConfig reqConfig;
     HybridPipelineParams *hybridParams;
     clock_t initClock;  // For timing execution
+    RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
 } HybridRequest;
 
 // Blocked client context for HybridRequest background execution

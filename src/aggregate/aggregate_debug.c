@@ -112,7 +112,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       // Note, this will add a result processor as the downstream of the last result processor
       // (rpidnext for SA, or RPNext for cluster)
       // Take this into account when adding more debug types that are modifying the rp pipeline.
-      PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
+      PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
     }
   } else {
     if (internal_only) {
