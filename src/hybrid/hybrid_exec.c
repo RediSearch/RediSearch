@@ -339,7 +339,7 @@ int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *rep
     return REDISMODULE_OK;
 }
 
-int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModule_Reply *reply, arrayof(ResultProcessor*) depleters, bool coord) {
+int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModule_Reply *reply, arrayof(ResultProcessor*) depleters) {
     HybridRequest *req = StrongRef_Get(hybrid_ref);
     if (req->nrequests == 0 || req->nrequests != array_len(depleters)) {
       QueryError_SetError(&req->tailPipelineError, QUERY_EGENERIC, "Number of requests mismatch");
@@ -351,7 +351,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModule_Reply *reply, a
       if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
          break;
       }
-      Cursor *cursor = Cursors_Reserve(getCursorList(coord), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, &req->tailPipelineError);
+      Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, &req->tailPipelineError);
       if (!cursor) {
         break;
       }
@@ -445,7 +445,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   if (isCursor) { 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     RS_ASSERT(depleters);
-    if (HybridRequest_StartCursors(hybrid_ref, reply, depleters, status) != REDISMODULE_OK) {
+    if (HybridRequest_StartCursors(hybrid_ref, reply, depleters) != REDISMODULE_OK) {
       // If we failed starting the cursors we need to free the depleters array
       array_free(depleters);
       QueryError status = {0};
