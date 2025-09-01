@@ -319,7 +319,6 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
     sendChunk_hybrid(hreq, reply, UINT64_MAX, cv);
     RedisModule_EndReply(reply);
-    HybridRequest_Free(hreq);
 }
 
 static void FreeHybridRequest(void *ptr) {
