@@ -66,18 +66,25 @@ typedef struct DocTableDiskAPI {
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
 
   /**
-   * @brief Schedule an async dmd read for a given docId
+   * @brief Schedule an async document metadata read for a given docId
+   *
+   * Initiates an asynchronous read operation for document metadata from disk.
+   * The operation is queued and will be processed in the background.
    */
   void (*loadDmdAsync)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 
   /**
-   * @brief Wait until a completion is available (or timeout_ms) and extract fields
+   * @brief Wait for an async document metadata read to complete
    *
-   * On success, returns 1 and outputs the dmd fields:
-   *  - keyOut: pointer allocated via AllocateKeyCallback
-   *  - keyLenOut: length of keyOut
-   *  - scoreOut, flagsOut, maxFreqOut: basic metadata values
-   * Returns 0 on timeout, -1 on error/failed read
+   * Blocks until a previously scheduled async read operation completes or timeout expires.
+   * On success, populates the provided RSDocumentMetadata structure with the document's
+   * metadata including key, score, flags, and other attributes.
+   *
+   * @param handle Handle to the document table
+   * @param dmd Output parameter - RSDocumentMetadata structure to populate
+   * @param timeout_ms Maximum time to wait in milliseconds
+   * @param allocateKey Callback function to allocate memory for the document key
+   * @return 1 on success, 0 on timeout, -1 on error/failed read
    */
   int (*waitDmd)(RedisSearchDiskIndexSpec* handle,
                  RSDocumentMetadata* dmd,
@@ -87,10 +94,20 @@ typedef struct DocTableDiskAPI {
 } DocTableDiskAPI;
 
 /**
- * @brief Wait until a completion is available (or timeout_ms) and return its metadata
+ * @brief Wait for an async document metadata read to complete
  *
- * On success, returns a DiskDocumentMetadata with a non-NULL key allocated via AllocateKeyCallback.
- * On timeout or failure, returns a struct with key == NULL.
+ * Blocks until a previously scheduled async read operation completes or the timeout expires.
+ * On success, populates the provided RSDocumentMetadata structure with the document's
+ * metadata including key, score, flags, and other attributes.
+ *
+ * @param handle Handle to the document table
+ * @param dmd Output parameter - RSDocumentMetadata structure to populate
+ * @param timeout_ms Maximum time to wait in milliseconds
+ * @param allocateKey Callback function to allocate memory for the document key
+ *
+ * @note On timeout or error, dmd->keyPtr will be set to NULL
+ * @note The document key is allocated via the provided AllocateKeyCallback and
+ *       should be freed by the caller when no longer needed
  */
 void SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
                                         RSDocumentMetadata* dmd,

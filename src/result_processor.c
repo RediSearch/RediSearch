@@ -92,15 +92,40 @@ static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_statu
   return result_status;
 }
 
+/**
+ * @brief Hash function for document IDs in the in-flight dictionary
+ *
+ * Simple hash function that treats the document ID as its own hash value.
+ * This works well for document IDs which are typically well-distributed.
+ *
+ * @param key Document ID cast as void pointer
+ * @return Hash value (the document ID itself)
+ */
 static uint64_t hashFunction_DocId(const void *key) {
   return (t_docId)key;
 }
 
+/**
+ * @brief Value destructor callback for in-flight dictionary entries
+ *
+ * Called when dictionary entries are removed to properly free IndexResult objects.
+ * Maps doc_id -> IndexResult in the in-flight tracking dictionary.
+ *
+ * @param privdata Unused private data parameter
+ * @param obj IndexResult object to be freed
+ */
 static void valDiskInFlightFreeCB(void *privdata, void *obj) {
   // doc_id -> IndexResult
   IndexResult_Free((RSIndexResult *)obj);
 }
 
+/**
+ * @brief Dictionary type definition for tracking in-flight async disk reads
+ *
+ * This dictionary tracks IndexResult objects that are waiting for their
+ * corresponding document metadata to be loaded asynchronously from disk.
+ * Key: document ID (t_docId), Value: IndexResult pointer
+ */
 static dictType DiskInFlightDictType = {
   .hashFunction = hashFunction_DocId,
   .keyDup = NULL,
@@ -116,9 +141,9 @@ typedef struct {
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
 
   // Async disk pipeline state
-  bool diskPrefetchInit;   // true after first invocation
+  bool diskPrefetchInit;   // true after first invocation of async disk reading
   bool diskIterEOF;        // true once inverted index iterator returned EOF
-  dict *diskInFlight;
+  dict *diskInFlight;      // hash table tracking IndexResults awaiting disk metadata (doc_id -> IndexResult)
 } RPIndexIterator;
 
 /* Next implementation */

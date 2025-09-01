@@ -115,18 +115,32 @@ bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
 // Async doc-table read API
 /**
- * @breif Schedule an async dmd read for a given docId
+ * @brief Schedule an async document metadata read for a given docId
+ *
+ * Initiates an asynchronous read operation for document metadata from disk.
+ * The operation is queued and will be processed in the background. Use
+ * SearchDisk_WaitDmd() to retrieve the result when ready.
  *
  * @param handle Handle to the document table
- * @param docId Document ID
+ * @param docId Document ID to read metadata for
  */
 void SearchDisk_LoadDmdAsync(RedisSearchDiskIndexSpec *handle, t_docId docId);
 
 /**
- * @brief Wait until a completion is available (or timeout_ms) and return a POD
+ * @brief Wait for an async document metadata read to complete
  *
- * On success, returns a DiskDocumentMetadata with key allocated via AllocateKeyCallback.
- * On timeout or error, returns .key == NULL.
+ * Blocks until a previously scheduled async read operation completes or the timeout expires.
+ * On success, populates the provided RSDocumentMetadata structure with the document's
+ * metadata including key, score, flags, and other attributes.
+ *
+ * @param handle Handle to the document table
+ * @param dmd Output parameter - RSDocumentMetadata structure to populate
+ * @param timeout_ms Maximum time to wait in milliseconds
+ * @param allocateKey Callback function to allocate memory for the document key
+ *
+ * @note On timeout or error, dmd->keyPtr will be set to NULL
+ * @note The document key is allocated via the provided AllocateKeyCallback and
+ *       should be freed by the caller when no longer needed
  */
 void SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
                                         RSDocumentMetadata *dmd,
