@@ -13,9 +13,11 @@ use std::io::{Cursor, Read};
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FilterMaskReader, IdDelta, IndexBlock, IndexReader,
     InvertedIndex, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
-    SkipDuplicatesReader,
+    SkipDuplicatesReader, debug::Summary,
 };
-use ffi::{IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue};
+use ffi::{
+    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreNumeric,
+};
 use pretty_assertions::assert_eq;
 
 #[unsafe(no_mangle)]
@@ -555,4 +557,78 @@ fn synced_discriminants() {
 
         assert_eq!(data_discriminant, kind_discriminant, "for {kind:?}");
     }
+}
+
+#[test]
+fn summary() {
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+
+    assert_eq!(
+        ii.summary(),
+        Summary {
+            number_of_docs: 0,
+            number_of_entries: 0,
+            last_doc_id: 0,
+            flags: IndexFlags_Index_DocIdsOnly as _,
+            number_of_blocks: 0,
+            block_efficiency: 0.0,
+            has_efficiency: false,
+        }
+    );
+
+    let record = RSIndexResult::default().doc_id(10);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    let record = RSIndexResult::default().doc_id(11);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    assert_eq!(
+        ii.summary(),
+        Summary {
+            number_of_docs: 2,
+            number_of_entries: 2,
+            last_doc_id: 11,
+            flags: IndexFlags_Index_DocIdsOnly as _,
+            number_of_blocks: 1,
+            block_efficiency: 0.0,
+            has_efficiency: false,
+        }
+    );
+}
+
+#[test]
+fn summary_store_numeric() {
+    let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_StoreNumeric, Dummy);
+
+    assert_eq!(
+        ii.summary(),
+        Summary {
+            number_of_docs: 0,
+            number_of_entries: 0,
+            last_doc_id: 0,
+            flags: IndexFlags_Index_StoreNumeric as _,
+            number_of_blocks: 0,
+            block_efficiency: 0.0,
+            has_efficiency: true,
+        }
+    );
+
+    let record = RSIndexResult::default().doc_id(10);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    let record = RSIndexResult::default().doc_id(10);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    assert_eq!(
+        ii.summary(),
+        Summary {
+            number_of_docs: 1,
+            number_of_entries: 2,
+            last_doc_id: 10,
+            flags: IndexFlags_Index_StoreNumeric as _,
+            number_of_blocks: 1,
+            block_efficiency: 1.0,
+            has_efficiency: true,
+        }
+    );
 }
