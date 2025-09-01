@@ -158,6 +158,7 @@ jobs:
         env:
           REDISEARCH_MT_BUILD: 1
           COORD: rlec
+          ENABLE_ASSERT: 1
         run: ${{ env.BUILD_CMD }} && make pack
 
       # Upload
