@@ -26,8 +26,9 @@ pub struct Summary {
 
 /// Summary information about the key metrics of a block in an inverted index
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct BlockSummary {
-    first_doc_id: t_docId,
-    last_doc_id: t_docId,
-    number_of_entries: usize,
+    pub first_doc_id: t_docId,
+    pub last_doc_id: t_docId,
+    pub number_of_entries: usize,
 }
