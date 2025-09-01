@@ -699,6 +699,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   HybridRequest *hybridRequest = HybridRequest_New(requests, HYBRID_REQUEST_NUM_SUBQUERIES);
   hybridRequest->hybridParams = hybridParams;
+  hybridRequest->reqConfig = mergeReqConfig;
 
   // thread safe context
   const AggregationPipelineParams params = {
@@ -732,6 +733,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   return hybridRequest;
 
 error:
+  SearchCtx_Free(sctx);
+
   if (searchRequest) {
     if (searchRequest->sctx) {
       RedisModuleCtx *thctx = searchRequest->sctx->redisCtx;

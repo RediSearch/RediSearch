@@ -54,9 +54,8 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
  *
  * @param hreq The HybridRequest with built pipeline
  * @param ctx Redis module context for sending the reply
- * @param sctx Redis search context
  */
-void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx);
+void HREQ_Execute(HybridRequest *hreq, RedisModuleCtx *ctx);
 
 /**
  * Create a new blocked client context for background hybrid execution.
