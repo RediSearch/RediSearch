@@ -371,7 +371,7 @@ fn test_numeric_encode_decode(
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
-    let mut numeric = Numeric::new();
+    let numeric = Numeric::new();
     let bytes_written = numeric
         .encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
         .expect("to encode numeric record");
@@ -405,7 +405,7 @@ fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
     let record = RSIndexResult::numeric(3.124);
 
-    let mut numeric = Numeric::new().with_float_compression();
+    let numeric = Numeric::new().with_float_compression();
     let _bytes_written = numeric
         .encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
         .expect("to encode numeric record");
@@ -590,14 +590,14 @@ mod property_based {
             let mut buf = Cursor::new(Vec::new());
             let record = RSIndexResult::numeric(value as _).doc_id(u64::MAX);
 
-            let mut numeric = Numeric::new();
+            let numeric = Numeric::new();
             let _bytes_written =
                 numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
 
             buf.set_position(0);
             let prev_doc_id = u64::MAX - delta;
-        let buf = buf.into_inner();
-        let mut buf = Cursor::new(buf.as_ref());
+            let buf = buf.into_inner();
+            let mut buf = Cursor::new(buf.as_ref());
 
             let record_decoded = numeric
                 .decode(&mut buf, prev_doc_id)
@@ -614,14 +614,14 @@ mod property_based {
             let mut buf = Cursor::new(Vec::new());
             let record = RSIndexResult::numeric(value).doc_id(u64::MAX);
 
-            let mut numeric = Numeric::new();
+            let numeric = Numeric::new();
             let _bytes_written =
                 numeric.encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record).expect("to encode numeric record");
 
             buf.set_position(0);
             let prev_doc_id = u64::MAX - delta;
-        let buf = buf.into_inner();
-        let mut buf = Cursor::new(buf.as_ref());
+            let buf = buf.into_inner();
+            let mut buf = Cursor::new(buf.as_ref());
 
             let record_decoded = numeric
                 .decode(&mut buf, prev_doc_id)

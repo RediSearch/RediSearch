@@ -41,7 +41,7 @@ impl Encoder for Dummy {
     type Delta = u32;
 
     fn encode<W: std::io::Write + std::io::Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         _record: &RSIndexResult,
@@ -131,7 +131,7 @@ fn adding_same_record_twice() {
         const ALLOW_DUPLICATES: bool = true;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &mut self,
+            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -177,7 +177,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &mut self,
+            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,

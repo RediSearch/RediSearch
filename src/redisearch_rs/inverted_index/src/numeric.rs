@@ -224,7 +224,7 @@ impl Encoder for Numeric {
     type Delta = NumericDelta;
 
     fn encode<W: Write + std::io::Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
