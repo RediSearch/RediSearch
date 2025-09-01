@@ -732,6 +732,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   return hybridRequest;
 
 error:
+  SearchCtx_Free(sctx);
+
   if (searchRequest) {
     if (searchRequest->sctx) {
       RedisModuleCtx *thctx = searchRequest->sctx->redisCtx;
