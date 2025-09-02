@@ -1201,45 +1201,6 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// Add context to error messages if applicable (currently handles hybrid query context)
-static void addErrorContext(AREQ *req, QueryError *status) {
-  if (QueryError_GetCode(status) == QUERY_OK) {
-    return;
-  }
-
-  QEFlags reqFlags = AREQ_RequestFlags(req);
-
-  // Check if this is a hybrid subquery
-  bool isHybridVectorSubquery = reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
-  bool isHybridSearchSubquery = reqFlags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
-
-  if (!isHybridVectorSubquery && !isHybridSearchSubquery) {
-    return; // Not a hybrid query, keep original error
-  }
-
-  RS_ASSERT (isHybridVectorSubquery ^ isHybridSearchSubquery);
-  QueryErrorCode currentCode = QueryError_GetCode(status);
-
-  if (currentCode == QUERY_EVECTOR_NOT_ALLOWED) {
-    // Enhance generic vector error with hybrid context
-    QueryError_ClearError(status);
-    if (isHybridVectorSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
-                                       "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
-    } else if (isHybridSearchSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
-                                       "Vector queries are not allowed in FT.HYBRID SEARCH subquery");
-    }
-  } else if (currentCode == QUERY_EWEIGHT_NOT_ALLOWED) {
-    // Enhance generic weight error with hybrid context
-    QueryError_ClearError(status);
-    if (isHybridVectorSubquery) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EWEIGHT_NOT_ALLOWED,
-                                       "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
-    }
-  }
-}
-
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1326,7 +1287,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   if (QAST_CheckIsValid(ast, AREQ_SearchCtx(req)->spec, opts, status) != REDISMODULE_OK) {
-    addErrorContext(req, status);
     return REDISMODULE_ERR;
   }
 

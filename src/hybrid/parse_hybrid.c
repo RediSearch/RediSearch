@@ -696,6 +696,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   AREQ *req = NULL;
   array_foreach(requests, req, {
     if (AREQ_ApplyContext(req, req->sctx, status) != REDISMODULE_OK) {
+      AddValidationErrorContext(req, status);
       goto error;
     }
   });
