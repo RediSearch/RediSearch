@@ -2957,6 +2957,8 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
 }
 
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_UpdateDoc: START");
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3021,6 +3023,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   RedisModule_Log(RSDummyContext, "notice", "IndexSpec_UpdateDoc: unlocking index %s for write (thread: %lu)", spec->name, (unsigned long)pthread_self());
   RedisSearchCtx_UnlockSpec(&sctx);
   RedisModule_Log(RSDummyContext, "notice", "IndexSpec_UpdateDoc: unlocked index %s for write (thread: %lu)", spec->name, (unsigned long)pthread_self());
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_UpdateDoc: RETURNING");
   return REDISMODULE_OK;
 }
 
