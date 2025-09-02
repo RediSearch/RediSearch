@@ -38,12 +38,10 @@ typedef struct MetricRequest{
 typedef enum {
   // All syntax features are enabled
   QAST_SYNTAX_DEFAULT = 0,
-  // weight attribute is not allowed, vector commands are not allowed
-  QAST_HYBRID_VSIM_FILTER_CLAUSE = 0x01,
   // weight attribute is not allowed
-  QAST_HYBRID_SEARCH_CLAUSE = 0x02,
-  // skip validation of the root node, validate only children
-  QAST_SKIP_ROOT_VALIDATION = 0x04,
+  QAST_NO_WEIGHT = 0x01,
+  // vector queries are not allowed
+  QAST_NO_VECTOR = 0x02,
 } QAST_ValidationFlags;
 
 /**
@@ -112,6 +110,9 @@ typedef struct {
 
 /** Set global filters on the AST */
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options);
+
+/** Set a filter node on the AST, handling different node types appropriately */
+void SetFilterNode(QueryAST *q, QueryNode *filterNode);
 
 /**
  * Open the result iterator on the filters. Returns the iterator for the root node.

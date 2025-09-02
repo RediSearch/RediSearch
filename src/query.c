@@ -397,31 +397,31 @@ QueryNode *NewVectorNode_WithParams(struct QueryParseCtx *q, VectorQueryType typ
   return ret;
 }
 
-static void setFilterNode(QueryAST *q, QueryNode *n) {
-  if (q->root == NULL || n == NULL) return;
+void SetFilterNode(QueryAST *q, QueryNode *filterNode) {
+  if (q->root == NULL || filterNode == NULL) return;
 
   // for a simple phrase node we just add the numeric node
   if (q->root->type == QN_PHRASE) {
     // we usually want the numeric range as the "leader" iterator.
-    q->root->children = array_ensure_prepend(q->root->children, &n, 1, QueryNode *);
+    q->root->children = array_ensure_prepend(q->root->children, &filterNode, 1, QueryNode *);
     q->numTokens++;
   // vector node of type KNN should always be in the root, so we have a special case here.
   } else if (q->root->type == QN_VECTOR && q->root->vn.vq->type == VECSIM_QT_KNN) {
     // for non-hybrid - add the filter node as the child of the vector node.
     if (QueryNode_NumChildren(q->root) == 0) {
-      QueryNode_AddChild(q->root, n);
+      QueryNode_AddChild(q->root, filterNode);
     // otherwise, add a new phrase node as the parent of the current child of the hybrid vector node,
     // and set its children to be the previous child and the new filter node.
     } else {
       RS_LOG_ASSERT(QueryNode_NumChildren(q->root) == 1, "Vector query node can have at most one child");
       QueryNode *nr = NewPhraseNode(0);
-      QueryNode_AddChild(nr, n);
+      QueryNode_AddChild(nr, filterNode);
       QueryNode_AddChild(nr, q->root->children[0]);
       q->root->children[0] = nr;
     }
   } else {  // for other types, we need to create a new phrase node
     QueryNode *nr = NewPhraseNode(0);
-    QueryNode_AddChild(nr, n);
+    QueryNode_AddChild(nr, filterNode);
     QueryNode_AddChild(nr, q->root);
     q->numTokens++;
     q->root = nr;
@@ -430,23 +430,23 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
 
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
   if (options->empty) {
-    setFilterNode(ast, NewQueryNode(QN_NULL));
+    SetFilterNode(ast, NewQueryNode(QN_NULL));
   }
   if (options->numeric) {
     QueryNode *n = NewQueryNode(QN_NUMERIC);
     n->nn.nf = options->numeric;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
   if (options->geo) {
     QueryNode *n = NewQueryNode(QN_GEO);
     n->gn.gf = options->geo;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
   if (options->keys) {
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.keys = options->keys;
     n->fn.len = options->nkeys;
-    setFilterNode(ast, n);
+    SetFilterNode(ast, n);
   }
 }
 
@@ -1756,9 +1756,16 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
 
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QAST_ValidationFlags validationFlags) {
-  // Check for weight attribute
-  if ((validationFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) && n->opts.explicitWeight) {
-    QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, NULL);
+  // Check if this is the main vector node in a hybrid vector subquery
+  QAST_ValidationFlags effectiveFlags = validationFlags;
+  if ((n->opts.flags & QueryNode_HybridVectorSubqueryNode) && (n->type == QN_VECTOR)) {
+    // This is the main vector node in hybrid vector subquery - allow it despite restrictions
+    effectiveFlags &= ~(QAST_NO_WEIGHT | QAST_NO_VECTOR);
+  }
+
+  // Check for weight attribute restrictions
+  if ((effectiveFlags & QAST_NO_WEIGHT) && n->opts.explicitWeight) {
+    QueryError_SetError(status, QUERY_EWEIGHT_NOT_ALLOWED, NULL);
     return REDISMODULE_ERR;
   }
 
@@ -1807,11 +1814,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_VECTOR:
-      if (validationFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) {
-        QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, NULL);
-        res = REDISMODULE_ERR;
-      } else if (validationFlags & QAST_HYBRID_SEARCH_CLAUSE) {
-        QueryError_SetError(status, QUERY_EHYBRID_SEARCH_INVALID_QUERY, NULL);
+      if (effectiveFlags & QAST_NO_VECTOR) {
+        QueryError_SetError(status, QUERY_EVECTOR_NOT_ALLOWED, NULL);
         res = REDISMODULE_ERR;
       }
       break;
@@ -1846,16 +1850,6 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
       !(spec->flags & Index_HasNonEmpty) &&
       (!isSpecJson(spec) || !(spec->flags & Index_HasUndefinedOrder))
   ) {
-    return REDISMODULE_OK;
-  }
-
-  // Skip root validation and validate only children
-  if (q->validationFlags & QAST_SKIP_ROOT_VALIDATION) {
-    for (size_t ii = 0; ii < QueryNode_NumChildren(q->root); ++ii) {
-      if (QueryNode_CheckIsValid(q->root->children[ii], spec, opts, status, q->validationFlags) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-      }
-    }
     return REDISMODULE_OK;
   }
 

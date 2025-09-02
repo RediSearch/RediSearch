@@ -608,6 +608,9 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 
+  searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
+  vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
+
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
   if (AC_IsAtEnd(&ac) || !AC_AdvanceIfMatch(&ac, "SEARCH")) {
@@ -693,6 +696,7 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   AREQ *req = NULL;
   array_foreach(requests, req, {
     if (AREQ_ApplyContext(req, req->sctx, status) != REDISMODULE_OK) {
+      AddValidationErrorContext(req, status);
       goto error;
     }
   });
