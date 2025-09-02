@@ -217,7 +217,10 @@ end:
 // Assumes that the spec is locked
 static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const QueryPipelineParams *params) {
   const char *scorer = params->scorerName;
-  if (!scorer) {
+  // For vector subqueries, use identity scorer (raw distance passthrough)
+  if (IsHybridVectorSubquery(&params->common)) {
+    scorer = VECTOR_IDENTITY_SCORER;  // Special identity scorer for vectors
+  } else if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
   }
   ScoringFunctionArgs scargs = {0};
@@ -362,7 +365,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
    *  * there is no subsequent sorter within this grouping */
   const int reqflags = params->common.reqflags;
   if ((reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
-      ((IsSearch(&params->common) || IsHybridSearchSubquery(&params->common)) && !(reqflags & QEXEC_F_NOROWS) &&
+      ((IsSearch(&params->common) || IsHybridSearchSubquery(&params->common) || IsHybridVectorSubquery(&params->common)) && !(reqflags & QEXEC_F_NOROWS) &&
        ((reqflags & QEXEC_OPTIMIZE) ? (params->common.optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(&pipeline->ap)))) {
     rp = getScorerRP(pipeline, first, params);
     PUSH_RP();
