@@ -685,6 +685,11 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
 
   // If the child did not touch the last block, prefer the parent's last block pointer
   if (idxData->newBlocklist && !info->lastblkDocsRemoved) {
+    /*
+     * Last block was unmodified-- let's prefer the last block's pointer
+     * over our own (which may be stale).
+     * If the last block was repaired, this is handled above in checkLastBlock()
+     */
     idxData->newBlocklist[idxData->newBlocklistSize - 1] =
         InvertedIndex_Block(idx, info->nblocksOrig - 1);
   }

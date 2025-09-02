@@ -1492,8 +1492,14 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
 
   // Reshape the block list if the child produced a new compacted list
   if (d->new_blocklist) {
+    /*
+     * At this point, we check if the last block has had new data added to it,
+     * but was _not_ repaired. We check for a repaired last block in
+     * checkLastBlock().
+     */
+
     // Number of blocks added in the parent process since the last scan
-    size_t newAddedLen = InvertedIndex_NumBlocks(idx) - nblocks_orig;
+    size_t newAddedLen = InvertedIndex_NumBlocks(idx) - nblocks_orig; // TODO: can we just decrease by number of deleted.
 
     // The final size is the reordered block size, plus the number of blocks
     // which we haven't scanned yet, because they were added in the parent
@@ -1514,7 +1520,11 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
     // ownership of new_blocklist has moved into idx
     d->new_blocklist = NULL;
   } else if (d->deleted_len) {
-    // The child deleted all blocks it had seen
+    // if idxData->newBlocklist == NULL it's either because all the blocks the child has seen are gone or we didn't change the
+    // size of the index (idxData->numDelBlocks == 0).
+    // So if we enter here (idxData->numDelBlocks != 0) it's the first case, all blocks the child has seen need to be deleted.
+    // Note that we might want to keep the last block, although deleted by the child. In this case numDelBlocks will *not include*
+    // the last block.
     size_t numBlocks = InvertedIndex_BlocksShift(idx, d->deleted_len);
     if (numBlocks == 0) {
       InvertedIndex_AddBlock(idx, 0, (size_t *)nbytes_added_io);
@@ -1522,6 +1532,7 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
   }
 
   // Install repaired blocks at their new positions
+  // TODO : can we skip if we have newBlocklist?
   for (size_t i = 0; i < d->repaired_len; ++i) {
     const int64_t newix = d->repaired[i].newix;
     RS_LOG_ASSERT(newix >= 0 && (size_t)newix < InvertedIndex_NumBlocks(idx),
