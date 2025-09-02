@@ -265,7 +265,7 @@ class testHybridSearch:
                 ['attributes', ['__key', 'vector_01', '__score', '0.333333333333']]
             ],
             'total_results', 3,
-            'warning', [],
+            'warnings', [],
             'execution_time', ANY
         ]
         self.env.assertEqual(res, expected)
@@ -412,7 +412,7 @@ class testHybridSearch:
     #             ['attributes', [['tag', 'even', 'count', '2']]]
     #         ],
     #         'total_results', 1,
-    #         'warning', [],
+    #         'warnings', [],
     #         'execution_time', ANY
     #     ])
 
@@ -438,7 +438,7 @@ class testHybridSearch:
                 ['attributes', ['__key', 'both_01', '__score', '0.5']],
             ],
             'total_results', 3,
-            'warning', [],
+            'warnings', [],
             'execution_time', ANY
         ]
         self.env.assertEqual(res, expected)
@@ -461,7 +461,7 @@ class testHybridSearch:
                 ['attributes', ['__key', 'both_05', '__score', '0.5']],
             ],
             'total_results', 3,
-            'warning', [],
+            'warnings', [],
             'execution_time', ANY
         ]
         self.env.assertEqual(res, expected)
@@ -490,7 +490,7 @@ class testHybridSearch:
                 ['attributes', ['number', '1', '__key', 'vector_01', '__score', '0.333333333333', '10_minus_number', '9']]
             ],
             'total_results', 3,
-            'warning', [],
+            'warnings', [],
             'execution_time', ANY
         ]
         self.env.assertEqual(res, expected)
@@ -594,7 +594,7 @@ class testHybridSearch:
                 ['attributes', ['__key', 'both_01', '__score', '0.45']]
             ],
             'total_results', 3,
-            'warning', [],
+            'warnings', [],
             'execution_time', ANY
         ]
         self.env.assertEqual(filtered_res, expected)

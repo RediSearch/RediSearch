@@ -45,7 +45,7 @@ test_data = {
 }
 
 def setup_basic_index(env):
-    """Setup basic index with test data for debug timeout testing"""
+    """Setup basic index with test data"""
     dim = 2
     conn = env.getClusterConnectionIfNeeded()
     env.expect('FT.CREATE idx SCHEMA description TEXT embedding VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok
@@ -60,17 +60,64 @@ def test_hybrid_vector_direct_blob_knn():
     env = Env()
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e", 'KNN', '2', 'K', '1')
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
+                        'KNN', '2', 'K', '1')
     results = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:2"})
 
 # TODO: remove once FT.HYBRID for cluster is implemented
-# TODO: Enable this test after fixing memory leak MOD-11140
-@skip()
+@skip(cluster=True)
+def test_hybrid_vector_direct_blob_knn_with_filter():
+    env = Env()
+    setup_basic_index(env)
+    env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
+                        'KNN', '2', 'K', '2', 'FILTER', '@description:blue')
+    results = get_results_from_hybrid_response(response)
+    env.assertTrue(set(results.keys()) == {"doc:4"})
+
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
 def test_hybrid_vector_direct_blob_range():
     env = Env()
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e", 'RANGE', '2', 'RADIUS', '1')
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
+                        'RANGE', '2', 'RADIUS', '1')
     results = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:2", "doc:4"})
+
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_vector_direct_blob_range_with_filter():
+    env = Env()
+    setup_basic_index(env)
+    env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
+                        'RANGE', '2', 'RADIUS', '1', 'FILTER', '@description:blue')
+    results = get_results_from_hybrid_response(response)
+    env.assertTrue(set(results.keys()) == {"doc:4"})
+
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_vector_invalid_filter_with_weight():
+    """Test that hybrid vector filter fails when it contains weight attribute"""
+    env = Env()
+    setup_basic_index(env)
+    env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
+    # This should fail because weight attribute is not allowed in hybrid vector filters
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
+                'KNN', '2', 'K', '2', 'FILTER', '@description:blue => {$weight: 2.0}').error().contains('Weight attributes are not allowed in FT.HYBRID VSIM FILTER')
+
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_vector_invalid_filter_with_vector():
+    """Test that hybrid vector filter fails when it contains vector operations"""
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index(env)
+    env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
+    # This should fail because vector operations are not allowed in hybrid vector filters
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
+                'FILTER', '@embedding:[VECTOR_RANGE 0.01 $BLOB]','PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Vector expressions are not allowed in FT.HYBRID VSIM FILTER')
+
+
