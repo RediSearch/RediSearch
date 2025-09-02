@@ -17,6 +17,8 @@
 #include "util/arr.h"
 #include "search_disk.h"
 
+#define ASYNC_DT_READ_AHEAD_WINDOW_SIZE 3000
+
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -212,7 +214,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       } else {
         // New implementation - Async
         // `W` is the read-ahead window size
-        const size_t W = 3000;
+        const size_t W = ASYNC_DT_READ_AHEAD_WINDOW_SIZE;
 
         if (!self->diskPrefetchInit) {
           self->diskPrefetchInit = true;
