@@ -94,6 +94,22 @@ impl NumericFilter {
     pub fn is_numeric_filter(&self) -> bool {
         self.geo_filter.is_null()
     }
+
+    /// Check if the given value is in the range specified by this filter
+    pub fn value_in_range(&self, value: f64) -> bool {
+        let min_ok = if self.min_inclusive {
+            value >= self.min
+        } else {
+            value > self.min
+        };
+        let max_ok = if self.max_inclusive {
+            value <= self.max
+        } else {
+            value < self.max
+        };
+
+        min_ok && max_ok
+    }
 }
 
 /// Encoder to write a record into an index

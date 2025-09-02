@@ -42,23 +42,6 @@ void LegacyNumericFilter_Free(LegacyNumericFilter *nf);
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                      int sign, QueryError *status);
 
-/*
-A numeric index allows indexing of documents by numeric ranges, and intersection
-of them with fulltext indexes.
-*/
-static inline int NumericFilter_Match(const NumericFilter *f, double score) {
-
-  int rc = 0;
-  // match min - -inf or x >/>= score
-  int matchMin = (f->minInclusive ? score >= f->min : score > f->min);
-
-  if (matchMin) {
-    // match max - +inf or x </<= score
-    rc = (f->maxInclusive ? score <= f->max : score < f->max);
-  }
-  return rc;
-}
-
 #ifdef __cplusplus
 }
 #endif

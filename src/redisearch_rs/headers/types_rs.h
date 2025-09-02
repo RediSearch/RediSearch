@@ -464,6 +464,16 @@ extern "C" {
 bool NumericFilter_IsNumeric(const struct NumericFilter *filter);
 
 /**
+ * Check if the given value matches the numeric filter.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+ */
+bool NumericFilter_Match(const struct NumericFilter *filter, double value);
+
+/**
  * Allocate a new intersect result with a given capacity and weight. This result should be freed
  * using [`IndexResult_Free`].
  */
