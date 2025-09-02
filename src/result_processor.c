@@ -1164,7 +1164,7 @@ static int rpcountNext(ResultProcessor *base, SearchResult *res) {
 
 /* Free impl. for scorer - frees up the scorer privdata if needed */
 static void rpcountFree(ResultProcessor *rp) {
-  RPScorer *self = (RPScorer *)rp;
+  RPCounter *self = (RPCounter *)rp;
   rm_free(self);
 }
 
