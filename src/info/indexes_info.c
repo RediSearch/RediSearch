@@ -28,8 +28,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     }
     // Lock for read
     RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: locking index %s for read (thread: %lu)", sp->name, (unsigned long)pthread_self());
-    pthread_rwlock_rdlock(&sp->rwlock);
-    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: locked index %s for read (thread: %lu)", sp->name, (unsigned long)pthread_self());
+    int lock_rc = pthread_rwlock_rdlock(&sp->rwlock);
+    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: locked index %s for read (thread: %lu) (rc: %d)", sp->name, (unsigned long)pthread_self(), rc);
 
     // Vector index stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
@@ -68,8 +68,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     }
     info.background_indexing_failures_OOM += sp->scan_failed_OOM;
     RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: unlocking index %s for read (thread: %lu)", sp->name, (unsigned long)pthread_self());
-    pthread_rwlock_unlock(&sp->rwlock);
-    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: unlocked index %s for read (thread: %lu)", sp->name, (unsigned long)pthread_self());
+    int unlock_rc = pthread_rwlock_unlock(&sp->rwlock);
+    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: unlocked index %s for read (thread: %lu) (rc: %d)", sp->name, (unsigned long)pthread_self(), unlock_rc);
 
   }
   dictReleaseIterator(iter);
