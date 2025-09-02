@@ -29,7 +29,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     // Lock for read
     RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: locking index %s for read (thread: %lu)", sp->name, (unsigned long)pthread_self());
     int lock_rc = pthread_rwlock_rdlock(&sp->rwlock);
-    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: locked index %s for read (thread: %lu) (rc: %d)", sp->name, (unsigned long)pthread_self(), rc);
+    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: locked index %s for read (thread: %lu) (rc: %d)", sp->name, (unsigned long)pthread_self(), lock_rc);
 
     // Vector index stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
