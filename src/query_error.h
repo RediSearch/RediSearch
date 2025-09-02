@@ -70,9 +70,8 @@ extern "C" {
   X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed") \
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")         \
   X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")   \
-  X(QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER") \
-  X(QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER") \
-  X(QUERY_EHYBRID_SEARCH_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID SEARCH subquery") \
+  X(QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed")             \
+  X(QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed")                \
   X(QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM")        \
   //TODO: remove QUERY_EHYBRID_HYBRID_ALIAS after YIELD_DISTANCE_AS is enabled
 

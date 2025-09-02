@@ -608,8 +608,8 @@ HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 
-  searchRequest->ast.validationFlags |= QAST_HYBRID_SEARCH_CLAUSE;
-  vectorRequest->ast.validationFlags |= QAST_HYBRID_VSIM_FILTER_CLAUSE;
+  searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
+  vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + 2, argc - 2);

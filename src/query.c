@@ -1756,16 +1756,16 @@ static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSear
 
 static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts,
   QueryError *status, QAST_ValidationFlags validationFlags) {
-  // Check if this node is exempt from hybrid validation
+  // Check if this is the main vector node in a hybrid vector subquery
   QAST_ValidationFlags effectiveFlags = validationFlags;
-  if (n->opts.flags & QueryNode_NoHybridValidation) {
-    // Temporarily disable hybrid validation flags for this node
-    effectiveFlags &= ~(QAST_HYBRID_VSIM_FILTER_CLAUSE | QAST_HYBRID_SEARCH_CLAUSE);
+  if ((n->opts.flags & QueryNode_HybridVectorSubqueryNode) && (n->type == QN_VECTOR)) {
+    // This is the main vector node in hybrid vector subquery - allow it despite restrictions
+    effectiveFlags &= ~(QAST_NO_WEIGHT | QAST_NO_VECTOR);
   }
 
-  // Check for weight attribute (now using effective flags)
-  if ((effectiveFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) && n->opts.explicitWeight) {
-    QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, NULL);
+  // Check for weight attribute restrictions
+  if ((effectiveFlags & QAST_NO_WEIGHT) && n->opts.explicitWeight) {
+    QueryError_SetError(status, QUERY_EWEIGHT_NOT_ALLOWED, NULL);
     return REDISMODULE_ERR;
   }
 
@@ -1814,11 +1814,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       }
       break;
     case QN_VECTOR:
-      if (effectiveFlags & QAST_HYBRID_VSIM_FILTER_CLAUSE) {
-        QueryError_SetError(status, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, NULL);
-        res = REDISMODULE_ERR;
-      } else if (effectiveFlags & QAST_HYBRID_SEARCH_CLAUSE) {
-        QueryError_SetError(status, QUERY_EHYBRID_SEARCH_INVALID_QUERY, NULL);
+      if (effectiveFlags & QAST_NO_VECTOR) {
+        QueryError_SetError(status, QUERY_EVECTOR_NOT_ALLOWED, NULL);
         res = REDISMODULE_ERR;
       }
       break;
