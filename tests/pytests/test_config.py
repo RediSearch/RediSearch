@@ -1271,17 +1271,17 @@ def testStringArgDeprecationMessage():
 def testConfigDefaultScorerValidation():
     env = Env()
 
-    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+    env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
     env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
 
-    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error()\
+    env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error()\
         .contains('Invalid SCORER name')
 
     valid_scores = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.TANH',
                     'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
     for scorer in valid_scores:
-        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).ok()
-        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+        env.expect(config_cmd(), 'SET', 'DEFAULT_SCORER', scorer).ok()
+        env.expect(config_cmd(), 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
 
     for scorer in valid_scores:
         env.expect('CONFIG', 'SET', 'search-default-scorer', scorer).ok()
