@@ -2996,6 +2996,17 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
     }
   }
+  int res = 0;
+  pthread_rwlockattr_t attr;
+  res = pthread_rwlockattr_init(&attr);
+  RS_ASSERT(res == 0);
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
+  int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
+  res = pthread_rwlockattr_setkind_np(&attr, pref);
+  RS_ASSERT(res == 0);
+#endif
+
+  pthread_rwlock_init(&sp->rwlock, &attr);
   return REDISMODULE_OK;
 
 cleanup:
@@ -3111,7 +3122,17 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
+  int res = 0;
+  pthread_rwlockattr_t attr;
+  res = pthread_rwlockattr_init(&attr);
+  RS_ASSERT(res == 0);
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
+  int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
+  res = pthread_rwlockattr_setkind_np(&attr, pref);
+  RS_ASSERT(res == 0);
+#endif
 
+  pthread_rwlock_init(&sp->rwlock, &attr);
   // Subscribe to keyspace notifications
   Initialize_KeyspaceNotifications();
 
@@ -3347,7 +3368,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
                                  : baseYield;
 
   IndexerYieldWhileLoading(ctx, yieldEveryOps, REDISMODULE_YIELD_FLAG_CLIENTS);
-
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_IncrActiveWrites(spec);
 

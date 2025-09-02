@@ -30,7 +30,11 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       continue;
     }
     // Lock for read
-    pthread_rwlock_rdlock(&sp->rwlock);
+    int rc = pthread_rwlock_rdlock(&sp->rwlock);
+    if (rc != 0) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d. Cannot continue getting Index info", HiddenString_GetUnsafe(sp->specName, NULL), rc);
+      continue;
+    }
 
     // Vector indexes stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
