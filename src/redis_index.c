@@ -219,7 +219,9 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
     // Assert that it was actually previously paused
     RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
   }
-  pthread_rwlock_unlock(&sctx->spec->rwlock);
+  int unlock_rc = pthread_rwlock_unlock(&sctx->spec->rwlock);
+  RedisModule_Log(RSDummyContext, "notice", "RedisSearchCtx_UnlockSpec: unlocking index %s for write (rc: %d)", sctx->spec->name, unlock_rc);
+
   sctx->flags = RS_CTX_UNSET;
 }
 
