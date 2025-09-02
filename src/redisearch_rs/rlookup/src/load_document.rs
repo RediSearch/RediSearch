@@ -255,48 +255,29 @@ fn h_get_all_scan(
         // Safety: We crate a CStr from the bytes we received from Redis SCAN API:
         let field_cstr = unsafe { CStr::from_ptr(raw_field_cstr) };
 
-        // To work around the borrow checker, we check for key existence and if not exists create a new key.
-        let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
-
-        let new_required = lookup.keys.find_by_name(field_cstr).is_none();
-        if new_required {
-            // if we create a new key we want to own the CString,
-            // so we copy and convert it to a Cow::Owned
-
-            // Safety: We create a CString from the bytes we received from Redis SCAN API:
-            let field_cstring = unsafe { CString::from_raw(raw_field_cstr.cast_mut()) };
-            let name = field_cstring.clone().into();
-
-            lookup.keys.push(RLookupKey::new_with_cow(name, flags));
-
-            // we're not the owner of the CString, so we must not free it
-            std::mem::forget(field_cstring); // prevent it from being freed
-        }
-
-        let rlk = lookup.get_key_load(field_cstr, field_cstr, flags).unwrap();
-
-        // Decide on the coerce type
-        let mut coerce_type = RLookupCoerceType::Str;
-        if options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
-            coerce_type = RLookupCoerceType::Dbl;
-        }
-
-        // This function will retain the value if it's a string. This is thread-safe because
-        // the value was created just before calling this callback and will be freed right after
-        // the callback returns, so this is a thread-local operation that will take ownership of
-        // the string value.
-        dst_row.write_key(rlk, {
-            // Safety: value is expected to be valid RedisModuleString that is a hash and
-            // `ffi::hvalToValue` is expected to return a valid RSValue pointer.
-            let inner = unsafe {
-                ffi::hvalToValue(value.as_ptr().cast(), coerce_type as ffi::RLookupCoerceType)
-            };
-            // Safety: We assume that `hvalToValue` returns a valid pointer.
-            unsafe {
-                RSValueFFI::from_raw(
-                    NonNull::new(inner).expect("hvalToValue returned a null pointer"),
-                )
+        with_or_create_key(lookup, field_cstr, |key| {
+            // Decide on the coerce type
+            let mut coerce_type = RLookupCoerceType::Str;
+            if !options.force_string && key.flags.contains(RLookupKeyFlag::QuerySrc) {
+                coerce_type = RLookupCoerceType::Dbl;
             }
+
+            // This function will retain the value if it's a string. This is thread-safe because
+            // the value was created just before calling this callback and will be freed right after
+            // the callback returns, so this is a thread-local operation that will take ownership of
+            // the string value.
+            dst_row.write_key(key, {
+                // Safety: value is a valid RedisModuleString provided by the scan cursor API.
+                let inner = unsafe {
+                    ffi::hvalToValue(value.inner.cast(), coerce_type as ffi::RLookupCoerceType)
+                };
+                // Safety: We assume that `hvalToValue` returns a valid pointer.
+                unsafe {
+                    RSValueFFI::from_raw(
+                        NonNull::new(inner).expect("hvalToValue returned a null pointer"),
+                    )
+                }
+            });
         });
     });
 
@@ -367,7 +348,6 @@ fn h_get_all_fallback(
         };
 
         let key_bytes = k.as_bytes();
-
         {
             // Safety: We create a CString from the bytes we received from Redis CALL API:
             let field_cstr = unsafe { CStr::from_bytes_with_nul_unchecked(key_bytes) };
@@ -380,42 +360,64 @@ fn h_get_all_fallback(
             }
         }
 
-        let flags = make_bitflags!(RLookupKeyFlag::{ForceLoad});
         // convert key to Cow: CString -> Copied CString -> Cow
         let cstring = CString::new(k.as_bytes()).unwrap();
-        let cow = Cow::from(cstring.clone());
+        let cow: Cow<'_, CStr> = Cow::from(cstring.clone());
 
         // generate a cstr that is used as the field name but is the same as the cow
         let ptr = cow.as_ptr();
         // Safety: The pointer is valid as it comes from a RedisModuleString that is expected to be valid.
         let field_cstr = unsafe { CStr::from_ptr(ptr) };
-        let rlk = lookup.get_key_load(cow, field_cstr, flags).unwrap();
 
-        let mut coerce_ty = RLookupCoerceType::Str;
-        if options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
-            coerce_ty = RLookupCoerceType::Dbl;
-        }
-
-        // This function will retain the value if it's a string. This is thread-safe because
-        // the value was created just before calling this callback and will be freed right after
-        // the callback returns, so this is a thread-local operation that will take ownership of
-        // the string value.
-        dst_row.write_key(rlk, {
-            // Safety: The prvoided value pointer is valid and the ctype is of the correct type.
-            let ptr = unsafe {
-                ffi::replyElemToValue(
-                    value.get_raw().cast(), // different opaque types from different crates but pointing to the same structure.
-                    coerce_ty as ffi::RLookupCoerceType,
-                )
-            };
-            // Safety: We assume that `replyElemToValue` returns a valid pointer.
-            unsafe {
-                RSValueFFI::from_raw(
-                    NonNull::new(ptr).expect("replyElemToValue returned a null pointer"),
-                )
+        with_or_create_key(lookup, field_cstr, |rlk| {
+            let mut coerce_ty = RLookupCoerceType::Str;
+            if options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
+                coerce_ty = RLookupCoerceType::Dbl;
             }
+
+            // This function will retain the value if it's a string. This is thread-safe because
+            // the value was created just before calling this callback and will be freed right after
+            // the callback returns, so this is a thread-local operation that will take ownership of
+            // the string value.
+            dst_row.write_key(rlk, {
+                // Safety: The prvoided value pointer is valid and the ctype is of the correct type.
+                let ptr = unsafe {
+                    ffi::replyElemToValue(
+                        value.get_raw().cast(),
+                        coerce_ty as ffi::RLookupCoerceType,
+                    )
+                };
+                // Safety: We assume that `replyElemToValue` returns a valid pointer.
+                unsafe {
+                    RSValueFFI::from_raw(
+                        NonNull::new(ptr).expect("replyElemToValue returned a null pointer"),
+                    )
+                }
+            });
         });
     }
 
     Ok(())
+}
+
+/// Helper function to find or create a key in the lookup table.
+///
+/// If the key does not exist, it is created with the provided flags.
+/// The closure `f` is called with the found or created key.
+/// This works around lifetime issues with the lookup table and the keys.
+#[inline(always)]
+fn with_or_create_key<'a, F, R>(lookup: &mut RLookup<'a>, field_cstr: &'a CStr, f: F) -> R
+where
+    F: FnOnce(&RLookupKey<'_>) -> R,
+{
+    let new_required = lookup.keys.find_by_name(field_cstr).is_none();
+    if new_required {
+        let flags = make_bitflags!(RLookupKeyFlag::{ForceLoad});
+        let name = Cow::from(field_cstr.to_owned());
+        lookup.keys.push(RLookupKey::new_with_cow(name, flags));
+    }
+
+    let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
+    let key = lookup.get_key_load(field_cstr, field_cstr, flags).unwrap();
+    f(key)
 }
