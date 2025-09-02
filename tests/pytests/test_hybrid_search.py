@@ -38,7 +38,7 @@ def test_hybrid_search_invalid_query_with_vector():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index(env)
     env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
-    # This should fail because weight attribute is not allowed in hybrid vector filters
+    # This should fail because weight attribute is not allowed in hybrid search subquery
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '@embedding:[VECTOR_RANGE 0.01 $BLOB]', 'VSIM' ,'@embedding', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",\
                'PARAMS', "2", "BLOB", b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e").error().contains('Vector queries are not allowed in FT.HYBRID SEARCH')
 
