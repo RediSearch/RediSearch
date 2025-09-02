@@ -218,7 +218,8 @@ end:
 static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const QueryPipelineParams *params) {
   const char *scorer = params->scorerName;
   if (!scorer) {
-    scorer = DEFAULT_SCORER_NAME;
+    scorer = (params->reqConfig->defaultScorer && strlen(params->reqConfig->defaultScorer) > 0) ?
+             params->reqConfig->defaultScorer : DEFAULT_SCORER_NAME;
   }
   ScoringFunctionArgs scargs = {0};
   if (params->common.reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
@@ -367,6 +368,10 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
     rp = getScorerRP(pipeline, first, params);
     PUSH_RP();
     const char *scorerName = params->scorerName;
+    if (!scorerName) {
+      scorerName = (params->reqConfig->defaultScorer && strlen(params->reqConfig->defaultScorer) > 0) ?
+                   params->reqConfig->defaultScorer : DEFAULT_SCORER_NAME;
+    }
     if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
       const RLookupKey *scoreKey = NULL;
       if (params->common.reqflags & QEXEC_F_SEND_SCORES_AS_FIELD) {

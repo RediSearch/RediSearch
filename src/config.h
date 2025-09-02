@@ -75,6 +75,8 @@ typedef struct {
   bool printProfileClock;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
+  // Default scorer name
+  const char *defaultScorer;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -197,6 +199,7 @@ extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
 extern RedisModuleString *config_ext_load;
 extern RedisModuleString *config_friso_ini;
+extern RedisModuleString *config_default_scorer;
 
 /**
  * Add new configuration options to the chain of already recognized options
@@ -326,6 +329,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
+    .requestConfigParams.defaultScorer = NULL,                                 \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
   }

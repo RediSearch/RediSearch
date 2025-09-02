@@ -139,7 +139,7 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
-    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')    
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
@@ -1267,6 +1267,26 @@ def testStringArgDeprecationMessage():
         expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+def testConfigDefaultScorerValidation():
+    env = Env()
+
+    env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', 'BM25STD']])
+    env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', 'BM25STD'])
+
+    env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', 'INVALID_SCORER').error()\
+        .contains('Invalid SCORER name')
+
+    valid_scores = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.TANH',
+                    'BM25STD.NORM', 'DISMAX', 'DOCSCORE', 'HAMMING']
+    for scorer in valid_scores:
+        env.expect('FT.CONFIG', 'SET', 'DEFAULT_SCORER', scorer).ok()
+        env.expect('FT.CONFIG', 'GET', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+
+    for scorer in valid_scores:
+        env.expect('CONFIG', 'SET', 'search-default-scorer', scorer).ok()
+        env.expect('CONFIG', 'GET', 'search-default-scorer').equal(['search-default-scorer', scorer])
+
 
 ################################################################################
 # Test CONFIG SET/GET boolean parameters

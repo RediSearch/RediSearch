@@ -881,3 +881,33 @@ def testBM25STDScoreWithWeight(env: Env):
 
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
+
+def testConfigDefaultScorer(env: Env):
+    # Test that the scorer is applied correctly when using the DEFAULT_SCORER config
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create idx ON HASH schema title text').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world cat dog')
+
+    scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.TANH',
+               'BM25STD.NORM', 'DISMAX', 'DOCSCORE']
+    for scorer in scorers:
+        env.expect('ft.config', 'set', 'DEFAULT_SCORER', scorer).ok()
+        env.expect('ft.config', 'get', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+        # Test that the default scorer is applied correctly to FT.SEARCH
+        search_explicit_score = env.cmd(
+            'ft.search', 'idx', '@title: hello', 'withscores', 'scorer',
+            scorer, 'nocontent')
+        search_implicit_score = env.cmd(
+            'ft.search', 'idx', '@title: hello', 'withscores', 'nocontent')
+        env.assertEqual(search_explicit_score, search_implicit_score,
+                        message=f'FT.SEARCH {scorer}')
+
+        # Test that the default scorer is applied correctly to FT.AGGREGATE
+        aggregate_explicit_score = env.cmd(
+            'ft.aggregate', 'idx', '@title: hello', 'withscores', 'scorer',
+            scorer, 'nocontent')
+        aggregate_implicit_score = env.cmd(
+            'ft.aggregate', 'idx', '@title: hello', 'withscores', 'nocontent')
+        env.assertEqual(aggregate_explicit_score, aggregate_implicit_score,
+                        message=f'FT.AGGREGATE {scorer}')
