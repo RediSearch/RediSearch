@@ -8,10 +8,12 @@
 */
 
 pub mod empty;
+pub mod id_list;
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
+#[derive(Debug)]
 /// The outcome of [`RQEIterator::skip_to`].
 pub enum SkipToOutcome<'iterator, 'index> {
     /// The iterator has a valid entry for the requested `doc_id`.
@@ -21,6 +23,7 @@ pub enum SkipToOutcome<'iterator, 'index> {
     NotFound(&'iterator RSIndexResult<'index>),
 }
 
+#[derive(Debug)]
 /// An iterator failure indications
 pub enum RQEIteratorError {
     /// The iterator has reached the time limit for execution.
