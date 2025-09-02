@@ -20,20 +20,6 @@
 extern "C" {
 #endif
 
-typedef struct NumericFilter {
-  const FieldSpec *fieldSpec;
-  double min;               // beginning of range
-  double max;               // end of range
-  const void *geoFilter;    // geo filter
-  bool inclusiveMin;        // range includes min value
-  bool inclusiveMax;        // range includes max val
-
-  // used by optimizer
-  bool asc;                 // order of SORTBY asc/desc
-  size_t limit;             // minimum number of result needed
-  size_t offset;            // record number of documents in iterated ranges. used to skip them
-} NumericFilter;
-
 // LegacyNumericFilter is a numeric filter that is used in the legacy query syntax
 // it is a wrapper around the NumericFilter struct
 // it is used to parse the legacy query syntax and convert it to the new query syntax
@@ -66,11 +52,11 @@ static inline int NumericFilter_Match(const NumericFilter *f, double score) {
 
   int rc = 0;
   // match min - -inf or x >/>= score
-  int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);
+  int matchMin = (f->minInclusive ? score >= f->min : score > f->min);
 
   if (matchMin) {
     // match max - +inf or x </<= score
-    rc = (f->inclusiveMax ? score <= f->max : score < f->max);
+    rc = (f->maxInclusive ? score <= f->max : score < f->max);
   }
   return rc;
 }

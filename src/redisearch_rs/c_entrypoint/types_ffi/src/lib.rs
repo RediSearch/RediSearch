@@ -16,7 +16,10 @@ use inverted_index::{
     RSTermRecord, t_fieldMask,
 };
 
-pub use inverted_index::debug::{BlockSummary, Summary};
+pub use inverted_index::{
+    NumericFilter,
+    debug::{BlockSummary, Summary},
+};
 
 /// Allocate a new intersect result with a given capacity and weight. This result should be freed
 /// using [`IndexResult_Free`].

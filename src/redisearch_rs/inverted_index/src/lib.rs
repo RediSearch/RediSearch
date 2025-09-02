@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{BufRead, Cursor, Seek, Write};
+use std::{
+    ffi::c_void,
+    io::{BufRead, Cursor, Seek, Write},
+};
 
+use ffi::FieldSpec;
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
@@ -52,6 +56,37 @@ impl IdDelta for u32 {
     fn zero() -> Self {
         0
     }
+}
+
+/// Filter details to apply to numeric values
+/// cbindgen:rename-all=CamelCase
+#[repr(C)]
+pub struct NumericFilter {
+    field_spec: *const FieldSpec,
+
+    /// Beginning of the range
+    min: f64,
+
+    /// End of the range
+    max: f64,
+
+    /// Geo filter, if any
+    geo_filter: *const c_void,
+
+    /// Range includes the min value
+    min_inclusive: bool,
+
+    /// Range includes the max value
+    max_inclusive: bool,
+
+    /// Order of SORTBY (ascending/descending)
+    ascending: bool,
+
+    /// Minimum number of results needed
+    limit: usize,
+
+    /// Number of results to skip
+    offset: usize,
 }
 
 /// Encoder to write a record into an index

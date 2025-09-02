@@ -645,9 +645,9 @@ private:
                 .min = -INFINITY,
                 .max = INFINITY,
                 .geoFilter = nullptr,
-                .inclusiveMin = 1,
-                .inclusiveMax = 1,
-                .asc = false,
+                .minInclusive = 1,
+                .maxInclusive = 1,
+                .ascending = false,
                 .limit = 0,
                 .offset = 0
             };

@@ -24,6 +24,8 @@ typedef __uint128_t t_fieldMask;
 typedef uint64_t t_fieldMask;
 #endif
 
+typedef struct FieldSpec FieldSpec;
+
 
 /**
  * An iterator over the results in an [`RSAggregateResult`].
@@ -407,6 +409,45 @@ typedef struct IISummary {
   double block_efficiency;
   bool has_efficiency;
 } IISummary;
+
+/**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter {
+  const FieldSpec *fieldSpec;
+  /**
+   * Beginning of the range
+   */
+  double min;
+  /**
+   * End of the range
+   */
+  double max;
+  /**
+   * Geo filter, if any
+   */
+  const void *geoFilter;
+  /**
+   * Range includes the min value
+   */
+  bool minInclusive;
+  /**
+   * Range includes the max value
+   */
+  bool maxInclusive;
+  /**
+   * Order of SORTBY (ascending/descending)
+   */
+  bool ascending;
+  /**
+   * Minimum number of results needed
+   */
+  uintptr_t limit;
+  /**
+   * Number of results to skip
+   */
+  uintptr_t offset;
+} NumericFilter;
 
 #ifdef __cplusplus
 extern "C" {

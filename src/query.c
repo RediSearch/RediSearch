@@ -1869,8 +1869,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
-      s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->inclusiveMin ? "<=" : "<",
-                       HiddenString_GetUnsafe(f->fieldSpec->fieldName, NULL), f->inclusiveMax ? "<=" : "<", f->max);
+      s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
+                       HiddenString_GetUnsafe(f->fieldSpec->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
