@@ -81,7 +81,7 @@ pub extern "C" fn NewTokenRecord<'result>(
     weight: f64,
 ) -> *mut RSIndexResult<'result> {
     let result =
-        RSIndexResult::term_with_term_ptr(term, RSOffsetVector::empty(), 0, 0, 1).weight(weight);
+        RSIndexResult::term_with_term_ptr(term, RSOffsetVector::empty(), 0, 0, 0).weight(weight);
     Box::into_raw(Box::new(result))
 }
 
