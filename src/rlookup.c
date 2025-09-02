@@ -345,7 +345,7 @@ void RLookupRow_Wipe(RLookupRow *r) {
   r->sv = NULL;
 }
 
-void RLookupRow_Cleanup(RLookupRow *r) {
+void RLookupRow_Reset(RLookupRow *r) {
   RLookupRow_Wipe(r);
   if (r->dyn) {
     array_free(r->dyn);
