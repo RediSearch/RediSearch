@@ -327,10 +327,10 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
     QueryError_ClearError(status);
     if (isHybridVectorSubquery) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
-                                       "Vector queries are not allowed in FT.HYBRID VSIM FILTER");
+                                       "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
     } else if (isHybridSearchSubquery) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
-                                       "Vector queries are not allowed in FT.HYBRID SEARCH");
+                                       "Vector expressions are not allowed in FT.HYBRID SEARCH");
     } // won't reach here
   } else if (currentCode == QUERY_EWEIGHT_NOT_ALLOWED) {
     // Enhance generic weight error with hybrid context
