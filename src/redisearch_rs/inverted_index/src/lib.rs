@@ -9,8 +9,6 @@
 
 use std::io::{BufRead, Cursor, Seek, Write};
 
-use debug::{BlockSummary, Summary};
-use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreNumeric};
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
@@ -149,10 +147,6 @@ pub struct InvertedIndex<E> {
     /// number of unique documents that have been indexed.
     n_unique_docs: usize,
 
-    /// The flags of this index. This is used to determine the type of index and how it should be
-    /// handled.
-    flags: IndexFlags,
-
     /// The encoder to use when adding new entries to the index
     encoder: E,
 }
@@ -210,11 +204,10 @@ impl IndexBlock {
 impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index with the given encoder. The encoder is used to write new
     /// entries to the index.
-    pub fn new(flags: IndexFlags, encoder: E) -> Self {
+    pub fn new(encoder: E) -> Self {
         Self {
             blocks: Vec::new(),
             n_unique_docs: 0,
-            flags,
             encoder,
         }
     }
@@ -294,8 +287,6 @@ impl<E: Encoder> InvertedIndex<E> {
 
         if !same_doc {
             self.n_unique_docs += 1;
-        } else {
-            self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
         Ok(buf_growth + mem_growth)
@@ -332,44 +323,6 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn unique_docs(&self) -> usize {
         self.n_unique_docs
     }
-
-    /// Returns the flags of this index.
-    pub fn flags(&self) -> IndexFlags {
-        self.flags
-    }
-
-    /// Return the debug summary for this inverted index.
-    pub fn summary(&self) -> Summary {
-        let has_efficiency = (self.flags & IndexFlags_Index_StoreNumeric) > 0;
-
-        let block_efficiency = if has_efficiency && !self.blocks.is_empty() {
-            self.n_unique_docs as f64 / self.blocks.len() as f64
-        } else {
-            0.0
-        };
-
-        Summary {
-            number_of_docs: self.n_unique_docs,
-            number_of_entries: self.n_unique_docs,
-            last_doc_id: self.last_doc_id().unwrap_or(0),
-            flags: self.flags as _,
-            number_of_blocks: self.blocks.len(),
-            block_efficiency,
-            has_efficiency,
-        }
-    }
-
-    /// Return basic information about the blocks in this inverted index.
-    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
-        self.blocks
-            .iter()
-            .map(|b| BlockSummary {
-                first_doc_id: b.first_doc_id,
-                last_doc_id: b.last_doc_id,
-                number_of_entries: b.num_entries,
-            })
-            .collect()
-    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -393,9 +346,9 @@ pub struct EntriesTrackingIndex<E> {
 
 impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Create a new entries tracking index with the given encoder.
-    pub fn new(flags: IndexFlags, encoder: E) -> Self {
+    pub fn new(encoder: E) -> Self {
         Self {
-            index: InvertedIndex::new(flags, encoder),
+            index: InvertedIndex::new(encoder),
             number_of_entries: 0,
         }
     }
@@ -421,20 +374,6 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// rather the total number of entries added to the index.
     pub fn number_of_entries(&self) -> usize {
         self.number_of_entries
-    }
-
-    /// Return the debug summary for this inverted index.
-    pub fn summary(&self) -> Summary {
-        let mut summary = self.index.summary();
-
-        summary.number_of_entries = self.number_of_entries;
-
-        summary
-    }
-
-    /// Return basic information about the blocks in this inverted index.
-    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
-        self.index.blocks_summary()
     }
 }
 
