@@ -557,9 +557,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   record->freq = 1;
 
   IndexDecoderCtx dctx = {.tag = IndexDecoderCtx_FieldMask};
-  if (fieldMaskOrIndex.isFieldMask && (InvertedIndex_Flags(idx) & Index_WideSchema)) {
-    dctx.field_mask = fieldMaskOrIndex.value.mask;
-  } else if (fieldMaskOrIndex.isFieldMask) {
+  if (fieldMaskOrIndex.isFieldMask) {
     dctx.field_mask = fieldMaskOrIndex.value.mask;
   } else {
     dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
@@ -586,9 +584,7 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   record->freq = 1;
 
   IndexDecoderCtx dctx = {.tag = IndexDecoderCtx_FieldMask};
-  if (fieldMaskOrIndex.isFieldMask && (InvertedIndex_Flags(idx) & Index_WideSchema)) {
-    dctx.field_mask = fieldMaskOrIndex.value.mask;
-  } else if (fieldMaskOrIndex.isFieldMask) {
+  if (fieldMaskOrIndex.isFieldMask) {
     dctx.field_mask = fieldMaskOrIndex.value.mask;
   } else {
     dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
