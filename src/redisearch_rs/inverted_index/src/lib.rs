@@ -62,6 +62,7 @@ impl IdDelta for u32 {
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
 pub struct NumericFilter {
+    /// The field specification which this filter is acting on
     field_spec: *const FieldSpec,
 
     /// Beginning of the range

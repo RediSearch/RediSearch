@@ -36,6 +36,9 @@ typedef struct RSAggregateResultIter RSAggregateResultIter;
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter {
+  /**
+   * The field specification which this filter is acting on
+   */
   const FieldSpec *fieldSpec;
   /**
    * Beginning of the range
