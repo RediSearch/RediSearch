@@ -3341,6 +3341,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_UpdateDoc: locking index for write");
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_IncrActiveWrites(spec);
 
@@ -3352,6 +3353,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startDocTime);
   IndexSpec_DecrActiveWrites(spec);
+  RedisModule_Log(RSDummyContext, "notice", "IndexSpec_UpdateDoc: unlocking index for write");
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;
 }

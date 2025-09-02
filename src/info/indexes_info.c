@@ -30,6 +30,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       continue;
     }
     // Lock for read
+    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: locking index for read");
     pthread_rwlock_rdlock(&sp->rwlock);
 
     // Vector indexes stats
@@ -68,7 +69,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       info.max_indexing_failures = index_error_count;
     }
     info.background_indexing_failures_OOM += sp->scan_failed_OOM;
-
+    RedisModule_Log(RSDummyContext, "notice", "IndexesInfo_TotalInfo: unlocking index for read");
     pthread_rwlock_unlock(&sp->rwlock);
   }
   dictReleaseIterator(iter);
