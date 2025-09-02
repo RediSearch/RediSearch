@@ -327,17 +327,17 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
     QueryError_ClearError(status);
     if (isHybridVectorSubquery) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
-                                       "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
+                                       "Vector queries are not allowed in FT.HYBRID VSIM FILTER");
     } else if (isHybridSearchSubquery) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
-                                       "Vector queries are not allowed in FT.HYBRID SEARCH subquery");
+                                       "Vector queries are not allowed in FT.HYBRID SEARCH");
     } // wont reach here
   } else if (currentCode == QUERY_EWEIGHT_NOT_ALLOWED) {
     // Enhance generic weight error with hybrid context
     if (isHybridVectorSubquery) {
       QueryError_ClearError(status);
       QueryError_SetWithoutUserDataFmt(status, QUERY_EWEIGHT_NOT_ALLOWED,
-                                       "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
+                                       "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
     }
   }
 }
