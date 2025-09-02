@@ -9,8 +9,8 @@
 
 use crate::ResultProcessor;
 
-#[derive(Debug)]
 /// A processor to track the number of entries yielded by the previous processor in the chain.
+#[derive(Debug)]
 pub struct Counter {
     count: usize,
 }
