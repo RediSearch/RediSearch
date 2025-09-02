@@ -892,8 +892,8 @@ def testConfigDefaultScorer(env: Env):
     scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.TANH',
                'BM25STD.NORM', 'DISMAX', 'DOCSCORE']
     for scorer in scorers:
-        env.expect('ft.config', 'set', 'DEFAULT_SCORER', scorer).ok()
-        env.expect('ft.config', 'get', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
+        run_command_on_all_shards(env, config_cmd(), 'set', 'DEFAULT_SCORER', scorer)
+        env.expect(config_cmd(), 'get', 'DEFAULT_SCORER').equal([['DEFAULT_SCORER', scorer]])
         # Test that the default scorer is applied correctly to FT.SEARCH
         search_explicit_score = env.cmd(
             'ft.search', 'idx', '@title: hello', 'withscores', 'scorer',
