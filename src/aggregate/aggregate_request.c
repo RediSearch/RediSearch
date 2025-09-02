@@ -1136,7 +1136,7 @@ static bool IsIndexCoherent(AREQ *req) {
 }
 
 
-static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
+static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
   ParsedVectorData *pvd = req->parsedVectorData;
   VectorQuery *vq = pvd->query;
   const char *fieldName = pvd->fieldName;
@@ -1201,8 +1201,8 @@ static int ApplyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// Add hybrid context to generic validation errors based on request flags
-static void addHybridErrorContext(AREQ *req, QueryError *status) {
+// Add context to error messages if applicable (currently handles hybrid query context)
+static void addErrorContext(AREQ *req, QueryError *status) {
   if (QueryError_GetCode(status) == QUERY_OK) {
     return;
   }
@@ -1312,7 +1312,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   if (req->parsedVectorData) {
-    int rv = ApplyVectorQuery(req, sctx, ast, status);
+    int rv = applyVectorQuery(req, sctx, ast, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -1326,7 +1326,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   if (QAST_CheckIsValid(ast, AREQ_SearchCtx(req)->spec, opts, status) != REDISMODULE_OK) {
-    addHybridErrorContext(req, status);
+    addErrorContext(req, status);
     return REDISMODULE_ERR;
   }
 
