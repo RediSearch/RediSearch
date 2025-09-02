@@ -229,6 +229,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
+
       IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
@@ -373,12 +374,10 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
-    RedisModule_Log(RSDummyContext, "notice", "JOAN writeCurEntries");
     writeCurEntries(aCtx, &ctx);
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
-    RedisModule_Log(RSDummyContext, "notice", "JOAN INDEXBULKFIELDS");
     indexBulkFields(aCtx, &ctx);
   }
 }
@@ -398,13 +397,11 @@ bool g_isLoading = false;
  */
 static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
   static size_t opCounter = 0;
-  // RedisModule_Log(RSDummyContext, "notice", "JOAN IndexerYieldWhileLoading isLoading %d, opCounter %zu, yieldEveryOps %u",
-  //                 g_isLoading, opCounter, RSGlobalConfig.indexerYieldEveryOpsWhileLoading);
+
   // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
   if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = 0;
     IncrementYieldCounter(); // Track that we called yield
-    RedisModule_Log(RSDummyContext, "notice", "JOAN IndexerYieldWhileLoading yielding");
     RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
   }
 }

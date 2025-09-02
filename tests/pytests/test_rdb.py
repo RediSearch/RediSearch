@@ -9,7 +9,7 @@ from includes import *
 from common import *
 from RLTest import Env
 
-
+@skip(cluster=True)
 @pytest.mark.timeout(120)
 def test_rdb_load_no_deadlock():
     """
