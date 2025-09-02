@@ -413,6 +413,78 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Allocate a new intersect result with a given capacity and weight. This result should be freed
+ * using [`IndexResult_Free`].
+ */
+struct RSIndexResult *NewIntersectResult(uintptr_t cap, double weight);
+
+/**
+ * Allocate a new union result with a given capacity and weight. This result should be freed using
+ * [`IndexResult_Free`].
+ */
+struct RSIndexResult *NewUnionResult(uintptr_t cap, double weight);
+
+/**
+ * Allocate a new virtual result with a given weight and field mask. This result should be freed
+ * using [`IndexResult_Free`].
+ */
+struct RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
+
+/**
+ * Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
+ */
+struct RSIndexResult *NewNumericResult(void);
+
+/**
+ * Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
+ */
+struct RSIndexResult *NewMetricResult(void);
+
+/**
+ * Allocate a new hybrid result. This result should be freed using [`IndexResult_Free`].
+ *
+ * This constructor is only used by the hydrid reader which will pushed owned copies to it.
+ * Therefore, this also returns an owned `RSIndexResult`.
+ */
+struct RSIndexResult *NewHybridResult(void);
+
+/**
+ * Allocate a new token record with a given term and weight. This result should be freed using
+ * [`IndexResult_Free`].
+ */
+struct RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
+
+/**
+ * Free an index result's internal allocations and also free the result itself.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result` must have been created using one of these:
+ *   - [`NewIntersectResult`]
+ *   - [`NewUnionResult`]
+ *   - [`NewVirtualResult`]
+ *   - [`NewNumericResult`]
+ *   - [`NewMetricResult`]
+ *   - [`NewHybridResult`]
+ *   - [`NewTokenRecord`]
+ *   - [`IndexResult_DeepCopy`]
+ */
+void IndexResult_Free(struct RSIndexResult *result);
+
+/**
+ * Create a deep copy of the results that is totally thread safe. This is very slow so use it with
+ * caution.
+ *
+ * The created copy should be freed using [`IndexResult_Free`].
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ */
+struct RSIndexResult *IndexResult_DeepCopy(const struct RSIndexResult *source);
+
+/**
  * Check if the result is an aggregate result.
  *
  * # Safety

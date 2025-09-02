@@ -13,10 +13,119 @@ use std::{ffi::c_char, ptr};
 
 use inverted_index::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
-    RSTermRecord,
+    RSTermRecord, t_fieldMask,
 };
 
 pub use inverted_index::debug::{BlockSummary, Summary};
+
+/// Allocate a new intersect result with a given capacity and weight. This result should be freed
+/// using [`IndexResult_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn NewIntersectResult<'result>(
+    cap: usize,
+    weight: f64,
+) -> *mut RSIndexResult<'result> {
+    let result = RSIndexResult::intersect(cap).weight(weight);
+    Box::into_raw(Box::new(result))
+}
+
+/// Allocate a new union result with a given capacity and weight. This result should be freed using
+/// [`IndexResult_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn NewUnionResult<'result>(cap: usize, weight: f64) -> *mut RSIndexResult<'result> {
+    let result = RSIndexResult::union(cap).weight(weight);
+    Box::into_raw(Box::new(result))
+}
+
+/// Allocate a new virtual result with a given weight and field mask. This result should be freed
+/// using [`IndexResult_Free`].
+#[unsafe(no_mangle)]
+#[allow(improper_ctypes_definitions)]
+pub extern "C" fn NewVirtualResult<'result>(
+    weight: f64,
+    field_mask: t_fieldMask,
+) -> *mut RSIndexResult<'result> {
+    let result = RSIndexResult::virt().field_mask(field_mask).weight(weight);
+    Box::into_raw(Box::new(result))
+}
+
+/// Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn NewNumericResult<'result>() -> *mut RSIndexResult<'result> {
+    let result = RSIndexResult::numeric(0.0);
+    Box::into_raw(Box::new(result))
+}
+
+/// Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
+    let result = RSIndexResult::metric();
+    Box::into_raw(Box::new(result))
+}
+
+/// Allocate a new hybrid result. This result should be freed using [`IndexResult_Free`].
+///
+/// This constructor is only used by the hydrid reader which will pushed owned copies to it.
+/// Therefore, this also returns an owned `RSIndexResult`.
+#[unsafe(no_mangle)]
+pub extern "C" fn NewHybridResult() -> *mut RSIndexResult<'static> {
+    let result = RSIndexResult::hybrid_metric();
+    Box::into_raw(Box::new(result.to_owned()))
+}
+
+/// Allocate a new token record with a given term and weight. This result should be freed using
+/// [`IndexResult_Free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn NewTokenRecord<'result>(
+    term: *mut RSQueryTerm,
+    weight: f64,
+) -> *mut RSIndexResult<'result> {
+    let result =
+        RSIndexResult::term_with_term_ptr(term, RSOffsetVector::empty(), 0, 0, 0).weight(weight);
+    Box::into_raw(Box::new(result))
+}
+
+/// Free an index result's internal allocations and also free the result itself.
+///
+/// # Safety
+/// The following invariants must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// - `result` must have been created using one of these:
+///   - [`NewIntersectResult`]
+///   - [`NewUnionResult`]
+///   - [`NewVirtualResult`]
+///   - [`NewNumericResult`]
+///   - [`NewMetricResult`]
+///   - [`NewHybridResult`]
+///   - [`NewTokenRecord`]
+///   - [`IndexResult_DeepCopy`]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_Free(result: *mut RSIndexResult) {
+    debug_assert!(!result.is_null(), "result cannot be NULL");
+
+    // SAFETY: caller is to ensure `result` points to a valid RSIndexResult created by one of the
+    // constructors
+    let _ = unsafe { Box::from_raw(result) };
+}
+
+/// Create a deep copy of the results that is totally thread safe. This is very slow so use it with
+/// caution.
+///
+/// The created copy should be freed using [`IndexResult_Free`].
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_DeepCopy(source: *const RSIndexResult) -> *mut RSIndexResult {
+    // SAFETY: caller is to ensure `source` points to a valid RSIndexResult
+    let source = unsafe { &*source };
+
+    let copy = source.to_owned();
+    let copy = Box::new(copy);
+
+    Box::into_raw(copy)
+}
 
 /// Check if the result is an aggregate result.
 ///
