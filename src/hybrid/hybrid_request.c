@@ -331,7 +331,7 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
     } else if (isHybridSearchSubquery) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
                                        "Vector queries are not allowed in FT.HYBRID SEARCH");
-    } // wont reach here
+    } // won't reach here
   } else if (currentCode == QUERY_EWEIGHT_NOT_ALLOWED) {
     // Enhance generic weight error with hybrid context
     if (isHybridVectorSubquery) {
