@@ -92,8 +92,8 @@ void SearchDisk_WaitDmd(RedisSearchDiskIndexSpec* handle,
                                         long long timeout_ms,
                                         AllocateKeyCallback allocateKey) {
     RS_ASSERT(disk && handle);
-    int rc = disk->docTable.waitDmd(handle, dmd, timeout_ms, allocateKey);
-    if (rc == 0) {
+    bool rc = disk->docTable.waitDmd(handle, dmd, timeout_ms, allocateKey);
+    if (rc == false) {
       dmd->keyPtr = NULL;
     }
 }

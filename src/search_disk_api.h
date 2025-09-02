@@ -86,7 +86,7 @@ typedef struct DocTableDiskAPI {
    * @param allocateKey Callback function to allocate memory for the document key
    * @return 1 on success, 0 on timeout, -1 on error/failed read
    */
-  int (*waitDmd)(RedisSearchDiskIndexSpec* handle,
+  bool (*waitDmd)(RedisSearchDiskIndexSpec* handle,
                  RSDocumentMetadata* dmd,
                  long long timeout_ms,
                  AllocateKeyCallback allocateKey);
