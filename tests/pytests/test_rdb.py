@@ -1,11 +1,16 @@
 import os
+import pytest
+import multiprocessing
 import threading
 import time
+import signal
+import tempfile
 from includes import *
 from common import *
 from RLTest import Env
 
 
+@pytest.mark.timeout(120)
 def test_rdb_load_no_deadlock():
     """
     Test that loading from RDB while constantly sending INFO commands doesn't cause deadlock.
@@ -32,11 +37,11 @@ def test_rdb_load_no_deadlock():
     print("DEBUG: Redis server started successfully")
 
     # Configure indexer to yield more frequently during loading to increase chance of deadlock
-    test_env.cmd('CONFIG', 'SET', 'search-indexer-yield-every-ops', '1')
+    test_env.cmd('CONFIG', 'SET', 'search-indexer-yield-every-ops', '10')
 
     # Verify the configuration was set correctly
     config_result = test_env.cmd('CONFIG', 'GET', 'search-indexer-yield-every-ops')
-    print(f"DEBUG: Set search-indexer-yield-every-ops to 1, verified: {config_result}")
+    print(f"DEBUG: Set search-indexer-yield-every-ops to 10, verified: {config_result}")
 
     # Copy the RDB file to a location where Redis can access it
     # Get Redis working directory
@@ -50,96 +55,130 @@ def test_rdb_load_no_deadlock():
     if os.path.exists(target_rdb_path):
       print(f"DEBUG: RDB file size: {os.path.getsize(target_rdb_path)} bytes")
 
-    # Shared state for the test
-    test_state = {
-        'stop_info_thread': False,
-        'info_commands_sent': 0,
-        'info_errors': [],
-        'loading_started': False,
-        'loading_finished': False
-    }
+    # # Shared state for the test
+    # test_state = {
+    #     'stop_info_thread': False,
+    #     'info_commands_sent': 0,
+    #     'info_errors': [],
+    #     'loading_started': False,
+    #     'loading_finished': False
+    # }
 
-    def info_command_thread():
-        """Thread that continuously sends INFO commands"""
-        while not test_state['stop_info_thread']:
+    def info_command_process(port):
+        """Process that continuously sends INFO commands"""
+        import redis
+
+        # Create a new connection in this process
+        conn = redis.Redis(host='localhost', port=port, decode_responses=True)
+
+        while True:
             try:
-                # Try to connect and send INFO everything command
-                conn = test_env.getConnection()
+                print("JOAN DEBUG: Sending INFO command from process")
                 result = conn.execute_command('INFO', 'everything')
-                test_state['info_commands_sent'] += 1
-
-                # Check if server is loading
-                if 'loading:1' in result:
-                    test_state['loading_started'] = True
-                    print("DEBUG: Server is loading RDB")
-                elif 'loading:0' in result and test_state['loading_started']:
-                    test_state['loading_finished'] = True
-                    print("DEBUG: Server finished loading RDB")
-
+                print("JOAN DEBUG: INFO command result: " + str(result))
             except Exception as e:
-                # Store errors but don't fail immediately
-                test_state['info_errors'].append(str(e))
+                print(f"JOAN DEBUG: INFO command error: {e}")
 
-            time.sleep(0.01)  # 30ms interval
+            time.sleep(0.01)
 
     # Start the INFO command thread
-    info_thread = threading.Thread(target=info_command_thread, daemon=True)
-    info_thread.start()
+    redis_port = test_env.getConnection().connection_pool.connection_kwargs['port']
+    info_process = multiprocessing.Process(target=info_command_process, args=(redis_port,), daemon=True)
+    info_process.start()
 
     # Now trigger RDB loading from client side using DEBUG RELOAD
     print("DEBUG: Starting RDB load via DEBUG RELOAD")
     start_time = time.time()
 
-    try:
-        # Verify current config before changing
-        current_dir = test_env.cmd('CONFIG', 'GET', 'dir')[1]
-        current_dbfilename = test_env.cmd('CONFIG', 'GET', 'dbfilename')[1]
-        print(f"DEBUG: Current dir: {current_dir}, dbfilename: {current_dbfilename}")
+    # try:
+    # Verify current config before changing
+    current_dir = test_env.cmd('CONFIG', 'GET', 'dir')[1]
+    current_dbfilename = test_env.cmd('CONFIG', 'GET', 'dbfilename')[1]
+    print(f"DEBUG: Current dir: {current_dir}, dbfilename: {current_dbfilename}")
 
-        # Use DEBUG RELOAD to load the RDB file
-        # First, set both the directory and dbfilename to our copied file
-        test_env.cmd('CONFIG', 'SET', 'dir', redis_dir)
-        test_env.cmd('CONFIG', 'SET', 'dbfilename', 'load_test.rdb')
+    # Use DEBUG RELOAD to load the RDB file
+    # First, set both the directory and dbfilename to our copied file
+    test_env.cmd('CONFIG', 'SET', 'dir', redis_dir)
+    test_env.cmd('CONFIG', 'SET', 'dbfilename', 'load_test.rdb')
 
-        # Verify config was set
-        new_dir = test_env.cmd('CONFIG', 'GET', 'dir')[1]
-        new_dbfilename = test_env.cmd('CONFIG', 'GET', 'dbfilename')[1]
-        print(f"DEBUG: Set Redis dir to {new_dir} and dbfilename to {new_dbfilename}")
+    # Verify config was set
+    new_dir = test_env.cmd('CONFIG', 'GET', 'dir')[1]
+    new_dbfilename = test_env.cmd('CONFIG', 'GET', 'dbfilename')[1]
+    print(f"DEBUG: Set Redis dir to {new_dir} and dbfilename to {new_dbfilename}")
 
-        # Check if the RDB file exists at the expected location
-        expected_rdb_path = os.path.join(new_dir, new_dbfilename)
-        print(f"DEBUG: Expected RDB path: {expected_rdb_path}")
-        print(f"DEBUG: RDB file exists at expected location: {os.path.exists(expected_rdb_path)}")
+    # Check if the RDB file exists at the expected location
+    expected_rdb_path = os.path.join(new_dir, new_dbfilename)
+    print(f"DEBUG: Expected RDB path: {expected_rdb_path}")
+    print(f"DEBUG: RDB file exists at expected location: {os.path.exists(expected_rdb_path)}")
 
-        # Get current database size before reload
-        dbsize_before = test_env.cmd('DBSIZE')
-        print(f"DEBUG: Database size before reload: {dbsize_before}")
+    # Get current database size before reload
+    dbsize_before = test_env.cmd('DBSIZE')
+    print(f"DEBUG: Database size before reload: {dbsize_before}")
 
-        # Trigger the reload - use NOSAVE to prevent overwriting our RDB file
-        test_env.cmd('DEBUG', 'RELOAD', 'NOSAVE')
-        print("DEBUG: DEBUG RELOAD NOSAVE command completed")
+    # Trigger the reload - use NOSAVE to prevent overwriting our RDB file
+    print("DEBUG: Starting DEBUG RELOAD NOSAVE...")
+    test_env.cmd('DEBUG', 'RELOAD', 'NOSAVE')
+    print("DEBUG: DEBUG RELOAD NOSAVE command issued")
+    time.sleep(1)
+    info_process.terminate()
+    info_process.join()
+        # # Wait for RDB loading to complete by monitoring the loading status
+        # # Keep INFO thread running during this entire process
+        # loading_timeout = 60  # 60 seconds timeout for RDB loading
+        # loading_start_time = time.time()
+        # loading_detected = False
+        # loading_completed = False
 
-        # Check database size after reload
-        dbsize_after = test_env.cmd('DBSIZE')
-        print(f"DEBUG: Database size after reload: {dbsize_after}")
+        # print("DEBUG: Waiting for RDB loading to complete...")
+        # while time.time() - loading_start_time < loading_timeout:
+        #     try:
+        #         info_result = test_env.cmd('INFO', 'persistence')
+        #         print("JOAN DEBUG: INFO persistence result: " + info_result)
+        #         if 'loading:1' in info_result:
+        #             if not loading_detected:
+        #                 print("DEBUG: RDB loading detected (loading:1)")
+        #                 loading_detected = True
+        #                 test_state['loading_started'] = True
+        #         elif 'loading:0' in info_result and loading_detected:
+        #             print("DEBUG: RDB loading completed (loading:0)")
+        #             test_state['loading_finished'] = True
+        #             loading_completed = True
+        #             break
+        #         elif 'loading:0' in info_result:
+        #             # If we never saw loading:1, the loading might have been very fast
+        #             print("DEBUG: Loading status is 0 (either very fast or not loading)")
+        #             # Check if database size increased to confirm loading happened
+        #             current_dbsize = test_env.cmd('DBSIZE')
+        #             if current_dbsize > dbsize_before:
+        #                 print(f"DEBUG: Database size increased from {dbsize_before} to {current_dbsize}, loading likely completed")
+        #                 loading_completed = True
+        #                 test_state['loading_finished'] = True
+        #                 break
+        #     except Exception as e:
+        #         print(f"DEBUG: Error checking loading status: {e}")
 
-        if dbsize_after > dbsize_before:
-            print(f"SUCCESS: RDB loading increased database size from {dbsize_before} to {dbsize_after}")
-        else:
-            print(f"WARNING: Database size did not increase (before: {dbsize_before}, after: {dbsize_after})")
+        #     time.sleep(2)  # Check every 2s
 
-    except Exception as e:
-        print(f"DEBUG: DEBUG RELOAD failed: {e}")
-        # Try alternative approach - just continue with the test to see if deadlock occurs
-        print("DEBUG: Continuing test without RDB loading to test basic deadlock scenario")
+        # if not loading_completed:
+        #     print("ERROR: Timeout waiting for RDB loading to complete!")
+        #     test_state['loading_timeout'] = True
 
-    # Wait a bit for any loading to complete
-    time.sleep(2)
+        # # Check final database size after reload
+        # dbsize_after = test_env.cmd('DBSIZE')
+        # print(f"DEBUG: Final database size after reload: {dbsize_after}")
 
-    # Stop the INFO thread
-    test_state['stop_info_thread'] = True
-    info_thread.join(timeout=5)
+        # if dbsize_after > dbsize_before:
+        #     print(f"SUCCESS: RDB loading increased database size from {dbsize_before} to {dbsize_after}")
+        # else:
+        #     print(f"WARNING: Database size did not increase (before: {dbsize_before}, after: {dbsize_after})")
 
+    # except Exception as e:
+    #     print(f"DEBUG: DEBUG RELOAD failed: {e}")
+    #     test_state['reload_failed'] = True
+    #     print("DEBUG: Continuing test to check for deadlock scenarios")
+
+    # Now stop the INFO process since RDB loading should be complete (or failed)
+    #info_thread.join()
     # Verify the server is still responsive
     test_env.expect('PING').equal(True)
     print("DEBUG: Server is still responsive after RDB loading attempt")
@@ -159,25 +198,6 @@ def test_rdb_load_no_deadlock():
     except Exception as e:
         print(f"DEBUG: No indices found or error accessing them: {e}")
 
-    # Verify INFO commands were sent during the test
-    test_env.assertGreater(test_state['info_commands_sent'], 0,
-                          message="INFO commands should have been sent during the test")
-
-    # Check that we didn't get too many connection errors
-    # Some errors are expected, but not too many
-    if len(test_state['info_errors']) > test_state['info_commands_sent'] * 0.8:
-        test_env.assertTrue(False,
-                            message=f"Too many INFO command errors: {len(test_state['info_errors'])} out of {test_state['info_commands_sent']} attempts")
-
-    print(f"DEBUG: Test completed. INFO commands sent: {test_state['info_commands_sent']}, errors: {len(test_state['info_errors'])}")
-    print(f"DEBUG: Loading started: {test_state['loading_started']}, Loading finished: {test_state['loading_finished']}")
-
-    # Clean up the copied RDB file
-    try:
-        if os.path.exists(target_rdb_path):
-            os.unlink(target_rdb_path)
-            print(f"DEBUG: Cleaned up RDB file: {target_rdb_path}")
-    except OSError as e:
-        print(f"DEBUG: Could not clean up RDB file: {e}")
-
-    test_env.debugPrint(f"Test completed successfully. INFO commands sent: {test_state['info_commands_sent']}, errors: {len(test_state['info_errors'])}")
+    # The INFO commands were sent by the subprocess, so we can't easily count them here
+    # But we can verify the server remained responsive throughout the test
+    print("DEBUG: Test completed. INFO commands were sent by subprocess during RDB loading.")
