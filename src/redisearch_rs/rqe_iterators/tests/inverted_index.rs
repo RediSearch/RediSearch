@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ::inverted_index::{Encoder, InvertedIndex, RSIndexResult, numeric::Numeric};
+use ::inverted_index::{DecodedBy, Encoder, InvertedIndex, RSIndexResult, numeric::Numeric};
 use ffi::{IndexFlags, IndexFlags_Index_StoreNumeric, t_docId};
-use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::NumericFull};
+use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, inverted_index::NumericFull};
+use std::cell::UnsafeCell;
 
 mod c_mocks;
 
@@ -20,7 +21,7 @@ struct BaseTest<E> {
     expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
 }
 
-impl<E: Encoder + Default> BaseTest<E> {
+impl<E: Encoder + DecodedBy + Default> BaseTest<E> {
     fn new(
         ii_flags: IndexFlags,
         expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
@@ -47,7 +48,10 @@ impl<E: Encoder + Default> BaseTest<E> {
     }
 
     /// test read functionality for a given iterator.
-    fn read<'index>(&self, it: &mut impl for<'a> RQEIterator<'a, 'index>) {
+    fn read<'index, I>(&self, it: &mut I)
+    where
+        I: for<'a> RQEIterator<'a, 'index>,
+    {
         let expected_record = &*self.expected_record;
         let mut i = 0;
 
@@ -79,10 +83,12 @@ impl<E: Encoder + Default> BaseTest<E> {
     ///
     /// Since the index contains only ODD doc IDs (1, 3, 5, 7, ...), when we skip to an EVEN doc ID,
     /// we expect `NotFound` with the next odd doc ID returned.
-    fn skip_to<'index>(&self, it: &mut impl for<'a> RQEIterator<'a, 'index>) {
+    fn skip_to<'index, I>(&self, it: &mut I)
+    where
+        I: for<'a> RQEIterator<'a, 'index>,
+    {
         // Test skipping to any id between 1 and the last id.
         let expected_record = &*self.expected_record;
-        // Test skipping to any id between 1 and the last id
         let mut i = 1;
         for id in self.doc_ids.iter().copied() {
             // First, test skipping to the even doc ID that comes before this odd ID
@@ -145,8 +151,207 @@ impl<E: Encoder + Default> BaseTest<E> {
     }
 }
 
+/// Test the revalidation of the iterator.
+struct RevalidateTest<E> {
+    doc_ids: Vec<t_docId>,
+    // FIXME: horrible hack so we can get a mutable reference to the InvertedIndex while holding an immutable one through the iterator.
+    // We should get rid of it once we have designed a proper way to manage concurrent access to the II.
+    ii: UnsafeCell<InvertedIndex<E>>,
+}
+
+impl<E: Encoder + DecodedBy + Default> RevalidateTest<E> {
+    fn new(
+        ii_flags: IndexFlags,
+        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+        n_docs: u64,
+    ) -> Self {
+        let create_record = &*expected_record;
+        // Generate a set of odd document IDs for testing, starting from 1.
+        let doc_ids = (0..=n_docs)
+            .map(|i| (2 * i + 1) as t_docId)
+            .collect::<Vec<_>>();
+
+        let mut ii = InvertedIndex::new(ii_flags, E::default());
+        for doc_id in doc_ids.iter() {
+            let record = create_record(*doc_id);
+            ii.add_record(&record).expect("failed to add record");
+        }
+
+        Self {
+            doc_ids,
+            ii: UnsafeCell::new(ii),
+        }
+    }
+
+    /// test basic revalidation functionality - should return `RQEValidateStatus::Ok`` when index is valid
+    fn revalidate_basic<'index, I>(&self, it: &mut I)
+    where
+        I: for<'iterator> RQEIterator<'iterator, 'index>,
+    {
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+        assert!(matches!(it.read(), Ok(Some(_))));
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+    }
+
+    /// test revalidation functionality when iterator is at EOF
+    fn revalidate_at_eof<'index, I>(&self, it: &mut I)
+    where
+        I: for<'iterator> RQEIterator<'iterator, 'index>,
+    {
+        // Read all documents to reach EOF
+        while let Some(_record) = it.read().expect("failed to read") {}
+        assert!(it.at_eof());
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+    }
+
+    /// test revalidate returns `Aborted` when the underlying index disappears
+    fn revalidate_after_index_disappears<'index, I>(&self, it: &mut I, full_iterator: bool)
+    where
+        I: for<'iterator> RQEIterator<'iterator, 'index>,
+    {
+        // First, verify the iterator works normally and read at least one document
+        // TODO: update this comment once we actually implement CheckAbort:
+        // This is important because CheckAbort functions need current->data.term.term to be set
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+        assert!(it.read().expect("failed to read").is_some());
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+
+        if full_iterator {
+            // Full iterators don't have sctx, so they can't detect disappearance
+            // They will always return Ok regardless of index state
+            assert_eq!(
+                it.revalidate().expect("revalidate failed"),
+                RQEValidateStatus::Ok
+            );
+        } else {
+            todo!()
+        }
+    }
+
+    /// Remove the document with the given id from the inverted index.
+    fn remove_document(&self, doc_id: t_docId) {
+        let ii = unsafe { &mut *self.ii.get() };
+
+        let scan_delta = ii
+            .scan_gc(
+                |d| d != doc_id,
+                None::<fn(&RSIndexResult, &inverted_index::IndexBlock)>,
+            )
+            .expect("scan GC failed")
+            .expect("no GC scan delta");
+        let info = ii.apply_gc(scan_delta);
+        assert_eq!(info.entries_removed, 1);
+    }
+
+    /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
+    fn revalidate_after_document_deleted<'index, I>(&self, it: &mut I)
+    where
+        I: for<'iterator> RQEIterator<'iterator, 'index>,
+    {
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+
+        // First, read a few documents to establish a position
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, self.doc_ids[0]);
+
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, self.doc_ids[1]);
+
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, self.doc_ids[2]);
+
+        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+
+        // Nothing changed in the index so revalidate does nothing
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+
+        // Remove an element before the current iteration position.
+        self.remove_document(self.doc_ids[0]);
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+
+        // Remove an element after the current iteration position.
+        self.remove_document(self.doc_ids[4]);
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Ok
+        );
+        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+
+        // Remove the element at the current position of the iterator.
+        // When validating we won't be able to skip to this element, so we should get RQEValidateStatus::Moved.
+        self.remove_document(self.doc_ids[2]);
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Moved
+        );
+        // iterator advanced to the next element
+        assert_eq!(it.last_doc_id(), self.doc_ids[3]);
+
+        // read the next element, docs_ids[4] has been removed so iterator should return the one after.
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, self.doc_ids[5]);
+        assert_eq!(it.last_doc_id(), self.doc_ids[5]);
+
+        // edge case: iterator is at the lost document which is then removed.
+        assert!(!it.at_eof());
+        let last_doc_id = *self.doc_ids.last().unwrap();
+        let doc = match it.skip_to(last_doc_id) {
+            Ok(Some(SkipToOutcome::Found(doc))) => doc,
+            _ => panic!("skip_to {last_doc_id} should succeed"),
+        };
+        assert_eq!(doc.doc_id, last_doc_id);
+        assert_eq!(it.last_doc_id(), last_doc_id);
+
+        self.remove_document(last_doc_id);
+        // revalidate should return Moved and be at EOF.
+        assert_eq!(
+            it.revalidate().expect("revalidate failed"),
+            RQEValidateStatus::Moved
+        );
+        assert!(it.at_eof());
+    }
+}
+
 struct NumericTest {
     test: BaseTest<Numeric>,
+    revalidate_test: RevalidateTest<Numeric>,
 }
 
 impl NumericTest {
@@ -158,6 +363,11 @@ impl NumericTest {
     fn new(n_docs: u64) -> Self {
         Self {
             test: BaseTest::new(
+                IndexFlags_Index_StoreNumeric,
+                Box::new(Self::expected_record),
+                n_docs,
+            ),
+            revalidate_test: RevalidateTest::new(
                 IndexFlags_Index_StoreNumeric,
                 Box::new(Self::expected_record),
                 n_docs,
@@ -174,6 +384,32 @@ impl NumericTest {
         let mut it = NumericFull::new(self.test.ii.reader());
         self.test.skip_to(&mut it);
     }
+
+    fn revalidate_basic(self) {
+        let reader = unsafe { (*self.revalidate_test.ii.get()).reader() };
+        let mut it = NumericFull::new(reader);
+        self.revalidate_test.revalidate_basic(&mut it);
+    }
+
+    fn revalidate_at_eof(self) {
+        let reader = unsafe { (*self.revalidate_test.ii.get()).reader() };
+        let mut it = NumericFull::new(reader);
+        self.revalidate_test.revalidate_at_eof(&mut it);
+    }
+
+    fn revalidate_after_index_disappears(self, full_iterator: bool) {
+        let reader = unsafe { (*self.revalidate_test.ii.get()).reader() };
+        let mut it = NumericFull::new(reader);
+        self.revalidate_test
+            .revalidate_after_index_disappears(&mut it, full_iterator);
+    }
+
+    fn revalidate_after_document_deleted(self) {
+        let reader = unsafe { (*self.revalidate_test.ii.get()).reader() };
+        let mut it = NumericFull::new(reader);
+        self.revalidate_test
+            .revalidate_after_document_deleted(&mut it);
+    }
 }
 
 #[test]
@@ -186,4 +422,24 @@ fn numeric_full_read() {
 /// test skipping from NumericFull iterator
 fn numeric_full_skip_to() {
     NumericTest::new(100).skip_to();
+}
+
+#[test]
+fn numeric_full_revalidate_basic() {
+    NumericTest::new(10).revalidate_basic();
+}
+
+#[test]
+fn numeric_full_revalidate_at_eof() {
+    NumericTest::new(10).revalidate_at_eof();
+}
+
+#[test]
+fn numeric_full_revalidate_after_index_disappears() {
+    NumericTest::new(10).revalidate_after_index_disappears(true);
+}
+
+#[test]
+fn numeric_full_revalidate_after_document_deleted() {
+    NumericTest::new(10).revalidate_after_document_deleted();
 }
