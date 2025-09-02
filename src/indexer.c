@@ -106,7 +106,6 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      IndexerYieldWhileLoading(ctx->redisCtx);
       writeIndexEntry(spec, invidx, entry);
       if (Index_StoreFieldMask(spec)) {
         InvertedIndex_OrFieldMask(invidx, entry->fieldMask);
@@ -230,7 +229,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         continue;
       }
 
-      IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -394,14 +392,16 @@ bool g_isLoading = false;
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
+ * @param yieldEveryOps The number of operations to perform before yielding
+ * @param flags The flags to pass to RedisModule_Yield
  */
-static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int yieldEveryOps, int flags) {
   static size_t opCounter = 0;
 
   // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+  if (g_isLoading && ++opCounter >= yieldEveryOps) { // RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = 0;
     IncrementYieldCounter(); // Track that we called yield
-    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+    RedisModule_Yield(ctx, flags, NULL);
   }
 }

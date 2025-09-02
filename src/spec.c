@@ -3341,6 +3341,13 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  unsigned int baseYield = RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
+  unsigned int yieldEveryOps = doc.numFields > 0
+                                 ? baseYield / doc.numFields
+                                 : baseYield;
+
+  IndexerYieldWhileLoading(ctx, yieldEveryOps, REDISMODULE_YIELD_FLAG_CLIENTS);
+
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_IncrActiveWrites(spec);
 

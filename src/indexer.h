@@ -82,7 +82,9 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
  * Yield to Redis after a certain number of operations during indexing while loading.
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
+ * @param yieldEveryOps The number of operations to perform before yielding
+ * @param flags The flags to pass to RedisModule_Yield
  */
-static void IndexerYieldWhileLoading(RedisModuleCtx *ctx);
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int yieldEveryOps, int flags);
 
 #endif
