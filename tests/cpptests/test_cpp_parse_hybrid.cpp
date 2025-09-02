@@ -687,7 +687,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, 2);
 
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER", "@vector:[VECTOR_RANGE 0.01 $BLOB]", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed in FT.HYBRID VSIM FILTER");
+  testErrorCode(args, QUERY_EVECTOR_NOT_ALLOWED, "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
 
   // Teardown: Restore previous dialect version
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, previousDialectVersion);
