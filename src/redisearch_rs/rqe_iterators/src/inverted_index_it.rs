@@ -122,4 +122,9 @@ impl<'index> RQEIterator for NumericFull<'index> {
     fn at_eof(&self) -> bool {
         self.at_eos
     }
+
+    fn revalidate(&mut self) -> crate::RQEValidateStatus {
+        // TODO
+        crate::RQEValidateStatus::Ok
+    }
 }
