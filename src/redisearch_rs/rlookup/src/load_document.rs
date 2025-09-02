@@ -261,40 +261,24 @@ fn h_get_all_scan(
         // Safety: We added a null terminator to the vector, so this is a valid CStr.
         let field_cstr = unsafe { CStr::from_bytes_with_nul_unchecked(vec.as_slice()) };
 
-        // To work around the borrow checker, we check for key existence and if not exists create a new key.
-        let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
-        let new_required = lookup.keys.find_by_name(field_cstr).is_none();
-        if new_required {
-            let name = Cow::Owned(field_cstr.to_owned());
-            lookup.keys.push(RLookupKey::new_with_cow(name, flags));
-        }
+        with_or_create_key(lookup, field_cstr, |key| {
+            // Decide on the coerce type
+            let mut coerce_type = RLookupCoerceType::Str;
+            if options.force_string && key.flags.contains(RLookupKeyFlag::QuerySrc) {
+                coerce_type = RLookupCoerceType::Dbl;
+            }
 
-        // now we can assume the key is there and we get a reference to the name with the correct lifetime
-        let name_str: Cow<'_, CStr> = {
-            let c = lookup.keys.find_by_name(field_cstr).unwrap();
-            Cow::Owned(c.into_current().unwrap().name().to_owned())
-        };
-
-        let key = lookup
-            .get_key_load(name_str.clone(), name_str, flags)
-            .unwrap();
-
-        // Decide on the coerce type
-        let mut coerce_type = RLookupCoerceType::Str;
-        if options.force_string && key.flags.contains(RLookupKeyFlag::QuerySrc) {
-            coerce_type = RLookupCoerceType::Dbl;
-        }
-
-        // This function will retain the value if it's a string. This is thread-safe because
-        // the value was created just before calling this callback and will be freed right after
-        // the callback returns, so this is a thread-local operation that will take ownership of
-        // the string value.
-        dst_row.write_key(key, {
-            // Safety: value is a valid RedisModuleString provided by the scan cursor API.
-            let inner = unsafe {
-                ffi::hvalToValue(value.inner.cast(), coerce_type as ffi::RLookupCoerceType)
-            };
-            RSValueFFI(NonNull::new(inner).unwrap())
+            // This function will retain the value if it's a string. This is thread-safe because
+            // the value was created just before calling this callback and will be freed right after
+            // the callback returns, so this is a thread-local operation that will take ownership of
+            // the string value.
+            dst_row.write_key(key, {
+                // Safety: value is a valid RedisModuleString provided by the scan cursor API.
+                let inner = unsafe {
+                    ffi::hvalToValue(value.inner.cast(), coerce_type as ffi::RLookupCoerceType)
+                };
+                RSValueFFI(NonNull::new(inner).unwrap())
+            });
         });
     });
 
@@ -368,51 +352,74 @@ fn h_get_all_fallback(
         let k = CString::new(k).unwrap();
         let field_cstr = k.as_c_str();
 
-        let cursor = lookup.keys.find_by_name(field_cstr);
-
-        let (_, rlk) = if let Some(cursor) = &cursor {
+        // Check if key exists and if it should be skipped
+        let should_skip = if let Some(cursor) = lookup.keys.find_by_name(field_cstr) {
             let rlk = cursor.current().unwrap();
             if rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
                 /* || (rlk->flags & RLOOKUP_F_ISLOADED) TODO: skip loaded keys, EXCLUDING keys that were opened by this function*/
-                continue; // Key name is already taken by a query key, or it's already loaded.
+                true // Key name is already taken by a query key, or it's already loaded.
+            } else {
+                false
             }
-            (Some(cursor), rlk)
         } else {
-            // To work around the borrow checker, we check for key existence and create a new key if needed.
-            let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
-            let new_needed = lookup.keys.find_by_name(field_cstr).is_none();
-            if new_needed {
-                let name = Cow::Owned(field_cstr.to_owned());
-                lookup.keys.push(RLookupKey::new_with_cow(name, flags));
-            }
-
-            // now we can assume the key is there and we get a reference to the name with the correct lifetime
-            let name_str: Cow<'_, CStr> = {
-                let c = lookup.keys.find_by_name(field_cstr).unwrap();
-                Cow::Owned(c.into_current().unwrap().name().to_owned())
-            };
-
-            let rlk = lookup.get_key_load(name_str.clone(), name_str, flags);
-            (None, rlk.unwrap())
+            false
         };
 
-        let mut coerce_ty = RLookupCoerceType::Str;
-        if options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
-            coerce_ty = RLookupCoerceType::Dbl;
+        if should_skip {
+            continue;
         }
 
-        // This function will retain the value if it's a string. This is thread-safe because
-        // the value was created just before calling this callback and will be freed right after
-        // the callback returns, so this is a thread-local operation that will take ownership of
-        // the string value.
-        dst_row.write_key(rlk, {
-            // Safety: The prvoided value pointer is valid and the ctype is of the correct type.
-            let ptr = unsafe {
-                ffi::replyElemToValue(value.get_raw().cast(), coerce_ty as ffi::RLookupCoerceType)
-            };
-            RSValueFFI(NonNull::new(ptr).unwrap())
+        with_or_create_key(lookup, field_cstr, |rlk| {
+            let mut coerce_ty = RLookupCoerceType::Str;
+            if options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
+                coerce_ty = RLookupCoerceType::Dbl;
+            }
+
+            // This function will retain the value if it's a string. This is thread-safe because
+            // the value was created just before calling this callback and will be freed right after
+            // the callback returns, so this is a thread-local operation that will take ownership of
+            // the string value.
+            dst_row.write_key(rlk, {
+                // Safety: The prvoided value pointer is valid and the ctype is of the correct type.
+                let ptr = unsafe {
+                    ffi::replyElemToValue(
+                        value.get_raw().cast(),
+                        coerce_ty as ffi::RLookupCoerceType,
+                    )
+                };
+                RSValueFFI(NonNull::new(ptr).unwrap())
+            });
         });
     }
 
     Ok(())
+}
+
+/// Helper function to find or create a key in the lookup table.
+///
+/// If the key does not exist, it is created with the provided flags.
+/// The closure `f` is called with the found or created key.
+/// This works around lifetime issues with the lookup table and the keys.
+#[inline(always)]
+fn with_or_create_key<F, R>(lookup: &mut RLookup<'_>, field_cstr: &CStr, f: F) -> R
+where
+    F: FnOnce(&RLookupKey<'_>) -> R,
+{
+    let flags = make_bitflags!(RLookupKeyFlag::{DocSrc | QuerySrc | NameAlloc});
+    let new_required = lookup.keys.find_by_name(field_cstr).is_none();
+    if new_required {
+        let name = Cow::Owned(field_cstr.to_owned());
+        lookup.keys.push(RLookupKey::new_with_cow(name, flags));
+    }
+
+    // Get the key and call the closure with it
+    let name_str: Cow<'_, CStr> = {
+        let c = lookup.keys.find_by_name(field_cstr).unwrap();
+        Cow::Owned(c.into_current().unwrap().name().to_owned())
+    };
+
+    let key = lookup
+        .get_key_load(name_str.clone(), name_str, flags)
+        .unwrap();
+    f(key)
 }
