@@ -172,8 +172,8 @@ RedisModuleString *fmtRedisScoreIndexKey(RedisSearchCtx *ctx, const char *term, 
 
 void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
   RS_ASSERT(ctx->flags == RS_CTX_UNSET);
-  pthread_rwlock_rdlock(&ctx->spec->rwlock);
-  // RedisModule_Log(RSDummyContext, "notice", "RedisSearchCtx_LockSpecRead: locking index %s for read", ctx->spec->name);
+  int rc = pthread_rwlock_rdlock(&ctx->spec->rwlock);
+  RedisModule_Log(RSDummyContext, "notice", "RedisSearchCtx_LockSpecRead: locking index %s for read (rc: %d)", ctx->spec->name, rc);
 
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
@@ -183,7 +183,9 @@ void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
 
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
   RS_ASSERT(ctx->flags == RS_CTX_UNSET);
-  pthread_rwlock_wrlock(&ctx->spec->rwlock);
+  int rc = pthread_rwlock_wrlock(&ctx->spec->rwlock);
+  RedisModule_Log(RSDummyContext, "notice", "RedisSearchCtx_LockSpecWrite: locking index %s for write (rc: %d)", ctx->spec->name, rc);
+
   ctx->flags = RS_CTX_READWRITE;
 }
 
