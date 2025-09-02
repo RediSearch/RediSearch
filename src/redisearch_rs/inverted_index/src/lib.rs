@@ -89,6 +89,13 @@ pub struct NumericFilter {
     offset: usize,
 }
 
+impl NumericFilter {
+    /// Check if this is a numeric filter (and not a geo filter)
+    pub fn is_numeric_filter(&self) -> bool {
+        self.geo_filter.is_null()
+    }
+}
+
 /// Encoder to write a record into an index
 pub trait Encoder {
     /// Document ids are represented as `u64`s and stored using delta-encoding.

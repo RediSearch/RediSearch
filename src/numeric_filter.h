@@ -32,8 +32,6 @@ typedef struct LegacyNumericFilter {
   HiddenString *field;    // the numeric field name
 } LegacyNumericFilter;
 
-#define NumericFilter_IsNumeric(f) (!(f)->geoFilter)
-
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
                                 bool asc, const FieldSpec *fs);
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);

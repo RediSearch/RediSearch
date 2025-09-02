@@ -33,6 +33,45 @@ typedef struct FieldSpec FieldSpec;
 typedef struct RSAggregateResultIter RSAggregateResultIter;
 
 /**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter {
+  const FieldSpec *fieldSpec;
+  /**
+   * Beginning of the range
+   */
+  double min;
+  /**
+   * End of the range
+   */
+  double max;
+  /**
+   * Geo filter, if any
+   */
+  const void *geoFilter;
+  /**
+   * Range includes the min value
+   */
+  bool minInclusive;
+  /**
+   * Range includes the max value
+   */
+  bool maxInclusive;
+  /**
+   * Order of SORTBY (ascending/descending)
+   */
+  bool ascending;
+  /**
+   * Minimum number of results needed
+   */
+  uintptr_t limit;
+  /**
+   * Number of results to skip
+   */
+  uintptr_t offset;
+} NumericFilter;
+
+/**
  * See the crate's top level documentation for a description of this type.
  */
 typedef struct LowMemoryThinVecRSIndexResult {
@@ -410,48 +449,19 @@ typedef struct IISummary {
   bool has_efficiency;
 } IISummary;
 
-/**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter {
-  const FieldSpec *fieldSpec;
-  /**
-   * Beginning of the range
-   */
-  double min;
-  /**
-   * End of the range
-   */
-  double max;
-  /**
-   * Geo filter, if any
-   */
-  const void *geoFilter;
-  /**
-   * Range includes the min value
-   */
-  bool minInclusive;
-  /**
-   * Range includes the max value
-   */
-  bool maxInclusive;
-  /**
-   * Order of SORTBY (ascending/descending)
-   */
-  bool ascending;
-  /**
-   * Minimum number of results needed
-   */
-  uintptr_t limit;
-  /**
-   * Number of results to skip
-   */
-  uintptr_t offset;
-} NumericFilter;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Check if this is a numeric filter and not a geo filter
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+ */
+bool NumericFilter_IsNumeric(const struct NumericFilter *filter);
 
 /**
  * Allocate a new intersect result with a given capacity and weight. This result should be freed
