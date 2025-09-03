@@ -899,7 +899,7 @@ AREQ *AREQ_New(void) {
   /*
   unsigned int dialectVersion;
   long long queryTimeoutMS;
-  RSTimeoutPolicy timeoutPolicy;
+  RSFailurePolicy timeoutPolicy;
   int printProfileClock;
   uint64_t BM25STD_TanhFactor;
   */

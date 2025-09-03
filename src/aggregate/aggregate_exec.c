@@ -357,13 +357,19 @@ static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
   return QueryError_HasError(rp->parent->err)
       && (rp->parent->err->code != QUERY_ETIMEDOUT
           || (rp->parent->err->code == QUERY_ETIMEDOUT
-              && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
+              && req->reqConfig.timeoutPolicy == FailurePolicy_Fail
               && !IsProfile(req)));
 }
 
 static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
   return rc == RS_RESULT_TIMEDOUT
-         && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
+         && req->reqConfig.timeoutPolicy == FailurePolicy_Fail
+         && !IsProfile(req);
+}
+
+static bool ShouldReplyWithOOMError(int rc, AREQ *req) {
+  return rc == RS_RESULT_OOM
+         && req->reqConfig.OOMPolicy == FailurePolicy_Fail
          && !IsProfile(req);
 }
 
@@ -372,7 +378,7 @@ static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
 }
 
 void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+  if (req->reqConfig.timeoutPolicy == FailurePolicy_Fail || req->reqConfig.OOMPolicy == FailurePolicy_Fail) {
       // Aggregate all results before populating the response
       *results = AggregateResults(rp, rc);
       // Check timeout after aggregation
@@ -460,6 +466,10 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_2_err;
+    } else if (ShouldReplyWithOOMError(rc, req)) {
+      RedisModule_Reply_Error(reply, "Out of memory WIP");
+      cursor_done = true;
+      goto done_2_err;
     }
 
     // Set `resultsLen` to be the expected number of results in the response.
@@ -515,10 +525,11 @@ done_2:
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
-                        && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+                        && req->reqConfig.timeoutPolicy == FailurePolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
+    bool has_OOM = (rc == RS_RESULT_OOM);
     // Prepare profile printer context
     ProfilePrinterCtx profileCtx = {
       .req = req,
@@ -652,7 +663,7 @@ done_3:
 
     cursor_done = (rc != RS_RESULT_OK
                    && !(rc == RS_RESULT_TIMEDOUT
-                        && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+                        && req->reqConfig.timeoutPolicy == FailurePolicy_Return));
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
@@ -826,7 +837,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
-  if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+  if (req->reqConfig.timeoutPolicy == FailurePolicy_Fail) {
     TimedOut_WithStatus(&sctx->time.timeout, status);
   }
 

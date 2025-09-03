@@ -17,6 +17,7 @@
 #include "util/arr.h"
 #include "iterators/empty_iterator.h"
 #include "rs_wall_clock.h"
+#include "util/redis_mem_info.h"
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -76,6 +77,25 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
+#define OOM_COUNTER_LIMIT 100
+
+static bool checkOOMfromRP(ResultProcessor *base) {
+  // Hold GIL
+  RedisModuleCtx *ctx = RP_SCTX(base)->redisCtx;
+  RedisModule_ThreadSafeContextLock(ctx);
+  bool isOOM = RedisMemory_GetUsedMemoryRatioUnified(ctx) >= 1.0;
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  return isOOM;
+}
+static bool checkOOMfromRP_withCounter(ResultProcessor *base, size_t *counter) {
+
+  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == OOM_COUNTER_LIMIT) {
+    *counter = 0;
+    return checkOOMfromRP(base);
+  }
+  return false;
+}
+
 static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_status) {
   RedisSearchCtx_UnlockSpec(RP_SCTX(base));
   return result_status;
@@ -84,6 +104,7 @@ typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
+  size_t oomLimiter;       // counter to limit number of calls to OOM_WithCounter()
 } RPQueryIterator;
 
 /* Next implementation */
@@ -116,6 +137,11 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     }
+
+    if (checkOOMfromRP_withCounter(base, &self->oomLimiter)) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_OOM);
+    }
+
     IteratorStatus rc = it->Read(it);
     switch (rc) {
     case ITERATOR_EOF:
@@ -414,7 +440,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == FailurePolicy_Return)) {
     self->timedOut = true;
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
@@ -876,7 +902,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == FailurePolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
@@ -1367,7 +1393,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   if (rc == RS_RESULT_EOF) {
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == FailurePolicy_Return)) {
     self->timedOut = true;
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
