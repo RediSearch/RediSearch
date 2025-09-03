@@ -228,7 +228,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -403,6 +402,10 @@ void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flag
   if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = 0;
     IncrementYieldCounter(); // Track that we called yield
+    unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
+    if (sleepMicros > 0) {
+      usleep(sleepMicros);
+    }
     RedisModule_Yield(ctx, flags, NULL);
   }
 }

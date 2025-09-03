@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "spec.h"
 #include "field_spec_info.h"
+#include <string.h>  // Add this for strerror
 
 // Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {
@@ -32,7 +33,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     // Lock for read
     int rc = pthread_rwlock_rdlock(&sp->rwlock);
     if (rc != 0) {
-      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d. Cannot continue getting Index info", HiddenString_GetUnsafe(sp->specName, NULL), rc);
+      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", HiddenString_GetUnsafe(sp->specName, NULL), rc, strerror(rc));
       continue;
     }
 

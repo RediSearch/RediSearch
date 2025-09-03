@@ -3348,7 +3348,6 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   }
 
   unsigned int numOps = doc.numFields != 0 ? doc.numFields: 1;
-
   IndexerYieldWhileLoading(ctx, numOps, REDISMODULE_YIELD_FLAG_CLIENTS);
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_IncrActiveWrites(spec);
