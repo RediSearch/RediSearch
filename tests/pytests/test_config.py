@@ -920,6 +920,19 @@ def testConfigAPIRunTimeEnumParams():
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
             .contains('CONFIG SET failed')
 
+    # Test search-on-oom - valid values
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-oom')\
+        .equal(['search-on-oom', 'fail'])
+
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'return').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-oom')\
+        .equal(['search-on-oom', 'return'])
+
+    # Test search-on-oom - invalid values
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'invalid_value').error()\
+            .contains('CONFIG SET failed')
+
 @skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexEnumParams():
     env = Env(noDefaultModuleArgs=True)
