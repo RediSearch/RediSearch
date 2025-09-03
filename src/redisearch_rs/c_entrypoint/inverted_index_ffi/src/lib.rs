@@ -248,3 +248,26 @@ pub extern "C" fn InvertedIndex_NumBlocks(ii: *const InvertedIndex) -> usize {
         Numeric(ii) => ii.number_of_blocks(),
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn InvertedIndex_Flags(ii: *const InvertedIndex) -> IndexFlags {
+    use InvertedIndex::*;
+
+    let ii = unsafe { &*ii };
+    match ii {
+        Full(ii) => ii.flags(),
+        FullWide(ii) => ii.flags(),
+        FreqsFields(ii) => ii.flags(),
+        FreqsFieldsWide(ii) => ii.flags(),
+        FreqsOnly(ii) => ii.flags(),
+        FieldsOnly(ii) => ii.flags(),
+        FieldsOnlyWide(ii) => ii.flags(),
+        FieldsOffsets(ii) => ii.flags(),
+        FieldsOffsetsWide(ii) => ii.flags(),
+        OffsetsOnly(ii) => ii.flags(),
+        FreqsOffsets(ii) => ii.flags(),
+        DocumentIdOnly(ii) => ii.flags(),
+        RawDocumentIdOnly(ii) => ii.flags(),
+        Numeric(ii) => ii.flags(),
+    }
+}
