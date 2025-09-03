@@ -11,6 +11,8 @@ extern "C" {
 
 // Number of requests in a hybrid command: SEARCH + VSIM
 #define HYBRID_REQUEST_NUM_SUBQUERIES 2
+#define SEARCH_INDEX 0
+#define VECTOR_INDEX 1
 // Field name for implicit key loading in hybrid requests
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 

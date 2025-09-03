@@ -316,10 +316,6 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
     HybridRequest_Free(hreq);
 }
 
-static void FreeHybridRequest(void *ptr) {
-  HybridRequest_Free((HybridRequest *)ptr);
-}
-
 /*
  * Internal function to build the pipeline and execute the hybrid request.
  * This function is used by both the foreground and background execution paths.
@@ -392,9 +388,6 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     return buildPipelineAndExecute(hreq, hybridParams, ctx, sctx, status, internal);
   }
 }
-
-#define SEARCH_INDEX 0
-#define VECTOR_INDEX 1
 
 /**
  * Main command handler for FT.HYBRID command.

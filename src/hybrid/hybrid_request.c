@@ -16,8 +16,6 @@
 extern "C" {
 #endif
 
-#define SEARCH_INDEX 0
-
 arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -93,6 +91,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * This function initializes the hybrid request structure and sets up the tail pipeline
  * that will be used to merge and process results from all individual search requests.
  *
+ * @param sctx The search context for the hybrid request.
  * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
  * @param nrequests Number of requests in the array
  * @return Newly allocated HybridRequest, or NULL on failure
