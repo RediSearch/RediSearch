@@ -1093,6 +1093,8 @@ def test_query_controller_pause_and_resume(env):
         # If we are here, the query is paused
         # Verify workers status
         env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], queries_completed)
+        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
+        env.assertEqual(active_queries, 1)
 
         # Test PRINT_RP_STREAM
         rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
