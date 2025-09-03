@@ -21,6 +21,8 @@ TEST_DEPS_DIR="${ROOT}/tests/deps"
 JSON_MODULE_DIR="${TEST_DEPS_DIR}/RedisJSON"
 JSON_BIN_DIR="${BINROOT}/RedisJSON/${JSON_BRANCH}"
 export JSON_BIN_PATH="${JSON_BIN_DIR}/rejson.so"
+# Instruct RedisJSON to use the same pinned nightly version as RediSearch
+export RUST_GOOD_NIGHTLY=$(grep "NIGHTLY_VERSION=" ${ROOT}/build.sh | cut -d'=' -f2 | tr -d '"')
 
 # Check if REJSON_PATH is set externally
 if [ -n "$REJSON_PATH" ]; then
