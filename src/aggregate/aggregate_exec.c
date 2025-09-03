@@ -367,12 +367,18 @@ static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
          && !IsProfile(req);
 }
 
+static bool ShouldReplyWithOOMError(int rc, AREQ *req) {
+  return rc == RS_RESULT_OOM
+         && req->reqConfig.OOMPolicy == FailurePolicy_Fail
+         && !IsProfile(req);
+}
+
 static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
   RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
 }
 
 void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  if (req->reqConfig.timeoutPolicy == FailurePolicy_Fail) {
+  if (req->reqConfig.timeoutPolicy == FailurePolicy_Fail || req->reqConfig.OOMPolicy == FailurePolicy_Fail) {
       // Aggregate all results before populating the response
       *results = AggregateResults(rp, rc);
       // Check timeout after aggregation
@@ -460,6 +466,10 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_2_err;
+    } else if (ShouldReplyWithOOMError(rc, req)) {
+      RedisModule_Reply_Error(reply, "Out of memory WIP");
+      cursor_done = true;
+      goto done_2_err;
     }
 
     // Set `resultsLen` to be the expected number of results in the response.
@@ -519,6 +529,7 @@ done_2:
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
+    bool has_OOM = (rc == RS_RESULT_OOM);
     // Prepare profile printer context
     ProfilePrinterCtx profileCtx = {
       .req = req,

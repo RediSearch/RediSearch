@@ -18,6 +18,7 @@
 #include "iterators/empty_iterator.h"
 #include "rs_wall_clock.h"
 #include "debug_commands.h"
+#include "util/redis_mem_info.h"
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -81,9 +82,10 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
 
 static bool checkOOMfromRP(ResultProcessor *base) {
   // Hold GIL
-  RedisModule_ThreadSafeContextLock(RP_SCTX(base)->redisCtx);
-  bool isOOM = RedisMemory_GetUsedMemoryRatioUnified() >= 1.0;
-  RedisModule_ThreadSafeContextUnlock(RP_SCTX(base)->redisCtx);
+  RedisModuleCtx *ctx = RP_SCTX(base)->redisCtx;
+  RedisModule_ThreadSafeContextLock(ctx);
+  bool isOOM = RedisMemory_GetUsedMemoryRatioUnified(ctx) >= 1.0;
+  RedisModule_ThreadSafeContextUnlock(ctx);
   return isOOM;
 }
 static bool checkOOMfromRP_withCounter(ResultProcessor *base, size_t *counter) {
