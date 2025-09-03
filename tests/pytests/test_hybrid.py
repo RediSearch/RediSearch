@@ -615,7 +615,7 @@ class testHybridSearch:
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
-    # # TODO: Enable this test after fixing memory leak MOD-11140
+    # # TODO: Fix MOD-11236: FT.HYBRID + VECTOR_RANGE + HNSW vector field returns less results than expected
     # def test_range_epsilon(self):
     #     """Test hybrid search using range with parameters"""
     #     if CLUSTER:
@@ -626,6 +626,6 @@ class testHybridSearch:
     #         "search_equivalent": "@text:(four|even)",
     #         "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
     #     }
-    #     run_test_scenario(self.env, self.index_name, scenario)
+    #     run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
 
