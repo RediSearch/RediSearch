@@ -24,6 +24,8 @@ void InvertedIndex_Free(struct InvertedIndex *ii);
 
 uintptr_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
 
+uintptr_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

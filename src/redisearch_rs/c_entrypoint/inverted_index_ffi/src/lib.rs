@@ -225,3 +225,26 @@ pub extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usize {
         Numeric(ii) => ii.memory_usage(),
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn InvertedIndex_NumBlocks(ii: *const InvertedIndex) -> usize {
+    use InvertedIndex::*;
+
+    let ii = unsafe { &*ii };
+    match ii {
+        Full(ii) => ii.number_of_blocks(),
+        FullWide(ii) => ii.number_of_blocks(),
+        FreqsFields(ii) => ii.number_of_blocks(),
+        FreqsFieldsWide(ii) => ii.number_of_blocks(),
+        FreqsOnly(ii) => ii.number_of_blocks(),
+        FieldsOnly(ii) => ii.number_of_blocks(),
+        FieldsOnlyWide(ii) => ii.number_of_blocks(),
+        FieldsOffsets(ii) => ii.number_of_blocks(),
+        FieldsOffsetsWide(ii) => ii.number_of_blocks(),
+        OffsetsOnly(ii) => ii.number_of_blocks(),
+        FreqsOffsets(ii) => ii.number_of_blocks(),
+        DocumentIdOnly(ii) => ii.number_of_blocks(),
+        RawDocumentIdOnly(ii) => ii.number_of_blocks(),
+        Numeric(ii) => ii.number_of_blocks(),
+    }
+}
