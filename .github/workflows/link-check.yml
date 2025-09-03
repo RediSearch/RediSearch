@@ -1,0 +1,75 @@
+name: Link Check
+
+on:
+  # Allow manual triggering
+  workflow_dispatch:
+
+  # Run on PRs that modify markdown files
+  pull_request:
+    paths:
+      - '**.md'
+      - 'scripts/check_links.py'
+      - 'scripts/requirements-linkcheck.txt'
+      - '.github/workflows/link-check.yml'
+
+jobs:
+  link-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip uv
+        uv pip install -r scripts/requirements-linkcheck.txt
+        
+    - name: Make script executable
+      run: chmod +x scripts/check_links.py
+      
+    - name: Check links in documentation
+      run: |
+        python scripts/check_links.py . \
+          --timeout 15 \
+          --max-workers 5 \
+          --delay 0.2
+      
+    - name: Upload results on failure
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: link-check-results
+        path: |
+          link-check-*.log
+        retention-days: 7
+        
+    - name: Comment on PR
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## 🔗 Link Check Failed
+
+            Some links in the modified Markdown files are broken or unreachable.
+
+            Please check the workflow logs for details and fix the broken links.
+
+            You can run the link checker locally with:
+            \`\`\`bash
+            python scripts/check_links.py .
+            \`\`\`
+
+            **Note:** This check validates both URL accessibility and anchor existence.`
+          });
