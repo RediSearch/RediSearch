@@ -77,6 +77,24 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
+#define OOM_COUNTER_LIMIT 100
+
+static bool checkOOMfromRP(ResultProcessor *base) {
+  // Hold GIL
+  RedisModule_ThreadSafeContextLock(RP_SCTX(base)->redisCtx);
+  bool isOOM = RedisMemory_GetUsedMemoryRatioUnified() >= 1.0;
+  RedisModule_ThreadSafeContextUnlock(RP_SCTX(base)->redisCtx);
+  return isOOM;
+}
+static bool checkOOMfromRP_withCounter(ResultProcessor *base, size_t *counter) {
+
+  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == OOM_COUNTER_LIMIT) {
+    *counter = 0;
+    return checkOOMfromRP(base);
+  }
+  return false;
+}
+
 static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_status) {
   RedisSearchCtx_UnlockSpec(RP_SCTX(base));
   return result_status;
@@ -85,6 +103,7 @@ typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
+  size_t oomLimiter;       // counter to limit number of calls to OOM_WithCounter()
 } RPQueryIterator;
 
 /* Next implementation */
@@ -117,6 +136,11 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     }
+
+    if (checkOOMfromRP_withCounter(base, &self->oomLimiter)) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_OOM);
+    }
+
     IteratorStatus rc = it->Read(it);
     switch (rc) {
     case ITERATOR_EOF:
