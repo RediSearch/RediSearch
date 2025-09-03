@@ -412,11 +412,6 @@ typedef struct RSIndexResult {
    */
   uint32_t freq;
   /**
-   * For term records only. This is used as an optimization, allowing the result to be loaded
-   * directly into memory
-   */
-  uint32_t offsetsSz;
-  /**
    * The actual data of the result
    */
   union RSResultData data;

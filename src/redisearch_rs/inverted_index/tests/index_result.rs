@@ -141,7 +141,6 @@ fn to_owned_an_aggregate_index_result() {
     assert_eq!(ir.dmd, ir_copy.dmd);
     assert_eq!(ir.field_mask, ir_copy.field_mask);
     assert_eq!(ir.freq, ir_copy.freq);
-    assert_eq!(ir.offsets_sz, ir_copy.offsets_sz);
 
     let agg = ir.as_aggregate().unwrap();
     let agg_copy = ir_copy.as_aggregate().unwrap();
@@ -164,7 +163,6 @@ fn to_owned_an_aggregate_index_result() {
         assert_eq!(ir_first.dmd, ir_clone_first.dmd);
         assert_eq!(ir_first.field_mask, ir_clone_first.field_mask);
         assert_eq!(ir_first.freq, ir_clone_first.freq);
-        assert_eq!(ir_first.offsets_sz, ir_clone_first.offsets_sz);
         assert_eq!(ir_first.data, ir_clone_first.data);
         assert_eq!(ir_first.metrics, ir_clone_first.metrics);
         assert_eq!(ir_first.weight, ir_clone_first.weight);
@@ -188,7 +186,6 @@ fn to_owned_a_numeric_index_result() {
     assert_eq!(ir.dmd, ir_copy.dmd);
     assert_eq!(ir.field_mask, ir_copy.field_mask);
     assert_eq!(ir.freq, ir_copy.freq);
-    assert_eq!(ir.offsets_sz, ir_copy.offsets_sz);
     assert_eq!(ir.data, ir_copy.data);
     assert_eq!(ir.metrics, ir_copy.metrics);
     assert_eq!(ir.weight, ir_copy.weight);
@@ -212,7 +209,6 @@ fn to_owned_a_virtual_index_result() {
     assert_eq!(ir.dmd, ir_copy.dmd);
     assert_eq!(ir.field_mask, ir_copy.field_mask);
     assert_eq!(ir.freq, ir_copy.freq);
-    assert_eq!(ir.offsets_sz, ir_copy.offsets_sz);
     assert_eq!(ir.data, ir_copy.data);
     assert_eq!(ir.metrics, ir_copy.metrics);
     assert_eq!(ir.weight, ir_copy.weight);
@@ -241,7 +237,6 @@ fn to_owned_a_term_index_result() {
     assert_eq!(ir.dmd, ir_copy.dmd);
     assert_eq!(ir.field_mask, ir_copy.field_mask);
     assert_eq!(ir.freq, ir_copy.freq);
-    assert_eq!(ir.offsets_sz, ir_copy.offsets_sz);
     assert_eq!(
         ir.as_term().unwrap().offsets(),
         ir_copy.as_term().unwrap().offsets()

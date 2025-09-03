@@ -734,7 +734,6 @@ mod tests {
                 && self.0.dmd == other.0.dmd
                 && self.0.field_mask == other.0.field_mask
                 && self.0.freq == other.0.freq
-                && self.0.offsets_sz == other.0.offsets_sz
                 && self.0.kind() == other.0.kind()
                 && self.0.metrics == other.0.metrics)
             {
