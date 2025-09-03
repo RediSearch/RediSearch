@@ -17,10 +17,13 @@
 
 class QueryValidationTest : public ::testing::Test {};
 
+QAST_ValidationFlags hybridVectorFilterValidationFlags = (QAST_ValidationFlags)(QAST_NO_VECTOR | QAST_NO_WEIGHT);
+QAST_ValidationFlags hybridSearchValidationFlags = QAST_NO_VECTOR;
+
 bool isValidAsHybridVectorFilter(const char *qt, RedisSearchCtx &ctx) {
   QASTCXX ast;
   ast.setContext(&ctx);
-  return ast.isValidQuery(qt, QAST_HYBRID_VSIM_FILTER_CLAUSE);
+  return ast.isValidQuery(qt, hybridVectorFilterValidationFlags);
 }
 
 #define assertValidHybridVectorFilter(qt, ctx) ASSERT_TRUE(isValidAsHybridVectorFilter(qt, ctx))
@@ -28,7 +31,7 @@ bool isValidAsHybridVectorFilter(const char *qt, RedisSearchCtx &ctx) {
 bool isValidAsHybridSearch(const char *qt, RedisSearchCtx &ctx) {
   QASTCXX ast;
   ast.setContext(&ctx);
-  return ast.isValidQuery(qt, QAST_HYBRID_SEARCH_CLAUSE);
+  return ast.isValidQuery(qt, hybridSearchValidationFlags);
 }
 
 bool isInvalidHybridSearch(const char *qt, RedisSearchCtx &ctx,
@@ -51,11 +54,11 @@ bool isInvalidHybridSearch(const char *qt, RedisSearchCtx &ctx,
 
 #define assertValidHybridSearch(qt, ctx) ASSERT_TRUE(isValidAsHybridSearch(qt, ctx))
 #define assertInvalidHybridVectorFilterQuery(qt, ctx) \
-  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, QAST_HYBRID_VSIM_FILTER_CLAUSE, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY))
+  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridVectorFilterValidationFlags, QUERY_EVECTOR_NOT_ALLOWED))
 #define assertInvalidHybridVectorFilterWeight(qt, ctx) \
-  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, QAST_HYBRID_VSIM_FILTER_CLAUSE, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT))
+  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridVectorFilterValidationFlags, QUERY_EWEIGHT_NOT_ALLOWED))
 #define assertInvalidHybridSearchQuery(qt, ctx) \
-  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, QAST_HYBRID_SEARCH_CLAUSE, QUERY_EHYBRID_SEARCH_INVALID_QUERY))
+  ASSERT_TRUE(isInvalidHybridSearch(qt, ctx, hybridSearchValidationFlags, QUERY_EVECTOR_NOT_ALLOWED))
 
 
 TEST_F(QueryValidationTest, testInvalidVectorFilter) {
