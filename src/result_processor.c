@@ -1739,8 +1739,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
  }
 
-
-
  /* Helper function to consume results from a single upstream */
  static int ConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
    size_t consumed = 0;

@@ -665,9 +665,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   QueryError status = {QueryErrorCode(0)};
 
   // Create a fresh sctx for this test
-  RedisSearchCtx *test_sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
-  ASSERT_TRUE(test_sctx != NULL);
-  int rc = parseHybridCommand(ctx, args, args.size(), test_sctx, index_name.c_str(), &result, &status);
+  int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status);
   ASSERT_TRUE(rc == REDISMODULE_ERR);
   ASSERT_EQ(status.code, expected_code);
   ASSERT_STREQ(status.detail, expected_detail);

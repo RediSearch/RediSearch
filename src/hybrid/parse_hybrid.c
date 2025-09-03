@@ -594,8 +594,6 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
  * @param indexname Name of the index to search
  * @param status Output parameter for error reporting
  * @return HybridRequest* on success, NULL on error
- *
- * @note Takes ownership of sctx. Exposed for testing.
  */
 int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                        RedisSearchCtx *sctx, const char *indexname, ParseHybridCommandCtx *parsedCmdCtx,
