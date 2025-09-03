@@ -470,8 +470,20 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
             return false;
         }
 
-        // Binary search to find the correct block index
+        // Check if the very next block is correct before doing a binary search. This is a small
+        // optimization for the common case where we are skipping to the next block.
         let search_start = self.current_block_idx + 1;
+        if let Some(next_block) = self.blocks.get(search_start) {
+            if next_block.last_doc_id >= doc_id {
+                self.current_block_idx = search_start;
+                self.current_block = next_block;
+                self.last_doc_id = next_block.first_doc_id;
+                self.current_buffer = Cursor::new(&next_block.buffer);
+                return true;
+            }
+        }
+
+        // Binary search to find the correct block index
         let relative_idx = self.blocks[search_start..]
             .binary_search_by_key(&doc_id, |b| b.last_doc_id)
             .unwrap_or_else(|insertion_point| insertion_point);
