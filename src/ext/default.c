@@ -605,6 +605,26 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   return REDISMODULE_OK;
 }
 
+static double VectorIdentityScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                                   const RSDocumentMetadata *dmd, double minScore) {
+  if (h) {
+    // For HybridMetric results, the vector distance is in the first child
+    if (h->type == RSResultType_HybridMetric) {
+      if (h->data.agg.numChildren > 0 && h->data.agg.children[0]) {
+        RSIndexResult *vectorChild = h->data.agg.children[0];
+        if (vectorChild->type == RSResultType_Metric) {
+          return vectorChild->data.num.value;  // Raw vector distance
+        }
+      }
+    }
+    // For pure Metric results (RANGE), the distance is directly in data.num.value
+    if (h->type == RSResultType_Metric) {
+      return h->data.num.value;  // Raw vector distance from RANGE
+    }
+  }
+  return 0.0;
+}
+
 /******************************************************************************************
  *
  * Default query expander
@@ -733,6 +753,11 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   /* Default expender */
   if (ctx->RegisterQueryExpander(DEFAULT_EXPANDER_NAME, DefaultExpander, DefaultExpanderFree,
                                  NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Vector identity scorer */
+  if (ctx->RegisterScoringFunction(VECTOR_IDENTITY_SCORER, VectorIdentityScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

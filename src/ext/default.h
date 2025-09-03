@@ -26,6 +26,8 @@
 #define DOCSCORE_SCORER "DOCSCORE"
 #define HAMMINGDISTANCE_SCORER "HAMMING"
 
+#define VECTOR_IDENTITY_SCORER "VECTOR_IDENTITY"
+
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 
 #endif
