@@ -24,11 +24,55 @@ typedef __uint128_t t_fieldMask;
 typedef uint64_t t_fieldMask;
 #endif
 
+typedef struct FieldSpec FieldSpec;
+
 
 /**
  * An iterator over the results in an [`RSAggregateResult`].
  */
 typedef struct RSAggregateResultIter RSAggregateResultIter;
+
+/**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter {
+  /**
+   * The field specification which this filter is acting on
+   */
+  const FieldSpec *fieldSpec;
+  /**
+   * Beginning of the range
+   */
+  double min;
+  /**
+   * End of the range
+   */
+  double max;
+  /**
+   * Geo filter, if any
+   */
+  const void *geoFilter;
+  /**
+   * Range includes the min value
+   */
+  bool minInclusive;
+  /**
+   * Range includes the max value
+   */
+  bool maxInclusive;
+  /**
+   * Order of SORTBY (ascending/descending)
+   */
+  bool ascending;
+  /**
+   * Minimum number of results needed
+   */
+  uintptr_t limit;
+  /**
+   * Number of results to skip
+   */
+  uintptr_t offset;
+} NumericFilter;
 
 /**
  * See the crate's top level documentation for a description of this type.
@@ -411,6 +455,26 @@ typedef struct IISummary {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Check if this is a numeric filter and not a geo filter
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+ */
+bool NumericFilter_IsNumeric(const struct NumericFilter *filter);
+
+/**
+ * Check if the given value matches the numeric filter.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+ */
+bool NumericFilter_Match(const struct NumericFilter *filter, double value);
 
 /**
  * Allocate a new intersect result with a given capacity and weight. This result should be freed
