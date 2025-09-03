@@ -308,6 +308,40 @@ int HREQ_GetError(HybridRequest *hreq, QueryError *status) {
     return REDISMODULE_OK;
 }
 
+void AddValidationErrorContext(AREQ *req, QueryError *status) {
+  if (QueryError_GetCode(status) == QUERY_OK) {
+    return;
+  }
+
+  QEFlags reqFlags = AREQ_RequestFlags(req);
+
+  // Check if this is a hybrid subquery
+  bool isHybridVectorSubquery = reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
+  bool isHybridSearchSubquery = reqFlags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
+
+  RS_ASSERT (isHybridVectorSubquery ^ isHybridSearchSubquery);
+  QueryErrorCode currentCode = QueryError_GetCode(status);
+
+  if (currentCode == QUERY_EVECTOR_NOT_ALLOWED) {
+    // Enhance generic vector error with hybrid context
+    QueryError_ClearError(status);
+    if (isHybridVectorSubquery) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
+                                       "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
+    } else if (isHybridSearchSubquery) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EVECTOR_NOT_ALLOWED,
+                                       "Vector expressions are not allowed in FT.HYBRID SEARCH");
+    } // won't reach here
+  } else if (currentCode == QUERY_EWEIGHT_NOT_ALLOWED) {
+    // Enhance generic weight error with hybrid context
+    if (isHybridVectorSubquery) {
+      QueryError_ClearError(status);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EWEIGHT_NOT_ALLOWED,
+                                       "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
+    }
+  }
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -73,6 +73,17 @@ class ParseHybridTest : public ::testing::Test {
     }
   }
 
+  // Helper function to find vector node as direct child of PHRASE node (RANGE queries with filters)
+  QueryNode* findVectorNodeChild(QueryNode* phraseNode) {
+    for (size_t i = 0; i < QueryNode_NumChildren(phraseNode); ++i) {
+      QueryNode* child = phraseNode->children[i];
+      if (child && child->type == QN_VECTOR) {
+        return child;
+      }
+    }
+    return NULL;
+  }
+
   /**
    * Helper function to parse and validate hybrid command with common boilerplate.
    * Handles initialization, parsing, validation, and stores result in member variable.
@@ -364,6 +375,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   // Verify QueryNode structure
   QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
+  ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode); // Should be marked as hybrid vector subquery node
   ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
   // Verify parameters
@@ -514,13 +526,16 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
 
   AREQ* vecReq = result->requests[1];
 
-  // Verify AST structure for basic RANGE query
+  // Verify AST structure for basic RANGE query with filter
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+
+  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
+  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
 
   // Verify QueryNode structure
-  QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
+  ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode); // Should be marked as hybrid vector subquery node
   ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
   // Verify parameters
@@ -558,11 +573,14 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
 
   // Verify AST structure for RANGE query with EPSILON
   ASSERT_TRUE(vecReq->ast.root != NULL);
-  ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
+  ASSERT_EQ(vecReq->ast.root->type, QN_PHRASE); // Root should be PHRASE for RANGE queries with filters
+
+  QueryNode *vn = findVectorNodeChild(vecReq->ast.root);
+  ASSERT_TRUE(vn != NULL) << "Vector node not found as child of PHRASE";
 
   // Verify QueryNode structure
-  QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance);
+  ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode); // Should be marked as hybrid vector subquery node
 
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
@@ -608,6 +626,7 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
   QueryNode *vn = vecReq->ast.root;
+  ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode); // Should be marked as hybrid vector subquery node
   ASSERT_EQ(QueryNode_NumParams(vn), 0);  // No parameters for direct vector data
 
   // Verify VectorQuery structure in the AST
@@ -629,7 +648,7 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
 
 TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER","@title:(foo bar)=> {$weight: 2.0}" );
-  testErrorCode(args, QUERY_EHYBRID_VSIM_FILTER_INVALID_WEIGHT, "Weight attributes are not allowed in FT.HYBRID VSIM subquery FILTER");
+  testErrorCode(args, QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed in FT.HYBRID VSIM FILTER");
 }
 
 TEST_F(ParseHybridTest, testVsimKNNYieldDistanceAsNotSupported) {
@@ -668,7 +687,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterVectorField) {
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, 2);
 
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "FILTER", "@vector:[VECTOR_RANGE 0.01 $BLOB]", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EHYBRID_VSIM_FILTER_INVALID_QUERY, "Vector queries are not allowed in FT.HYBRID VSIM subquery FILTER");
+  testErrorCode(args, QUERY_EVECTOR_NOT_ALLOWED, "Vector expressions are not allowed in FT.HYBRID VSIM FILTER");
 
   // Teardown: Restore previous dialect version
   SET_DIALECT(RSGlobalConfig.requestConfigParams.dialectVersion, previousDialectVersion);

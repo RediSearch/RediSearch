@@ -38,6 +38,14 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
 int HREQ_GetError(HybridRequest *hreq, QueryError *status);
 void HybridRequest_Free(HybridRequest *req);
 
+/**
+ * Add information to validation error messages based on request type (VSIM/SEARCH subquery).
+ *
+ * @param req    The aggregate request containing request flags for context determination
+ * @param status The query error status to potentially modify with additional context
+ */
+void AddValidationErrorContext(AREQ *req, QueryError *status);
+
 #ifdef __cplusplus
 }
 #endif
