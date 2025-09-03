@@ -392,14 +392,15 @@ bool g_isLoading = false;
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
- * @param yieldEveryOps The number of operations to perform before yielding
+ * @param numOps Tue number of operations to count in the counter before considering RSGlobalConfig.indexerYieldEveryOpsWhileLoading. These are related to the number of fields in the document
  * @param flags The flags to pass to RedisModule_Yield
  */
-void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int yieldEveryOps, int flags) {
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
   static size_t opCounter = 0;
 
   // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
-  if (g_isLoading && ++opCounter >= yieldEveryOps) {
+  opCounter += numOps;
+  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = 0;
     IncrementYieldCounter(); // Track that we called yield
     RedisModule_Yield(ctx, flags, NULL);
