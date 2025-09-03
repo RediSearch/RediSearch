@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     link_static_libraries(&[
         ("src/inverted_index", "inverted_index"),
         ("src/iterators", "iterators"),
+        ("src/buffer", "buffer"),
     ]);
 
     // Compile the wildcard iterator benchmark C file
@@ -29,12 +30,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "iterator_api.h",
         "empty_iterator.h",
         "idlist_iterator.h",
+        "inverted_index_iterator.h",
         "wildcard_iterator.h",
     ]
     .iter()
     .map(|h| root.join("src").join("iterators").join(h))
     .collect::<Vec<_>>();
-    generate_c_bindings(headers, ".*/iterators/.*.h", true)?;
+    generate_c_bindings(headers, ".*/iterators/.*.h|.*/inverted_index.h", true)?;
 
     Ok(())
 }
