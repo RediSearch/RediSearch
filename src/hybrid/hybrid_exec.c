@@ -218,7 +218,7 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     QueryError err = {0};
-    HREQ_GetError(hreq, &err);
+    HybridRequest_GetError(hreq, &err);
     if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
       goto done_err;

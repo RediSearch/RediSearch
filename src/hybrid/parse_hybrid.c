@@ -720,6 +720,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(searchRequest, status);
+    goto error;
   }
   if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(vectorRequest, status);

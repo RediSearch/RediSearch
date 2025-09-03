@@ -9,6 +9,7 @@
 
 #include "hybrid_debug.h"
 #include "hybrid_exec.h"
+#include "hybrid_request.h"
 #include "parse_hybrid.h"
 #include "result_processor.h"
 #include "rmutil/args.h"
@@ -197,12 +198,36 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>`
   int hybrid_argc = argc - debug_argv_count;
 
-  HybridRequest *hreq = parseHybridCommand(ctx, argv, hybrid_argc, sctx, indexname, status);
-  if (!hreq) {
+  HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+  HybridPipelineParams hybridParams = {0};  // Stack allocation
+  ParseHybridCommandCtx cmd = {0};
+  cmd.search = hreq->requests[SEARCH_INDEX];
+  cmd.vector = hreq->requests[VECTOR_INDEX];
+  cmd.cursorConfig = &hreq->cursorConfig;
+  cmd.hybridParams = &hybridParams;
+  cmd.tailPlan = &hreq->tailPipeline->ap;
+  cmd.reqConfig = &hreq->reqConfig;
+
+  int rc = parseHybridCommand(ctx, argv, hybrid_argc, sctx, indexname, &cmd, status);
+  if (rc != REDISMODULE_OK) {
+    if (hybridParams.scoringCtx) {
+      HybridScoringContext_Free(hybridParams.scoringCtx);
+    }
+    HybridRequest_Free(hreq);
     return NULL;
   }
 
-  // Create the debug request wrapper
+  // Set request flags from hybridParams
+  hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
+  if (HybridRequest_BuildPipeline(hreq, &hybridParams) != REDISMODULE_OK) {
+    if (hybridParams.scoringCtx) {
+      HybridScoringContext_Free(hybridParams.scoringCtx);
+    }
+    HybridRequest_Free(hreq);
+    QueryError_SetError(status, QUERY_EGENERIC, "Failed to build hybrid pipeline");
+    return NULL;
+  }
+
   HybridRequest_Debug *debug_req = rm_calloc(1, sizeof(HybridRequest_Debug));
   debug_req->hreq = hreq;
   debug_req->debug_params = debug_params;
@@ -245,19 +270,13 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Parse debug parameters (but don't apply timeout yet)
+  // Parse debug parameters
   if (parseHybridDebugParams(debug_req, &status) != REDISMODULE_OK) {
     HybridRequest_Debug_Free(debug_req);
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Build the hybrid pipeline FIRST
   HybridRequest *hreq = debug_req->hreq;
-  if (HybridRequest_BuildPipeline(hreq, hreq->hybridParams) != REDISMODULE_OK) {
-    HybridRequest_Debug_Free(debug_req);
-    QueryError_SetError(&status, QUERY_EGENERIC, "Failed to build hybrid pipeline");
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
 
   // Now apply debug parameters to the built pipelines
   if (applyHybridDebugToBuiltPipelines(debug_req, &status) != REDISMODULE_OK) {
@@ -265,10 +284,9 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Execute the hybrid request
-  HREQ_Execute(hreq, ctx);
+  HybridRequest_Execute(hreq, ctx, hreq->sctx);
 
-  // Note: hreq is freed by HREQ_Execute, but we need to free the debug wrapper
+  // Note: hreq is freed by HybridRequest_Execute, but we need to free the debug wrapper
   debug_req->hreq = NULL;
   HybridRequest_Debug_Free(debug_req);
 

@@ -36,6 +36,8 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(ResultProcessor*) depleters, QueryError *status, bool coord);
 
+void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx);
+
 /**
  * Helper function to get the search context from a hybrid request.
  *

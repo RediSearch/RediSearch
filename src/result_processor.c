@@ -1091,7 +1091,7 @@ static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader"
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
                                      "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer",
-                                     "Hybrid Merger"};
+                                     "Hybrid Merger", "Depleter"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
