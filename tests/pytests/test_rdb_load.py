@@ -5,8 +5,7 @@ import threading
 import time
 import signal
 import tempfile
-from includes import *
-from common import *
+from common import skip, downloadFile, REDISEARCH_CACHE_DIR, debug_cmd
 from RLTest import Env
 
 @skip(cluster=True)
