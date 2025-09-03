@@ -15,7 +15,7 @@
 #include "util/config_macros.h"
 
 typedef enum {
-  FailurePolicy_Return,       // Return what we have on timeout
+  FailurePolicy_Return,       // Return what we have on failure (timeout or OOM)
   FailurePolicy_Fail,         // Just fail without returning anything
   FailurePolicy_Invalid       // Not a real value
 } RSFailurePolicy;
