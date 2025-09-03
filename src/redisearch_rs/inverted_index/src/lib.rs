@@ -77,7 +77,7 @@ pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -330,6 +330,57 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn reader(&self) -> IndexReader<'_, E::Decoder> {
         let decoder = E::decoder();
         IndexReader::new(&self.blocks, decoder)
+    }
+}
+
+/// A wrapper around the inverted index to track the total number of entries in the index.
+/// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
+pub struct EntriesTrackingIndex<E> {
+    /// The underlying inverted index that stores the entries.
+    index: InvertedIndex<E>,
+
+    /// The total number of entries in the index. This is not the number of unique documents, but
+    /// rather the total number of entries added to the index.
+    number_of_entries: usize,
+}
+
+impl<E: Encoder> EntriesTrackingIndex<E> {
+    /// Create a new entries tracking index with the given encoder.
+    pub fn new(encoder: E) -> Self {
+        Self {
+            index: InvertedIndex::new(encoder),
+            number_of_entries: 0,
+        }
+    }
+
+    /// Add a new record to the index and return by how much memory grew. It is expected that
+    /// the document ID of the record is greater than or equal the last document ID in the index.
+    ///
+    /// The total number of entries in the index is incremented by one.
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+        let mem_growth = self.index.add_record(record)?;
+
+        self.number_of_entries += 1;
+
+        Ok(mem_growth)
+    }
+
+    /// The memory size of the index in bytes.
+    pub fn memory_usage(&self) -> usize {
+        self.index.memory_usage() + std::mem::size_of::<usize>()
+    }
+
+    /// The total number of entries in the index. This is not the number of unique documents, but
+    /// rather the total number of entries added to the index.
+    pub fn number_of_entries(&self) -> usize {
+        self.number_of_entries
+    }
+}
+
+impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
+    /// Create a new [`IndexReader`] for this inverted index.
+    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
+        self.index.reader()
     }
 }
 

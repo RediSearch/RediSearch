@@ -11,9 +11,9 @@ use core::panic;
 use std::io::{Cursor, Read};
 
 use crate::{
-    Decoder, Encoder, FieldMaskTrackingIndex, FilterMaskReader, IdDelta, IndexBlock, IndexReader,
-    InvertedIndex, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
-    SkipDuplicatesReader,
+    Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterMaskReader, IdDelta,
+    IndexBlock, IndexReader, InvertedIndex, RSAggregateResult, RSIndexResult, RSResultData,
+    RSResultKind, RSTermRecord, SkipDuplicatesReader,
 };
 use pretty_assertions::assert_eq;
 
@@ -41,7 +41,7 @@ impl Encoder for Dummy {
     type Delta = u32;
 
     fn encode<W: std::io::Write + std::io::Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         _record: &RSIndexResult,
@@ -131,7 +131,7 @@ fn adding_same_record_twice() {
         const ALLOW_DUPLICATES: bool = true;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &mut self,
+            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -177,7 +177,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         const RECOMMENDED_BLOCK_ENTRIES: usize = 2;
 
         fn encode<W: std::io::Write + std::io::Seek>(
-            &mut self,
+            &self,
             mut writer: W,
             _delta: Self::Delta,
             _record: &RSIndexResult,
@@ -265,6 +265,25 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.blocks[1].first_doc_id, doc_id);
     assert_eq!(ii.blocks[1].last_doc_id, doc_id);
     assert_eq!(ii.n_unique_docs, 2);
+}
+
+#[test]
+fn adding_tracks_entries() {
+    let mut ii = EntriesTrackingIndex::new(Dummy);
+
+    assert_eq!(ii.memory_usage(), 40);
+    assert_eq!(ii.number_of_entries(), 0);
+
+    let record = RSIndexResult::default().doc_id(10);
+    let mem_growth = ii.add_record(&record).unwrap();
+
+    assert_eq!(ii.memory_usage(), 40 + mem_growth);
+    assert_eq!(ii.number_of_entries(), 1);
+
+    let record = RSIndexResult::default().doc_id(10);
+    let _mem_growth = ii.add_record(&record).unwrap();
+
+    assert_eq!(ii.number_of_entries(), 2);
 }
 
 #[test]
