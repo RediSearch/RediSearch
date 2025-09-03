@@ -21,6 +21,7 @@ if [[ "$COORD" == "1" ]]; then
 fi
 DEBUG=0          # Debug build flag
 PROFILE=0        # Profile build flag
+LITE=${LITE:-0}   # Lite build variant
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
@@ -100,6 +101,9 @@ parse_arguments() {
       QUICK=*)
         QUICK="${arg#*=}"
         ;;
+      LITE|lite)
+        LITE=1
+        ;;
       *)
         # Pass all other arguments directly to CMake
         CMAKE_ARGS="$CMAKE_ARGS -D${arg}"
@@ -176,6 +180,11 @@ setup_build_environment() {
   else
     echo "COORD should be either 0, 1, oss, or rlec"
     exit 1
+  fi
+
+  # If LITE is enabled, append it to the OUTDIR
+  if [[ "$LITE" == "1" ]]; then
+    OUTDIR="${OUTDIR}-lite"
   fi
 
   # Set the final BINDIR using the full variant path
@@ -294,6 +303,12 @@ prepare_cmake_arguments() {
   else
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DMT_BUILD=OFF"
     echo "Building with multi-threading support disabled"
+  fi
+
+  # Handle LITE build variant - set MODULE_NAME to searchlight
+  if [[ "$LITE" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DMODULE_NAME=searchlight"
+    echo "Building LITE variant with MODULE_NAME=searchlight"
   fi
 
   # Ensure output file is always .so even on macOS
