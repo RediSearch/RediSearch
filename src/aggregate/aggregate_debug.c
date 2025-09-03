@@ -158,19 +158,20 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   if (AC_IsInitialized(&pauseAfterArgs) || AC_IsInitialized(&pauseBeforeArgs)) {
     bool before = AC_IsInitialized(&pauseBeforeArgs);
     ArgsCursor *pauseArgs = before ? &pauseBeforeArgs : &pauseAfterArgs;
+    const char * invalidStr = before ? "PAUSE_BEFORE_RP_N" : "PAUSE_AFTER_RP_N";
     unsigned long long results_count = -1;
     if (AC_GetUnsignedLongLong(pauseArgs, &results_count, AC_F_GE0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid PAUSE_AFTER_N count");
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s count", invalidStr);
       return REDISMODULE_ERR;
     }
     const char *rp_type_str = NULL;
     if (AC_GetString(pauseArgs, &rp_type_str, NULL, 0) != AC_OK) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid PAUSE_AFTER_N RP type");
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s RP type", invalidStr);
       return REDISMODULE_ERR;
     }
     ResultProcessorType rp_type = StringToRPType(rp_type_str);
     if (rp_type == RP_MAX) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid PAUSE_AFTER_N RP type");
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s RP type", invalidStr);
       return REDISMODULE_ERR;
     }
 
