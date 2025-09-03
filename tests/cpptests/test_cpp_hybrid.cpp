@@ -12,16 +12,7 @@
 #include "hybrid/hybrid_request.h"
 #include "redismock/util.h"
 
-class HybridRequestBasicTest : public ::testing::Test {
-protected:
-  void SetUp() override {
-    // Basic test setup - no Redis context needed for this simple test
-  }
-
-  void TearDown() override {
-    // Basic test teardown
-  }
-};
+class HybridRequestBasicTest : public ::testing::Test {};
 
 // Tests that don't require full Redis Module integration
 

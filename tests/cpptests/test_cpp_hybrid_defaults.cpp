@@ -66,7 +66,7 @@ protected:
    * @param args The command arguments to parse
    * @return Pointer to the parsed HybridRequest (also stored in member variable)
    */
-  bool parseCommand(RMCK::ArgvList& args) {
+  HybridRequest *parseCommand(RMCK::ArgvList& args) {
     QueryError status = {QueryErrorCode(0)};
 
     EXPECT_TRUE(result->sctx != NULL) << "Failed to create search context";

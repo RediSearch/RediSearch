@@ -275,10 +275,6 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
     HybridRequest_Free(hreq);
 }
 
-static void FreeHybridRequest(void *ptr) {
-  HybridRequest_Free((HybridRequest *)ptr);
-}
-
 /*
  * Internal function to build the pipeline and execute the hybrid request.
  * This function is used by both the foreground and background execution paths.
@@ -290,8 +286,8 @@ static void FreeHybridRequest(void *ptr) {
  * @param internal Whether the request is internal (not exposed to the user)
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
 */
-static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, 
-                                                         RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status, 
+static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams,
+                                                         RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
                                                          bool internal) {
   // Build the pipeline and execute
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
@@ -307,7 +303,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
 
 // Background execution functions implementation
 static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
-                                                   HybridPipelineParams *hybridParams,                    
+                                                   HybridPipelineParams *hybridParams,
                                                    RedisModuleBlockedClient *blockedClient,
                                                    StrongRef spec, bool internal) {
   blockedClientHybridCtx *ret = rm_new(blockedClientHybridCtx);
@@ -352,9 +348,6 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
   }
 }
 
-#define SEARCH_INDEX 0
-#define VECTOR_INDEX 1
-
 /**
  * Main command handler for FT.HYBRID command.
  *
@@ -385,7 +378,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
   cmd.vector = hybridRequest->requests[VECTOR_INDEX];
   cmd.cursorConfig = &hybridRequest->cursorConfig;
-  
+
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
   cmd.reqConfig = &hybridRequest->reqConfig;
