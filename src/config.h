@@ -75,6 +75,8 @@ typedef struct {
   bool printProfileClock;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
+  // OOM policy
+  RSFailurePolicy OOMPolicy;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -338,6 +340,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .requestConfigParams.OOMPolicy = FailurePolicy_Return,                     \
   }
 
 #define REDIS_ARRAY_LIMIT 7

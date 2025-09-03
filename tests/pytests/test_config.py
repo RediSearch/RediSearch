@@ -94,6 +94,7 @@ def testGetConfigOptions(env):
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
     check_config('INDEXER_YIELD_EVERY_OPS')
+    check_config('ON_OOM')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -123,6 +124,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'ON_OOM', 1).equal('Invalid ON_OOM value')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -189,8 +191,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
-
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
+    env.assertEqual(res_dict['ON_OOM'][0], 'return')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -246,6 +248,7 @@ def testInitConfig():
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
+    _test_config_str('ON_OOM', 'fail')
 
 @skip(cluster=True)
 def test_command_name(env: Env):
