@@ -15,8 +15,9 @@ use std::{
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
-    FilterMaskReader, IdDelta, IndexBlock, IndexReader, InvertedIndex, RSAggregateResult,
-    RSIndexResult, RSResultData, RSResultKind, RSTermRecord, SkipDuplicatesReader,
+    FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
+    NumericFilter, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
+    SkipDuplicatesReader,
     debug::{BlockSummary, Summary},
 };
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
@@ -548,6 +549,40 @@ fn reading_filter_based_on_field_mask() {
         vec![
             RSIndexResult::default().doc_id(10).field_mask(0b0001),
             RSIndexResult::default().doc_id(12).field_mask(0b0100),
+        ]
+    );
+}
+
+#[test]
+fn reading_filter_based_on_numeric_filter() {
+    // Make an iterator with three records having different numeric values. The second record will be
+    // filtered out based on the numeric filter.
+    let iter = vec![
+        RSIndexResult::numeric(5.0).doc_id(10),
+        RSIndexResult::numeric(25.0).doc_id(11),
+        RSIndexResult::numeric(15.0).doc_id(12),
+    ];
+
+    let filter = NumericFilter {
+        min: 0.0,
+        max: 15.0,
+        min_inclusive: true,
+        max_inclusive: true,
+        field_spec: ptr::null(),
+        geo_filter: ptr::null(),
+        ascending: true,
+        limit: 10,
+        offset: 0,
+    };
+
+    let reader = FilterNumericReader::new(filter, iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::numeric(5.0).doc_id(10),
+            RSIndexResult::numeric(15.0).doc_id(12),
         ]
     );
 }

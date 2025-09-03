@@ -711,6 +711,43 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskR
     }
 }
 
+/// A reader that filters out records that do not match a given numeric filter. It is used to
+/// filter records in an index based on their numeric value, allowing only those that match the
+/// specified filter to be returned.
+///
+/// This should only be wrapped around readers that return numeric records.
+pub struct FilterNumericReader<I> {
+    /// The numeric filter that is used to filter the records.
+    filter: NumericFilter,
+
+    /// The inner reader that will be used to read the records from the index.
+    inner: I,
+}
+
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> FilterNumericReader<I> {
+    /// Create a new filter numeric reader with the given filter and inner iterator.
+    pub fn new(filter: NumericFilter, inner: I) -> Self {
+        Self { filter, inner }
+    }
+}
+
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterNumericReader<I> {
+    type Item = RSIndexResult<'index>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let next = self.inner.next()?;
+            let value = next.as_numeric()?;
+
+            if !self.filter.value_in_range(value) {
+                continue;
+            }
+
+            return Some(next);
+        }
+    }
+}
+
 /// A reader that filters out records that do not match a given geo filter. It is used to
 /// filter records in an index based on their geo location, allowing only those that match the
 /// specified geo filter to be returned.
