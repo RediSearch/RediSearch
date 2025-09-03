@@ -272,7 +272,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
         if (!diskDmd->keyPtr) {
           // Timeout or no ready completion yet — retry in next rpidxNext iteration
           RedisModule_Log(RSDummyContext, "warning", "Got a timeout from disk while waiting for DMDs.");
-          rm_free(diskDmd);
+          DMD_Return(diskDmd);
           continue;
         }
         dmd = diskDmd;
