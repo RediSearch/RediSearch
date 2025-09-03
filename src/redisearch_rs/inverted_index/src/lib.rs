@@ -423,6 +423,11 @@ impl<E: Encoder> InvertedIndex<E> {
             })
             .collect()
     }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.blocks.len()
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -489,6 +494,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     pub fn blocks_summary(&self) -> Vec<BlockSummary> {
         self.index.blocks_summary()
     }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.index.number_of_blocks()
+    }
 }
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
@@ -541,6 +551,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// Get the combined field mask of all records in the index.
     pub fn field_mask(&self) -> t_fieldMask {
         self.field_mask
+    }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.index.number_of_blocks()
     }
 }
 
