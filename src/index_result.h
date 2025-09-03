@@ -13,7 +13,6 @@
 #include "redisearch.h"
 #include "rmalloc.h"
 #include "util/arr.h"
-#include "value.h"
 #include "rlookup.h"
 #define DEFAULT_RECORDLIST_SIZE 4
 
