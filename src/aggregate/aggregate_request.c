@@ -710,6 +710,7 @@ static void groupStepFree(PLN_BaseStep *base) {
     }
     array_free(g->reducers);
   }
+  array_free_ex(g->properties, rm_free(*(char**)ptr));
 
   RLookup_Cleanup(&g->lookup);
   rm_free(base);
@@ -784,25 +785,35 @@ PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
 }
 
 static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
-  ArgsCursor groupArgs = {0};
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
-  int rv = AC_GetVarArgs(ac, &groupArgs);
+
+  long long nproperties;
+  int rv = AC_GetLongLong(ac, &nproperties, 0);
   if (rv != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
-  for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
-    if (*(char*)groupArgs.objs[ii] != '@') {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
-                         groupArgs.objs[ii], groupArgs.objs[ii]);
+  const char **properties = array_new(const char *, nproperties);
+  for (long long i = 0; i < nproperties; i++) {
+    const char *property;
+    size_t propertyLen;
+    rv = AC_GetString(ac, &property, &propertyLen, 0);
+    if (rv != AC_OK) {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
+    if (property[0] != '@') {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
+                         property, property);
+      return REDISMODULE_ERR;
+    }
+    properties[i] = rm_strndup(property, propertyLen);
   }
 
   // Number of fields.. now let's see the reducers
-  PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
+  PLN_GroupStep *gstp = PLNGroupStep_New(properties, nproperties);
   AGPLN_AddStep(plan, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
