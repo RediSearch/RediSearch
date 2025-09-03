@@ -107,7 +107,7 @@ static double NumericRange_GetMedian(QueryIterator *iter, size_t num_entries) {
 
 static inline NumericRange *NumericRange_New() {
   NumericRange *ret = rm_new(NumericRange);
-  ret->entries = NewInvertedIndex(Index_StoreNumeric, 1, &ret->invertedIndexSize);
+  ret->entries = NewInvertedIndex(Index_StoreNumeric, &ret->invertedIndexSize);
   ret->minVal = INFINITY;
   ret->maxVal = -INFINITY;
   hll_init(&ret->hll, NR_BIT_PRECISION);

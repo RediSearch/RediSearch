@@ -92,10 +92,9 @@ static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
 }
 
 // Create a new inverted index object, with the given flag.
-// If initBlock is 1, we create the first block.
-// out parameter memsize must be not NULL, the total of allocated memory
+// The out parameter memsize must be not NULL, the total of allocated memory
 // will be returned in it
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize);
+InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize);
 
 /* Add a new block to the index with a given document id as the initial id
   * Returns the new block
@@ -121,7 +120,6 @@ void InvertedIndex_SetNumDocs(InvertedIndex *idx, uint32_t numDocs);
 uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx);
 void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker);
 t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx);
-void InvertedIndex_OrFieldMask(InvertedIndex *idx, t_fieldMask fieldMask);
 uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx);
 void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries);
 
@@ -174,6 +172,78 @@ typedef struct {
   IndexDecoder decoder;
   IndexSeeker seeker;
 } IndexDecoderProcs;
+
+typedef struct IndexReader {
+  const InvertedIndex *idx;
+
+  // the underlying data buffer iterator
+  IndexBlockReader blockReader;
+
+  /* The decoding function for reading the index */
+  IndexDecoderProcs decoders;
+  /* The decoder's filtering context. It may be a number or a pointer. The number is used for
+   * filtering field masks, the pointer for numeric filtering */
+  IndexDecoderCtx decoderCtx;
+
+  uint32_t currentBlock;
+
+  /* This marker lets us know whether the garbage collector has visited this index while the reading
+   * thread was asleep, and reset the state in a deeper way
+   */
+  uint32_t gcMarker;
+} IndexReader;
+
+/* Make a new inverted index reader. It should be freed using `IndexReader_Free`. */
+IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx *ctx);
+
+/* Free an index reader created using `NewIndexReader` */
+void IndexReader_Free(IndexReader *ir);
+
+/* Reset the index reader to the start of the index */
+void IndexReader_Reset(IndexReader *ir);
+
+/* Get the estimated number of documents in the index */
+size_t IndexReader_NumEstimated(const IndexReader *ir);
+
+/* Check if the index reader is reading from the given index */
+bool IndexReader_IsIndex(const IndexReader *ir, const InvertedIndex *idx);
+
+/* Revalidate the index reader in case the index underwent GC while we were asleep.
+ * Returns true if revalidation is needed (i.e., GC happened) by anything using the
+ * reader, false otherwise */
+bool IndexReader_Revalidate(IndexReader *ir);
+
+/* Check if the index reader's decoder has a seeker implementation */
+bool IndexReader_HasSeeker(const IndexReader *ir);
+
+/* Read the next record of the index onto `res`. Returns false when there is nothing
+ * more to read. */
+bool IndexReader_Next(IndexReader *ir, RSIndexResult *res);
+
+/* Skip to the block that may contain the given docId. Returns false if the
+ * docId is beyond the last id of the index */
+bool IndexReader_SkipTo(IndexReader *ir, t_docId docId);
+
+/* Seek to the given docId, or the next one after it. Returns true if a record
+ * was found, false otherwise. If true is returned, `res` is populated with
+ * the record found */
+bool IndexReader_Seek(IndexReader *ir, t_docId docId, RSIndexResult *res);
+
+/* Check if the index holds multi-value entries */
+bool IndexReader_HasMulti(const IndexReader *ir);
+
+/* Get the index flags */
+IndexFlags IndexReader_Flags(const IndexReader *ir);
+
+/* Get the numeric filter used by the index reader's decoder, if any */
+const NumericFilter *IndexReader_NumericFilter(const IndexReader *ir);
+
+/* Swap the inverted index of the reader with the supplied index. This is used by
+ * tests to trigger a revalidation. */
+void IndexReader_SwapIndex(IndexReader *ir, const InvertedIndex *newIdx);
+
+/* Get the inverted index of the reader. This is only needed for some tests. */
+InvertedIndex *IndexReader_II(const IndexReader *ir);
 
 /* Get the decoder for the index based on the index flags. This is used to externally inject the
  * endoder/decoder when reading and writing */

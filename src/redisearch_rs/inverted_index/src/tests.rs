@@ -11,8 +11,8 @@ use core::panic;
 use std::io::{Cursor, Read};
 
 use crate::{
-    Decoder, Encoder, FilterMaskReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
-    RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
+    Decoder, Encoder, FieldMaskTrackingIndex, FilterMaskReader, IdDelta, IndexBlock, IndexReader,
+    InvertedIndex, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
     SkipDuplicatesReader,
 };
 use pretty_assertions::assert_eq;
@@ -49,10 +49,6 @@ impl Encoder for Dummy {
         writer.write_all(&delta.to_be_bytes())?;
 
         Ok(8)
-    }
-
-    fn decoder() -> impl Decoder {
-        Dummy
     }
 }
 
@@ -144,13 +140,6 @@ fn adding_same_record_twice() {
 
             Ok(1)
         }
-
-        fn decoder() -> impl Decoder {
-            panic!("AllowDupsDummy should not be used for decoding");
-            // need to return something to satisfy the compiler
-            #[allow(unreachable_code)]
-            Dummy
-        }
     }
 
     let mut ii = InvertedIndex::new(AllowDupsDummy);
@@ -196,13 +185,6 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
             writer.write_all(&[1])?;
 
             Ok(1)
-        }
-
-        fn decoder() -> impl Decoder {
-            panic!("SmallBlocksDummy should not be used for decoding");
-            // need to return something to satisfy the compiler
-            #[allow(unreachable_code)]
-            Dummy
         }
     }
 
@@ -283,6 +265,32 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.blocks[1].first_doc_id, doc_id);
     assert_eq!(ii.blocks[1].last_doc_id, doc_id);
     assert_eq!(ii.n_unique_docs, 2);
+}
+
+#[test]
+fn adding_track_field_mask() {
+    let mut ii = FieldMaskTrackingIndex::new(Dummy);
+
+    assert_eq!(ii.memory_usage(), 48);
+    assert_eq!(ii.field_mask(), 0);
+
+    let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
+    let mem_growth = ii.add_record(&record).unwrap();
+
+    assert_eq!(mem_growth, 56);
+    assert_eq!(ii.field_mask(), 0b101);
+
+    let record = RSIndexResult::default().doc_id(11).field_mask(0b101);
+    let mem_growth = ii.add_record(&record).unwrap();
+
+    assert_eq!(mem_growth, 0);
+    assert_eq!(ii.field_mask(), 0b101);
+
+    let record = RSIndexResult::default().doc_id(12).field_mask(0b011);
+    let mem_growth = ii.add_record(&record).unwrap();
+
+    assert_eq!(mem_growth, 8);
+    assert_eq!(ii.field_mask(), 0b111);
 }
 
 #[test]

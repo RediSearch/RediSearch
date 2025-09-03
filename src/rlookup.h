@@ -320,7 +320,7 @@ void RLookupRow_Wipe(RLookupRow *row);
  * Frees all the memory consumed by the row. Implies Wipe(). This should be used
  * when the row object will no longer be used.
  */
-void RLookupRow_Cleanup(RLookupRow *row);
+void RLookupRow_Reset(RLookupRow *row);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */

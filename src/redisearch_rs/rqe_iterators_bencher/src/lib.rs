@@ -12,6 +12,9 @@ use std::ffi::c_void;
 pub mod benchers;
 pub mod ffi;
 
+// Need this symbol to be defined for the benchers to run
+pub use types_ffi::NewVirtualResult;
+
 redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
 
 #[unsafe(no_mangle)]

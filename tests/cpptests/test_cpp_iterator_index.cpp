@@ -92,7 +92,7 @@ private:
     void SetTermsInvIndex() {
         // This function should populate the InvertedIndex with terms
         size_t memsize;
-        idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
+        idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &memsize);
         ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr); // Expect a seeker with the default flags
         for (size_t i = 0; i < n_docs; ++i) {
             ForwardIndexEntry h = {0};
@@ -112,7 +112,7 @@ private:
     void SetNumericInvIndex() {
         // This function should populate the InvertedIndex with numeric data
         size_t memsize;
-        idx = NewInvertedIndex(Index_StoreNumeric, 1, &memsize);
+        idx = NewInvertedIndex(Index_StoreNumeric, &memsize);
         for (size_t i = 0; i < n_docs; ++i) {
             InvertedIndex_WriteNumericEntry(idx, resultSet[i], static_cast<double>(i));
         }
@@ -121,7 +121,7 @@ private:
     void SetGenericInvIndex() {
         // This function should populate the InvertedIndex with generic data
         size_t memsize;
-        idx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
+        idx = NewInvertedIndex(Index_DocIdsOnly, &memsize);
         for (size_t i = 0; i < n_docs; ++i) {
             RSIndexResult rec = {.docId = resultSet[i], .data = {.tag = RSResultData_Virtual}};
             InvertedIndex_WriteEntryGeneric(idx, &rec);
@@ -217,7 +217,7 @@ protected:
 
     void SetUp() override {
         size_t memsize;
-        idx = NewInvertedIndex(Index_StoreNumeric, 1, &memsize);
+        idx = NewInvertedIndex(Index_StoreNumeric, &memsize);
         ASSERT_TRUE(idx != nullptr);
         iterator = nullptr;
         flt = nullptr;
@@ -297,7 +297,7 @@ TEST_F(IndexIteratorTestEdges, EOFAfterFiltering) {
 class IndexIteratorTestWithSeeker : public ::testing::Test {};
 TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     size_t memsize;
-    InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+    InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
     ASSERT_TRUE(idx != nullptr);
     ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
     for (t_docId i = 1; i < 1000; ++i) {
@@ -333,7 +333,7 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
           IndexFlags flags = GetParam();
 
           size_t dummy;
-          idx = NewInvertedIndex(flags, 1, &dummy);
+          idx = NewInvertedIndex(flags, &dummy);
 
           t_fieldIndex fieldIndex = 0b101010; // 42
           t_fieldMask fieldMask = fieldIndex;
@@ -673,7 +673,7 @@ private:
         } else {
             // Full version (simpler, no context needed)
             size_t memsize;
-            numericIdx = NewInvertedIndex(Index_StoreNumeric, 1, &memsize);
+            numericIdx = NewInvertedIndex(Index_StoreNumeric, &memsize);
 
             // Populate with numeric data
             for (size_t i = 0; i < n_docs; ++i) {
@@ -801,7 +801,7 @@ private:
 
         // Create the existingDocs index that wildcard iterator expects
         size_t memsize;
-        spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
+        spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, &memsize);
 
         // Populate with document data for wildcard matching
         for (size_t i = 0; i < n_docs; ++i) {
@@ -835,7 +835,7 @@ private:
 
         // Create a missing field index for the field
         size_t memsize;
-        termIdx = NewInvertedIndex(Index_DocIdsOnly, 1, &memsize);
+        termIdx = NewInvertedIndex(Index_DocIdsOnly, &memsize);
 
         // Populate with some data (for missing iterator, the content represents what's missing)
         for (size_t i = 0; i < n_docs; ++i) {
@@ -984,25 +984,24 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterIndexDisappears) {
             // setting the iterator's idx pointer to a different value than what
             // the lookup would return. This simulates the GC scenario.
             InvIndIterator *invIt = (InvIndIterator *)iterator;
-            const InvertedIndex *originalIdx = invIt->idx;
 
             // Create a dummy index to simulate the "new" index that would be returned
             // by the lookup after GC
             size_t memsize;
-            InvertedIndex *dummyIdx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
+            InvertedIndex *dummyIdx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &memsize);
 
-            // Temporarily replace the iterator's index pointer (need to cast away const)
-            *((InvertedIndex **)&invIt->idx) = dummyIdx;
+            // Temporarily replace the iterator's index pointer
+            IndexReader_SwapIndex(invIt->reader, dummyIdx);
 
             // Now Revalidate should return VALIDATE_ABORTED because the stored index
             // doesn't match what the lookup returns
             ASSERT_EQ(iterator->Revalidate(iterator), VALIDATE_ABORTED);
 
+            // Restore the original index pointer for proper cleanup
+            IndexReader_SwapIndex(invIt->reader, dummyIdx);
+
             // Clean up the dummy index
             InvertedIndex_Free(dummyIdx);
-
-            // Restore the original index pointer for proper cleanup
-            *((const InvertedIndex **)&invIt->idx) = originalIdx;
         } else {
             FAIL() << "RevalidateAfterIndexDisappears not implemented for this iterator type";
         }
@@ -1040,9 +1039,8 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     // 4. This should cause SkipTo(thirdDocId) to return ITERATOR_NOTFOUND
 
     InvIndIterator *invIt = (InvIndIterator *)iterator;
-    InvertedIndex *idx = const_cast<InvertedIndex *>(invIt->idx);
-    uint32_t originalGcMarker = invIt->gcMarker;
-    uint32_t originalIndexGcMarker = InvertedIndex_GcMarker(idx);
+    InvertedIndex *idx = IndexReader_II(invIt->reader);
+    uint32_t originalGcMarker = InvertedIndex_GcMarker(idx);
 
     // We need access to the DocTable to mark documents as deleted
     // For this test, we'll create a temporary DocTable and mark thirdDocId as deleted
@@ -1151,8 +1149,4 @@ TEST_P(InvIndIteratorRevalidateTest, RevalidateAfterDocumentDeleted) {
     }
 
     DocTable_Free(&tempDocTable);
-
-    // Restore the original index state
-    InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) + repairParams.entriesCollected); // Restore original numDocs
-    InvertedIndex_SetGcMarker(idx, originalIndexGcMarker);
 }
