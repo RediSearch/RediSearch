@@ -101,6 +101,15 @@ uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSInde
  */
 uintptr_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
 
+/**
+ * Get the flags used to create the inverted index.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

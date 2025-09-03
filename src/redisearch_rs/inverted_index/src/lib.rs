@@ -519,6 +519,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         self.number_of_entries
     }
 
+    /// Returns the flags of this index.
+    pub fn flags(&self) -> IndexFlags {
+        self.index.flags()
+    }
+
     /// Return the debug summary for this inverted index.
     pub fn summary(&self) -> Summary {
         let mut summary = self.index.summary();
@@ -584,6 +589,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// The memory size of the index in bytes.
     pub fn memory_usage(&self) -> usize {
         self.index.memory_usage() + std::mem::size_of::<t_fieldMask>()
+    }
+
+    /// Returns the flags of this index.
+    pub fn flags(&self) -> IndexFlags {
+        self.index.flags()
     }
 
     /// Get the combined field mask of all records in the index.

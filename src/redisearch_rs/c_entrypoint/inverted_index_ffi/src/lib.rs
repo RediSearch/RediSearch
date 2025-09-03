@@ -291,3 +291,17 @@ pub unsafe extern "C" fn InvertedIndex_NumBlocks(ii: *const InvertedIndex) -> us
     let ii = unsafe { &*ii };
     ii_dispatch!(ii, number_of_blocks)
 }
+
+/// Get the flags used to create the inverted index.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_Flags(ii: *const InvertedIndex) -> IndexFlags {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+    ii_dispatch!(ii, flags)
+}
