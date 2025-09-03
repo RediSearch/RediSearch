@@ -92,6 +92,15 @@ uintptr_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_
  */
 uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
 
+/**
+ * Return the number of blocks in the inverted index.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+uintptr_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

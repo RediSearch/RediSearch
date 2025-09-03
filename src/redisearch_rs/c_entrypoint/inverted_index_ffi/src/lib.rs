@@ -277,3 +277,17 @@ pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
 
     ii_dispatch!(ii, add_record, record).unwrap()
 }
+
+/// Return the number of blocks in the inverted index.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_NumBlocks(ii: *const InvertedIndex) -> usize {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+    ii_dispatch!(ii, number_of_blocks)
+}
