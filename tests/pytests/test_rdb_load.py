@@ -96,14 +96,7 @@ def test_rdb_load_no_deadlock():
     dbsize = test_env.cmd('DBSIZE')
 
     # Try to get info about any existing indices
-    try:
-        indices_info = test_env.cmd('FT._LIST')
-        print(f"DEBUG: Found indices: {indices_info}")
-        if indices_info:
-            # If there are indices, verify we can get info about the first one
-            test_env.expect('FT.INFO', indices_info[0]).noError()
-            print(f"SUCCESS: Index {indices_info[0]} is accessible")
-    except Exception as e:
-        print(f"DEBUG: No indices found or error accessing them: {e}")
-
-    print("DEBUG: Test completed. INFO commands were sent by subprocess during RDB loading.")
+    indices_info = test_env.cmd('FT._LIST')
+    assert indices_info, "No indices found after RDB load"
+    # If there are indices, verify we can get info about the first one
+    test_env.expect('FT.INFO', indices_info[0]).noError()
