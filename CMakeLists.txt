@@ -324,6 +324,7 @@ extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 
+target_link_options(redisearch PRIVATE -static-libstdc++)
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
