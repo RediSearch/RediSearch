@@ -22,7 +22,7 @@ mod bindings {
     #![allow(improper_ctypes)]
     #![allow(dead_code)]
 
-    use inverted_index::{t_docId, t_fieldMask};
+    use inverted_index::{NumericFilter, t_docId, t_fieldMask};
 
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
