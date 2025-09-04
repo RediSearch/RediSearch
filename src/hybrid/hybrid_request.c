@@ -104,6 +104,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
     // Initialize error tracking for each individual request
     hybridReq->errors = array_new(QueryError, nrequests);
+    memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
 
     // Initialize return codes array for tracking subqueries final states
     hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
