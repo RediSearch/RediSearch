@@ -14,6 +14,8 @@
 #include <aggregate/expr/expression.h>
 #include <util/dllist.h>
 #include <obfuscation/hidden.h>
+#include <util/references.h>
+#include <util/arr.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -115,8 +117,7 @@ typedef struct {
   PLN_BaseStep base;
   RLookup lookup;
 
-  const char **properties;
-  size_t nproperties;
+  StrongRef properties_ref;  // StrongRef to properties array
 
   /* Group step single reducer, a function and its args */
   struct PLN_Reducer {
@@ -128,10 +129,17 @@ typedef struct {
   int idx;
 } PLN_GroupStep;
 
+ /**
+  * Allocates and initializes a new group step.
+  * @param properties_ref StrongRef referencing the properties array (must be cloned by caller)
+  * @return Pointer to the newly created group step
+  */
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref);
+
 /**
- * Returns a new group step with the appropriate constructor
+ * Gets the properties array from a group step (via StrongRef)
  */
-PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
+arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp);
 
 /**
  * Adds a reducer (with its arguments) to the group step
