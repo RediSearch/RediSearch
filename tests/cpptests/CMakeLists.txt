@@ -19,13 +19,15 @@ file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp iterator_util.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} stdc++)
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
+target_link_options(rstest PRIVATE -lstdc++)
 add_dependencies(rstest example_extension)
 add_test(NAME rstest COMMAND rstest)
 
 
 add_executable(test_distagg ${root}/tests/cpptests/test_distagg.cpp)
 target_link_libraries(test_distagg ${TEST_MODULE} redismock stdc++)
-set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default")
+set_target_properties(test_distagg PROPERTIES COMPILE_FLAGS "-fvisibility=default" LINKER_LANGUAGE CXX)
+target_link_options(test_distagg PRIVATE -lstdc++)
 add_test(name test_distagg COMMAND test_distagg)
 
 # Add the coord_tests subdirectory
@@ -35,3 +37,4 @@ file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
 add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
 target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread stdc++)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
+target_link_options(rsbench PRIVATE -lstdc++)
