@@ -108,8 +108,8 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->nproperties);
-  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref), gr->nproperties);
+  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
+  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
 
   size_t nreducers = array_len(gr->reducers);
   grLocal->reducers = array_new(PLN_Reducer, nreducers);
@@ -527,8 +527,8 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
       }
       case PLN_T_GROUP: {
         PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
-        const char **properties = PLNGroupStep_GetProperties(gstp);
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
+        arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
+        for (size_t ii = 0; ii < array_len(properties); ++ii) {
           const char *propname = stripAtPrefix(properties[ii]);
           RLookup_GetKey_Write(lookup, propname, RLOOKUP_F_NOFLAGS);
         }

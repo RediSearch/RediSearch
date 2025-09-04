@@ -776,14 +776,13 @@ static void genericStepFree(PLN_BaseStep *p) {
 }
 
 // Helper function to get properties from StrongRef
-const char **PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
-  return (const char **)StrongRef_Get(gstp->properties_ref);
+arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
+  return (arrayof(const char*))StrongRef_Get(gstp->properties_ref);
 }
 
-PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, size_t nproperties) {
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
   gstp->properties_ref = properties_ref;
-  gstp->nproperties = nproperties;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
   gstp->base.type = PLN_T_GROUP;
@@ -822,7 +821,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
 
   // Number of fields.. now let's see the reducers
   StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
-  PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref, nproperties);
+  PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref);
   AGPLN_AddStep(plan, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
