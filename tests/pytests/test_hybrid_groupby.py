@@ -59,10 +59,22 @@ def parse_hybrid_groupby_response(response) -> Dict[str, int]:
     res_results_index = recursive_index(response, 'results')
     res_results_index[-1] += 1
     results = access_nested_list(response, res_results_index)
-    results = {
-        item[1][0][1]: int(item[1][0][3]) for item in results
-    }
-    return results
+
+    parsed_results = {}
+    for item in results:
+        # Find the category field and get its value
+        category_index = recursive_index(item, 'category')
+        category_index[-1] += 1  # Move to the value after 'category'
+        category_value = access_nested_list(item, category_index)
+
+        # Find the count field and get its value
+        count_index = recursive_index(item, 'count')
+        count_index[-1] += 1  # Move to the value after 'count'
+        count_value = int(access_nested_list(item, count_index))
+
+        parsed_results[category_value] = count_value
+
+    return parsed_results
 
 def l2_from_bytes(a_bytes, b_bytes) -> float:
     a = np.frombuffer(a_bytes, dtype=np.float32)
