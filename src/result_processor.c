@@ -1352,11 +1352,9 @@ static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultPro
     }
     // Update the endProc to the new head in case it was changed
     r->qiter.endProc = dummyHead.upstream;
-    return true;
   }
 
-  // Target type not found
-  return false;
+  return found;
 }
 
 // Insert the result processor after the first occurrence of a specific RP type in the upstream
