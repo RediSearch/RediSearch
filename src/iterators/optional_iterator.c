@@ -71,7 +71,7 @@ static IteratorStatus OI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   if (docId == oi->child->lastDocId) {
     // Has a real hit on the child iterator
     oi->base.current = oi->child->current;
-    oi->base.current->weight *= oi->weight;
+    oi->base.current->weight = oi->weight;
   } else {
     oi->virt->docId = oi->wcii->lastDocId;
     oi->base.current = oi->virt;
@@ -111,7 +111,7 @@ static IteratorStatus OI_Read_Optimized(QueryIterator *base) {
     oi->base.current = oi->virt;
   } else {
     oi->base.current = oi->child->current;
-    oi->base.current->weight *= oi->weight;
+    oi->base.current->weight = oi->weight;
   }
 
   base->lastDocId = oi->base.current->docId = oi->wcii->lastDocId;
@@ -138,7 +138,7 @@ static IteratorStatus OI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId)
   if (docId == oi->child->lastDocId) {
     // Has a real hit on the child iterator
     base->current = oi->child->current;
-    base->current->weight *= oi->weight;
+    base->current->weight = oi->weight;
   } else {
     // Virtual hit
     oi->virt->docId = docId;
@@ -167,7 +167,7 @@ static IteratorStatus OI_Read_NotOptimized(QueryIterator *base) {
 
   if (base->lastDocId == oi->child->lastDocId) {
     base->current = oi->child->current;
-    base->current->weight *= oi->weight;
+    base->current->weight = oi->weight;
   } else {
     oi->virt->docId = base->lastDocId;
     base->current = oi->virt;
@@ -240,7 +240,7 @@ static ValidateStatus OI_Revalidate_Optimized(QueryIterator *base) {
     if (oi->child->lastDocId == oi->wcii->lastDocId) {
       // If the child iterator has a hit on the same docId, we can return VALIDATE_MOVED
       base->current = oi->child->current;
-      base->current->weight *= oi->weight;
+      base->current->weight = oi->weight;
     } else {
       // If the child iterator does not have a hit on the same docId,
       // we return the virtual result.
@@ -269,7 +269,7 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
   } else if (IsWildcardIterator(it)) {
     // All will be real hits
     ret = it;
-    ret->current->weight *= weight;
+    ret->current->weight = weight;
   }
   return ret;
 }
@@ -290,7 +290,7 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
   oi->virt->freq = 1;
   oi->maxDocId = q->docTable->maxDocId;
-  oi->weight = weight;
+  oi->weight = weight * it->current->weight;
 
   ret = &oi->base;
   ret->type = OPTIONAL_ITERATOR;
