@@ -377,8 +377,8 @@ error:
 /**
  * Parse COMBINE clause parameters for hybrid scoring configuration.
  *
- * Supports LINEAR (requires numWeights weight values) and RRF (optional K and WINDOW parameters).
- * Defaults to RRF if no method specified. Uses hybrid-specific defaults: RRF K=60, WINDOW=20.
+ * Supports LINEAR (requires numWeights weight values) and RRF (optional CONSTANT and WINDOW parameters).
+ * Defaults to RRF if no method specified. Uses hybrid-specific defaults: RRF CONSTANT=60, WINDOW=20.
  * WINDOW parameter controls the number of results consumed from each subquery before fusion.
  * When WINDOW is not explicitly set, it can be overridden by LIMIT parameter in fallback logic.
  *
@@ -413,12 +413,12 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
       combineCtx->linearCtx.linearWeights[i] = weight;
     }
   } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
-    // For RRF, we need k and window parameters
+    // For RRF, we need constant and window parameters
     ArgsCursor params = {0};
     int rv = AC_GetVarArgs(ac, &params);
 
     // Initialize with defaults
-    combineCtx->rrfCtx.k = HYBRID_DEFAULT_RRF_K;
+    combineCtx->rrfCtx.constant = HYBRID_DEFAULT_RRF_CONSTANT;
     combineCtx->rrfCtx.window = HYBRID_DEFAULT_WINDOW;
     combineCtx->rrfCtx.hasExplicitWindow = false;
 
@@ -437,13 +437,13 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
           goto error;
         }
 
-        if (strcasecmp(paramName, "K") == 0) {
-          double k;
-          if (AC_GetDouble(&params, &k, 0) != AC_OK || k <= 0) {
-            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value in RRF");
+        if (strcasecmp(paramName, "CONSTANT") == 0) {
+          double constant;
+          if (AC_GetDouble(&params, &constant, 0) != AC_OK || constant <= 0) {
+            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
             goto error;
           }
-          combineCtx->rrfCtx.k = k;
+          combineCtx->rrfCtx.constant = constant;
         } else if (strcasecmp(paramName, "WINDOW") == 0) {
           long long window;
           if (AC_GetLongLong(&params, &window, 0) != AC_OK || window <= 0) {
