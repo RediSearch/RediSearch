@@ -20,6 +20,7 @@
 #include "extension.h"
 #include "score_explain.h"
 #include "rs_wall_clock.h"
+#include "result_processor_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -265,15 +266,6 @@ ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const Fiel
  *
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qiter);
-
-
-/*******************************************************************************************************************
- *  Counter Processor
- *
- * This processor counts the search results.
- *
- *******************************************************************************************************************/
-ResultProcessor *RPCounter_New();
 
 rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
