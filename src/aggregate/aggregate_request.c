@@ -802,12 +802,12 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
     rv = AC_GetString(ac, &property, &propertyLen, 0);
     if (rv != AC_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
-      return REDISMODULE_ERR;
+      goto error;
     }
     if (property[0] != '@') {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
                          property, property);
-      return REDISMODULE_ERR;
+      goto error;
     }
     properties[i] = property;
   }
@@ -820,7 +820,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
     const char *name;
     if (AC_GetString(ac, &name, NULL, 0) != AC_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for REDUCE: %s", AC_Strerror(rv));
-      return REDISMODULE_ERR;
+      goto error;
     }
     if (PLNGroupStep_AddReducer(gstp, name, ac, status) != REDISMODULE_OK) {
       goto error;
@@ -829,6 +829,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 
 error:
+  array_free(properties);
   return REDISMODULE_ERR;
 }
 
