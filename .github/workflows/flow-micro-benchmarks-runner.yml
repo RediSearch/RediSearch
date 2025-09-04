@@ -121,8 +121,8 @@ jobs:
           # Update the binary directory path for ARM architectures
           echo "Looking for benchmark results in $BINDIR/micro-benchmarks"
 
-          # Find all JSON result files
-          JSON_FILES=$(find $BINDIR/micro-benchmarks -name "*_results.json")
+          # Find all JSON result files and convert to absolute paths
+          JSON_FILES=$(find "$(pwd)/$BINDIR/micro-benchmarks" -name "*_results.json")
 
           if [ -z "$JSON_FILES" ]; then
             echo "No benchmark result files found in $BINDIR/micro-benchmarks"
@@ -132,6 +132,12 @@ jobs:
           # Print found files for debugging
           echo "Found the following result files:"
           echo "$JSON_FILES" | tr ' ' '\n'
+
+          # Create a temporary directory to avoid pyproject.toml conflicts
+          TEMP_DIR=$(mktemp -d)
+
+          # Change to temp directory once to avoid pyproject.toml conflicts
+          cd "$TEMP_DIR"
 
           # Process each file individually
           for file in $JSON_FILES; do
@@ -150,6 +156,12 @@ jobs:
               --triggering_env redisearch-micro-benchmarks \
               --architecture ${{ inputs.architecture }}
           done
+
+          # Return to original directory
+          cd - > /dev/null
+
+          # Clean up temp directory
+          rm -rf "$TEMP_DIR"
 
   stop-runner:
     name: Stop self-hosted EC2 runner
