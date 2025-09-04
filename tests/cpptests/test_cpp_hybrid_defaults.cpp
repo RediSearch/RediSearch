@@ -86,9 +86,9 @@ static void validateDefaultParams(HybridRequest* result, size_t expectedWindow, 
         ASSERT_EQ(expectedWindow, result->hybridParams->scoringCtx->rrfCtx.window)
             << "Expected window=" << expectedWindow << ", got " << result->hybridParams->scoringCtx->rrfCtx.window;
 
-        // Verify RRF k default
-        ASSERT_DOUBLE_EQ(HYBRID_DEFAULT_RRF_K, result->hybridParams->scoringCtx->rrfCtx.k)
-            << "Expected RRF k=" << HYBRID_DEFAULT_RRF_K;
+        // Verify RRF constant default
+        ASSERT_DOUBLE_EQ(HYBRID_DEFAULT_RRF_CONSTANT, result->hybridParams->scoringCtx->rrfCtx.constant)
+            << "Expected RRF constant=" << HYBRID_DEFAULT_RRF_CONSTANT;
     }
 
     // Verify KNN K value

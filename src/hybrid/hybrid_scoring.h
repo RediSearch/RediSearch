@@ -10,7 +10,7 @@ extern "C" {
 
 // Default constants for hybrid search parameters
 #define HYBRID_DEFAULT_WINDOW 20
-#define HYBRID_DEFAULT_RRF_K 60
+#define HYBRID_DEFAULT_RRF_CONSTANT 60
 
 typedef enum {
   HYBRID_SCORING_LINEAR,
@@ -23,7 +23,7 @@ typedef struct {
 } HybridLinearContext;
 
 typedef struct {
-  double k;
+  double constant;
   size_t window;
   bool hasExplicitWindow;           // Flag to track if window was explicitly set in the query args
 } HybridRRFContext;
@@ -37,7 +37,7 @@ typedef struct {
 } HybridScoringContext;
 
 /* Constructor functions for HybridScoringContext */
-HybridScoringContext* HybridScoringContext_NewRRF(double k, size_t window, bool hasExplicitWindow);
+HybridScoringContext* HybridScoringContext_NewRRF(double constant, size_t window, bool hasExplicitWindow);
 HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size_t numWeights);
 HybridScoringContext* HybridScoringContext_NewDefault(void);
 
