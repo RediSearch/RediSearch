@@ -318,7 +318,8 @@ target_link_libraries(redisearch
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
-        ${CMAKE_LD_LIBS})
+        ${CMAKE_LD_LIBS}
+        stdc++)
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
