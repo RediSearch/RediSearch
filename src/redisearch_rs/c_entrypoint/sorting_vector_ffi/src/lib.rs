@@ -205,7 +205,7 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
 
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { vec.as_mut() };
-    //let _ = vec.try_insert_val(idx, RSValueFFI(val));
+
     vec.try_insert_val(idx, RSValueFFI(val))
         .unwrap_or_else(|_| {
             debug_assert!(false, "Index out of bounds: {} >= {}", idx, vec.len());
