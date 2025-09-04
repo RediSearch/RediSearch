@@ -1391,11 +1391,9 @@ static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProc
     }
     // Update the endProc to the new head in case it was changed
     r->qiter.endProc = dummyHead.upstream;
-    return true;
   }
 
-  // Target type not found
-  return false;
+  return found;
 }
 
 
@@ -1524,12 +1522,12 @@ void PipelineAddPauseAfterCount(AREQ *r, size_t results_count) {
   addResultProcessor(r, RPPauseAfterCount);
 }
 
-void PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type) {
+bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type) {
   ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
   if (before) {
-    addResultProcessorBeforeType(r, RPPauseAfterCount, rp_type);
+    return addResultProcessorBeforeType(r, RPPauseAfterCount, rp_type);
   } else {
-    addResultProcessorAfterType(r, RPPauseAfterCount, rp_type);
+    return addResultProcessorAfterType(r, RPPauseAfterCount, rp_type);
   }
 }
 

@@ -176,7 +176,10 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    PipelineAddPauseRPcount(&debug_req->r, results_count, before, rp_type);
+    if (!PipelineAddPauseRPcount(&debug_req->r, results_count, before, rp_type)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "%s RP type not found in stream", rp_type_str);
+      return REDISMODULE_ERR;
+    }
   }
 
   return REDISMODULE_OK;
