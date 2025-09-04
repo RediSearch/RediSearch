@@ -10,23 +10,72 @@
 #include "spec.h"
 #include "types_rs.h"
 
+/**
+ * An opaque inverted index structure. The actual implementation is determined at runtime based on
+ * the index flags provided when creating the index. However, C does not support generics, so we
+ * need to use an enum to represent the different implementations.
+ */
 typedef struct InvertedIndex InvertedIndex;
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
+/**
+ * Create a new inverted index instance based on the provided flags and options. The output
+ * parameter `mem_size` will be set to the memory usage of the created index. The inverted index
+ * should be freed using [`InvertedIndex_Free`] when no longer needed.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `mem_size` must be a valid pointer to a `usize`.
+ */
 struct InvertedIndex *NewInvertedIndex_Ex(IndexFlags flags,
                                           bool raw_doc_id_encoding,
                                           bool compress_floats,
                                           uintptr_t *mem_size);
 
+/**
+ * Free the memory associated with the inverted index instance created using [`NewInvertedIndex_Ex`].
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance created using
+ *   [`NewInvertedIndex_Ex`] or `NewInvertedIndex`.
+ * - `ii` must not be NULL.
+ */
 void InvertedIndex_Free(struct InvertedIndex *ii);
 
+/**
+ * Get the memory usage of the inverted index instance in bytes.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and must not be NULL.
+ */
 uintptr_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
 
+/**
+ * Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
+ * with the `StoreNumeric` flag. The function returns the number of bytes the memory usage of the
+ * index grew by.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
 uintptr_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
 
+/**
+ * Write a new entry to the inverted index. The function returns the number of bytes the memory
+ * usage of the index grew by.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
+ */
 uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
 
 #ifdef __cplusplus

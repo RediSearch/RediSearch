@@ -30,6 +30,9 @@ use inverted_index::{
     raw_doc_ids_only::RawDocIdsOnly,
 };
 
+/// An opaque inverted index structure. The actual implementation is determined at runtime based on
+/// the index flags provided when creating the index. However, C does not support generics, so we
+/// need to use an enum to represent the different implementations.
 pub enum InvertedIndex {
     // Needs to track the field masks because it has the `StoreFieldFlags` flag set
     Full(FieldMaskTrackingIndex<Full>),
@@ -57,6 +60,7 @@ pub enum InvertedIndex {
 }
 
 impl InvertedIndex {
+    // Add a record to the inverted index. Returns by how many bytes the memory grew by.
     fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         use InvertedIndex::*;
 
@@ -79,6 +83,8 @@ impl InvertedIndex {
     }
 }
 
+/// The mask of flags that determine the index storage type. This includes all flags that affect
+/// the storage format of the index.
 const INDEX_STORAGE_MASK: IndexFlags = IndexFlags_Index_StoreFreqs
     | IndexFlags_Index_StoreFieldFlags
     | IndexFlags_Index_StoreTermOffsets
@@ -112,6 +118,14 @@ const FREQS_OFFSETS_MASK: IndexFlags =
 const DOC_IDS_ONLY_MASK: IndexFlags = IndexFlags_Index_DocIdsOnly;
 const NUMERIC_MASK: IndexFlags = IndexFlags_Index_StoreNumeric;
 
+/// Create a new inverted index instance based on the provided flags and options. The output
+/// parameter `mem_size` will be set to the memory usage of the created index. The inverted index
+/// should be freed using [`InvertedIndex_Free`] when no longer needed.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `mem_size` must be a valid pointer to a `usize`.
 #[unsafe(no_mangle)]
 pub extern "C" fn NewInvertedIndex_Ex(
     flags: IndexFlags,
@@ -214,22 +228,36 @@ pub extern "C" fn NewInvertedIndex_Ex(
             *mem_size = ii.memory_usage();
             InvertedIndex::Numeric(ii)
         }
-        _ => panic!("Unsupported index flags: {:?}", flags),
+        _ => panic!("Unsupported index flags: {flags:?}"),
     };
 
     let ii_boxed = Box::new(ii);
     Box::into_raw(ii_boxed)
 }
 
+/// Free the memory associated with the inverted index instance created using [`NewInvertedIndex_Ex`].
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance created using
+///   [`NewInvertedIndex_Ex`] or `NewInvertedIndex`.
+/// - `ii` must not be NULL.
 #[unsafe(no_mangle)]
-pub extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
+pub unsafe extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let _ = unsafe { Box::from_raw(ii) };
 }
 
+/// Get the memory usage of the inverted index instance in bytes.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and must not be NULL.
 #[unsafe(no_mangle)]
-pub extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usize {
+pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usize {
     use InvertedIndex::*;
 
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*ii };
     match ii {
         Full(ii) => ii.memory_usage(),
@@ -249,24 +277,42 @@ pub extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usize {
     }
 }
 
+/// Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
+/// with the `StoreNumeric` flag. The function returns the number of bytes the memory usage of the
+/// index grew by.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub extern "C" fn InvertedIndex_WriteNumericEntry(
+pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii: *mut InvertedIndex,
     doc_id: t_docId,
     value: f64,
 ) -> usize {
     let record = RSIndexResult::numeric(value).doc_id(doc_id);
 
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &mut *ii };
     ii.add_record(&record).unwrap()
 }
 
+/// Write a new entry to the inverted index. The function returns the number of bytes the memory
+/// usage of the index grew by.
+///
+/// # Safety
+/// The following invariants must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub extern "C" fn InvertedIndex_WriteEntryGeneric(
+pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     ii: *mut InvertedIndex,
     record: *const RSIndexResult,
 ) -> usize {
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &mut *ii };
+
+    // SAFETY: The caller must ensure that `record` is a valid pointer to an `RSIndexResult`
     let record = unsafe { &*record };
 
     ii.add_record(record).unwrap()
