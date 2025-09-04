@@ -318,14 +318,13 @@ target_link_libraries(redisearch
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
-        ${CMAKE_LD_LIBS}
-        stdc++)
+        ${CMAKE_LD_LIBS})
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 
-target_link_options(redisearch PRIVATE -static-libstdc++)
+target_link_options(redisearch PRIVATE -lstdc++)
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
