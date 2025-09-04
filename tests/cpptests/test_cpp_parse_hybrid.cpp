@@ -129,9 +129,9 @@ class ParseHybridTest : public ::testing::Test {
 }
 
 #define assertRRFScoringCtx(Constant, Window) { \
-  ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->rrfCtx.constant, Constant); \
-  ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, Window); \
+  ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
+  ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->rrfCtx.constant, Constant); \
+  ASSERT_EQ(result.hybridParams->scoringCtx->rrfCtx.window, Window); \
 }
 
 
