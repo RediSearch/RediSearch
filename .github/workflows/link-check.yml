@@ -30,7 +30,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip uv
-        uv pip install -r scripts/requirements-linkcheck.txt
+        uv pip install --system -r scripts/requirements-linkcheck.txt
         
     - name: Make script executable
       run: chmod +x scripts/check_links.py
