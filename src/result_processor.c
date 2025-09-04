@@ -1145,52 +1145,6 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
 }
 
 /*******************************************************************************************************************
- *  Scoring Processor
- *
- * It takes results from upstream, and using a scoring function applies the score to each one.
- *
- * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
- *******************************************************************************************************************/
-
-typedef struct {
-  ResultProcessor base;
-  size_t count;
-} RPCounter;
-
-static int rpcountNext(ResultProcessor *base, SearchResult *res) {
-  int rc;
-  RPCounter *self = (RPCounter *)base;
-
-  while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    self->count += 1;
-    SearchResult_Clear(res);
-  }
-
-  // Since this never returns RM_OK, in profile mode, count should be increased
-  // to compensate for EOF
-  if (base->upstream->type == RP_PROFILE) {
-    ((RPProfile *)base->parent->endProc)->profileCount++;
-  }
-
-  return rc;
-}
-
-static void rpcountFree(ResultProcessor *rp) {
-  RPCounter *self = (RPCounter *)rp;
-  rm_free(self);
-}
-
-/* Create a new counter. */
-ResultProcessor *RPCounter_New() {
-  RPCounter *ret = rm_calloc(1, sizeof(*ret));
-  ret->count = 0;
-  ret->base.Next = rpcountNext;
-  ret->base.Free = rpcountFree;
-  ret->base.type = RP_COUNTER;
-  return &ret->base;
-}
-
-/*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY
  *
  * returns timeout after N results, N >= 0.
