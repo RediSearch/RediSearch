@@ -129,6 +129,12 @@ typedef struct {
   int idx;
 } PLN_GroupStep;
 
+ /**
+  * Allocates and initializes a new group step.
+  * @param properties_ref StrongRef referencing the properties array (must be cloned by caller)
+  * @param nprops Number of properties to group by
+  * @return Pointer to the newly created group step
+  */
 PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, size_t nprops);
 
 /**

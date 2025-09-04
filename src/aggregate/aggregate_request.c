@@ -782,7 +782,7 @@ const char **PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
 
 PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, size_t nproperties) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
-  gstp->properties_ref = properties_ref;  // Take ownership, don't clone
+  gstp->properties_ref = properties_ref;
   gstp->nproperties = nproperties;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
