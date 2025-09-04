@@ -2020,22 +2020,16 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-IndexSpec *NewIndexSpec(const HiddenString *name) {
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
+static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name) {
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
-  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
-
   sp->timeout = 0;
   sp->isTimerSet = false;
   sp->timerId = 0;
@@ -2048,7 +2042,7 @@ IndexSpec *NewIndexSpec(const HiddenString *name) {
 
   memset(&sp->stats, 0, sizeof(sp->stats));
   sp->stats.indexError = IndexError_Init();
-
+  
   int res = 0;
   pthread_rwlockattr_t attr;
   res = pthread_rwlockattr_init(&attr);
@@ -2060,7 +2054,15 @@ IndexSpec *NewIndexSpec(const HiddenString *name) {
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
+}
 
+IndexSpec *NewIndexSpec(const HiddenString *name) {
+  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  initializeIndexSpec(sp, name);
+  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
+  sp->stopwords = DefaultStopWordList();
+  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
+  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
   return sp;
 }
 
