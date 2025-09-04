@@ -30,6 +30,8 @@
 #include "debug_commands.h"
 #include "search_result.h"
 
+#include "rlookup_rs.h"
+
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
  *

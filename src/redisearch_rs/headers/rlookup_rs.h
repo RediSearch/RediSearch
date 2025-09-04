@@ -10,6 +10,10 @@
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
 
+typedef struct RLookupRow {
+  uint8_t opaque;
+} RLookupRow;
+
 // forward declarations for types that are only used as a pointer
 typedef struct RSValue RSValue;
 
