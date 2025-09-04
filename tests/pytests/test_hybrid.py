@@ -390,31 +390,30 @@ class testHybridSearch:
             float(res_2['double_number']),
             delta=0.0000001)
 
-    # # TODO: Enable this test after fixing GROUPBY in hybrid search
-    # def test_knn_groupby(self):
-    #     """Test hybrid search using GROUPBY"""
-    #     if CLUSTER:
-    #         raise SkipTest()
-    #     hybrid_query = (
-    #         "SEARCH '@text:(even four)' "
-    #         "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
-    #         "LOAD 1 @tag "
-    #         "GROUPBY 1 @tag "
-    #         "REDUCE COUNT 0 AS count "
-    #     )
-    #     hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
-    #     res = self.env.executeCommand(*hybrid_cmd)
-    #     print(res)
-    #     self.env.assertEqual(res, [
-    #         'format', 'STRING',
-    #         'results',
-    #         [
-    #             ['attributes', [['tag', 'even', 'count', '2']]]
-    #         ],
-    #         'total_results', 1,
-    #         'warnings', [],
-    #         'execution_time', ANY
-    #     ])
+    def test_knn_groupby(self):
+        """Test hybrid search using GROUPBY"""
+        if CLUSTER:
+            raise SkipTest()
+        hybrid_query = (
+            "SEARCH '@text:(even four)' "
+            "VSIM @vector $BLOB FILTER @tag:{invalid_tag} "
+            "LOAD 1 @tag "
+            "GROUPBY 1 @tag "
+            "REDUCE COUNT 0 AS count "
+        )
+        hybrid_cmd = translate_hybrid_query(hybrid_query, self.vector_blob, self.index_name)
+        res = self.env.executeCommand(*hybrid_cmd)
+        print(res)
+        self.env.assertEqual(res, [
+            'format', 'STRING',
+            'results',
+            [
+                ['attributes', ['tag', 'even', 'count', '2']]
+            ],
+            'total_results', 1,
+            'warnings', [],
+            'execution_time', ANY
+        ])
 
     def test_knn_sortby_key_and_score(self):
         """Test hybrid search using SORTBY with key and score"""

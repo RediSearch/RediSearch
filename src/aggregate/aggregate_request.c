@@ -800,7 +800,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  const char **properties = array_new(const char *, nproperties);
+  const char **properties = array_newlen(const char *, nproperties);
   for (size_t i = 0; i < nproperties; ++i) {
     const char *property;
     size_t propertyLen;

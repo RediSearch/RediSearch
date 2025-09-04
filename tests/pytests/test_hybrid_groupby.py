@@ -16,6 +16,9 @@ doc:1, doc:2 and doc:3 are at distance 1 from the query vector [0,0]
 doc:4, doc:5 and doc:6 are at distance 2 from the query vector [0,0]
 doc:7, doc:8 and doc:9 are at distance 3 from the query vector [0,0]
 
+IMPORTANT: to save calculations, redis stores only the squared distance in the vector index,
+therefore we square the radius and numpy l2 norm to get the squared distance
+
 This allows controlling result set sizes with RADIUS:
 - RADIUS 1**2 → 3 results (distance 1)
 - RADIUS 2**2 → 6 results (distances 1-2)
