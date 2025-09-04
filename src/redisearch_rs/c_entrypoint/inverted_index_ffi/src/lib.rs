@@ -18,6 +18,7 @@ use ffi::{
 
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as II, RSIndexResult,
+    debug::Summary,
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     fields_only::{FieldsOnly, FieldsOnlyWide},
@@ -295,4 +296,16 @@ pub unsafe extern "C" fn InvertedIndex_NumDocs(ii: *const InvertedIndex) -> usiz
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*ii };
     ii_dispatch!(ii, unique_docs)
+}
+
+/// Get a summary of the inverted index for debugging purposes.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_Summary(ii: *const InvertedIndex) -> Summary {
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+    ii_dispatch!(ii, summary)
 }
