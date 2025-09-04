@@ -30,6 +30,7 @@ extern "C" {
  * @param ctx Redis module context
  * @param argv Command arguments array (starting with "FT.HYBRID")
  * @param argc Number of arguments in argv
+ * @param internal Whether the request is internal (true - shard in cluster setup, false - Coordinator in cluster setup or standalone)
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
 int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal);

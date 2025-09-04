@@ -389,12 +389,6 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
   }
 }
 
-/**
- * Main command handler for FT.HYBRID command.
- *
- * Parses command arguments, builds hybrid request structure, constructs execution pipeline,
- * and prepares for hybrid search execution.
- */
 int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool internal) {
   // Index name is argv[1]
   if (argc < 2) {
