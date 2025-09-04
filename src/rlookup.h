@@ -16,6 +16,7 @@
 #include "value.h"
 #include "sortable.h"
 #include "util/arr.h"
+#include "rlookup_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -105,24 +106,6 @@ typedef struct RLookup {
 // If a loader was added to load the entire document, this flag will allow
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
-
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
-typedef struct {
-  /** Sorting vector attached to document */
-  const RSSortingVector *sv;
-
-  /** Dynamic values obtained from prior processing */
-  RSValue **dyn;
-
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
-  size_t ndyn;
-} RLookupRow;
 
 static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
 static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
@@ -251,21 +234,6 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
  */
 
 /**
- * Write a value to a lookup table. Key must already be registered, and not
- * refer to a read-only (SVSRC) key.
- *
- * The value written will have its refcount incremented
- */
-void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-
-/**
- * Exactly like RLookup_WriteKey, but does not increment the refcount, allowing
- * idioms such as RLookup_WriteKey(..., RS_NumVal(10)); which would otherwise cause
- * a leak.
- */
-void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *value);
-
-/**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
@@ -278,49 +246,6 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
  * Like WriteKeyByName, but consumes a refcount
  */
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
-
-/** Get a value from the row, provided the key.
- *
- * This does not actually "search" for the key, but simply performs array
- * lookups!
- *
- * @param lookup The lookup table containing the lookup table data
- * @param key the key that contains the index
- * @param row the row data which contains the value
- * @return the value if found, NULL otherwise.
- */
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
-  
-  RSValue *ret = NULL;
-  if (row->dyn && array_len(row->dyn) > key->dstidx) {
-    ret = row->dyn[key->dstidx];
-  }
-  if (!ret) {
-    if (key->flags & RLOOKUP_F_SVSRC) {
-      const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
-      if (sv && RSSortingVector_Length(sv) > key->svidx) {
-        ret = RSSortingVector_Get(sv, key->svidx);
-        if (ret != NULL && ret == RS_NullVal()) {
-          ret = NULL;
-        }
-      }
-    }
-  }
-  return ret;
-}
-
-/**
- * Wipes the row, retaining its memory but decrefing any included values.
- * This does not free all the memory consumed by the row, but simply resets
- * the row data (preserving any caches) so that it may be refilled.
- */
-void RLookupRow_Wipe(RLookupRow *row);
-
-/**
- * Frees all the memory consumed by the row. Implies Wipe(). This should be used
- * when the row object will no longer be used.
- */
-void RLookupRow_Reset(RLookupRow *row);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */

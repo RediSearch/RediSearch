@@ -17,6 +17,8 @@
 #include "util/arr.h"
 #include "iterators/empty_iterator.h"
 #include "rs_wall_clock.h"
+#include "rlookup_rs.h"
+
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/

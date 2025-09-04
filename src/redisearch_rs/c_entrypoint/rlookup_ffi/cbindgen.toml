@@ -6,7 +6,11 @@ after_includes = """
 // forward declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
- 
+
+typedef struct RLookupRow {
+  uint8_t opaque;
+} RLookupRow;
+
 // forward declarations for types that are only used as a pointer
 typedef struct RSValue RSValue;
 
@@ -27,4 +31,6 @@ exclude = ["RLookup", "RLookupRow"]
 [export.rename]
 "CStr" = "FatPtr"
 "Owned" = "FatPtr"
+"RLookup" = "struct RLookup"
+"RLookupKey" = "struct RLookupKey"
 "RLookupRow_RSValueFFI" = "RLookupRow"

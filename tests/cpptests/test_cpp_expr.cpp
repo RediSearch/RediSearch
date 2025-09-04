@@ -13,6 +13,8 @@
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
 
+#include "rlookup_rs.h"
+
 class ExprTest : public ::testing::Test {
  public:
   static void SetUpTestCase() {

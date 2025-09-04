@@ -10,6 +10,8 @@
 #include "rlookup.h"
 #include "gtest/gtest.h"
 
+#include "rlookup_rs.h"
+
 class RLookupTest : public ::testing::Test {};
 
 TEST_F(RLookupTest, testInit) {

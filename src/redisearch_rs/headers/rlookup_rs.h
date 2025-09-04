@@ -9,7 +9,11 @@
 // forward declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
- 
+
+typedef struct RLookupRow {
+  uint8_t opaque;
+} RLookupRow;
+
 // forward declarations for types that are only used as a pointer
 typedef struct RSValue RSValue;
 
@@ -107,6 +111,20 @@ enum RLookupOption
 typedef uint32_t RLookupOption;
 #endif // __cplusplus
 
+/**
+ * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
+ * or from dynamic values stored in the row during processing.
+ *
+ * The type itself exposes the dynamic values, [`RLookupRow::dyn_values`], as a vector of `Option<T>`, where `T` is the type
+ * of the value and it also provides methods to get the length of the dynamic values and check if they are empty.
+ *
+ * The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
+ * [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
+ *
+ * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
+ */
+typedef struct RLookupRow RLookupRow;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -130,7 +148,7 @@ RSValue *RLookup_GetItem(const struct RLookupKey *key,
  * 2. `row` must be a valid pointer to an [`RLookupRow`].
  * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
  */
-void RLookup_WriteKey(const RLookupKey *key,
+void RLookup_WriteKey(const struct RLookupKey *key,
                       RLookupRow *row,
                       RSValue *value);
 
@@ -142,7 +160,7 @@ void RLookup_WriteKey(const RLookupKey *key,
  * 2. `row` must be a valid pointer to an [`RLookupRow`].
  * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
  */
-void RLookup_WriteOwnKey(const RLookupKey *key,
+void RLookup_WriteOwnKey(const struct RLookupKey *key,
                          RLookupRow *row,
                          RSValue *value);
 
