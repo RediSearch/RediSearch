@@ -519,6 +519,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         self.number_of_entries
     }
 
+    /// Returns the number of unique documents in the index.
+    pub fn unique_docs(&self) -> usize {
+        self.index.unique_docs()
+    }
+
     /// Returns the flags of this index.
     pub fn flags(&self) -> IndexFlags {
         self.index.flags()
@@ -589,6 +594,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// The memory size of the index in bytes.
     pub fn memory_usage(&self) -> usize {
         self.index.memory_usage() + std::mem::size_of::<t_fieldMask>()
+    }
+
+    /// Returns the number of unique documents in the index.
+    pub fn unique_docs(&self) -> usize {
+        self.index.unique_docs()
     }
 
     /// Returns the flags of this index.

@@ -110,6 +110,15 @@ uintptr_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
  */
 IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
 
+/**
+ * Get the number of unique documents in the inverted index.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+uintptr_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
