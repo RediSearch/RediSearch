@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "config.h"
 #include "spec.h"
+#include "types_rs.h"
 
 typedef struct InvertedIndex InvertedIndex;
 
@@ -23,6 +24,10 @@ struct InvertedIndex *NewInvertedIndex_Ex(IndexFlags flags,
 void InvertedIndex_Free(struct InvertedIndex *ii);
 
 uintptr_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
+
+uintptr_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
+
+uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
 
 #ifdef __cplusplus
 }  // extern "C"
