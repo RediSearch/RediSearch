@@ -30,11 +30,12 @@ protected:
   const t_docId maxDocId = 100;
   const size_t numDocs = 50;
   const double weight = 2.0;
+  const double childWeight = 3.0;
 
   void SetUp() override {
     // Create child iterator with specific docIds
     childDocIds = {10, 20, 30, 50, 80};
-    QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
+    QueryIterator *child = (QueryIterator *)new MockIterator(childWeight, childDocIds);
 
     // Create optional iterator with child
     MockQueryEvalCtx ctx(maxDocId, numDocs);
@@ -65,7 +66,7 @@ TEST_F(OptionalIteratorTest, ReadMixedResults) {
 
     if (isRealHit) {
       // Real hit should have the weight applied
-      ASSERT_EQ(iterator_base->current->weight, weight);
+      ASSERT_EQ(iterator_base->current->weight, weight * childWeight);
       ASSERT_EQ(iterator_base->current, oi->child->current);
     } else {
       // Virtual hit
@@ -84,7 +85,7 @@ TEST_F(OptionalIteratorTest, SkipToRealHit) {
   // Skip to a docId that exists in child
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, 20), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current->docId, 20);
-  ASSERT_EQ(iterator_base->current->weight, weight);
+  ASSERT_EQ(iterator_base->current->weight, weight * childWeight);
   ASSERT_EQ(iterator_base->lastDocId, 20);
 
   // Should be real hit from child
@@ -118,7 +119,7 @@ TEST_F(OptionalIteratorTest, SkipToSequence) {
 
     if (isRealHit) {
       ASSERT_EQ(iterator_base->current, oi->child->current);
-      ASSERT_EQ(iterator_base->current->weight, weight);
+      ASSERT_EQ(iterator_base->current->weight, weight * childWeight);
     } else {
       ASSERT_EQ(iterator_base->current, oi->virt);
     }
@@ -166,7 +167,7 @@ TEST_F(OptionalIteratorTest, WeightApplication) {
     iterator_base->Rewind(iterator_base);
     ASSERT_EQ(iterator_base->SkipTo(iterator_base, docId), ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, docId);
-    ASSERT_EQ(iterator_base->current->weight, weight);
+    ASSERT_EQ(iterator_base->current->weight, weight * childWeight);
 
     // Verify it's a real hit from child
     OptionalIterator *oi = (OptionalIterator *)iterator_base;
