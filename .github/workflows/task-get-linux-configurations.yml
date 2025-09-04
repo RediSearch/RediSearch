@@ -35,7 +35,8 @@ env:
                     'amazonlinux:2023',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                     'mcr.microsoft.com/azurelinux/base/core:3.0',
-                    'alpine:3']"
+                    'alpine:3',
+                    'silkeh/clang:20']"
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'rockylinux:8',
@@ -175,7 +176,7 @@ jobs:
               'pre-deps': "apk add bash gcompat libstdc++ libgcc git"})
 
           # Ubuntu and Debian distributions need git pre-checkout dependencies
-          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'gcc:12-bookworm', 'gcc:11-bullseye']
+          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'gcc:12-bookworm', 'gcc:11-bullseye', 'silkeh/clang:20']
           for os_name in debian_based_os:
             if os_name in x86_platforms:
               x86_include.append({
