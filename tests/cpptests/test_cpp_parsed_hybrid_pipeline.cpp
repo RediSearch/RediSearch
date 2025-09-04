@@ -222,7 +222,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestPipelineBuildingBasic) {
                       "LOAD", "2", "@title", "@score");
 
   HYBRID_TEST_SETUP("test_idx2", args);
-  
+
   // Verify that individual request pipelines have proper LOAD steps
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
     PLN_LoadStep *requestLoadStep = (PLN_LoadStep *)AGPLN_FindStep(&hybridReq->requests[i]->pipeline.ap, NULL, NULL, PLN_T_LOAD);
@@ -235,15 +235,15 @@ TEST_F(HybridRequestParseTest, testHybridRequestPipelineBuildingBasic) {
 }
 
 // Test hybrid request with RRF scoring and custom K parameter
-TEST_F(HybridRequestParseTest, testHybridRequestRRFScoringWithCustomK) {
+TEST_F(HybridRequestParseTest, testHybridRequestRRFScoringWithCustomConstant) {
   // Create a hybrid query with SEARCH and VSIM subqueries, RRF scoring with custom K parameter
-  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_rrf_custom_k",
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_rrf_custom_constant",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "2", "K", "10.0",
+                      "COMBINE", "RRF", "2", "CONSTANT", "10.0",
                       "LOAD", "3", "@title", "@score", "@category");
 
-  HYBRID_TEST_SETUP("test_rrf_custom_k", args);
+  HYBRID_TEST_SETUP("test_rrf_custom_constant", args);
 
   // Verify that RRF scoring with custom K was properly configured
   // This is tested by verifying the pipeline builds successfully with RRF K=10.0 parameters
