@@ -144,9 +144,9 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
 }
 
 // Helper function to create hybrid merger with RRF scoring
-ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double k, size_t window) {
+ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double constant, size_t window) {
   // Create HybridScoringContext using constructor
-  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewRRF(k, window, false);
+  HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewRRF(constant, window, false);
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
@@ -456,7 +456,7 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 2); // k=60, window=2
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 2); // constant=60, window=2
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -475,7 +475,7 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
 
     // Verify RRF scores - each document gets score based on its rank
     // With window=2, only top 2 from each upstream are considered
-    // Expected RRF scores (k=60):
+    // Expected RRF scores (constant=60):
     // doc1: 1/(60+1) = 1/61 ≈ 0.0164 (rank 1 in upstream1)
     // doc2: 1/(60+2) = 1/62 ≈ 0.0161 (rank 2 in upstream1)
     // doc11: 1/(60+1) = 1/61 ≈ 0.0164 (rank 1 in upstream2)
@@ -528,7 +528,7 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 10); // k=60, window=10
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 10); // constant=60, window=10
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -545,7 +545,7 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
 
     // Verify RRF scores - each document gets combined score from both upstreams
-    // Expected RRF scores (k=60):
+    // Expected RRF scores (constant=60):
     // Upstream1 yields: doc1=0.9(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
     // Upstream2 yields: doc3=0.8(rank1), doc1=0.4(rank2), doc2=0.2(rank3)
     //
@@ -822,7 +822,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
  * Intersection: Full intersection (same documents from both upstreams)
  * Emptiness: Both upstreams have documents
  * Timeout: No timeout
- * Expected behavior: Each document gets RRF score combining ranks from both upstreams: 1/(k+rank1) + 1/(k+rank2)
+ * Expected behavior: Each document gets RRF score combining ranks from both upstreams: 1/(constant+rank1) + 1/(constant+rank2)
  */
 TEST_F(HybridMergerTest, testRRFScoring) {
   QueryIterator qitr = {0};
@@ -845,7 +845,7 @@ TEST_F(HybridMergerTest, testRRFScoring) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // k=60, window=4
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // constant=60, window=4
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -863,7 +863,7 @@ TEST_F(HybridMergerTest, testRRFScoring) {
     EXPECT_TRUE(r.dmd->keyPtr != nullptr);
 
     // Verify RRF scores - each document gets combined score from both upstreams
-    // Expected RRF scores (k=60):
+    // Expected RRF scores (constant=60):
     // Upstream1 yields: doc1=0.7(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
     // Upstream2 yields: doc2=0.9(rank1), doc1=0.3(rank2), doc3=0.2(rank3)
     //
@@ -1025,7 +1025,7 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 5); // k=60, window=5
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 5); // constant=60, window=5
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -1097,7 +1097,7 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   array_ensure_append_1(upstreams, rp3);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 3, 60, 5); // k=60, window=5
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 3, 60, 5); // constant=60, window=5
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -1105,7 +1105,7 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   SearchResult r = {0};
   ResultProcessor *rpTail = qitr.endProc;
 
-  // Expected RRF scores (k=60):
+  // Expected RRF scores (constant=60):
   // Upstream1 yields: doc1=0.9(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
   // Upstream2 yields: doc2=0.8(rank1), doc3=0.4(rank2), doc1=0.2(rank3)
   // Upstream3 yields: doc3=0.7(rank1), doc1=0.6(rank2), doc2=0.3(rank3)
@@ -1259,7 +1259,7 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // k=60, window=4
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // constant=60, window=4
 
   QITR_PushRP(&qitr, hybridMerger);
 
