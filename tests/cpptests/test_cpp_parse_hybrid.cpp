@@ -119,9 +119,9 @@ class ParseHybridTest : public ::testing::Test {
   ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->linearCtx.linearWeights[1], Weight1); \
 }
 
-#define assertRRFScoringCtx(K, Window) { \
+#define assertRRFScoringCtx(Constant, Window) { \
   ASSERT_EQ(result->hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF); \
-  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->rrfCtx.k, K); \
+  ASSERT_DOUBLE_EQ(result->hybridParams->scoringCtx->rrfCtx.constant, Constant); \
   ASSERT_EQ(result->hybridParams->scoringCtx->rrfCtx.window, Window); \
 }
 
@@ -136,7 +136,7 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
@@ -159,7 +159,7 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 500);
@@ -180,7 +180,7 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify default scoring type is RRF
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set correctly
   ASSERT_EQ(result->requests[0]->reqConfig.queryTimeoutMS, 240);
@@ -222,16 +222,19 @@ TEST_F(ParseHybridTest, testWithCombineRRF) {
   ASSERT_EQ(memcmp(vecReq->ast.root->vn.vq->knn.vector, expectedBlob, expectedBlobLen), 0);
 
   // Verify RRF scoring type was set
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 }
 
-TEST_F(ParseHybridTest, testWithCombineRRFWithK) {
-  // Test with RRF combine method with explicit K parameter
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "1.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+TEST_F(ParseHybridTest, testWithCombineRRFWithConstant) {
+  // Test with RRF combine method with explicit CONSTANT parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "2", "CONSTANT", "1.5",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
-  // Verify RRF scoring type was set with custom K value
+  // Verify RRF scoring type was set with custom CONSTANT value
   assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW not specified)
@@ -245,32 +248,38 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithWindow) {
   parseCommand(args);
 
   // Verify RRF scoring type was set with custom WINDOW value
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 25);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
-TEST_F(ParseHybridTest, testWithCombineRRFWithKAndWindow) {
-  // Test with RRF combine method with both K and WINDOW parameters
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "4", "K", "160", "WINDOW", "25", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+TEST_F(ParseHybridTest, testWithCombineRRFWithConstantAndWindow) {
+  // Test with RRF combine method with both CONSTANT and WINDOW parameters
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "4", "CONSTANT", "160", "WINDOW", "25",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
-  // Verify RRF scoring type was set with both custom K and WINDOW values
+  // Verify RRF scoring type was set with both custom CONSTANT and WINDOW values
   assertRRFScoringCtx(160, 25);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
 }
 
-TEST_F(ParseHybridTest, testWithCombineRRFWithFloatK) {
-  // Test with RRF combine method with floating-point K parameter
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "1.5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+TEST_F(ParseHybridTest, testWithCombineRRFWithFloatConstant) {
+  // Test with RRF combine method with floating-point CONSTANT parameter
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "2", "CONSTANT", "1.5",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
-  // Verify RRF scoring type was set with custom floating-point K value
+  // Verify RRF scoring type was set with custom floating-point CONSTANT value
   assertRRFScoringCtx(1.5, HYBRID_DEFAULT_WINDOW);
 
   // Verify hasExplicitWindow flag is false (WINDOW was not specified)
@@ -301,7 +310,7 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
   ASSERT_EQ(result->nrequests, 2);
 
   // Verify RRF scoring type was set with explicit WINDOW value (30), not LIMIT fallback
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, 30);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, 30);
 
   // Verify hasExplicitWindow flag is true (WINDOW was specified)
   ASSERT_TRUE(result->hybridParams->scoringCtx->rrfCtx.hasExplicitWindow);
@@ -341,7 +350,7 @@ TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   ASSERT_TRUE(arng->sortKeys != NULL);
 
   // Verify default RRF scoring type was set
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 }
 
 TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
@@ -355,7 +364,7 @@ TEST_F(ParseHybridTest, testNoSortByDoesNotDisableImplicitSort) {
   ASSERT_TRUE(arrangeStep == NULL);
 
   // Verify default RRF scoring type was set
-  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW);
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 }
 
 // Tests for parseVectorSubquery functionality (VSIM tests)
@@ -880,8 +889,11 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 // QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
 // These validation tests should be in execution tests, not parsing tests.
 
-TEST_F(ParseHybridTest, testCombineRRFInvalidKValue) {
-  // Test RRF with invalid K value (non-numeric)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "2", "K", "invalid", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid K value in RRF");
+TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
+  // Test RRF with invalid CONSTANT value (non-numeric)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "2", "CONSTANT", "invalid",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
 }

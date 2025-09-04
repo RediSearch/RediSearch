@@ -17,20 +17,20 @@
  * Compute Reciprocal Rank Fusion (RRF) score for a document.
  *
  * RRF is used to combine multiple ranked lists into a single score.
- * Each system contributes to the score as 1 / (k + rank), where lower
+ * Each system contributes to the score as 1 / (constant + rank), where lower
  * ranks (i.e., higher relevance) contribute more.
  *
  * Formula:
- *     RRF_score = Σ (1 / (k + rank_i)) for all i where has_rank[i] is true
+ *     RRF_score = Σ (1 / (constant + rank_i)) for all i where has_rank[i] is true
  *
  * - ranks[i] is assumed to be 1-based (i.e., 1 is the best rank).
  * - If a document is not ranked by system i, has_rank[i] should be false.
- * - A typical value for k is 60, which dampens the effect of lower rankings.
+ * - A typical value for constant is 60, which dampens the effect of lower rankings.
  *
+ * @param scoringCtx  Scoring context containing RRF parameters (constant, window)
  * @param ranks       Array of rank values (e.g., ranks[i] is the rank assigned by system i).
  * @param has_rank    Array of booleans indicating whether a rank was assigned by system i.
  * @param num_sources Number of rank sources (i.e., size of ranks[] and has_rank[]).
- * @param k           Damping constant, Higher values reduce the influence of low-ranked documents.
  *
  * @return RRF score as a double. Higher scores indicate higher relevance.
  */
@@ -41,7 +41,7 @@ double HybridRRFScore(HybridScoringContext *scoringCtx, const double *ranks, con
     double score = 0.0;
     for (size_t i = 0; i < num_sources; ++i) {
         if (has_rank[i]) {
-            score += 1.0 / (scoringCtx->rrfCtx.k + ranks[i]);
+            score += 1.0 / (scoringCtx->rrfCtx.constant + ranks[i]);
         }
     }
     return score;
@@ -60,7 +60,7 @@ double HybridRRFScore(HybridScoringContext *scoringCtx, const double *ranks, con
  * - weights[i] is the weight assigned to source i.
  * - If a document is not scored by system i, has_score[i] should be false.
  *
- * @param ctx         Scoring context containing weights,
+ * @param scoringCtx  Scoring context containing weights
  * @param scores      Array of score values (e.g., scores[i] is the score assigned by system i).
  * @param has_score   Array of booleans indicating whether a score was assigned by system i.
  * @param num_sources Number of score sources (i.e., size of scores[] and has_score[]).
@@ -83,16 +83,16 @@ double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores,
  * Constructor for RRF scoring context.
  * Creates a new HybridScoringContext configured for RRF scoring.
  *
- * @param k RRF k parameter (supports floating-point values)
+ * @param constant RRF constant parameter (supports floating-point values)
  * @param window Window size for result processing
  * @param hasExplicitWindow Whether window was explicitly set by user
  * @return Allocated HybridScoringContext or NULL on failure
  */
-HybridScoringContext* HybridScoringContext_NewRRF(double k, size_t window, bool hasExplicitWindow) {
+HybridScoringContext* HybridScoringContext_NewRRF(double constant, size_t window, bool hasExplicitWindow) {
     HybridScoringContext *ctx = rm_calloc(1, sizeof(HybridScoringContext));
 
     ctx->scoringType = HYBRID_SCORING_RRF;
-    ctx->rrfCtx.k = k;
+    ctx->rrfCtx.constant = constant;
     ctx->rrfCtx.window = window;
     ctx->rrfCtx.hasExplicitWindow = hasExplicitWindow;
 
@@ -132,7 +132,7 @@ HybridScoringContext* HybridScoringContext_NewLinear(const double *weights, size
  * @return Allocated HybridScoringContext or NULL on failure
  */
 HybridScoringContext* HybridScoringContext_NewDefault(void) {
-    return HybridScoringContext_NewRRF(HYBRID_DEFAULT_RRF_K, HYBRID_DEFAULT_WINDOW, false);
+    return HybridScoringContext_NewRRF(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW, false);
 }
 
 /**
