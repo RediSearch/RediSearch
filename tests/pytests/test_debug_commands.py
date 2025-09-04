@@ -1125,6 +1125,11 @@ def test_query_controller_add_before_after(env):
     for before in [True, False]:
 
         target_func = runDebugQueryCommandPauseBeforeRPAfterN if before else runDebugQueryCommandPauseAfterRPAfterN
+
+        # Check wrong RP type error
+        cmd_str = 'BEFORE' if before else 'AFTER'
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 0, 'InvalidRP','DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Invalid PAUSE_{cmd_str}_RP_N RP type")
         # Build threads
         t_query = threading.Thread(
             target=target_func,

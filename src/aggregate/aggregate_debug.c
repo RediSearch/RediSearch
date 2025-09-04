@@ -170,6 +170,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       return REDISMODULE_ERR;
     }
     ResultProcessorType rp_type = StringToRPType(rp_type_str);
+    // Verify the RP type is valid, not a debug RP type
     if (rp_type == RP_MAX) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s RP type", invalidStr);
       return REDISMODULE_ERR;
