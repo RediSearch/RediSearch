@@ -445,7 +445,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       const char *strErr = MRReply_String(nc->current.root, NULL);
       if (!strErr
           || strcmp(strErr, "Timeout limit was reached")
-          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+          || nc->areq->reqConfig.timeoutPolicy == FailurePolicy_Fail) {
         QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
       }
