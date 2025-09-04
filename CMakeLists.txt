@@ -301,6 +301,8 @@ endif()
 set_target_properties(redisearch
     PROPERTIES
     LINKER_LANGUAGE CXX
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
     C_STANDARD 17
     C_STANDARD_REQUIRED ON)
 setup_shared_object_target(redisearch "")
@@ -324,7 +326,8 @@ extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 
-target_link_options(redisearch PRIVATE -lstdc++)
+target_link_libraries(redisearch stdc++)
+target_link_options(redisearch PRIVATE -static-libgcc)
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
