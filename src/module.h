@@ -29,6 +29,8 @@ void RediSearch_CleanupModule(void);
 // Indicates that RediSearch_Init was called
 extern int RS_Initialized;
 
+#define NODEBUG_ERR "Debug commands are disabled, please follow the redis configuration guide to enable them"
+
 #define RS_AutoMemory(ctx)                      \
 do {                                            \
   RedisModule_Assert(ctx != RSDummyContext);    \
