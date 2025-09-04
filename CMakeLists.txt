@@ -326,9 +326,9 @@ extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 
-# Force dynamic C++ standard library linking
+# Force dynamic C++ standard library linking and override any static flags
 target_link_libraries(redisearch stdc++)
-target_link_options(redisearch PRIVATE -shared-libgcc)
+target_link_options(redisearch PRIVATE -shared-libgcc -shared-libstdc++)
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
