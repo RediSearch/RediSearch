@@ -9,8 +9,9 @@ extern "C" {
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
                                      const RLookupKey ***loadKeys, QueryError *err) {
   const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
+  const char **properties = PLNGroupStep_GetProperties(gstp);
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-    const char *fldname = gstp->properties[ii] + 1;  // account for the @-
+    const char *fldname = properties[ii] + 1;  // account for the @-
     size_t fldname_len = strlen(fldname);
     srckeys[ii] = RLookup_GetKey_ReadEx(srclookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {

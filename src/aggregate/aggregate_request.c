@@ -710,7 +710,8 @@ static void groupStepFree(PLN_BaseStep *base) {
     }
     array_free(g->reducers);
   }
-  array_free(g->properties);  // Just free array, strings are not owned by the group step
+
+  StrongRef_Release(g->properties_ref);
 
   RLookup_Cleanup(&g->lookup);
   rm_free(base);
@@ -774,9 +775,14 @@ static void genericStepFree(PLN_BaseStep *p) {
   rm_free(p);
 }
 
-PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
+// Helper function to get properties from StrongRef
+const char **PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
+  return (const char **)StrongRef_Get(gstp->properties_ref);
+}
+
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, size_t nproperties) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
-  gstp->properties = properties;
+  gstp->properties_ref = properties_ref;  // Take ownership, don't clone
   gstp->nproperties = nproperties;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
@@ -815,7 +821,8 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   }
 
   // Number of fields.. now let's see the reducers
-  PLN_GroupStep *gstp = PLNGroupStep_New(properties, nproperties);
+  StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
+  PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref, nproperties);
   AGPLN_AddStep(plan, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
@@ -1361,6 +1368,7 @@ void AREQ_Free(AREQ *req) {
 
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
+    req->args[ii] = NULL;
   }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {

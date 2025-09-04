@@ -297,9 +297,10 @@ void AGPLN_Dump(const AGGPlan *pln) {
       }
       case PLN_T_GROUP: {
         const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+        const char **properties = PLNGroupStep_GetProperties(gstp);
         printf("  BY:\n");
         for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          printf("    %s\n", gstp->properties[ii]);
+          printf("    %s\n", properties[ii]);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
           const PLN_Reducer *r = gstp->reducers + ii;
@@ -392,10 +393,11 @@ static void serializeLoad(myArgArray_t *arr, const PLN_BaseStep *stp) {
 
 static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   const PLN_GroupStep *gstp = (PLN_GroupStep *)stp;
+  const char **properties = PLNGroupStep_GetProperties(gstp);
   append_string(arr, "GROUPBY");
   append_uint(arr, gstp->nproperties);
   for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-    append_string(arr, gstp->properties[ii]);
+    append_string(arr, properties[ii]);
   }
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
