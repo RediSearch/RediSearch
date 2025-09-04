@@ -35,6 +35,19 @@ jobs:
     - name: Make script executable
       run: chmod +x scripts/check_links.py
       
+    - name: Debug - Check working directory and file
+      run: |
+        echo "=== Current working directory ==="
+        pwd
+        echo "=== Directory contents ==="
+        ls -la
+        echo "=== Checking if tests/pytests/requirements.txt exists ==="
+        ls -la tests/pytests/requirements.txt || echo "File not found"
+        echo "=== Contents of tests/pytests directory ==="
+        ls -la tests/pytests/ || echo "Directory not found"
+        echo "=== Git status ==="
+        git status --porcelain
+
     - name: Check links in documentation
       run: |
         python scripts/check_links.py . \

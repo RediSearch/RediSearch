@@ -230,7 +230,7 @@ class LinkChecker:
             return True, f"OK ({response.status_code})"
 
         except (requests.exceptions.HTTPError, requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout) as e:
+                requests.exceptions.Timeout):
             # If requests fails, try curl as fallback
             if anchor:
                 # For URLs with anchors, we can't easily verify anchors with curl
@@ -256,24 +256,7 @@ class LinkChecker:
         results = []
 
         for url, line_num, link_type in links:
-            # Handle request exceptions for absolute URLs
-            try:
-                is_valid, message = self.check_url_with_anchor(url, link_type)
-            except requests.exceptions.Timeout:
-                is_valid, message = False, "Timeout"
-            except requests.exceptions.ConnectionError:
-                is_valid, message = False, "Connection error"
-            except requests.exceptions.HTTPError as e:
-                status_code = e.response.status_code
-                if status_code == 403:
-                    is_valid, message = False, f"HTTP 403 (Forbidden - site may block automated requests)"
-                elif status_code == 404:
-                    is_valid, message = False, f"HTTP 404 (Not Found)"
-                else:
-                    is_valid, message = False, f"HTTP {status_code}"
-            except Exception as e:
-                is_valid, message = False, f"Error: {str(e)}"
-
+            is_valid, message = self.check_url_with_anchor(url, link_type)
             results.append((url, line_num, is_valid, message, link_type))
 
             # Add delay to be respectful to servers (only for absolute URLs)
