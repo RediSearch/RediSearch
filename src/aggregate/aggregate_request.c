@@ -710,7 +710,7 @@ static void groupStepFree(PLN_BaseStep *base) {
     }
     array_free(g->reducers);
   }
-  array_free_ex(g->properties, rm_free(*(char**)ptr));
+  array_free(g->properties);  // Just free array, strings are not owned by the group step
 
   RLookup_Cleanup(&g->lookup);
   rm_free(base);
@@ -809,7 +809,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
                          property, property);
       return REDISMODULE_ERR;
     }
-    properties[i] = rm_strndup(property, propertyLen);
+    properties[i] = property;
   }
 
   // Number of fields.. now let's see the reducers
