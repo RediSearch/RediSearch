@@ -4,6 +4,16 @@ import platform
 from time import sleep
 import threading
 import time
+import psutil
+
+
+def get_open_file_count(pid):
+    """Get open file count using psutil library"""
+    try:
+        p = psutil.Process(pid)
+        return p.num_fds()
+    except psutil.NoSuchProcess:
+        return 0
 
 @skip(cluster=True)
 def testBasicGC(env):
@@ -420,15 +430,26 @@ def test_gc_oom(env):
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
     env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
     num_docs = 10
+    # Create index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    # Add some documents
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 't', f'name{i}').equal(1)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    waitForIndex(env, 'idx')
+
+    # Get open file count
+    redis_server_pid = env.executeCommand('info')['process_id']
+    open_files_before_gc = get_open_file_count(redis_server_pid)
+    env.assertGreater(open_files_before_gc, 0)
+
+    set_tight_maxmemory_for_oom(env)
+
+    # Delete them all
     for i in range(num_docs):
         env.expect('DEL', f'doc{i}').equal(1)
-
-    env.expect('config', 'set', 'maxmemory', 1).ok()
-    forceInvokeGC(env, 'idx')
+        forceInvokeGC(env)
+        # Verify no open file descriptors were left behind
+        open_files_after_skip_gc = get_open_file_count(redis_server_pid)
+        env.assertEqual(open_files_before_gc, open_files_after_skip_gc)
 
     # Verify no bytes collected by GC
     info = index_info(env, 'idx')
@@ -437,7 +458,7 @@ def test_gc_oom(env):
     env.assertEqual(bytes_collected, 0)
 
     # Increase memory and rerun GC
-    env.expect('config', 'set', 'maxmemory', 0).ok()
+    set_unlimited_maxmemory_for_oom(env)
     forceInvokeGC(env, 'idx')
 
     # Verify bytes collected by GC is more than 0
@@ -445,3 +466,6 @@ def test_gc_oom(env):
     gc_dict = to_dict(info["gc_stats"])
     bytes_collected = int(gc_dict['bytes_collected'])
     env.assertGreater(bytes_collected, 0)
+
+    open_files_after_gc = get_open_file_count(redis_server_pid)
+    env.assertEqual(open_files_before_gc, open_files_after_gc)
