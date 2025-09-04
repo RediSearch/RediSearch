@@ -1509,7 +1509,6 @@ void PipelineAddCrash(struct AREQ *r) {
  *******************************************************************************************************************/
 extern DebugCTX globalDebugCtx;
 
-
 typedef struct {
   ResultProcessor base;
   uint32_t count;
