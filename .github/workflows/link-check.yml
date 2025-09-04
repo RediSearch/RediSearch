@@ -44,7 +44,7 @@ jobs:
       
     - name: Upload results on failure
       if: failure()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: link-check-results
         path: |
