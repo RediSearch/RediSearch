@@ -129,9 +129,6 @@ typedef struct {
   int idx;
 } PLN_GroupStep;
 
-/**
- * Returns a new group step with the appropriate constructor (takes ownership of StrongRef)
- */
 PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref, size_t nprops);
 
 /**
