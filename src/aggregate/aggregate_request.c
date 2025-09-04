@@ -802,11 +802,13 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
     rv = AC_GetString(ac, &property, &propertyLen, 0);
     if (rv != AC_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
+      array_free(properties);
       return REDISMODULE_ERR;
     }
     if (property[0] != '@') {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
                          property, property);
+      array_free(properties);
       return REDISMODULE_ERR;
     }
     properties[i] = property;
