@@ -1516,10 +1516,6 @@ typedef struct {
   bool paused;
 } RPPauseAfterCount;
 
-void PipelineAddPauseAfterCount(AREQ *r, size_t results_count) {
-  ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
-  addResultProcessor(r, RPPauseAfterCount);
-}
 
 bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type) {
   ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);

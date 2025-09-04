@@ -1078,8 +1078,8 @@ def test_query_controller_pause_and_resume(env):
         # Build threads
         t_query = threading.Thread(
             target=_call_and_store,
-            args=(runDebugQueryCommandPauseAfterN,
-                (env, [query_type, 'idx', '*'], 0),
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, [query_type, 'idx', '*'], 0, 'Index'),
                 query_result),
             daemon=True
         )

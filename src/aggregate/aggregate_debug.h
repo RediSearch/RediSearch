@@ -41,9 +41,6 @@
  *         - Only applicable in FT.AGGREGATE cluster mode.
  *         - If specified, the timeout applies solely to internal shard queries,
  *           without affecting the coordinator pipeline.
- *       - **`PAUSE_AFTER_N <N>`**:
- *         - Pauses execution after `<N>` results are processed by the current pipeline.
- *         - Requires an explicit resume (see **Query Controller** below).
  *       - **`PAUSE_AFTER_RP_N <N> <RP_TYPE>`**:
  *         - Inserts a pause RP **after** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
  *           flow past that RP. Fails if `<RP_TYPE>` is invalid or not present.
@@ -60,10 +57,6 @@
  *   ```
  *   _FT.DEBUG FT.SEARCH idx "*" TIMEOUT_AFTER_N 100 DEBUG_PARAMS_COUNT 2
  *   ```
- *     ```
- *   - Pause after 0 results:
- *     ```
- *     _FT.DEBUG FT.SEARCH idx "*" PAUSE_AFTER_N 0 DEBUG_PARAMS_COUNT 2
  *     ```
  *
  * -----------------------------------------------------------------------------
@@ -168,12 +161,6 @@
  *
  * #### Pause Simulation:
  * Allows pausing query execution
- *
- * - **`PAUSE_AFTER_N <N>`**:
- *   - Inserts a debug pause RP near the end of the pipeline and pauses after `<N>` results flow.
- *   - Resume with `FT.DEBUG QUERY_CONTROLLER SET_PAUSE_RP_RESUME`.
- *   - Check paused state with `FT.DEBUG QUERY_CONTROLLER GET_IS_RP_PAUSED`.
- *   - Inspect pipeline with `FT.DEBUG QUERY_CONTROLLER PRINT_RP_STREAM`.
  *
  * - **`PAUSE_AFTER_RP_N <N> <RP_TYPE>`**, **`PAUSE_BEFORE_RP_N <N> <RP_TYPE>`**:
  *   - Inserts a pause RP after/before the first occurrence of `<RP_TYPE>`.
