@@ -856,11 +856,11 @@ def runDebugQueryCommandAndCrash(env, query_cmd):
 
 
 def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, pause_after_n, rp_type):
-    debug_params = ['PAUSE_AFTER_RP_N', pause_after_n, rp_type]
+    debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
 def runDebugQueryCommandPauseBeforeRPAfterN(env, query_cmd, pause_after_n, rp_type):
-    debug_params = ['PAUSE_BEFORE_RP_N', pause_after_n, rp_type]
+    debug_params = ['PAUSE_BEFORE_RP_N', rp_type, pause_after_n]
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
 def getIsRPPaused(env):
