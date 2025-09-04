@@ -110,7 +110,6 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      IndexerYieldWhileLoading(ctx->redisCtx);
       writeIndexEntry(spec, invidx, encoder, entry);
       if (Index_StoreFieldMask(spec)) {
         invidx->fieldMask |= entry->fieldMask;
@@ -233,8 +232,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-
-      IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -400,14 +397,21 @@ bool g_isLoading = false;
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
+ * @param numOps Tue number of operations to count in the counter before considering RSGlobalConfig.indexerYieldEveryOpsWhileLoading. These are related to the number of fields in the document
+ * @param flags The flags to pass to RedisModule_Yield
  */
-static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
   static size_t opCounter = 0;
 
-  // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
-    opCounter = 0;
+  // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
+  opCounter += numOps;
+  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+    opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
     IncrementYieldCounter(); // Track that we called yield
-    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+    unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
+    if (sleepMicros > 0) {
+      usleep(sleepMicros);
+    }
+    RedisModule_Yield(ctx, flags, NULL);
   }
 }
