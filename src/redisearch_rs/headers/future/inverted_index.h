@@ -119,6 +119,15 @@ IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
  */
 uintptr_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
 
+/**
+ * Get a summary of the inverted index for debugging purposes.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
