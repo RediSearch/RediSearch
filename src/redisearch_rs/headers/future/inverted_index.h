@@ -128,6 +128,31 @@ uintptr_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
  */
 IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
 
+/**
+ * Get an array of summaries of all blocks in the inverted index. The output parameter `count` will
+ * be set to the number of blocks in the index. The returned pointer must be freed using
+ * [`InvertedIndex_BlocksSummaryFree`].
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `count` must be a valid pointer to a `usize` and cannot be NULL.
+ */
+IIBlockSummary *InvertedIndex_BlocksSummary(const struct InvertedIndex *ii, uintptr_t *count);
+
+/**
+ * Free the memory associated with the array of block summaries returned by [`InvertedIndex_BlocksSummary`].
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `blocks` must be a valid pointer to an array of `BlockSummary` instances returned by
+ *   [`InvertedIndex_BlocksSummary`].
+ * - `count` must have the same value as the `count` output parameter passed to
+ *   [`InvertedIndex_BlocksSummary`].
+ */
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *blocks,
+                                     uintptr_t count);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
