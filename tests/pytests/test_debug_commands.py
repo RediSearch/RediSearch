@@ -1079,7 +1079,7 @@ def test_query_controller_pause_and_resume(env):
         t_query = threading.Thread(
             target=_call_and_store,
             args=(runDebugQueryCommandPauseBeforeRPAfterN,
-                (env, [query_type, 'idx', '*'], 0, 'Index'),
+                (env, [query_type, 'idx', '*'], 'Index', 0),
                 query_result),
             daemon=True
         )
@@ -1136,7 +1136,7 @@ def test_query_controller_add_before_after(env):
         # Build threads
         t_query = threading.Thread(
             target=target_func,
-            args=(env,['FT.SEARCH', 'idx', '*'], 0, 'Sorter'),
+            args=(env,['FT.SEARCH', 'idx', '*'], 'Sorter', 0),
             daemon=True
         )
 
@@ -1154,3 +1154,63 @@ def test_query_controller_add_before_after(env):
         # Resume the query
         setPauseRPResume(env)
         t_query.join()
+
+def test_cluster_query_controller_pause_and_resume(env):
+    import threading
+    import time
+
+    # Set workers to 1 on all shards to make sure queries can be paused
+    verify_command_OK_on_all_shards(env, '_FT.CONFIG SET WORKERS 1')
+
+    conn = getConnectionByEnv(env)
+
+    n_docs_per_shard = 100
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    queries_completed = 0
+
+    for query_type in ['FT.SEARCH']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        t_query = threading.Thread(
+            target=_call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, [query_type, 'idx', '*'], 'Index', 0),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        # Wait for any shard to be paused
+        while False in allShards_getIsRPPaused(env):
+            time.sleep(0.1)
+
+        # If we are here, at least one query is paused
+        # Verify that we have active queries across the cluster
+        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
+        env.assertEqual(active_queries, 1)
+
+        # Resume all shards
+        allShards_setPauseRPResume(env)
+
+        t_query.join()
+
+        queries_completed += 1
+
+        # Verify the query returned results (should be at least 1 result per shard)
+        env.assertTrue(query_result[0][0] >= 1, message=f"Expected at least 1 result, got {query_result[0][0]}")
