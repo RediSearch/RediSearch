@@ -17,10 +17,9 @@ doc:4, doc:5 and doc:6 are at distance 2 from the query vector [0,0]
 doc:7, doc:8 and doc:9 are at distance 3 from the query vector [0,0]
 
 This allows controlling result set sizes with RADIUS:
-- RADIUS 1.5 → 3 results (distance 1)
-- RADIUS 2.5 → 6 results (distances 1-2)
-- RADIUS 3.5 → 9 results (distances 1-3)
-- RADIUS 4.5 → 10 results (all distances)
+- RADIUS 1**2 → 3 results (distance 1)
+- RADIUS 2**2 → 6 results (distances 1-2)
+- RADIUS 3**2 → 9 results (distances 1-3)
 """
 
 def setup_hybrid_groupby_index(env):
@@ -80,9 +79,9 @@ def test_hybrid_groupby_small():
     # Search for text that doesn't appear in any document - no text search results
     search_query_with_no_results = "xyznomatch"
 
-    # Query vector at origin [0,0], RADIUS 1.5 returns 3 docs at distance 1
+    # Query vector at origin [0,0], RADIUS 1**2 returns 3 docs at distance 1
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    radius = 1
+    radius = 1**2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
                        'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
 
@@ -101,9 +100,9 @@ def test_hybrid_groupby_medium():
     # Search for text that doesn't appear in any document
     search_query_with_no_results = "xyznomatch"
 
-    # Query vector at origin [0,0], RADIUS 2.5 returns 6 docs at distances 1-2
+    # Query vector at origin [0,0], RADIUS 2**2 returns 6 docs at distances 1-2
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    radius = 4
+    radius = 2**2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
                        'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
 
@@ -121,9 +120,9 @@ def test_hybrid_groupby_large():
     # Search for text that doesn't appear in any document
     search_query_with_no_results = "xyznomatch"
 
-    # Query vector at origin [0,0], RADIUS 3.5 returns 9 docs at distances 1-3
+    # Query vector at origin [0,0], RADIUS 3**2 returns 9 docs at distances 1-3
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    radius = 9
+    radius = 3**2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
                        'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
 
