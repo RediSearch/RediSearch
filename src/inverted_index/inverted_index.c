@@ -1120,104 +1120,6 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
   }
 }
 
-/* Repair an index block by removing garbage - records pointing at deleted documents,
- * and write valid entries in their place.
- * Returns the number of docs collected, and puts the number of bytes collected in the given
- * pointer.
- */
-size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
-  static const IndexDecoderCtx empty = {0};
-
-  IndexBlockReader reader = { .buffReader = NewBufferReader(IndexBlock_Buffer(blk)), .curBaseId = IndexBlock_FirstId(blk) };
-  BufferReader *br = &reader.buffReader;
-  Buffer repair = {0};
-  BufferWriter bw = NewBufferWriter(&repair);
-  uint32_t readFlags = flags & INDEX_STORAGE_MASK;
-  RSIndexResult *res = readFlags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
-  IndexDecoderProcs decoders = InvertedIndex_GetDecoder(readFlags);
-  IndexEncoder encoder = InvertedIndex_GetEncoder(readFlags);
-
-  blk->lastId = blk->firstId = 0;
-  size_t frags = 0;
-  t_docId lastReadId = 0;
-  bool isLastValid = false;
-
-  params->bytesBeforFix = IndexBlock_Cap(blk);
-
-  bool docExists;
-  while (!BufferReader_AtEnd(br)) {
-    const char *bufBegin = BufferReader_Current(br);
-    // read the curr entry of the buffer into res and promote the buffer to the next one.
-    decoders.decoder(&reader, &empty, res);
-    size_t sz = BufferReader_Current(br) - bufBegin;
-
-    // Multi value documents are saved as individual entries that share the same docId.
-    // Increment frags only when moving to the next doc
-    // (do not increment when moving to the next entry in the same doc)
-    unsigned fragsIncr = 0;
-    if (lastReadId != res->docId) {
-      fragsIncr = 1;
-      // Lookup the doc (for the same doc use the previous result)
-      docExists = DocTable_Exists(dt, res->docId);
-      lastReadId = res->docId;
-    }
-
-    // If we found a deleted document, we increment the number of found "frags",
-    // and not write anything, so the reader will advance but the writer won't.
-    // this will close the "hole" in the index
-    if (!docExists) {
-      if (!frags) {
-        // First invalid doc; copy everything prior to this to the repair
-        // buffer
-        Buffer_Write(&bw, IndexBlock_Data(blk), bufBegin - IndexBlock_Data(blk));
-      }
-      frags += fragsIncr;
-      params->bytesCollected += sz;
-      ++params->entriesCollected;
-      isLastValid = false;
-    } else { // the doc exist
-      if (params->RepairCallback) {
-        params->RepairCallback(res, blk, params->arg);
-      }
-      if (IndexBlock_FirstId(blk) == 0) { // this is the first valid doc
-        blk->firstId = res->docId;
-        blk->lastId = res->docId; // first diff should be 0
-      }
-
-      // Valid document, but we're rewriting the block:
-      if (frags) {
-        if (encoder != encodeRawDocIdsOnly) {
-          if (isLastValid) {
-            // if the last was valid, the order of the entries didn't change. We can just copy the entry, as it already contains the correct delta.
-            Buffer_Write(&bw, bufBegin, sz);
-          } else { // we need to calculate the delta
-            encoder(&bw, res->docId - IndexBlock_LastId(blk), res);
-          }
-        } else { // encoder == encodeRawDocIdsOnly
-          t_docId firstId = IndexBlock_FirstId(blk);
-          encoder(&bw, res->docId - firstId, res);
-        }
-      }
-      // Update the last seen valid doc id, even if we didn't write it (yet)
-      blk->lastId = res->docId;
-      isLastValid = true;
-    }
-  }
-  if (frags) {
-    // If we deleted stuff from this block, we need to change the number of entries and the data
-    // pointer
-    blk->numEntries -= params->entriesCollected;
-    Buffer_Free(IndexBlock_Buffer(blk));
-    IndexBlock_SetBuffer(blk, repair);
-    Buffer_ShrinkToSize(IndexBlock_Buffer(blk));
-  }
-
-  params->bytesAfterFix = IndexBlock_Cap(blk);
-
-  IndexResult_Free(res);
-  return frags;
-}
-
 /* Calculate efficiency ratio of the inverted index: numEntries / numBlocks.
  * Used to measure how well the index is utilizing its block structure. */
 double InvertedIndex_GetEfficiency(const InvertedIndex *idx) {
@@ -1472,3 +1374,184 @@ void IndexReader_SwapIndex(IndexReader *ir, const InvertedIndex *newIdx) {
 InvertedIndex *IndexReader_II(const IndexReader *ir) {
   return (InvertedIndex *)ir->idx;
 }
+
+// ----- GC related API
+
+size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
+  static const IndexDecoderCtx empty = {0};
+
+  IndexBlockReader reader = { .buffReader = NewBufferReader(IndexBlock_Buffer(blk)), .curBaseId = IndexBlock_FirstId(blk) };
+  BufferReader *br = &reader.buffReader;
+  Buffer repair = {0};
+  BufferWriter bw = NewBufferWriter(&repair);
+  uint32_t readFlags = flags & INDEX_STORAGE_MASK;
+  RSIndexResult *res = readFlags == Index_StoreNumeric ? NewNumericResult() : NewTokenRecord(NULL, 1);
+  IndexDecoderProcs decoders = InvertedIndex_GetDecoder(readFlags);
+  IndexEncoder encoder = InvertedIndex_GetEncoder(readFlags);
+
+  blk->lastId = blk->firstId = 0;
+  size_t frags = 0;
+  t_docId lastReadId = 0;
+  bool isLastValid = false;
+
+  params->bytesBeforFix = IndexBlock_Cap(blk);
+
+  bool docExists;
+  while (!BufferReader_AtEnd(br)) {
+    const char *bufBegin = BufferReader_Current(br);
+    // read the curr entry of the buffer into res and promote the buffer to the next one.
+    decoders.decoder(&reader, &empty, res);
+    size_t sz = BufferReader_Current(br) - bufBegin;
+
+    // Multi value documents are saved as individual entries that share the same docId.
+    // Increment frags only when moving to the next doc
+    // (do not increment when moving to the next entry in the same doc)
+    unsigned fragsIncr = 0;
+    if (lastReadId != res->docId) {
+      fragsIncr = 1;
+      // Lookup the doc (for the same doc use the previous result)
+      docExists = DocTable_Exists(dt, res->docId);
+      lastReadId = res->docId;
+    }
+
+    // If we found a deleted document, we increment the number of found "frags",
+    // and not write anything, so the reader will advance but the writer won't.
+    // this will close the "hole" in the index
+    if (!docExists) {
+      if (!frags) {
+        // First invalid doc; copy everything prior to this to the repair
+        // buffer
+        Buffer_Write(&bw, IndexBlock_Data(blk), bufBegin - IndexBlock_Data(blk));
+      }
+      frags += fragsIncr;
+      params->bytesCollected += sz;
+      ++params->entriesCollected;
+      isLastValid = false;
+    } else { // the doc exist
+      if (params->RepairCallback) {
+        params->RepairCallback(res, blk, params->arg);
+      }
+      if (IndexBlock_FirstId(blk) == 0) { // this is the first valid doc
+        blk->firstId = res->docId;
+        blk->lastId = res->docId; // first diff should be 0
+      }
+
+      // Valid document, but we're rewriting the block:
+      if (frags) {
+        if (encoder != encodeRawDocIdsOnly) {
+          if (isLastValid) {
+            // if the last was valid, the order of the entries didn't change. We can just copy the entry, as it already contains the correct delta.
+            Buffer_Write(&bw, bufBegin, sz);
+          } else { // we need to calculate the delta
+            encoder(&bw, res->docId - IndexBlock_LastId(blk), res);
+          }
+        } else { // encoder == encodeRawDocIdsOnly
+          t_docId firstId = IndexBlock_FirstId(blk);
+          encoder(&bw, res->docId - firstId, res);
+        }
+      }
+      // Update the last seen valid doc id, even if we didn't write it (yet)
+      blk->lastId = res->docId;
+      isLastValid = true;
+    }
+  }
+  if (frags) {
+    // If we deleted stuff from this block, we need to change the number of entries and the data
+    // pointer
+    blk->numEntries -= params->entriesCollected;
+    Buffer_Free(IndexBlock_Buffer(blk));
+    IndexBlock_SetBuffer(blk, repair);
+    Buffer_ShrinkToSize(IndexBlock_Buffer(blk));
+  }
+
+  params->bytesAfterFix = IndexBlock_Cap(blk);
+
+  IndexResult_Free(res);
+  return frags;
+}
+
+void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
+                                InvertedIndexGcDelta *d,
+                                size_t nblocks_orig,
+                                uint64_t *nbytes_added_io) {
+  // Free blocks that will be replaced by repaired versions
+  for (size_t i = 0; i < d->repaired_len; ++i) {
+    const int64_t oldix = d->repaired[i].oldix;
+    if (oldix >= 0 && (size_t)oldix < InvertedIndex_NumBlocks(idx)) {
+      IndexBlock *blk = InvertedIndex_BlockRef(idx, (size_t)oldix);
+      indexBlock_Free(blk);
+    }
+  }
+
+  // Free raw buffers of fully deleted blocks
+  for (size_t i = 0; i < d->deleted_len; ++i) {
+    rm_free(d->deleted[i].ptr);
+  }
+  TotalIIBlocks -= d->deleted_len;
+  rm_free(d->deleted);
+  d->deleted = NULL;
+
+  // Ensure the old index is at least as big as the new index' size
+  RS_LOG_ASSERT(idx->size >= nblocks_orig, "Current index size should be larger or equal to original index size");
+
+  // Reshape the block list if the child produced a new compacted list
+  if (d->new_blocklist) {
+    /*
+     * At this point, we check if the last block has had new data added to it,
+     * but was _not_ repaired. We check for a repaired last block in
+     * checkLastBlock().
+     */
+
+    // Number of blocks added in the parent process since the last scan
+    size_t newAddedLen = InvertedIndex_NumBlocks(idx) - nblocks_orig; // TODO: can we just decrease by number of deleted.
+
+    // The final size is the reordered block size, plus the number of blocks
+    // which we haven't scanned yet, because they were added in the parent
+    size_t totalLen = d->new_blocklist_size + newAddedLen;
+
+    if (InvertedIndex_NumBlocks(idx) > nblocks_orig) {
+      d->new_blocklist = rm_realloc(
+          d->new_blocklist,
+          totalLen * sizeof(*d->new_blocklist));
+
+      if (newAddedLen > 0) {
+        memcpy(d->new_blocklist + d->new_blocklist_size,
+                InvertedIndex_BlockRef(idx, nblocks_orig),
+                newAddedLen * sizeof(*d->new_blocklist));
+      }
+    }
+    InvertedIndex_SetBlocks(idx, d->new_blocklist, totalLen);
+    // ownership of new_blocklist has moved into idx
+    d->new_blocklist = NULL;
+  } else if (d->deleted_len) {
+    // if idxData->newBlocklist == NULL it's either because all the blocks the child has seen are gone or we didn't change the
+    // size of the index (idxData->numDelBlocks == 0).
+    // So if we enter here (idxData->numDelBlocks != 0) it's the first case, all blocks the child has seen need to be deleted.
+    // Note that we might want to keep the last block, although deleted by the child. In this case numDelBlocks will *not include*
+    // the last block.
+    size_t numBlocks = InvertedIndex_BlocksShift(idx, d->deleted_len);
+    if (numBlocks == 0) {
+      InvertedIndex_AddBlock(idx, 0, (size_t *)nbytes_added_io);
+    }
+  }
+
+  // Install repaired blocks at their new positions
+  // TODO : can we skip if we have newBlocklist?
+  for (size_t i = 0; i < d->repaired_len; ++i) {
+    const int64_t newix = d->repaired[i].newix;
+    RS_LOG_ASSERT(newix >= 0 && (size_t)newix < InvertedIndex_NumBlocks(idx),
+                  "newix out of bounds in InvertedIndex_ApplyGcDelta");
+    InvertedIndex_SetBlock(idx, (size_t)newix, d->repaired[i].blk);
+    // ownership of repaired[i].blk buffer is now inside idx
+  }
+  d->repaired = NULL;
+
+  // Update markers and lastId based on the final last block
+  InvertedIndex_SetGcMarker(idx, InvertedIndex_GcMarker(idx) + 1);
+  RS_LOG_ASSERT(InvertedIndex_NumBlocks(idx) > 0, "index must have at least one block");
+  IndexBlock *last = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+  InvertedIndex_SetLastId(idx, IndexBlock_LastId(last));
+}
+
+// ---------------------
+//

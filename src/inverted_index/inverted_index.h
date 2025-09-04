@@ -66,6 +66,8 @@ typedef union {
   const NumericFilter *filter;
 } IndexDecoderCtx;
 
+//--------- GC related types
+
 typedef struct {
   size_t bytesBeforFix;
   size_t bytesAfterFix;
@@ -79,6 +81,41 @@ typedef struct {
   /** argument to pass to callback */
   void *arg;
 } IndexRepairParams;
+
+// A compact change set produced by the child and applied by the parent.
+// All ownership of the buffers inside this struct transfers to the index
+// when InvertedIndex_ApplyGcDelta is called.
+typedef struct {
+  // If non NULL the child produced a compacted list of blocks for the
+  // prefix it scanned. The array length is new_blocklist_size.
+  // Ownership of the array moves to the index on apply.
+  IndexBlock *new_blocklist;
+  size_t new_blocklist_size;  // number of elements
+
+  // Buffers of blocks that were deleted entirely. Each entry holds the
+  // original data pointer captured before repair. The index will free them.
+  struct InvertedIndexGcDeleted {
+    void *ptr;
+    uint32_t oldix;
+    uint32_t _pad; // keep structure layout identical to current usage
+  } *deleted;
+  size_t deleted_len;
+
+  // Repaired blocks to install at given positions. Ownership of blk buffer
+  // moves to the index on apply.
+  struct InvertedIndexGcRepaired {
+    IndexBlock blk;
+    int64_t oldix;
+    int64_t newix;
+  } *repaired;
+  size_t repaired_len;
+
+  // Bookkeeping for stats only. Set by the caller when the last block edits
+  // from the child were ignored due to a race.
+  bool last_block_ignored;
+} InvertedIndexGcDelta;
+
+// -------------------------
 
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
   bool useFieldMask = flags & Index_StoreFieldFlags;
@@ -357,9 +394,31 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, RSIndexResult *entry)
  */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
+unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
+
+// ----- GC related API
+
+/* Repair an index block by removing garbage - records pointing at deleted documents,
+ * and write valid entries in their place.
+ * Returns the number of docs collected, and puts the number of bytes collected in the given
+ * pointer.
+ */
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
-unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
+/* Apply a GC change set to an inverted index.
+ * nblocks_orig is the number of blocks the child had scanned,
+ * nbytes_added_io is the child reported "bytes added" figure used if a fresh block,
+ * must be created when all scanned blocks were deleted. Updated for blocks that are added.
+ *
+ * delta requires ownership as data of new, deleted and repaired blocks
+ * are moved into the given index, the pointers of delta are updated accordingly.
+ */
+void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
+                                InvertedIndexGcDelta *delta,
+                                size_t nblocks_orig,
+                                uint64_t *nbytes_added_io);
+
+// ---------------------
 
 #ifdef __cplusplus
 }
