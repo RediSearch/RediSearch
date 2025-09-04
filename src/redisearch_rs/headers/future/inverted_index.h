@@ -37,6 +37,10 @@ IIBlockSummary *InvertedIndex_BlocksSummary(const struct InvertedIndex *ii, uint
 
 void InvertedIndex_BlocksSummaryFree(IIBlockSummary *blocks, uintptr_t count);
 
+uintptr_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
+
+uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

@@ -13,11 +13,11 @@
 use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    IndexFlags_Index_WideSchema,
+    IndexFlags_Index_WideSchema, t_docId,
 };
 
 use inverted_index::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as II,
+    EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as II, RSIndexResult,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -55,6 +55,29 @@ pub enum InvertedIndex {
     RawDocumentIdOnly(II<RawDocIdsOnly>),
     // Needs to track the entries count because it has the `StoreNumeric` flag set
     Numeric(EntriesTrackingIndex<Numeric>),
+}
+
+impl InvertedIndex {
+    fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+        use InvertedIndex::*;
+
+        match self {
+            Full(ii) => ii.add_record(record),
+            FullWide(ii) => ii.add_record(record),
+            FreqsFields(ii) => ii.add_record(record),
+            FreqsFieldsWide(ii) => ii.add_record(record),
+            FreqsOnly(ii) => ii.add_record(record),
+            FieldsOnly(ii) => ii.add_record(record),
+            FieldsOnlyWide(ii) => ii.add_record(record),
+            FieldsOffsets(ii) => ii.add_record(record),
+            FieldsOffsetsWide(ii) => ii.add_record(record),
+            OffsetsOnly(ii) => ii.add_record(record),
+            FreqsOffsets(ii) => ii.add_record(record),
+            DocumentIdOnly(ii) => ii.add_record(record),
+            RawDocumentIdOnly(ii) => ii.add_record(record),
+            Numeric(ii) => ii.add_record(record),
+        }
+    }
 }
 
 const INDEX_STORAGE_MASK: IndexFlags = IndexFlags_Index_StoreFreqs
@@ -356,4 +379,27 @@ pub extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSummary, cou
     unsafe {
         let _ = Box::from_raw(std::slice::from_raw_parts_mut(blocks, count));
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn InvertedIndex_WriteNumericEntry(
+    ii: *mut InvertedIndex,
+    doc_id: t_docId,
+    value: f64,
+) -> usize {
+    let record = RSIndexResult::numeric(value).doc_id(doc_id);
+
+    let ii = unsafe { &mut *ii };
+    ii.add_record(&record).unwrap()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn InvertedIndex_WriteEntryGeneric(
+    ii: *mut InvertedIndex,
+    record: *const RSIndexResult,
+) -> usize {
+    let ii = unsafe { &mut *ii };
+    let record = unsafe { &*record };
+
+    ii.add_record(record).unwrap()
 }
