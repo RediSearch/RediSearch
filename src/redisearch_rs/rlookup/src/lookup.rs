@@ -265,6 +265,7 @@ impl<T> Default for CBOption<T> {
 /// This is used for data generated on the fly, or for data not stored within
 /// the sorting vector.
 /// ```
+/// cbindgen:ignore
 #[pin_project(!Unpin)]
 #[derive(Debug)]
 #[repr(C)]
@@ -310,6 +311,7 @@ pub struct RLookupKey<'a> {
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type maintains a mapping from string names to [`RLookupKey`]s.
+/// cbindgen:ignore
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
