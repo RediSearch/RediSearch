@@ -796,7 +796,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   }
 
   const char **properties = array_new(const char *, nproperties);
-  for (long long i = 0; i < nproperties; i++) {
+  for (size_t i = 0; i < nproperties; ++i) {
     const char *property;
     size_t propertyLen;
     rv = AC_GetString(ac, &property, &propertyLen, 0);
