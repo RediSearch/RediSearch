@@ -37,27 +37,6 @@ typedef enum {
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
 
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
-typedef struct {
-  /** Sorting vector attached to document */
-  const RSSortingVector *sv;
-
-  /** Dynamic values obtained from prior processing */
-  RSValue **dyn;
-
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
-  size_t ndyn;
-} RLookupRow;
-
-static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
-static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
-
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
   RLOOKUP_M_WRITE,  // Get key for writing
@@ -145,16 +124,6 @@ typedef enum {
 size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFieldIndex,
                          int requiredFlags, int excludeFlags, SchemaRule *rule);
 /**
- * Move data from the source row to the destination row. The source row is cleared.
- * The destination row should be pre-cleared (though its cache may still
- * exist).
- * @param lk lookup common to both rows
- * @param src the source row
- * @param dst the destination row
- */
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst);
-
-/**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
@@ -168,48 +137,6 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
  */
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value);
 
-/** Get a value from the row, provided the key.
- *
- * This does not actually "search" for the key, but simply performs array
- * lookups!
- *
- * @param lookup The lookup table containing the lookup table data
- * @param key the key that contains the index
- * @param row the row data which contains the value
- * @return the value if found, NULL otherwise.
- */
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
-
-  RSValue *ret = NULL;
-  if (row->dyn && array_len(row->dyn) > key->dstidx) {
-    ret = row->dyn[key->dstidx];
-  }
-  if (!ret) {
-    if (key->flags & RLOOKUP_F_SVSRC) {
-      const RSSortingVector* sv = RLookupRow_GetSortingVector(row);
-      if (sv && RSSortingVector_Length(sv) > key->svidx) {
-        ret = RSSortingVector_Get(sv, key->svidx);
-        if (ret != NULL && ret == RSValue_NullStatic()) {
-          ret = NULL;
-        }
-      }
-    }
-  }
-  return ret;
-}
-
-/**
- * Wipes the row, retaining its memory but decrefing any included values.
- * This does not free all the memory consumed by the row, but simply resets
- * the row data (preserving any caches) so that it may be refilled.
- */
-void RLookupRow_Wipe(RLookupRow *row);
-
-/**
- * Frees all the memory consumed by the row. Implies Wipe(). This should be used
- * when the row object will no longer be used.
- */
-void RLookupRow_Reset(RLookupRow *row);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */
@@ -297,29 +224,6 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
  * Search an index field by its name in the lookup table spec cache.
  */
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
-
-/**
- * Add non-overridden keys from source lookup into destination lookup (overridden keys are skipped).
- * For each key in src, check if it already exists in dest by name.
- * If doesn't exists, create new key in dest.
- * Handle existing keys based on flags (skip with RLOOKUP_F_NOFLAGS, override with RLOOKUP_F_OVERRIDE).
- *
- * Flag handling:
- * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
- * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
- * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
- * - Targat flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
- */
-void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
-
-/**
- * Write field data from source row to destination row with different schemas.
- * Iterate through source lookup keys, find corresponding keys in destination by name,
- * and write it to destination row using RLookup_WriteOwnKey().
- * Assumes all source keys exist in destination (enforce with ASSERT).
- */
-void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup);
 
 // exposed to be called from Rust, was inline before that.
 int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);

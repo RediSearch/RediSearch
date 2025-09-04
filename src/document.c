@@ -28,6 +28,7 @@
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
+#include "rlookup_rs.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;

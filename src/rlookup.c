@@ -14,6 +14,7 @@
 #include "doc_types.h"
 #include "value.h"
 #include "util/arr.h"
+#include "rlookup_rs.h"
 
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
@@ -270,36 +271,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
   RS_LOG_ASSERT(i == lookup->rowlen, "'i' should be equal to lookup len");
   return nfields;
 }
-
-void RLookupRow_Wipe(RLookupRow *r) {
-  for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
-    RSValue **vpp = r->dyn + ii;
-    if (*vpp) {
-      RSValue_DecrRef(*vpp);
-      *vpp = NULL;
-      r->ndyn--;
-    }
-  }
-  r->sv = NULL;
-}
-
-void RLookupRow_Reset(RLookupRow *r) {
-  RLookupRow_Wipe(r);
-  if (r->dyn) {
-    array_free(r->dyn);
-  }
-}
-
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
-  for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-    RSValue *vv = RLookup_GetItem(kk, src);
-    if (vv) {
-      RLookup_WriteKey(kk, dst, vv);
-    }
-  }
-  RLookupRow_Wipe(src);
-}
-
+ 
 static void RLookupKey_Cleanup(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
     if (k->name != k->path) {
@@ -918,53 +890,6 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   QueryError_ClearError(&status);
   rm_free(keys);
   return rv;
-}
-
-void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
-  RS_ASSERT(dest && src);
-  RS_ASSERT(dest != src);  // Prevent self-addition
-
-  // Iterate through all keys in source lookup
-  for (const RLookupKey *src_key = src->head; src_key; src_key = src_key->next) {
-    if (!src_key->name) {
-      // Skip overridden keys (they have name == NULL)
-      continue;
-    }
-
-    // Combine caller's control flags with source key's persistent properties
-    // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
-    // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
-    uint32_t combined_flags = flags | (src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS);
-    RLookupKey *dest_key = RLookup_GetKey_Write(dest, src_key->name, combined_flags);
-  }
-}
-
-void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
-                               RLookupRow *destRow, RLookup *destLookup) {
-  RS_ASSERT(srcRow && srcLookup);
-  RS_ASSERT(destRow && destLookup);
-
-  // Iterate through all source keys
-  for (const RLookupKey *src_key = srcLookup->head; src_key; src_key = src_key->next) {
-    if (!src_key->name) {
-      // Skip overridden keys
-      continue;
-    }
-
-    // Get value from source row
-    RSValue *value = RLookup_GetItem(src_key, srcRow);
-    if (!value) {
-      // No data for this key in source row
-      continue;
-    }
-
-    // Find corresponding key in destination lookup
-    RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
-    RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
-    // Write fields to destination (increments refcount, shares ownership)
-    RLookup_WriteKey(dest_key, destRow, value);
-  }
-  // Caller is responsible for managing source row lifecycle
 }
 
 // added as entry point for the rust code

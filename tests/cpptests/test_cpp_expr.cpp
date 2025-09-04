@@ -14,6 +14,8 @@
 #include "util/arr.h"
 #include "value.h"
 
+#include "rlookup_rs.h"
+
 class ExprTest : public ::testing::Test {
  public:
   static void SetUpTestCase() {

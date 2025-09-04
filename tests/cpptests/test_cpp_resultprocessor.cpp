@@ -14,6 +14,8 @@
 #include "gtest/gtest.h"
 #include "search_result.h"
 
+#include "rlookup_rs.h"
+
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
     memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
