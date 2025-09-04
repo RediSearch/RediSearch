@@ -18,6 +18,7 @@ use ffi::{
 
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as II,
+    debug::Summary,
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     fields_only::{FieldsOnly, FieldsOnlyWide},
@@ -292,5 +293,28 @@ pub extern "C" fn InvertedIndex_NumDocs(ii: *const InvertedIndex) -> usize {
         DocumentIdOnly(ii) => ii.unique_docs(),
         RawDocumentIdOnly(ii) => ii.unique_docs(),
         Numeric(ii) => ii.unique_docs(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn InvertedIndex_Summary(ii: *const InvertedIndex) -> Summary {
+    use InvertedIndex::*;
+
+    let ii = unsafe { &*ii };
+    match ii {
+        Full(ii) => ii.summary(),
+        FullWide(ii) => ii.summary(),
+        FreqsFields(ii) => ii.summary(),
+        FreqsFieldsWide(ii) => ii.summary(),
+        FreqsOnly(ii) => ii.summary(),
+        FieldsOnly(ii) => ii.summary(),
+        FieldsOnlyWide(ii) => ii.summary(),
+        FieldsOffsets(ii) => ii.summary(),
+        FieldsOffsetsWide(ii) => ii.summary(),
+        OffsetsOnly(ii) => ii.summary(),
+        FreqsOffsets(ii) => ii.summary(),
+        DocumentIdOnly(ii) => ii.summary(),
+        RawDocumentIdOnly(ii) => ii.summary(),
+        Numeric(ii) => ii.summary(),
     }
 }

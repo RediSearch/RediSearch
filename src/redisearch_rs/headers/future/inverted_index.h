@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "config.h"
 #include "spec.h"
+#include "types_rs.h"
 
 typedef struct InvertedIndex InvertedIndex;
 
@@ -29,6 +30,8 @@ uintptr_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
 IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
 
 uintptr_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
+
+IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
 
 #ifdef __cplusplus
 }  // extern "C"
