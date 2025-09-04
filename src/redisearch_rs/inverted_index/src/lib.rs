@@ -578,6 +578,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.summary()
     }
 
+    /// Return basic information about the blocks in this inverted index.
+    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.index.blocks_summary()
+    }
+
     /// Returns the number of blocks in this index.
     pub fn number_of_blocks(&self) -> usize {
         self.index.number_of_blocks()

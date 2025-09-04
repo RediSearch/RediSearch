@@ -33,6 +33,10 @@ uintptr_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
 
 IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
 
+IIBlockSummary *InvertedIndex_BlocksSummary(const struct InvertedIndex *ii, uintptr_t *count);
+
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *blocks, uintptr_t count);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

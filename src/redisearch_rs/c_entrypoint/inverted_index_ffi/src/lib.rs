@@ -18,7 +18,7 @@ use ffi::{
 
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as II,
-    debug::Summary,
+    debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     fields_only::{FieldsOnly, FieldsOnlyWide},
@@ -316,5 +316,44 @@ pub extern "C" fn InvertedIndex_Summary(ii: *const InvertedIndex) -> Summary {
         DocumentIdOnly(ii) => ii.summary(),
         RawDocumentIdOnly(ii) => ii.summary(),
         Numeric(ii) => ii.summary(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn InvertedIndex_BlocksSummary(
+    ii: *const InvertedIndex,
+    count: *mut usize,
+) -> *mut BlockSummary {
+    use InvertedIndex::*;
+
+    let ii = unsafe { &*ii };
+    let blocks_summary = match ii {
+        Full(ii) => ii.blocks_summary(),
+        FullWide(ii) => ii.blocks_summary(),
+        FreqsFields(ii) => ii.blocks_summary(),
+        FreqsFieldsWide(ii) => ii.blocks_summary(),
+        FreqsOnly(ii) => ii.blocks_summary(),
+        FieldsOnly(ii) => ii.blocks_summary(),
+        FieldsOnlyWide(ii) => ii.blocks_summary(),
+        FieldsOffsets(ii) => ii.blocks_summary(),
+        FieldsOffsetsWide(ii) => ii.blocks_summary(),
+        OffsetsOnly(ii) => ii.blocks_summary(),
+        FreqsOffsets(ii) => ii.blocks_summary(),
+        DocumentIdOnly(ii) => ii.blocks_summary(),
+        RawDocumentIdOnly(ii) => ii.blocks_summary(),
+        Numeric(ii) => ii.blocks_summary(),
+    };
+
+    unsafe {
+        *count = blocks_summary.len();
+    }
+
+    Box::leak(blocks_summary.into_boxed_slice()).as_mut_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSummary, count: usize) {
+    unsafe {
+        let _ = Box::from_raw(std::slice::from_raw_parts_mut(blocks, count));
     }
 }

@@ -18,7 +18,8 @@ parse_deps = true
 include = ["inverted_index"]
 
 [export]
-exclude = ["Summary"]
+exclude = ["BlockSummary", "Summary"]
 
 [export.rename]
+"BlockSummary" = "IIBlockSummary"
 "Summary" = "IISummary"
