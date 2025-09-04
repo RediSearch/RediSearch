@@ -103,8 +103,9 @@ The `link-check-config.json` file allows you to customize the checker behavior:
 
 The link checker runs automatically:
 
-- **Weekly**: Every Sunday at 2 AM UTC
-- **On PRs**: When markdown files are modified
+- **Weekly**: Every Sunday at 20:20 UTC (with benchmarks)
+- **On PRs**: When markdown files, link checker script, dependencies, or workflow are modified
+- **On-demand**: Add the `check-links` label to any PR to trigger validation
 - **Manual**: Can be triggered manually from GitHub Actions tab
 
 ### Workflow Features
@@ -113,6 +114,15 @@ The link checker runs automatically:
 - 💬 **PR Comments**: Comments on PRs when link check fails
 - 📁 **Artifact Upload**: Saves detailed logs for failed runs
 - ⚡ **Smart Throttling**: Uses conservative settings to avoid overwhelming servers
+- 🏷️ **Label Trigger**: Add `check-links` label to any PR to run validation on-demand
+
+### Using the Label Trigger
+
+To run link checking on any PR (even if it doesn't modify markdown files):
+
+1. **Add the label**: Go to the PR and add the `check-links` label
+2. **Workflow runs**: The link checker will automatically run
+3. **Results**: Check the Actions tab for results and any PR comments
 
 ## Testing
 

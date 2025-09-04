@@ -4,8 +4,9 @@ on:
   # Allow manual triggering
   workflow_dispatch:
 
-  # Run on PRs that modify markdown files
+  # Run on PRs that modify markdown files or when labeled
   pull_request:
+    types: [opened, synchronize, labeled]
     paths:
       - '**.md'
       - 'scripts/check_links.py'
@@ -15,7 +16,12 @@ on:
 jobs:
   link-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    # Run if files changed OR if 'check-links' label is added
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.action != 'labeled' ||
+      contains(github.event.label.name, 'check-links')
     
     steps:
     - name: Checkout repository
