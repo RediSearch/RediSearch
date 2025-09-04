@@ -702,11 +702,9 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskR
         loop {
             let next = self.inner.next()?;
 
-            if next.field_mask & self.mask == 0 {
-                continue;
+            if next.field_mask & self.mask > 0 {
+                return Some(next);
             }
-
-            return Some(next);
         }
     }
 }
@@ -739,11 +737,9 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterNumer
             let next = self.inner.next()?;
             let value = next.as_numeric()?;
 
-            if !self.filter.value_in_range(value) {
-                continue;
+            if self.filter.value_in_range(value) {
+                return Some(next);
             }
-
-            return Some(next);
         }
     }
 }
@@ -779,13 +775,11 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
             let value = next.as_numeric_mut()?;
 
             // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let filtered = unsafe { isWithinRadius(self.filter, *value, value) };
+            let in_radius = unsafe { isWithinRadius(self.filter, *value, value) };
 
-            if !filtered {
-                continue;
+            if in_radius {
+                return Some(next);
             }
-
-            return Some(next);
         }
     }
 }
