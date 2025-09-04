@@ -85,6 +85,7 @@ def test_hybrid_groupby_small():
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
                        'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
 
+    print(response)
     results = parse_hybrid_groupby_response(response)
     # Distance 1 docs: doc:1, doc:2, doc:3 -> automotive, automotive, clothing
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
@@ -106,6 +107,7 @@ def test_hybrid_groupby_medium():
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
                        'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
 
+    print(response)
     results = parse_hybrid_groupby_response(response)
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
     env.assertEqual(Counter(results), expected_categories)
@@ -126,6 +128,7 @@ def test_hybrid_groupby_large():
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query_with_no_results,
                        'VSIM', '@embedding', query_vector, 'RANGE', '2', 'RADIUS', str(radius), 'GROUPBY', '1', '@category', 'REDUCE', 'COUNT', '0', 'AS', 'count')
 
+    print(response)
     results = parse_hybrid_groupby_response(response)
     # All 9 docs -> automotive(2), clothing(2), footwear(2), food(2), fitness(1)
     expected_categories = Counter(doc['category'] for doc in test_docs.values() if l2_from_bytes(doc['embedding'], query_vector)**2 <= radius)
