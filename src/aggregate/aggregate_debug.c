@@ -158,7 +158,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   if (AC_IsInitialized(&pauseAfterArgs) || AC_IsInitialized(&pauseBeforeArgs)) {
     bool before = AC_IsInitialized(&pauseBeforeArgs);
     ArgsCursor *pauseArgs = before ? &pauseBeforeArgs : &pauseAfterArgs;
-    const char * invalidStr = before ? "PAUSE_BEFORE_RP_N" : "PAUSE_AFTER_RP_N";
+    const char *invalidStr = before ? "PAUSE_BEFORE_RP_N" : "PAUSE_AFTER_RP_N";
     unsigned long long results_count = -1;
     if (AC_GetUnsignedLongLong(pauseArgs, &results_count, AC_F_GE0) != AC_OK) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s count", invalidStr);
