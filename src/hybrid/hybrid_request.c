@@ -18,6 +18,7 @@ extern "C" {
 
 // Field names for implicit LOAD step
 #define SEARCH_INDEX 0
+#define VECTOR_INDEX 1
 
 /**
  * Create implicit LOAD step for document key when no explicit LOAD is specified.
@@ -132,20 +133,24 @@ int HybridRequest_BuildPipeline(HybridRequest *req, const HybridPipelineParams *
     // Release the sync reference as depleters now hold their own references
     StrongRef_Release(sync_ref);
 
-    // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
-    // and contain only keys from the loading step
     // Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(params->aggregationParams.common.sctx->spec));
+
+    // Get the search lookup and clone it to the tail (preserving original behavior)
     RLookup *searchLookup = AGPLN_GetLookup(&req->requests[SEARCH_INDEX]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_CloneInto(lookup, searchLookup);
-    // TODO: sync SEARCH and VSIM subqueries' lookups after YIELD_DISTANCE_AS is enabled
 
+    // Collect upstream lookups for the hybrid merger to use for correct field access
+    RLookup **upstreamLookups = rm_calloc(req->nrequests, sizeof(RLookup*));
+    for (size_t i = 0; i < req->nrequests; i++) {
+        upstreamLookups[i] = AGPLN_GetLookup(&req->requests[i]->pipeline.ap, NULL, AGPLN_GETLOOKUP_FIRST);
+    }
 
     // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
 
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes, upstreamLookups, lookup);
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
     // Add implicit sorting by score

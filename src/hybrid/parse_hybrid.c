@@ -153,8 +153,8 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
       // TODO: Remove this once we support YIELD_DISTANCE_AS (not part of phase 1)
-      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
-      return REDISMODULE_ERR;
+      // QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
+      // return REDISMODULE_ERR;
       if (hasYieldDistanceAs) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
@@ -239,8 +239,8 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
       // TODO: Remove this once we support YIELD_DISTANCE_AS (not part of phase 1)
-      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
-      return REDISMODULE_ERR;
+      // QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
+      // return REDISMODULE_ERR;
       if (hasYieldDistanceAs) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;

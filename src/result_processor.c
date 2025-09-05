@@ -22,6 +22,7 @@
 #include "hybrid/hybrid_search_result.h"
 #include "src/util/likely.h"
 #include "config.h"
+#include "doc_table.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -1694,6 +1695,8 @@ dictType dictTypeHybridSearchResult = {
  dictIterator *iterator; // Iterator for yielding results
  const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
  RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
+ RLookup **upstreamLookups;   // Array of upstream RLookup schemas for correct field access
+ RLookup *tailLookup;         // Tail pipeline lookup for result reconstruction
 } RPHybridMerger;
 
 /* Generic helper function to check if any upstream has a specific return code */
@@ -1739,7 +1742,44 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
  }
 
+static SearchResult *reconstructResultForSchema(SearchResult *sourceResult, RLookup *sourceLookup, RLookup *targetLookup) {
+  SearchResult *reconstructed = rm_calloc(1, sizeof(*reconstructed));
 
+  // Copy basic fields
+  reconstructed->docId = sourceResult->docId;
+  reconstructed->score = sourceResult->score;
+  reconstructed->flags = sourceResult->flags;
+  reconstructed->dmd = sourceResult->dmd;
+
+  // Increment reference count for the document metadata since we're sharing it
+  if (reconstructed->dmd) {
+    RSDocumentMetadata *dmd = (RSDocumentMetadata*)reconstructed->dmd;
+    uint16_t count = __atomic_fetch_add(&dmd->ref_count, 1, __ATOMIC_RELAXED);
+    RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");
+  }
+
+  // Initialize the row data for the target schema
+  memset(&reconstructed->rowdata, 0, sizeof(reconstructed->rowdata));
+
+  // Iterate through source lookup keys and copy values by name to target schema
+  for (const RLookupKey *sourceKey = sourceLookup->head; sourceKey; sourceKey = sourceKey->next) {
+    RSValue *value = RLookup_GetItem(sourceKey, &sourceResult->rowdata);
+    if (value && value != RS_NullVal()) {
+      // Find the corresponding key in the target lookup
+      RLookupKey *targetKey = RLookup_GetKey_ReadEx(targetLookup, sourceKey->name, sourceKey->name_len, RLOOKUP_F_NOFLAGS);
+      if (!targetKey) {
+        // Create the key in the target lookup if it doesn't exist to preserve all source data
+        targetKey = RLookup_GetKey_WriteEx(targetLookup, sourceKey->name, sourceKey->name_len, RLOOKUP_F_NOFLAGS);
+      }
+      if (targetKey) {
+        // Write the value to the reconstructed result using the target key
+        RLookup_WriteKey(targetKey, &reconstructed->rowdata, value);
+      }
+    }
+  }
+
+  return reconstructed;
+}
 
  /* Helper function to consume results from a single upstream */
  static int ConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
@@ -1777,9 +1817,33 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
    RS_ASSERT(hybridResult);
 
+   // Reconstruct result to match tail pipeline's RLookup schema
+   // The merged result uses the primary result's schema, but we need it in the
+   // tail schema
+   // IMPORTANT: Check hasResults flags BEFORE calling mergeSearchResults, as it
+   // clears them
+   int primaryIndex = -1;
+   if (self->tailLookup && self->upstreamLookups) {
+     // Find which upstream provided the primary result to use the correct
+     //source schema
+     for (size_t i = 0; i < hybridResult->numSources; i++) {
+       if (hybridResult->hasResults[i]) {
+         primaryIndex = i;
+         // Use first available result as primary (search preferred over vector)
+         break;
+       }
+     }
+   }
+
    SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx);
    if (!mergedResult) {
      return RS_RESULT_ERROR;
+   }
+
+   if (primaryIndex >= 0 && self->upstreamLookups[primaryIndex]) {
+     SearchResult *reconstructed = reconstructResultForSchema(mergedResult, self->upstreamLookups[primaryIndex], self->tailLookup);
+     SearchResult_Destroy(mergedResult);
+     mergedResult = reconstructed;
    }
 
    // Override the output result with merged data
@@ -1868,6 +1932,8 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
    array_free(self->upstreams);
 
+   // Note: tailLookup is managed by the caller (pipeline), not by RPHybridMerger
+
    // Free the processor itself
    rm_free(self);
  }
@@ -1885,7 +1951,9 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
                                     const RLookupKey *scoreKey,
-                                    RPStatus *subqueriesReturnCodes) {
+                                    RPStatus *subqueriesReturnCodes,
+                                    RLookup **upstreamLookups,
+                                    RLookup *tailLookup) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   RS_ASSERT(numUpstreams > 0);
@@ -1904,6 +1972,13 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
+
+   // Store upstream lookups for correct field access
+   RS_ASSERT(upstreamLookups);
+   ret->upstreamLookups = upstreamLookups;
+
+   // Store tail lookup for result reconstruction
+   ret->tailLookup = tailLookup;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
    // Calculate maximal dictionary size based on scoring type

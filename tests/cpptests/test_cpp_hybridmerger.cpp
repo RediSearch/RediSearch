@@ -140,7 +140,16 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes);
+  // Create dummy upstream lookups for the test
+  RLookup **upstreamLookups = (RLookup**)rm_calloc(numUpstreams, sizeof(RLookup*));
+  for (size_t i = 0; i < numUpstreams; i++) {
+    upstreamLookups[i] = (RLookup*)rm_calloc(1, sizeof(RLookup));
+    RLookup_Init(upstreamLookups[i], NULL);
+  }
+
+  // For tests, we don't need the tailLookup since result reconstruction is disabled
+  // In real usage, this would be managed by the pipeline
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, upstreamLookups, NULL);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -150,7 +159,16 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes);
+  // Create dummy upstream lookups for the test
+  RLookup **upstreamLookups = (RLookup**)rm_calloc(numUpstreams, sizeof(RLookup*));
+  for (size_t i = 0; i < numUpstreams; i++) {
+    upstreamLookups[i] = (RLookup*)rm_calloc(1, sizeof(RLookup));
+    RLookup_Init(upstreamLookups[i], NULL);
+  }
+
+  // For tests, we don't need the tailLookup since result reconstruction is disabled
+  // In real usage, this would be managed by the pipeline
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, upstreamLookups, NULL);
 }
 
 
@@ -1332,7 +1350,17 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
 
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, 3);
-  ResultProcessor *hybridMerger = RPHybridMerger_New(hybridScoringCtx, upstreams, 3, NULL, returnCodes);
+
+  // Create dummy upstream lookups for the test
+  RLookup **upstreamLookups = (RLookup**)rm_calloc(3, sizeof(RLookup*));
+  for (int i = 0; i < 3; i++) {
+    upstreamLookups[i] = (RLookup*)rm_calloc(1, sizeof(RLookup));
+    RLookup_Init(upstreamLookups[i], NULL);
+  }
+
+  // For tests, we don't need the tailLookup since result reconstruction is disabled
+  // In real usage, this would be managed by the pipeline
+  ResultProcessor *hybridMerger = RPHybridMerger_New(hybridScoringCtx, upstreams, 3, NULL, returnCodes, upstreamLookups, NULL);
 
   // Process results - this should capture the return codes
   SearchResult r = {0};
