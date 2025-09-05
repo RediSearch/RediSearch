@@ -14,9 +14,9 @@ use std::{
 };
 
 use crate::{
-    Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
-    FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
-    NumericFilter, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
+    DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
+    FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, InvertedIndex, NumericFilter,
+    RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
     SkipDuplicatesReader,
     debug::{BlockSummary, Summary},
 };
@@ -356,6 +356,14 @@ impl Decoder for Dummy {
     }
 }
 
+impl DecodedBy for Dummy {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
 #[test]
 fn reading_records() {
     // Make two blocks. The first with two records and the second with one record
@@ -373,7 +381,8 @@ fn reading_records() {
             last_doc_id: 100,
         },
     ];
-    let mut ir = IndexReader::new(&blocks, Dummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
 
     let record = ir
         .next_record()
@@ -426,7 +435,8 @@ fn reading_over_empty_blocks() {
             last_doc_id: 30,
         },
     ];
-    let mut ir = IndexReader::new(&blocks, Dummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
 
     let record = ir
         .next_record()
@@ -452,6 +462,19 @@ fn reading_over_empty_blocks() {
 fn read_using_the_first_block_id_as_the_base() {
     struct FirstBlockIdDummy;
 
+    impl Encoder for FirstBlockIdDummy {
+        type Delta = u32;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            _writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            panic!("This test won't encode anything")
+        }
+    }
+
     impl Decoder for FirstBlockIdDummy {
         fn decode<'index>(
             &self,
@@ -472,6 +495,14 @@ fn read_using_the_first_block_id_as_the_base() {
         }
     }
 
+    impl DecodedBy for FirstBlockIdDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
     // Make a block with three different doc IDs
     let blocks = vec![IndexBlock {
         buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
@@ -479,7 +510,8 @@ fn read_using_the_first_block_id_as_the_base() {
         first_doc_id: 10,
         last_doc_id: 12,
     }];
-    let mut ir = IndexReader::new(&blocks, FirstBlockIdDummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, FirstBlockIdDummy);
+    let mut ir = ii.reader();
 
     let record = ir
         .next_record()
@@ -503,10 +535,10 @@ fn read_using_the_first_block_id_as_the_base() {
 }
 
 #[test]
-#[should_panic(expected = "IndexReader should not be created with an empty block list")]
+#[should_panic(expected = "IndexReader should not be created with an empty inverted index")]
 fn index_reader_construction_with_no_blocks() {
-    let blocks: Vec<IndexBlock> = vec![];
-    let _ir = IndexReader::new(&blocks, Dummy);
+    let ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    let _ir = ii.reader();
 }
 
 #[test]
@@ -549,7 +581,8 @@ fn index_reader_skip_to() {
             last_doc_id: 50,
         },
     ];
-    let mut ir = IndexReader::new(&blocks, Dummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks.clone(), Dummy);
+    let mut ir = ii.reader();
 
     assert_eq!(ir.current_block_idx, 0, "should start at the first block");
     assert_eq!(ir.last_doc_id, 10);
