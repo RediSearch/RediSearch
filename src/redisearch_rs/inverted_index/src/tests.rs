@@ -667,6 +667,28 @@ fn reader_reset() {
 }
 
 #[test]
+fn reader_unique_docs() {
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 100,
+            last_doc_id: 100,
+        },
+    ];
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let ir = ii.reader();
+
+    assert_eq!(ir.unique_docs(), 3);
+}
+
+#[test]
 fn read_skipping_over_duplicates() {
     // Make an iterator where the first two entries have the same doc ID and the third one is different
     let iter = vec![

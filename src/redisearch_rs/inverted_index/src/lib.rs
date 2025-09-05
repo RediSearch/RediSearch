@@ -681,6 +681,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
         self.set_current_block(0);
     }
 
+    /// Return the number of unique documents in the underlying index.
+    pub fn unique_docs(&self) -> usize {
+        self.ii.unique_docs()
+    }
+
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
         self.current_block_idx = index;
