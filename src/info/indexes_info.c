@@ -34,7 +34,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     // Lock for read
     int rc = pthread_rwlock_rdlock(&sp->rwlock);
     if (rc != 0) {
-      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", HiddenString_GetUnsafe(sp->name, NULL), rc, strerror(rc));
+      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", HiddenString_GetUnsafe(sp->specName, NULL), rc, strerror(rc));
       continue;
     }
     size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0);
