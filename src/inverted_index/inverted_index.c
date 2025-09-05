@@ -544,14 +544,14 @@ IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId) {
 }
 
 IndexDecoderCtx NewIndexDecoderCtx_NumericFilter() {
-  IndexDecoderCtx ctx = {.filter = NULL};
+  IndexDecoderCtx ctx = {.tag = IndexDecoderCtx_None};
 
   return ctx;
 }
 
 // Create a new IndexDecoderCtx with a mask filter. Used only in benchmarks.
 IndexDecoderCtx NewIndexDecoderCtx_MaskFilter(uint32_t mask) {
-  IndexDecoderCtx ctx = {.mask = mask};
+  IndexDecoderCtx ctx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = mask};
 
   return ctx;
 }
@@ -726,7 +726,7 @@ DECODER(readFreqsFlags) {
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &fieldMask);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
-  return fieldMask & ctx->mask;
+  return fieldMask & ctx->field_mask;
 }
 
 DECODER(readFreqsFlagsWide) {
@@ -734,7 +734,7 @@ DECODER(readFreqsFlagsWide) {
   qint_decode2(&blockReader->buffReader, &delta, &res->freq);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  return res->fieldMask & ctx->wideMask;
+  return res->fieldMask & ctx->field_mask;
 }
 
 DECODER(readFreqOffsetsFlags) {
@@ -746,7 +746,7 @@ DECODER(readFreqOffsetsFlags) {
   res->fieldMask = fieldMask;
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
   Buffer_Skip(&blockReader->buffReader, offsetsSz);
-  return fieldMask & ctx->mask;
+  return fieldMask & ctx->field_mask;
 }
 
 SKIPPER(seekFreqOffsetsFlags) {
@@ -757,7 +757,7 @@ SKIPPER(seekFreqOffsetsFlags) {
     qint_decode4(&blockReader->buffReader, &did, &freq, &fm, &offsz);
     Buffer_Skip(&blockReader->buffReader, offsz);
     blockReader->curBaseId = (did += blockReader->curBaseId);
-    if (!(ctx->mask & fm)) {
+    if (!(ctx->field_mask & fm)) {
       continue;  // we just ignore it if it does not match the field mask
     }
     if (did >= expid) {
@@ -785,7 +785,7 @@ DECODER(readFreqOffsetsFlagsWide) {
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
   Buffer_Skip(&blockReader->buffReader, offsetsSz);
-  return res->fieldMask & ctx->wideMask;
+  return res->fieldMask & ctx->field_mask;
 }
 
 // special decoder for decoding numeric results
@@ -837,7 +837,7 @@ DECODER(readNumeric) {
 
   IndexResult_SetNumValue(res, value);
 
-  const NumericFilter *f = ctx->filter;
+  const NumericFilter *f = ctx->numeric;
   if (f) {
     if (NumericFilter_IsNumeric(f)) {
       return NumericFilter_Match(f, value);
@@ -866,14 +866,14 @@ DECODER(readFlags) {
   qint_decode2(&blockReader->buffReader, &delta, &mask);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = mask;
-  return mask & ctx->mask;
+  return mask & ctx->field_mask;
 }
 
 DECODER(readFlagsWide) {
   blockReader->curBaseId = res->docId = ReadVarint(&blockReader->buffReader) + blockReader->curBaseId;
   res->freq = 1;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  return res->fieldMask & ctx->wideMask;
+  return res->fieldMask & ctx->field_mask;
 }
 
 DECODER(readFieldsOffsets) {
@@ -885,7 +885,7 @@ DECODER(readFieldsOffsets) {
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
   Buffer_Skip(&blockReader->buffReader, offsetsSz);
-  return mask & ctx->mask;
+  return mask & ctx->field_mask;
 }
 
 DECODER(readFieldsOffsetsWide) {
@@ -898,7 +898,7 @@ DECODER(readFieldsOffsetsWide) {
   RSOffsetVector_SetData(offsets, BufferReader_Current(&blockReader->buffReader), offsetsSz);
 
   Buffer_Skip(&blockReader->buffReader, offsetsSz);
-  return res->fieldMask & ctx->wideMask;
+  return res->fieldMask & ctx->field_mask;
 }
 
 DECODER(readOffsetsOnly) {
@@ -1460,7 +1460,7 @@ IndexFlags IndexReader_Flags(const IndexReader *ir) {
 }
 
 const NumericFilter *IndexReader_NumericFilter(const IndexReader *ir) {
-  return ir->decoderCtx.filter;
+  return ir->decoderCtx.numeric;
 }
 
 void IndexReader_SwapIndex(IndexReader *ir, const InvertedIndex *newIdx) {

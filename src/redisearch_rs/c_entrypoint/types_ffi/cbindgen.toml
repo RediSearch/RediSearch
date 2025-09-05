@@ -32,7 +32,7 @@ include = ["enumflags2", "inverted_index", "low_memory_thin_vec"]
 [export]
 # Don't export the `low_memory_thin_vec::Header` again
 exclude = ["Header"]
-include = ["BlockSummary", "Summary"]
+include = ["BlockSummary", "Summary", "ReadFilter"]
 
 [export.rename]
 # For `LowMemoryThinVec<&'index RSIndexResult<'index>>`
@@ -41,3 +41,4 @@ include = ["BlockSummary", "Summary"]
 "LowMemoryThinVec_____RSIndexResult" = "LowMemoryThinVecRSIndexResultOwned"
 "BlockSummary" = "IIBlockSummary"
 "Summary" = "IISummary"
+"ReadFilter" = "IndexDecoderCtx"

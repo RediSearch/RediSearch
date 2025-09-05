@@ -16,7 +16,10 @@ use inverted_index::{
     RSQueryTerm, RSTermRecord, t_fieldMask,
 };
 
-pub use inverted_index::debug::{BlockSummary, Summary};
+pub use inverted_index::{
+    ReadFilter,
+    debug::{BlockSummary, Summary},
+};
 
 /// Check if this is a numeric filter and not a geo filter
 ///

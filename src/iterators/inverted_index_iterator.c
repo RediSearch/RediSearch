@@ -490,7 +490,7 @@ QueryIterator *NewInvIndIterator_NumericFull(const InvertedIndex *idx) {
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
-  IndexDecoderCtx decoderCtx = {.filter = NULL};
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
   return NewInvIndIterator_NumericRange(idx, NewNumericResult(), NULL, &fieldCtx, false, NULL, &decoderCtx);
 }
 
@@ -499,7 +499,7 @@ QueryIterator *NewInvIndIterator_TermFull(const InvertedIndex *idx) {
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
-  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -511,7 +511,7 @@ QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagInde
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
-  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -522,7 +522,7 @@ QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagInde
 
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, const FieldSpec *fieldSpec, double rangeMin, double rangeMax) {
-  IndexDecoderCtx decoderCtx = {.filter = flt};
+  IndexDecoderCtx decoderCtx = {.numeric_tag = IndexDecoderCtx_Numeric, .numeric = flt};
   QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), fieldSpec, fieldCtx, true, sctx, &decoderCtx);
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
@@ -556,13 +556,12 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
-  IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (InvertedIndex_Flags(idx) & Index_WideSchema))
-    dctx.wideMask = fieldMaskOrIndex.value.mask;
-  else if (fieldMaskOrIndex.isFieldMask)
-    dctx.mask = fieldMaskOrIndex.value.mask;
-  else
-    dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+  IndexDecoderCtx dctx = {.tag = IndexDecoderCtx_FieldMask};
+  if (fieldMaskOrIndex.isFieldMask) {
+    dctx.field_mask = fieldMaskOrIndex.value.mask;
+  } else {
+    dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+  }
 
   return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx, TermCheckAbort);
 }
@@ -584,13 +583,12 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
-  IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (InvertedIndex_Flags(idx) & Index_WideSchema))
-    dctx.wideMask = fieldMaskOrIndex.value.mask;
-  else if (fieldMaskOrIndex.isFieldMask)
-    dctx.mask = fieldMaskOrIndex.value.mask;
-  else
-    dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+  IndexDecoderCtx dctx = {.tag = IndexDecoderCtx_FieldMask};
+  if (fieldMaskOrIndex.isFieldMask) {
+    dctx.field_mask = fieldMaskOrIndex.value.mask;
+  } else {
+    dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+  }
 
   TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->tagIdx = tagIdx;
@@ -602,7 +600,7 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
-  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL};
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = 1;
 
@@ -617,7 +615,7 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
     .field = {.isFieldMask = false, .value = {.index = fieldIndex}},
     .predicate = FIELD_EXPIRATION_MISSING, // Missing predicate
   };
-  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);
   record->freq = 1;
 

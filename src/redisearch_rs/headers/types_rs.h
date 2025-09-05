@@ -447,6 +447,44 @@ typedef struct IISummary {
   bool has_efficiency;
 } IISummary;
 
+/**
+ * Filter to apply when reading from an index. Entries which don't match the filter will not be
+ * returned by the reader.
+ */
+enum IndexDecoderCtx_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  /**
+   * No filter, all entries are accepted
+   */
+  IndexDecoderCtx_None,
+  /**
+   * Accepts entries matching this field mask
+   */
+  IndexDecoderCtx_FieldMask,
+  /**
+   * Accepts entries matching this numeric filter
+   */
+  IndexDecoderCtx_Numeric,
+};
+#ifndef __cplusplus
+typedef uint8_t IndexDecoderCtx_Tag;
+#endif // __cplusplus
+
+typedef union IndexDecoderCtx {
+  IndexDecoderCtx_Tag tag;
+  struct {
+    IndexDecoderCtx_Tag field_mask_tag;
+    t_fieldMask field_mask;
+  };
+  struct {
+    IndexDecoderCtx_Tag numeric_tag;
+    const struct NumericFilter *numeric;
+  };
+} IndexDecoderCtx;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
