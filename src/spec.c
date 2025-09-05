@@ -2783,14 +2783,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   IndexSpec_StartGC(RSDummyContext, spec_ref, sp);
   Cursors_initSpec(sp);
 
-<<<<<<< HEAD
   dictAdd(legacySpecDict, sp->name, spec_ref.rm);
-=======
-  dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
-  // Subscribe to keyspace notifications
-  Initialize_KeyspaceNotifications();
-
->>>>>>> 4710f4483 ([MOD-11011] Fix deadlock while RDB loading and RM_Yield (#6763))
   return spec_ref.rm;
 }
 

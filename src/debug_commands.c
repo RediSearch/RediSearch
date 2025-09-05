@@ -1585,6 +1585,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"BG_SCAN_CONTROLLER", bgScanController},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                /**
                                 * The following commands are for debugging search/aggregation.

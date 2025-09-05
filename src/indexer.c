@@ -235,6 +235,9 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
       writeIndexEntry(spec, invidx, encoder, entry);
+      if (Index_StoreFieldMask(spec)) {
+        invidx->fieldMask |= entry->fieldMask;
+      }
     }
 
     if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
