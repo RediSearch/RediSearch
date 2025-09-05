@@ -1491,17 +1491,15 @@ unsigned int GetIndexerSleepBeforeYieldMicros(void) {
  * Get or set the sleep time in microseconds before yielding during indexing while loading
  */
 DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
-  if (argc > 3) {
+  if (argc > 1) {
     return RedisModule_WrongArity(ctx);
   }
-
-  // Set new sleep time
-  if (argc == 3) {
+  // Check if we need to reset the counter
+  if (argc == 1) {
     long long sleepMicros;
-    if (RedisModule_StringToLongLong(argv[2], &sleepMicros) != REDISMODULE_OK || sleepMicros < 0) {
+    if (RedisModule_StringToLongLong(argv[0], &sleepMicros) != REDISMODULE_OK || sleepMicros < 0) {
       return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
     }
-
     g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
