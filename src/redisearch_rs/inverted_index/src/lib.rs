@@ -226,7 +226,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -588,10 +588,6 @@ pub struct IndexReader<'index, E, D> {
     /// The current position in the block that is being read from.
     current_buffer: Cursor<&'index [u8]>,
 
-    /// The current block that is being read from. This might be used to determine the base document
-    /// ID for delta calculations and to read the next record from the block.
-    current_block: &'index IndexBlock,
-
     /// The index of the current block in the `blocks` vector. This is used to keep track of
     /// which block we are currently reading from, especially when the current buffer is empty and we
     /// need to move to the next block.
@@ -619,7 +615,6 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
             ii,
             decoder: E::decoder(),
             current_buffer: Cursor::new(&first_block.buffer),
-            current_block: first_block,
             current_block_idx: 0,
             last_doc_id: first_block.first_doc_id,
         }
@@ -638,7 +633,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
             self.set_current_block(self.current_block_idx + 1);
         }
 
-        let base = D::base_id(self.current_block, self.last_doc_id);
+        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
         let result = self.decoder.decode(&mut self.current_buffer, base)?;
 
         self.last_doc_id = result.doc_id;
@@ -649,7 +644,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
     pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
-        if self.current_block.last_doc_id >= doc_id {
+        if self.ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
             // We are already in the correct block
             return true;
         }
@@ -684,9 +679,9 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
         self.current_block_idx = index;
-        self.current_block = &self.ii.blocks[self.current_block_idx];
-        self.last_doc_id = self.current_block.first_doc_id;
-        self.current_buffer = Cursor::new(&self.current_block.buffer);
+        let current_block = &self.ii.blocks[self.current_block_idx];
+        self.last_doc_id = current_block.first_doc_id;
+        self.current_buffer = Cursor::new(&current_block.buffer);
     }
 }
 

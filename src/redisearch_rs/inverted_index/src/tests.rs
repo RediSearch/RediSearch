@@ -581,7 +581,7 @@ fn index_reader_skip_to() {
             last_doc_id: 50,
         },
     ];
-    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks.clone(), Dummy);
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
     let mut ir = ii.reader();
 
     assert_eq!(ir.current_block_idx, 0, "should start at the first block");
@@ -590,25 +590,21 @@ fn index_reader_skip_to() {
     // Skipping to an ID in the current block should not change anything
     assert!(ir.skip_to(12));
     assert_eq!(ir.current_block_idx, 0, "we are still in the first block");
-    assert_eq!(ir.current_block, &blocks[0]);
     assert_eq!(ir.last_doc_id, 10);
 
     // Skipping to an ID in the next block should move to the next block
     assert!(ir.skip_to(16));
     assert_eq!(ir.current_block_idx, 1, "should be in the second block");
-    assert_eq!(ir.current_block, &blocks[1]);
     assert_eq!(ir.last_doc_id, 16);
 
     // Skipping to an ID in a later block should move to that block
     assert!(ir.skip_to(30));
     assert_eq!(ir.current_block_idx, 3, "should be in the fourth block");
-    assert_eq!(ir.current_block, &blocks[3]);
     assert_eq!(ir.last_doc_id, 30);
 
     // Skipping to an ID between blocks should give the block with the next highest ID
     assert!(ir.skip_to(45));
     assert_eq!(ir.current_block_idx, 5, "should be in the sixth block");
-    assert_eq!(ir.current_block, &blocks[5]);
     assert_eq!(ir.last_doc_id, 50);
 
     // Skipping to an ID beyond the last block should return false and stay at the last block
@@ -617,7 +613,6 @@ fn index_reader_skip_to() {
         ir.current_block_idx, 5,
         "should still be in the sixth block"
     );
-    assert_eq!(ir.current_block, &blocks[5]);
     assert_eq!(ir.last_doc_id, 50);
 
     // Skipping to an earlier ID should do nothing
@@ -626,7 +621,6 @@ fn index_reader_skip_to() {
         ir.current_block_idx, 5,
         "should still be in the sixth block"
     );
-    assert_eq!(ir.current_block, &blocks[5]);
     assert_eq!(ir.last_doc_id, 50);
 }
 
