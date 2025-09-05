@@ -194,7 +194,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->doc = doc;
   if (AddDocumentCtx_SetDocument(aCtx, sp) != 0) {
     *status = aCtx->status;
-    aCtx->status.detail = NULL;
+    QueryError_ClearDetail(&aCtx->status);
     mempool_release(actxPool_g, aCtx);
     return NULL;
   }

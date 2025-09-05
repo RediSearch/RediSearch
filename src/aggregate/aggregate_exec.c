@@ -355,8 +355,8 @@ static void destroyResults(SearchResult **results) {
 
 static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
   return QueryError_HasError(rp->parent->err)
-      && (rp->parent->err->code != QUERY_ETIMEDOUT
-          || (rp->parent->err->code == QUERY_ETIMEDOUT
+      && (QueryError_GetCode(rp->parent->err) != QUERY_ETIMEDOUT
+          || (QueryError_GetCode(rp->parent->err) == QUERY_ETIMEDOUT
               && req->reqConfig.timeoutPolicy == FailurePolicy_Fail
               && !IsProfile(req)));
 }
@@ -523,7 +523,7 @@ done_2:
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansions(req->qiter.err),
       .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
     };
 
@@ -645,7 +645,7 @@ done_3:
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(req->qiter.err));
-    } else if (req->qiter.err->reachedMaxPrefixExpansions) {
+    } else if (QueryError_HasReachedMaxPrefixExpansions(req->qiter.err)) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
@@ -660,7 +660,7 @@ done_3:
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
-      .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+      .reachedMaxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansions(req->qiter.err),
       .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
     };
 
