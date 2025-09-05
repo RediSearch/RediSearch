@@ -676,6 +676,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
         true
     }
 
+    /// Reset the reader to the beginning of the index.
+    pub fn reset(&mut self) {
+        self.set_current_block(0);
+    }
+
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
         self.current_block_idx = index;

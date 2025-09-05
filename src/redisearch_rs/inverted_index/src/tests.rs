@@ -625,6 +625,48 @@ fn index_reader_skip_to() {
 }
 
 #[test]
+fn reader_reset() {
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 100,
+            last_doc_id: 100,
+        },
+    ];
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(10));
+    drop(record);
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(11));
+    drop(record);
+
+    ir.reset();
+
+    let record = ir
+        .next_record()
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+    assert_eq!(record, RSIndexResult::virt().doc_id(10));
+}
+
+#[test]
 fn read_skipping_over_duplicates() {
     // Make an iterator where the first two entries have the same doc ID and the third one is different
     let iter = vec![
