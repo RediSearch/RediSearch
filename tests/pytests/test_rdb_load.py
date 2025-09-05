@@ -34,7 +34,7 @@ def test_rdb_load_no_deadlock():
     while some subprocesses keep sending INFO commands.
     """
     # Download the RDB file using downloadFile function
-    rdb_filename = 'redisearch_8.0_with_vecsim.rdb'
+    rdb_filename = 'redisearch_2.6.9_with_vecsim.rdb'
 
     # Create a clean Redis environment
     test_env = Env(moduleArgs='')
@@ -51,8 +51,7 @@ def test_rdb_load_no_deadlock():
         return
 
     # Configure indexer to yield more frequently during loading to increase chance of deadlock
-    test_env.cmd('CONFIG', 'SET', 'search-indexer-yield-every-ops', '1')
-    test_env.cmd('CONFIG', 'SET', 'busy-reply-threshold', 1)
+    test_env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', '1').ok()
     test_env.expect(debug_cmd(), 'INDEXER_SLEEP_BEFORE_YIELD_MICROS', '50000').ok()
 
     # Get Redis configuration for RDB file location
