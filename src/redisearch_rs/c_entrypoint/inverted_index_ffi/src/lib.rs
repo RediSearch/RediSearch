@@ -59,50 +59,26 @@ pub enum InvertedIndex {
     Numeric(EntriesTrackingIndex<Numeric>),
 }
 
-impl InvertedIndex {
-    /// Add a record to the inverted index. Returns by how many bytes the memory grew by.
-    fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
-        use InvertedIndex::*;
-
-        match self {
-            Full(ii) => ii.add_record(record),
-            FullWide(ii) => ii.add_record(record),
-            FreqsFields(ii) => ii.add_record(record),
-            FreqsFieldsWide(ii) => ii.add_record(record),
-            FreqsOnly(ii) => ii.add_record(record),
-            FieldsOnly(ii) => ii.add_record(record),
-            FieldsOnlyWide(ii) => ii.add_record(record),
-            FieldsOffsets(ii) => ii.add_record(record),
-            FieldsOffsetsWide(ii) => ii.add_record(record),
-            OffsetsOnly(ii) => ii.add_record(record),
-            FreqsOffsets(ii) => ii.add_record(record),
-            DocumentIdOnly(ii) => ii.add_record(record),
-            RawDocumentIdOnly(ii) => ii.add_record(record),
-            Numeric(ii) => ii.add_record(record),
+// Macro to make calling the methods on the inner index easier
+macro_rules! ii_dispatch {
+    ($self:expr, $method:ident $(, $args:expr)*) => {
+        match $self {
+            InvertedIndex::Full(ii) => ii.$method($($args),*),
+            InvertedIndex::FullWide(ii) => ii.$method($($args),*),
+            InvertedIndex::FreqsFields(ii) => ii.$method($($args),*),
+            InvertedIndex::FreqsFieldsWide(ii) => ii.$method($($args),*),
+            InvertedIndex::FreqsOnly(ii) => ii.$method($($args),*),
+            InvertedIndex::FieldsOnly(ii) => ii.$method($($args),*),
+            InvertedIndex::FieldsOnlyWide(ii) => ii.$method($($args),*),
+            InvertedIndex::FieldsOffsets(ii) => ii.$method($($args),*),
+            InvertedIndex::FieldsOffsetsWide(ii) => ii.$method($($args),*),
+            InvertedIndex::OffsetsOnly(ii) => ii.$method($($args),*),
+            InvertedIndex::FreqsOffsets(ii) => ii.$method($($args),*),
+            InvertedIndex::DocumentIdOnly(ii) => ii.$method($($args),*),
+            InvertedIndex::RawDocumentIdOnly(ii) => ii.$method($($args),*),
+            InvertedIndex::Numeric(ii) => ii.$method($($args),*),
         }
-    }
-
-    /// Get the memory usage of the inverted index in bytes.
-    fn memory_usage(&self) -> usize {
-        use InvertedIndex::*;
-
-        match self {
-            Full(ii) => ii.memory_usage(),
-            FullWide(ii) => ii.memory_usage(),
-            FreqsFields(ii) => ii.memory_usage(),
-            FreqsFieldsWide(ii) => ii.memory_usage(),
-            FreqsOnly(ii) => ii.memory_usage(),
-            FieldsOnly(ii) => ii.memory_usage(),
-            FieldsOnlyWide(ii) => ii.memory_usage(),
-            FieldsOffsets(ii) => ii.memory_usage(),
-            FieldsOffsetsWide(ii) => ii.memory_usage(),
-            OffsetsOnly(ii) => ii.memory_usage(),
-            FreqsOffsets(ii) => ii.memory_usage(),
-            DocumentIdOnly(ii) => ii.memory_usage(),
-            RawDocumentIdOnly(ii) => ii.memory_usage(),
-            Numeric(ii) => ii.memory_usage(),
-        }
-    }
+    };
 }
 
 /// The mask of flags that determine the index storage type. This includes all flags that affect
@@ -204,7 +180,7 @@ pub extern "C" fn NewInvertedIndex_Ex(
         _ => panic!("Unsupported index flags: {flags:?}"),
     };
 
-    *mem_size = ii.memory_usage();
+    *mem_size = ii_dispatch!(&ii, memory_usage);
 
     let ii_boxed = Box::new(ii);
     Box::into_raw(ii_boxed)
@@ -232,7 +208,7 @@ pub unsafe extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
 pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usize {
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*ii };
-    ii.memory_usage()
+    ii_dispatch!(ii, memory_usage)
 }
 
 /// Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
@@ -252,7 +228,7 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &mut *ii };
-    ii.add_record(&record).unwrap()
+    ii_dispatch!(ii, add_record, &record).unwrap()
 }
 
 /// Write a new entry to the inverted index. The function returns the number of bytes the memory
@@ -273,5 +249,5 @@ pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     // SAFETY: The caller must ensure that `record` is a valid pointer to an `RSIndexResult`
     let record = unsafe { &*record };
 
-    ii.add_record(record).unwrap()
+    ii_dispatch!(ii, add_record, record).unwrap()
 }
