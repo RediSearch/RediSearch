@@ -278,7 +278,7 @@ int spellCheckReducer_resp2(struct MRCtx* mc, int count, MRReply** replies) {
   }
 
   uint64_t totalDocNum = 0;
-  QueryError qerr = {0};
+  QueryError qerr = QUERY_ERROR_DEFAULT;
   for (int i = 0; i < count; ++i) {
     if (!spellCheckReplySanity_resp2(replies[i], &totalDocNum, &qerr)) {
       QueryError_ReplyAndClear(ctx, &qerr);
@@ -327,7 +327,7 @@ int spellCheckReducer_resp3(struct MRCtx* mc, int count, MRReply** replies) {
   }
 
   uint64_t totalDocNum = 0;
-  QueryError qerr = {0};
+  QueryError qerr = QUERY_ERROR_DEFAULT;
   for (int i = 0; i < count; ++i) {
     if (!spellCheckReplySanity_resp3(replies[i], &totalDocNum, &qerr)) {
       QueryError_ReplyAndClear(ctx, &qerr);

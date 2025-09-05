@@ -1562,7 +1562,7 @@ error:
 int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   if (!(req->reqflags & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
     buildImplicitPipeline(req, status);
-    if (status->code != QUERY_OK) {
+    if (QueryError_GetCode(status) != QUERY_OK) {
       goto error;
     }
   }

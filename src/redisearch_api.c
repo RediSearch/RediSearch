@@ -331,7 +331,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
     if (ourErr->s) {
       *ourErr->s = rm_strdup(QueryError_GetUserError(&aCtx->status));
     }
-    ourErr->hasErr = aCtx->status.code;
+    ourErr->hasErr = QueryError_GetCode(&aCtx->status);
   }
 }
 
@@ -340,10 +340,10 @@ int RediSearch_IndexAddDocument(RefManager* rm, Document* d, int options, char**
   IndexSpec* sp = __RefManager_Get_Object(rm);
 
   RSError err = {.s = errs};
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
   RSAddDocumentCtx* aCtx = NewAddDocumentCtx(sp, d, &status);
   if (aCtx == NULL) {
-    if (status.detail) {
+    if (QueryError_GetCode(&status)) {
       QueryError_ClearError(&status);
     }
     RWLOCK_RELEASE();
@@ -596,7 +596,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   dictPauseRehashing(sp->keysDict);
 
   RSSearchOptions options = {0};
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
   RSSearchOptions_Init(&options);
   if(sp->rule != NULL && sp->rule->lang_default != DEFAULT_LANGUAGE) {
     options.language = sp->rule->lang_default;
