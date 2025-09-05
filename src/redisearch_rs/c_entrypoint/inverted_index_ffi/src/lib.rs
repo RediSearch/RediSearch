@@ -60,7 +60,7 @@ pub enum InvertedIndex {
 }
 
 impl InvertedIndex {
-    // Add a record to the inverted index. Returns by how many bytes the memory grew by.
+    /// Add a record to the inverted index. Returns by how many bytes the memory grew by.
     fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
         use InvertedIndex::*;
 
@@ -79,6 +79,28 @@ impl InvertedIndex {
             DocumentIdOnly(ii) => ii.add_record(record),
             RawDocumentIdOnly(ii) => ii.add_record(record),
             Numeric(ii) => ii.add_record(record),
+        }
+    }
+
+    /// Get the memory usage of the inverted index in bytes.
+    fn memory_usage(&self) -> usize {
+        use InvertedIndex::*;
+
+        match self {
+            Full(ii) => ii.memory_usage(),
+            FullWide(ii) => ii.memory_usage(),
+            FreqsFields(ii) => ii.memory_usage(),
+            FreqsFieldsWide(ii) => ii.memory_usage(),
+            FreqsOnly(ii) => ii.memory_usage(),
+            FieldsOnly(ii) => ii.memory_usage(),
+            FieldsOnlyWide(ii) => ii.memory_usage(),
+            FieldsOffsets(ii) => ii.memory_usage(),
+            FieldsOffsetsWide(ii) => ii.memory_usage(),
+            OffsetsOnly(ii) => ii.memory_usage(),
+            FreqsOffsets(ii) => ii.memory_usage(),
+            DocumentIdOnly(ii) => ii.memory_usage(),
+            RawDocumentIdOnly(ii) => ii.memory_usage(),
+            Numeric(ii) => ii.memory_usage(),
         }
     }
 }
@@ -138,98 +160,46 @@ pub extern "C" fn NewInvertedIndex_Ex(
         raw_doc_id_encoding,
         compress_floats,
     ) {
-        (FULL_MASK, _, _) => {
-            let ii = FieldMaskTrackingIndex::new(flags, Full);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::Full(ii)
-        }
+        (FULL_MASK, _, _) => InvertedIndex::Full(FieldMaskTrackingIndex::new(flags, Full)),
         (FULL_WIDE_MASK, _, _) => {
-            let ii = FieldMaskTrackingIndex::new(flags, FullWide);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FullWide(ii)
+            InvertedIndex::FullWide(FieldMaskTrackingIndex::new(flags, FullWide))
         }
         (FREQS_FIELDS_MASK, _, _) => {
-            let ii = FieldMaskTrackingIndex::new(flags, FreqsFields);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FreqsFields(ii)
+            InvertedIndex::FreqsFields(FieldMaskTrackingIndex::new(flags, FreqsFields))
         }
         (FREQS_FIELDS_WIDE_MASK, _, _) => {
-            let ii = FieldMaskTrackingIndex::new(flags, FreqsFieldsWide);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FreqsFieldsWide(ii)
+            InvertedIndex::FreqsFieldsWide(FieldMaskTrackingIndex::new(flags, FreqsFieldsWide))
         }
-        (FREQS_ONLY_MASK, _, _) => {
-            let ii = II::new(flags, FreqsOnly);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FreqsOnly(ii)
-        }
+        (FREQS_ONLY_MASK, _, _) => InvertedIndex::FreqsOnly(II::new(flags, FreqsOnly)),
         (FIELDS_ONLY_MASK, _, _) => {
-            let ii = FieldMaskTrackingIndex::new(flags, FieldsOnly);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FieldsOnly(ii)
+            InvertedIndex::FieldsOnly(FieldMaskTrackingIndex::new(flags, FieldsOnly))
         }
         (FIELDS_ONLY_WIDE_MASK, _, _) => {
-            let ii = FieldMaskTrackingIndex::new(flags, FieldsOnlyWide);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FieldsOnlyWide(ii)
+            InvertedIndex::FieldsOnlyWide(FieldMaskTrackingIndex::new(flags, FieldsOnlyWide))
         }
         (FIELDS_OFFSETS_MASK, _, _) => {
-            let ii = FieldMaskTrackingIndex::new(flags, FieldsOffsets);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FieldsOffsets(ii)
+            InvertedIndex::FieldsOffsets(FieldMaskTrackingIndex::new(flags, FieldsOffsets))
         }
         (FIELDS_OFFSETS_WIDE_MASK, _, _) => {
-            let ii = FieldMaskTrackingIndex::new(flags, FieldsOffsetsWide);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FieldsOffsetsWide(ii)
+            InvertedIndex::FieldsOffsetsWide(FieldMaskTrackingIndex::new(flags, FieldsOffsetsWide))
         }
-        (OFFSETS_ONLY_MASK, _, _) => {
-            let ii = II::new(flags, OffsetsOnly);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::OffsetsOnly(ii)
-        }
-        (FREQS_OFFSETS_MASK, _, _) => {
-            let ii = II::new(flags, FreqsOffsets);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::FreqsOffsets(ii)
-        }
-        (DOC_IDS_ONLY_MASK, false, _) => {
-            let ii = II::new(flags, DocIdsOnly);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::DocumentIdOnly(ii)
-        }
+        (OFFSETS_ONLY_MASK, _, _) => InvertedIndex::OffsetsOnly(II::new(flags, OffsetsOnly)),
+        (FREQS_OFFSETS_MASK, _, _) => InvertedIndex::FreqsOffsets(II::new(flags, FreqsOffsets)),
+        (DOC_IDS_ONLY_MASK, false, _) => InvertedIndex::DocumentIdOnly(II::new(flags, DocIdsOnly)),
         (DOC_IDS_ONLY_MASK, true, _) => {
-            let ii = II::new(flags, RawDocIdsOnly);
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::RawDocumentIdOnly(ii)
+            InvertedIndex::RawDocumentIdOnly(II::new(flags, RawDocIdsOnly))
         }
         (NUMERIC_MASK, _, false) => {
-            let ii = EntriesTrackingIndex::new(flags, Numeric::new());
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::Numeric(ii)
+            InvertedIndex::Numeric(EntriesTrackingIndex::new(flags, Numeric::new()))
         }
-        (NUMERIC_MASK, _, true) => {
-            let ii = EntriesTrackingIndex::new(flags, Numeric::new().with_float_compression());
-
-            *mem_size = ii.memory_usage();
-            InvertedIndex::Numeric(ii)
-        }
+        (NUMERIC_MASK, _, true) => InvertedIndex::Numeric(EntriesTrackingIndex::new(
+            flags,
+            Numeric::new().with_float_compression(),
+        )),
         _ => panic!("Unsupported index flags: {flags:?}"),
     };
+
+    *mem_size = ii.memory_usage();
 
     let ii_boxed = Box::new(ii);
     Box::into_raw(ii_boxed)
@@ -255,26 +225,9 @@ pub unsafe extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and must not be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usize {
-    use InvertedIndex::*;
-
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*ii };
-    match ii {
-        Full(ii) => ii.memory_usage(),
-        FullWide(ii) => ii.memory_usage(),
-        FreqsFields(ii) => ii.memory_usage(),
-        FreqsFieldsWide(ii) => ii.memory_usage(),
-        FreqsOnly(ii) => ii.memory_usage(),
-        FieldsOnly(ii) => ii.memory_usage(),
-        FieldsOnlyWide(ii) => ii.memory_usage(),
-        FieldsOffsets(ii) => ii.memory_usage(),
-        FieldsOffsetsWide(ii) => ii.memory_usage(),
-        OffsetsOnly(ii) => ii.memory_usage(),
-        FreqsOffsets(ii) => ii.memory_usage(),
-        DocumentIdOnly(ii) => ii.memory_usage(),
-        RawDocumentIdOnly(ii) => ii.memory_usage(),
-        Numeric(ii) => ii.memory_usage(),
-    }
+    ii.memory_usage()
 }
 
 /// Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
