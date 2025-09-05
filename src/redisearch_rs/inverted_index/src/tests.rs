@@ -689,6 +689,59 @@ fn reader_unique_docs() {
 }
 
 #[test]
+fn reader_has_duplicates() {
+    /// Dummy encoder which allows duplicates for testing
+    struct AllowDupsDummy;
+
+    impl Encoder for AllowDupsDummy {
+        type Delta = u32;
+
+        const ALLOW_DUPLICATES: bool = true;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&[255])?;
+
+            Ok(1)
+        }
+    }
+
+    impl Decoder for AllowDupsDummy {
+        fn decode<'index>(
+            &self,
+            _cursor: &mut Cursor<&'index [u8]>,
+            _base: ffi::t_docId,
+        ) -> std::io::Result<RSIndexResult<'index>> {
+            panic!("This test won't decode anything")
+        }
+    }
+
+    impl DecodedBy for AllowDupsDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, AllowDupsDummy);
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+
+    {
+        let ir = ii.reader();
+        assert!(!ir.has_duplicates());
+    }
+
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    let ir = ii.reader();
+    assert!(ir.has_duplicates(), "should have duplicates");
+}
+
+#[test]
 fn read_skipping_over_duplicates() {
     // Make an iterator where the first two entries have the same doc ID and the third one is different
     let iter = vec![

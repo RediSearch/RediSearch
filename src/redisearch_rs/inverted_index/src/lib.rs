@@ -686,6 +686,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
         self.ii.unique_docs()
     }
 
+    /// Returns true if the underlying index has duplicate document IDs.
+    pub fn has_duplicates(&self) -> bool {
+        self.ii.flags() & IndexFlags_Index_HasMultiValue > 0
+    }
+
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
         self.current_block_idx = index;
