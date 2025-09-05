@@ -2049,6 +2049,21 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+static void IndexSpec_InitLock(IndexSpec *sp) {
+  int res = 0;
+  pthread_rwlockattr_t attr;
+  res = pthread_rwlockattr_init(&attr);
+  RS_ASSERT(res == 0);
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
+  int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
+  res = pthread_rwlockattr_setkind_np(&attr, pref);
+  RS_ASSERT(res == 0);
+#endif
+
+  pthread_rwlock_init(&sp->rwlock, &attr);
+}
+
+
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
@@ -2078,17 +2093,7 @@ IndexSpec *NewIndexSpec(const HiddenString *name) {
   memset(&sp->stats, 0, sizeof(sp->stats));
   sp->stats.indexError = IndexError_Init();
 
-  int res = 0;
-  pthread_rwlockattr_t attr;
-  res = pthread_rwlockattr_init(&attr);
-  RS_ASSERT(res == 0);
-#if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
-  int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
-  res = pthread_rwlockattr_setkind_np(&attr, pref);
-  RS_ASSERT(res == 0);
-#endif
-
-  pthread_rwlock_init(&sp->rwlock, &attr);
+  IndexSpec_InitLock(sp);
 
   return sp;
 }
@@ -2908,6 +2913,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   RedisModule_Free(rawName);
 
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
   // setting isDuplicate to true will make sure index will not be removed from aliases container.
@@ -3042,6 +3048,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3140,7 +3147,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
-
   // Subscribe to keyspace notifications
   Initialize_KeyspaceNotifications();
 
@@ -3373,6 +3379,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  unsigned int numOps = doc.numFields != 0 ? doc.numFields: 1;
+  IndexerYieldWhileLoading(ctx, numOps, REDISMODULE_YIELD_FLAG_CLIENTS);
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_IncrActiveWrites(spec);
 
