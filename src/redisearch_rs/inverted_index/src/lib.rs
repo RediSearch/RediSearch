@@ -215,6 +215,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
+#[derive(Debug, Eq, PartialEq)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -605,15 +606,12 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
         // Check if the current buffer is empty. The GC might clean out a block so we have to
         // continue checking until we find a block with data.
         while self.current_buffer.fill_buf()?.is_empty() {
-            let Some(next_block) = self.blocks.get(self.current_block_idx + 1) else {
+            if self.current_block_idx + 1 >= self.blocks.len() {
                 // No more blocks to read from
                 return Ok(None);
             };
 
-            self.current_block_idx += 1;
-            self.current_block = next_block;
-            self.last_doc_id = next_block.first_doc_id;
-            self.current_buffer = Cursor::new(&next_block.buffer);
+            self.set_current_block(self.current_block_idx + 1);
         }
 
         let base = D::base_id(self.current_block, self.last_doc_id);
@@ -622,6 +620,49 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
         self.last_doc_id = result.doc_id;
 
         Ok(Some(result))
+    }
+
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        if self.current_block.last_doc_id >= doc_id {
+            // We are already in the correct block
+            return true;
+        }
+
+        // SAFETY: it is safe to unwrap because we checked that the blocks are not empty when
+        // creating the reader.
+        if self.blocks.last().unwrap().last_doc_id < doc_id {
+            // The document ID is greater than the last document ID in the index
+            return false;
+        }
+
+        // Check if the very next block is correct before doing a binary search. This is a small
+        // optimization for the common case where we are skipping to the next block.
+        let search_start = self.current_block_idx + 1;
+        if let Some(next_block) = self.blocks.get(search_start)
+            && next_block.last_doc_id >= doc_id
+        {
+            self.set_current_block(search_start);
+            return true;
+        }
+
+        // Binary search to find the correct block index
+        let relative_idx = self.blocks[search_start..]
+            .binary_search_by_key(&doc_id, |b| b.last_doc_id)
+            .unwrap_or_else(|insertion_point| insertion_point);
+
+        self.set_current_block(search_start + relative_idx);
+
+        true
+    }
+
+    /// Set the current active block to the given index
+    fn set_current_block(&mut self, index: usize) {
+        self.current_block_idx = index;
+        self.current_block = &self.blocks[self.current_block_idx];
+        self.last_doc_id = self.current_block.first_doc_id;
+        self.current_buffer = Cursor::new(&self.current_block.buffer);
     }
 }
 
