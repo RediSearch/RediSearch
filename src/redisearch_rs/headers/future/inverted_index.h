@@ -22,9 +22,14 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Create a new inverted index instance based on the provided flags and options. The output
- * parameter `mem_size` will be set to the memory usage of the created index. The inverted index
- * should be freed using [`InvertedIndex_Free`] when no longer needed.
+ * Create a new inverted index instance based on the provided flags and options. `raw_doc_encoding`
+ * controls whether document IDs only encoding should use raw encoding (true) or varint encoding
+ * (false). `compress_floats` controls whether numeric encoding should have its floating point
+ * numbers compressed (true) or not (false). Compressing floating point numbers saves memory
+ * but losses some precision.
+ *
+ * The output parameter `mem_size` will be set to the memory usage of the created index. The
+ * inverted index should be freed using [`InvertedIndex_Free`] when no longer needed.
  *
  * # Safety
  *
@@ -85,6 +90,8 @@ uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSInde
 // Create a new inverted index object, with the given flag.
 // The out parameter memsize must be not NULL, the total of allocated memory
 // will be returned in it
+//
+// The inverted index should be freed using [`InvertedIndex_Free`] when no longer needed.
 InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize) {
   return NewInvertedIndex_Ex(flags, RSGlobalConfig.invertedIndexRawDocidEncoding, RSGlobalConfig.numericCompress, memsize);
 }
