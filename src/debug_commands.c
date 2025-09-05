@@ -1482,6 +1482,10 @@ DEBUG_COMMAND(bgScanController) {
 // Global variable for sleep time before yielding (in microseconds)
 static unsigned int g_indexerSleepBeforeYieldMicros = 0;
 
+unsigned int GetIndexerSleepBeforeYieldMicros(void) {
+  return g_indexerSleepBeforeYieldMicros;
+}
+
 /**
  * FT.DEBUG INDEXER_SLEEP_BEFORE_YIELD [<microseconds>]
  * Get or set the sleep time in microseconds before yielding during indexing while loading
