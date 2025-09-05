@@ -1,12 +1,29 @@
 import os
 import pytest
 import multiprocessing
-import threading
 import time
-import signal
-import tempfile
-from common import skip, downloadFile, REDISEARCH_CACHE_DIR, debug_cmd
+from common import *
 from RLTest import Env
+
+REDISEARCH_CACHE_DIR = '/tmp/rdbcompat'
+
+def downloadFiles(rdbs = None):
+
+    # In parallel test runs, several tests may check for REDISEARCH_CACHE_DIR existence successfully,
+    # but upon creating the directory, only one test succeeds, and the others would throw an error and fail.
+    # The try block aims to create REDISEARCH_CACHE_DIR, while the except block handles the case when the directory already exists,
+    # and the test can continue.
+    try:
+        os.makedirs(REDISEARCH_CACHE_DIR)
+    except FileExistsError:
+        pass
+    for f in rdbs:
+        path = os.path.join(REDISEARCH_CACHE_DIR, f)
+        if not os.path.exists(path):
+            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
+        if not os.path.exists(path):
+            return False
+    return True
 
 @skip(cluster=True)
 @pytest.mark.timeout(120)
@@ -29,7 +46,7 @@ def test_rdb_load_no_deadlock():
     test_env.expect('PING').equal(True)
 
     # Download the RDB file
-    if not downloadFile(test_env, rdb_filename):
+    if not downloadFiles([rdb_filename]):
         test_env.assertTrue(False, message=f'Failed to download RDB file: {rdb_filename}')
         return
 
