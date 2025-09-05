@@ -23,7 +23,7 @@ use crate::{
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreNumeric,
+    IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
 use pretty_assertions::assert_eq;
 
@@ -739,6 +739,21 @@ fn reader_has_duplicates() {
     ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
     let ir = ii.reader();
     assert!(ir.has_duplicates(), "should have duplicates");
+}
+
+#[test]
+fn reader_flags() {
+    let mut ii = InvertedIndex::new(
+        IndexFlags_Index_StoreTermOffsets | IndexFlags_Index_WideSchema,
+        Dummy,
+    );
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    let ir = ii.reader();
+
+    assert_eq!(
+        ir.flags(),
+        IndexFlags_Index_StoreTermOffsets | IndexFlags_Index_WideSchema,
+    );
 }
 
 #[test]
