@@ -754,7 +754,7 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
-  QueryError status = {0}, detailed_status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT, detailed_status = QUERY_ERROR_DEFAULT;
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
@@ -1017,7 +1017,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   AREQ *r = AREQ_New();
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
 
   if (prepareRequest(&r, ctx, argv, argc, type, execOptions, &status) != REDISMODULE_OK) {
     goto error;
@@ -1151,7 +1151,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
 static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
 
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
   req->reqflags &= ~QEXEC_F_IS_AGGREGATE; // Second read was not triggered by FT.AGGREGATE
@@ -1305,7 +1305,7 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   AREQ *r = NULL;
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
   AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
   if (!debug_req) {
     goto error;

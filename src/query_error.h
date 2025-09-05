@@ -81,6 +81,12 @@ typedef enum {
 #undef X
 } QueryErrorCode;
 
+/**
+ * Create a Query error with default fields,
+ * i.e. QUERY_OK error code, no messages, and
+ * no warning flags set.
+ */
+#define QUERY_ERROR_DEFAULT {0}
 
 typedef struct QueryError {
   QueryErrorCode _code;
