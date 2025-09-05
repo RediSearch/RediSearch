@@ -1487,10 +1487,6 @@ static unsigned int g_indexerSleepBeforeYieldMicros = 0;
  * Get or set the sleep time in microseconds before yielding during indexing while loading
  */
 DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-
   if (argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
