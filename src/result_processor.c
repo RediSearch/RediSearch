@@ -148,6 +148,261 @@ typedef struct {
   dict *diskInFlight;      // hash table tracking IndexResults awaiting disk metadata (doc_id -> IndexResult)
 } RPIndexIterator;
 
+/* Split rpidxNext into specialized handlers and a lazy initializer */
+static int rpidxNext_RAM(ResultProcessor *base, SearchResult *res) {
+  RPIndexIterator *self = (RPIndexIterator *)base;
+  IndexIterator *it = self->iiter;
+  RedisSearchCtx *sctx = RP_SCTX(base);
+  if (sctx->flags == RS_CTX_UNSET) {
+    RedisSearchCtx_LockSpecRead(RP_SCTX(base));
+    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
+  }
+
+  RSIndexResult *r;
+  const RSDocumentMetadata *dmd;
+  int rc;
+  bool isTrimming = false;
+
+  while (1) {
+    if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+    }
+
+    rc = it->Read(it->ctx, &r);
+    switch (rc) {
+      case INDEXREAD_EOF:
+        return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+      case INDEXREAD_TIMEOUT:
+        return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+      case INDEXREAD_NOTFOUND:
+        continue;
+      default: // INDEXREAD_OK
+        if (!r) continue;
+    }
+
+    IndexSpec *spec = RP_SPEC(base);
+    DocTable *docs = &spec->docs;
+    if (r->dmd) {
+      dmd = r->dmd;
+    } else {
+      dmd = DocTable_Borrow(docs, r->docId);
+    }
+    if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd, &sctx->time.current)) {
+      DMD_Return(dmd);
+      continue;
+    }
+
+    if (isTrimming && RedisModule_ShardingGetKeySlot) {
+      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+      int slot = RedisModule_ShardingGetKeySlot(key);
+      RedisModule_FreeString(NULL, key);
+      int firstSlot, lastSlot;
+      RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
+      if (firstSlot > slot || lastSlot < slot) {
+        DMD_Return(dmd);
+        continue;
+      }
+    }
+
+    base->parent->totalResults++;
+    // set the result data
+    res->docId = r->docId;
+    res->indexResult = r;
+    res->score = 0;
+    res->dmd = dmd;
+    RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
+    return RS_RESULT_OK;
+  }
+}
+
+static int rpidxNext_DiskSync(ResultProcessor *base, SearchResult *res) {
+  RPIndexIterator *self = (RPIndexIterator *)base;
+  IndexIterator *it = self->iiter;
+  RedisSearchCtx *sctx = RP_SCTX(base);
+  if (sctx->flags == RS_CTX_UNSET) {
+    RedisSearchCtx_LockSpecRead(RP_SCTX(base));
+    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
+  }
+
+  RSIndexResult *r;
+  const RSDocumentMetadata *dmd;
+  int rc;
+  bool isTrimming = false;
+
+  while (1) {
+    if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+    }
+
+    rc = it->Read(it->ctx, &r);
+    switch (rc) {
+      case INDEXREAD_EOF:
+        return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+      case INDEXREAD_TIMEOUT:
+        return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+      case INDEXREAD_NOTFOUND:
+        continue;
+      default: // INDEXREAD_OK
+        if (!r) continue;
+    }
+
+    IndexSpec *spec = RP_SPEC(base);
+    RS_ASSERT(spec->diskSpec);
+    RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    diskDmd->ref_count = 1;
+    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, r->docId) &&
+                               SearchDisk_GetDocumentMetadata(spec->diskSpec, r->docId, diskDmd);
+    if (!foundDocument) {
+      DMD_Return(diskDmd);
+      continue;
+    }
+    dmd = diskDmd;
+
+    if (isTrimming && RedisModule_ShardingGetKeySlot) {
+      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+      int slot = RedisModule_ShardingGetKeySlot(key);
+      RedisModule_FreeString(NULL, key);
+      int firstSlot, lastSlot;
+      RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
+      if (firstSlot > slot || lastSlot < slot) {
+        DMD_Return(dmd);
+        continue;
+      }
+    }
+
+    base->parent->totalResults++;
+    res->docId = r->docId;
+    res->indexResult = r;
+    res->score = 0;
+    res->dmd = dmd;
+    RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
+    return RS_RESULT_OK;
+  }
+}
+
+static int rpidxNext_DiskAsync(ResultProcessor *base, SearchResult *res) {
+  RPIndexIterator *self = (RPIndexIterator *)base;
+  IndexIterator *it = self->iiter;
+  RedisSearchCtx *sctx = RP_SCTX(base);
+  if (sctx->flags == RS_CTX_UNSET) {
+    RedisSearchCtx_LockSpecRead(RP_SCTX(base));
+    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
+  }
+
+  RSIndexResult *r = NULL;
+  const RSDocumentMetadata *dmd = NULL;
+  int rc = INDEXREAD_OK;
+  bool isTrimming = false;
+
+  while (1) {
+    if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+    }
+
+    IndexSpec *spec = RP_SPEC(base);
+    // In async mode, we may still have pending async results to emit even if the iterator has no new items this round.
+    rc = it->Read(it->ctx, &r);
+
+    // Initialize async state on first use
+    if (!self->diskPrefetchInit) {
+      self->diskPrefetchInit = true;
+      self->diskInFlight = dictCreate(&DiskInFlightDictType, NULL);
+    }
+
+    // If we have a freshly read item this round, schedule it first
+    if (rc == INDEXREAD_OK && r && !SearchDisk_DocIdDeleted(spec->diskSpec, r->docId)) {
+      RSIndexResult *copy = IndexResult_DeepCopy(r);
+      dictAdd(self->diskInFlight, (void *)copy->docId, copy);
+      SearchDisk_LoadDmdAsync(spec->diskSpec, r->docId);
+      r = NULL; // emit only after its DMD is ready
+    } else if (rc == INDEXREAD_TIMEOUT) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+    }
+
+    // Top-up window from the iterator until we either reach W or hit EOF
+    while (dictSize(self->diskInFlight) < ASYNC_DT_READ_AHEAD_WINDOW_SIZE && !self->diskIterEOF) {
+      RSIndexResult *r2 = NULL;
+      int rc2 = it->Read(it->ctx, &r2);
+      if (rc2 == INDEXREAD_EOF) {
+        self->diskIterEOF = true;
+        break;
+      }
+      if (rc2 == INDEXREAD_TIMEOUT) {
+        return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+      }
+      if (rc2 == INDEXREAD_NOTFOUND) {
+        continue;
+      }
+      RS_LOG_ASSERT_FMT(rc2 == INDEXREAD_OK, "Unexpected rc %d from index iterator", rc2);
+
+      if (SearchDisk_DocIdDeleted(spec->diskSpec, r2->docId)) {
+        continue;
+      }
+      RSIndexResult *copy = IndexResult_DeepCopy(r2);
+      dictAdd(self->diskInFlight, (void *)copy->docId, copy);
+      SearchDisk_LoadDmdAsync(spec->diskSpec, r2->docId);
+    }
+
+    // If nothing is in-flight and iterator exhausted, we're done
+    if (dictSize(self->diskInFlight) == 0) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
+    }
+
+    // Consume one ready dmd from the disk doc-table
+    RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    diskDmd->ref_count = 1;
+    SearchDisk_WaitDmd(spec->diskSpec,
+                       diskDmd,
+                       (long long)(RP_SCTX(base)->time.timeout.tv_sec * 1000 * 1000),
+                       &sdsnewlen);
+    if (!diskDmd->keyPtr) {
+      // Timeout or no ready completion yet — retry in next iteration
+      RedisModule_Log(RSDummyContext, "warning", "Got a timeout from disk while waiting for DMDs.");
+      DMD_Return(diskDmd);
+      continue;
+    }
+    dmd = diskDmd;
+
+    // Find the IndexResult matching the doc-id
+    dictEntry *de = dictFind(self->diskInFlight, (void *)diskDmd->id);
+    RS_LOG_ASSERT_FMT(de, "Failed to find in-flight index result for doc-id %lu", diskDmd->id);
+    r = dictGetVal(de);
+    dictDelete(self->diskInFlight, de->key);
+
+    if (isTrimming && RedisModule_ShardingGetKeySlot) {
+      RedisModuleString *key = RedisModule_CreateString(NULL, dmd->keyPtr, sdslen(dmd->keyPtr));
+      int slot = RedisModule_ShardingGetKeySlot(key);
+      RedisModule_FreeString(NULL, key);
+      int firstSlot, lastSlot;
+      RedisModule_ShardingGetSlotRange(&firstSlot, &lastSlot);
+      if (firstSlot > slot || lastSlot < slot) {
+        DMD_Return(dmd);
+        continue;
+      }
+    }
+
+    base->parent->totalResults++;
+    res->docId = r->docId;
+    res->indexResult = r;
+    res->score = 0;
+    res->dmd = dmd;
+    RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
+    return RS_RESULT_OK;
+  }
+}
+
+static int rpidxNext_Init(ResultProcessor *base, SearchResult *res) {
+  IndexSpec *spec = RP_SPEC(base);
+  if (!spec->diskSpec) {
+    base->Next = rpidxNext_RAM;
+  } else if (spec->flags & Index_DiskSyncDmd) {
+    base->Next = rpidxNext_DiskSync;
+  } else {
+    base->Next = rpidxNext_DiskAsync;
+  }
+  return base->Next(base, res);
+}
+
 /* Next implementation */
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
@@ -189,12 +444,6 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       default: // INDEXREAD_OK
         if (!r)
           continue;
-      }
-    } else {
-      // For disk indexes, we may still have pending async results to emit even
-      // if the iterator has no new items this round.
-      if (rc != INDEXREAD_OK || !r) {
-        r = NULL;
       }
     }
 
@@ -333,7 +582,8 @@ static void rpidxFree(ResultProcessor *iter) {
 ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
   RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iiter = root;
-  ret->base.Next = rpidxNext;
+  // Select the concrete Next handler lazily on first call to avoid repeated branching costs
+  ret->base.Next = rpidxNext_Init;
   ret->base.Free = rpidxFree;
   ret->base.type = RP_INDEX;
   return &ret->base;
