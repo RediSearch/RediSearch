@@ -85,6 +85,7 @@ static inline VectorNormFunction GetVectorNormalizationFunction(VecSimMetric met
   }
 }
 
+
 #ifdef __cplusplus
 }
 #endif
