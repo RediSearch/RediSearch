@@ -32,4 +32,7 @@ typedef struct DebugCTX {
 // Should be called after each debug command that changes the debugCtx
 void validateDebugMode(DebugCTX *debugCtx);
 
+// Indexer sleep before yield functions
+unsigned int GetIndexerSleepBeforeYieldMicros(void);
+
 #endif /* SRC_DEBUG_COMMADS_H_ */

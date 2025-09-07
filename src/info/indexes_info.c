@@ -7,6 +7,7 @@
 #include "indexes_info.h"
 #include "util/dict.h"
 #include "spec.h"
+#include <string.h>  // Add this for strerror
 
 // Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {
@@ -27,7 +28,11 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       continue;
     }
     // Lock for read
-    pthread_rwlock_rdlock(&sp->rwlock);
+    int rc = pthread_rwlock_rdlock(&sp->rwlock);
+    if (rc != 0) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index: rc=%d (%s). Cannot continue getting Index info", rc, strerror(rc));
+      continue;
+    }
 
     // Vector index stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);

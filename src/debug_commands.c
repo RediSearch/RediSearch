@@ -1478,6 +1478,35 @@ DEBUG_COMMAND(bgScanController) {
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
 
 }
+
+// Global variable for sleep time before yielding (in microseconds)
+static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+
+unsigned int GetIndexerSleepBeforeYieldMicros(void) {
+  return g_indexerSleepBeforeYieldMicros;
+}
+
+/**
+ * FT.DEBUG INDEXER_SLEEP_BEFORE_YIELD [<microseconds>]
+ * Get or set the sleep time in microseconds before yielding during indexing while loading
+ */
+DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
+  if (argc > 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // Check if we need to reset the counter
+  if (argc == 1) {
+    long long sleepMicros;
+    if (RedisModule_StringToLongLong(argv[0], &sleepMicros) != REDISMODULE_OK || sleepMicros < 0) {
+      return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
+    }
+    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  return RedisModule_WrongArity(ctx);
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1508,6 +1537,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
                                {"BG_SCAN_CONTROLLER", bgScanController},
+                               {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                /**
                                 * The following commands are for debugging search/aggregation.
                                 */
