@@ -22,6 +22,7 @@
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
+#include "vector_normalization.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -321,9 +322,6 @@ void PipelineAddCrash(struct AREQ *r);
   * Processes results immediately without accumulation.
   * The normalization function is provided by pipeline construction logic.
   *******************************************************************************************************************/
- // Forward declaration for function pointer type
- typedef double (*VectorNormFunction)(double);
-
  ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey);
 
 /*******************************************************************************

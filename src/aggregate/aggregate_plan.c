@@ -26,6 +26,8 @@ static const char *steptypeToString(PLN_StepType type) {
       return "GROUPBY";
     case PLN_T_LOAD:
       return "LOAD";
+    case PLN_T_VECTOR_NORMALIZER:
+      return "VECTOR_NORMALIZER";
     case PLN_T_DISTRIBUTE:
       return "DISTRIBUTE";
     case PLN_T_INVALID:
@@ -130,6 +132,21 @@ void loadDtor(PLN_BaseStep *bstp) {
   PLN_LoadStep *lstp = (PLN_LoadStep *)bstp;
   rm_free(lstp->keys);
   rm_free(lstp);
+}
+
+static void vectorNormalizerDtor(PLN_BaseStep *bstp) {
+  PLN_VectorNormalizerStep *vnStep = (PLN_VectorNormalizerStep *)bstp;
+  // vectorFieldName is not owned (points to parser tokens), so don't free it
+  rm_free(vnStep);
+}
+
+PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName) {
+  PLN_VectorNormalizerStep *vnStep = rm_calloc(1, sizeof(*vnStep));
+  vnStep->base.type = PLN_T_VECTOR_NORMALIZER;
+  vnStep->base.dtor = vectorNormalizerDtor;
+  vnStep->base.getLookup = NULL;  // No lookup for this step
+  vnStep->vectorFieldName = vectorFieldName;  // Not owned - points to parser tokens
+  return vnStep;
 }
 
 PLN_ArrangeStep *AGPLN_GetArrangeStep(AGGPlan *pln) {
@@ -413,6 +430,12 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   }
 }
 
+static void serializeVectorNormalizer(char ***arr, const PLN_BaseStep *bstp) {
+  const PLN_VectorNormalizerStep *vnStep = (const PLN_VectorNormalizerStep *)bstp;
+  append_string(*arr, "VECTOR_NORMALIZER");
+  append_string(*arr, vnStep->vectorFieldName);
+}
+
 array_t AGPLN_Serialize(const AGGPlan *pln) {
   char **arr = array_new(char *, 1);
   for (const DLLIST_node *nn = pln->steps.next; nn != &pln->steps; nn = nn->next) {
@@ -427,6 +450,9 @@ array_t AGPLN_Serialize(const AGGPlan *pln) {
         break;
       case PLN_T_LOAD:
         serializeLoad(&arr, stp);
+        break;
+      case PLN_T_VECTOR_NORMALIZER:
+        serializeVectorNormalizer(&arr, stp);
         break;
       case PLN_T_GROUP:
         serializeGroup(&arr, stp);
