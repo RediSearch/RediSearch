@@ -712,6 +712,8 @@ static void groupStepFree(PLN_BaseStep *base) {
     array_free(g->reducers);
   }
 
+  StrongRef_Release(g->properties_ref);
+
   RLookup_Cleanup(&g->lookup);
   rm_free(base);
 }
@@ -774,10 +776,14 @@ static void genericStepFree(PLN_BaseStep *p) {
   rm_free(p);
 }
 
-PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
+// Helper function to get properties from StrongRef
+arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp) {
+  return (arrayof(const char*))StrongRef_Get(gstp->properties_ref);
+}
+
+PLN_GroupStep *PLNGroupStep_New(StrongRef properties_ref) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
-  gstp->properties = properties;
-  gstp->nproperties = nproperties;
+  gstp->properties_ref = properties_ref;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
   gstp->base.type = PLN_T_GROUP;
@@ -785,25 +791,38 @@ PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
 }
 
 static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
-  ArgsCursor groupArgs = {0};
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
-  int rv = AC_GetVarArgs(ac, &groupArgs);
+
+  long long nproperties;
+  int rv = AC_GetLongLong(ac, &nproperties, 0);
   if (rv != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
-  for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
-    if (*(char*)groupArgs.objs[ii] != '@') {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
-                         groupArgs.objs[ii], groupArgs.objs[ii]);
+  const char **properties = array_newlen(const char *, nproperties);
+  for (size_t i = 0; i < nproperties; ++i) {
+    const char *property;
+    size_t propertyLen;
+    rv = AC_GetString(ac, &property, &propertyLen, 0);
+    if (rv != AC_OK) {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
+      array_free(properties);
       return REDISMODULE_ERR;
     }
+    if (property[0] != '@') {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
+                         property, property);
+      array_free(properties);
+      return REDISMODULE_ERR;
+    }
+    properties[i] = property;
   }
 
   // Number of fields.. now let's see the reducers
-  PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
+  StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
+  PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref);
   AGPLN_AddStep(plan, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
@@ -1349,6 +1368,7 @@ void AREQ_Free(AREQ *req) {
 
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
+    req->args[ii] = NULL;
   }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {

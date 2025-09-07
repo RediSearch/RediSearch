@@ -8,9 +8,11 @@ extern "C" {
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
                                      const RLookupKey ***loadKeys, QueryError *err) {
-  const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
-  for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-    const char *fldname = gstp->properties[ii] + 1;  // account for the @-
+  arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
+  size_t nproperties = array_len(properties);
+  const RLookupKey *srckeys[nproperties], *dstkeys[nproperties];
+  for (size_t ii = 0; ii < nproperties; ++ii) {
+    const char *fldname = properties[ii] + 1;  // account for the @-
     size_t fldname_len = strlen(fldname);
     srckeys[ii] = RLookup_GetKey_ReadEx(srclookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
@@ -33,7 +35,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
