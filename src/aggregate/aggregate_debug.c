@@ -141,10 +141,17 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   // Handle pause before/after RP after N (contains the same logic)
   // Args order: RP_TYPE, N
   if (AC_IsInitialized(&pauseAfterArgs) || AC_IsInitialized(&pauseBeforeArgs)) {
+
     bool before = AC_IsInitialized(&pauseBeforeArgs);
     ArgsCursor *pauseArgs = before ? &pauseBeforeArgs : &pauseAfterArgs;
     const char *invalidStr = before ? "PAUSE_BEFORE_RP_N" : "PAUSE_AFTER_RP_N";
     const char *rp_type_str = NULL;
+
+    if (!(debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Query %s is only supported in with WORKERS", invalidStr);
+      return REDISMODULE_ERR;
+    }
+
     if (AC_GetString(pauseArgs, &rp_type_str, NULL, 0) != AC_OK) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s RP type", invalidStr);
       return REDISMODULE_ERR;
