@@ -1501,11 +1501,18 @@ typedef struct {
 
 bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type) {
   ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
+  bool success = false;
   if (before) {
-    return addResultProcessorBeforeType(r, RPPauseAfterCount, rp_type);
+    success = addResultProcessorBeforeType(r, RPPauseAfterCount, rp_type);
   } else {
-    return addResultProcessorAfterType(r, RPPauseAfterCount, rp_type);
+    success = addResultProcessorAfterType(r, RPPauseAfterCount, rp_type);
   }
+  // Free if failed
+  if (!success) {
+    RPPauseAfterCount->Free(RPPauseAfterCount);
+  }
+  return success;
+
 }
 
 static void RPPauseAfterCount_Pause(RPPauseAfterCount *self) {
