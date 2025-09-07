@@ -32,6 +32,7 @@ typedef enum {
   PLN_T_APPLY,
   PLN_T_ARRANGE,
   PLN_T_LOAD,
+  PLN_T_VECTOR_NORMALIZER,
   PLN_T__MAX
 } PLN_StepType;
 
@@ -111,6 +112,12 @@ typedef struct {
   const RLookupKey **keys;
   size_t nkeys;
 } PLN_LoadStep;
+
+/** VECTOR_NORMALIZER normalizes vector distance scores to [0,1] range */
+typedef struct {
+  PLN_BaseStep base;
+  const char *vectorFieldName;     // Vector field name (NOT owned - points to parser tokens)
+} PLN_VectorNormalizerStep;
 
 /* Group step - group by properties and reduce by several reducers */
 typedef struct {
