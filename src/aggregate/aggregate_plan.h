@@ -209,6 +209,9 @@ void AGPLN_FreeSteps(AGGPlan *pln);
 /* Destructor for PLN_LoadStep */
 void loadDtor(PLN_BaseStep *bstp);
 
+/* Constructor for PLN_VectorNormalizerStep */
+PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName);
+
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step);
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
 void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);

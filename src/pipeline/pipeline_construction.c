@@ -1,6 +1,7 @@
 #include "pipeline/pipeline_construction.h"
 #include "ext/default.h"
 #include "query_optimizer.h"
+#include "vector_normalization.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -533,6 +534,35 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         }
         break;
       }
+
+      case PLN_T_VECTOR_NORMALIZER: {
+        PLN_VectorNormalizerStep *vnStep = (PLN_VectorNormalizerStep *)stp;
+
+        // Resolve vector field to get distance metric
+        const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(params->common.sctx->spec,
+                                                                     vnStep->vectorFieldName,
+                                                                     strlen(vnStep->vectorFieldName));
+        if (!vectorField || !FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid vector field for normalization");
+          goto error;
+        }
+
+        // Extract distance metric from vector field
+        VecSimMetric metric = vectorField->vectorOpts.vecSimParams.metric;
+
+        // Get appropriate normalization function
+        VectorNormFunction normFunc = GetVectorNormalizationFunction(metric);
+
+        // Get score key for writing normalized scores
+        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+        const RLookupKey *scoreKey = RLookup_GetKey_Write(curLookup, "__score", RLOOKUP_F_NOFLAGS);
+
+        // Create vector normalizer result processor
+        rp = RPVectorNormalizer_New(normFunc, scoreKey);
+        PUSH_RP();
+        break;
+      }
+
       case PLN_T_ROOT:
         // Placeholder step for initial lookup
         break;
