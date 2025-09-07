@@ -1449,9 +1449,6 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  * The normalization function is provided during construction by pipeline construction logic.
  *******************************************************************************************************************/
 
-// Normalization function pointer type
-typedef double (*VectorNormFunction)(double);
-
 typedef struct {
   ResultProcessor base;
   VectorNormFunction normFunc;
