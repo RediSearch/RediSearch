@@ -1116,11 +1116,16 @@ def test_query_controller_pause_and_resume(env):
 @skip(cluster=True)
 def test_query_controller_add_before_after(env):
     # Set workers to 1 to make sure the query can be paused
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
 
     # Create 1 docs
     env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+    # Check error when workers is 0
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Query PAUSE_BEFORE_RP_N is only supported in with WORKERS")
+
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
 
     for before in [True, False]:
 
