@@ -1321,32 +1321,33 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
 // Insert the result processor before the first occurrence of a specific RP type in the upstream
 static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultProcessorType target_type) {
   ResultProcessor *cur = r->qiter.endProc;
-  ResultProcessor *downstream = cur;
-
-  bool found = false;
+  ResultProcessor *downstream = NULL;
 
   // Search for the target result processor type
   while (cur) {
     // Change downstream -> cur(type) -> cur->upstream
     // To: downstream -> rp -> cur(type) -> cur->upstream
+
     if (cur->type == target_type) {
       rp->parent = &r->qiter;
-      downstream->upstream = rp;
-      rp->upstream = cur;
-      found = true;
 
+      // Checking edge case: we are the first RP in the stream
+      if (downstream) {
+        downstream->upstream = rp;
+      }
+      rp->upstream = cur;
       // If we inserted before the current endProc,
       if (cur == r->qiter.endProc) {
         r->qiter.endProc = rp;
       }
-      break;
+      return true;
     }
 
     downstream = cur;
     cur = cur->upstream;
   }
 
-  return found;
+  return false;
 }
 
 // Insert the result processor after the first occurrence of a specific RP type in the upstream
@@ -1368,13 +1369,13 @@ static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProc
       rp->upstream = cur->upstream;
       cur->upstream = rp;
       rp->parent = &r->qiter;
-      found = true;
-      break;
+      return true;
     }
     downstream = cur;
     cur = cur->upstream;
   }
-  return found;
+
+  return false;
 }
 
 

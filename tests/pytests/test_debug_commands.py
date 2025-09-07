@@ -1066,6 +1066,9 @@ def test_query_controller_pause_and_resume(env):
     env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
 
+    # Wait for index to finish scan
+    waitForIndex(env, 'idx')
+
     # Helper to call a function and push its return value into a list
     def _call_and_store(fn, args, out_list):
         out_list.append(fn(*args))
