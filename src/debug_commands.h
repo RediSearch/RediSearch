@@ -52,3 +52,9 @@ typedef struct DebugCTX {
 // Should be called after each debug command that changes the debugCtx
 // Exception for QueryDebugCtx
 void validateDebugMode(DebugCTX *debugCtx);
+
+// Yield counter functions
+void IncrementYieldCounter(void);
+
+// Indexer sleep before yield functions
+unsigned int GetIndexerSleepBeforeYieldMicros(void);

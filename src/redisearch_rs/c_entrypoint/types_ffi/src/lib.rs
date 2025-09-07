@@ -12,11 +12,45 @@
 use std::{ffi::c_char, ptr};
 
 use inverted_index::{
-    RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
-    RSTermRecord, t_fieldMask,
+    NumericFilter, RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector,
+    RSQueryTerm, RSTermRecord, t_fieldMask,
 };
 
 pub use inverted_index::debug::{BlockSummary, Summary};
+
+/// Check if this is a numeric filter and not a geo filter
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericFilter_IsNumeric(filter: *const NumericFilter) -> bool {
+    debug_assert!(!filter.is_null(), "filter must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `filter` is a valid, non-null pointer to
+    // a `NumericFilter`.
+    let filter = unsafe { &*filter };
+
+    filter.is_numeric_filter()
+}
+
+/// Check if the given value matches the numeric filter.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `filter` must point to a valid `NumericFilter` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NumericFilter_Match(filter: *const NumericFilter, value: f64) -> bool {
+    debug_assert!(!filter.is_null(), "filter must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `filter` is a valid, non-null pointer to
+    // a `NumericFilter`.
+    let filter = unsafe { &*filter };
+
+    filter.value_in_range(value)
+}
 
 /// Allocate a new intersect result with a given capacity and weight. This result should be freed
 /// using [`IndexResult_Free`].

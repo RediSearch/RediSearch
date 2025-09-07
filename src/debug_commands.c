@@ -1795,6 +1795,9 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
 // Global counter for tracking yield calls during loading
 static size_t g_yieldCallCounter = 0;
 
+// Global variable for sleep time before yielding (in microseconds)
+static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+
 // Function to increment the yield counter (to be called from IndexerBulkAdd)
 void IncrementYieldCounter(void) {
   g_yieldCallCounter++;
@@ -1803,6 +1806,11 @@ void IncrementYieldCounter(void) {
 // Reset the yield counter
 void ResetYieldCounter(void) {
   g_yieldCallCounter = 0;
+}
+
+// Get the current sleep time before yielding (in microseconds)
+unsigned int GetIndexerSleepBeforeYieldMicros(void) {
+  return g_indexerSleepBeforeYieldMicros;
 }
 
 /**
@@ -1832,6 +1840,33 @@ DEBUG_COMMAND(YieldCounter) {
 
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+}
+
+/**
+ * FT.DEBUG INDEXER_SLEEP_BEFORE_YIELD [<microseconds>]
+ * Get or set the sleep time in microseconds before yielding during indexing while loading
+ */
+DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+
+  if (argc > 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Set new sleep time
+  if (argc == 3) {
+    long long sleepMicros;
+    if (RedisModule_StringToLongLong(argv[2], &sleepMicros) != REDISMODULE_OK || sleepMicros < 0) {
+      return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
+    }
+
+    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  return RedisModule_WrongArity(ctx);
 }
 
 /**
@@ -1963,6 +1998,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.

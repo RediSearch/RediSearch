@@ -7,8 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{BufRead, Cursor, Seek, Write};
+use std::{
+    ffi::c_void,
+    io::{BufRead, Cursor, Seek, Write},
+};
 
+use debug::{BlockSummary, Summary};
+use ffi::{
+    FieldSpec, IndexFlags, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
+    IndexFlags_Index_StoreNumeric,
+};
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
@@ -54,6 +62,53 @@ impl IdDelta for u32 {
     }
 }
 
+/// Filter details to apply to numeric values
+/// cbindgen:rename-all=CamelCase
+#[repr(C)]
+pub struct NumericFilter {
+    /// The field specification which this filter is acting on
+    field_spec: *const FieldSpec,
+
+    /// Beginning of the range
+    min: f64,
+
+    /// End of the range
+    max: f64,
+
+    /// Geo filter, if any
+    geo_filter: *const c_void,
+
+    /// Range includes the min value
+    min_inclusive: bool,
+
+    /// Range includes the max value
+    max_inclusive: bool,
+
+    /// Order of SORTBY (ascending/descending)
+    ascending: bool,
+
+    /// Minimum number of results needed
+    limit: usize,
+
+    /// Number of results to skip
+    offset: usize,
+}
+
+impl NumericFilter {
+    /// Check if this is a numeric filter (and not a geo filter)
+    pub fn is_numeric_filter(&self) -> bool {
+        self.geo_filter.is_null()
+    }
+
+    /// Check if the given value is in the range specified by this filter
+    pub fn value_in_range(&self, value: f64) -> bool {
+        let min_ok = value > self.min || (self.min_inclusive && value == self.min);
+        let max_ok = value < self.max || (self.max_inclusive && value == self.max);
+
+        min_ok && max_ok
+    }
+}
+
 /// Encoder to write a record into an index
 pub trait Encoder {
     /// Document ids are represented as `u64`s and stored using delta-encoding.
@@ -77,7 +132,7 @@ pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -147,6 +202,10 @@ pub struct InvertedIndex<E> {
     /// number of unique documents that have been indexed.
     n_unique_docs: usize,
 
+    /// The flags of this index. This is used to determine the type of index and how it should be
+    /// handled.
+    flags: IndexFlags,
+
     /// The encoder to use when adding new entries to the index
     encoder: E,
 }
@@ -204,10 +263,11 @@ impl IndexBlock {
 impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index with the given encoder. The encoder is used to write new
     /// entries to the index.
-    pub fn new(encoder: E) -> Self {
+    pub fn new(flags: IndexFlags, encoder: E) -> Self {
         Self {
             blocks: Vec::new(),
             n_unique_docs: 0,
+            flags,
             encoder,
         }
     }
@@ -287,6 +347,8 @@ impl<E: Encoder> InvertedIndex<E> {
 
         if !same_doc {
             self.n_unique_docs += 1;
+        } else {
+            self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
         Ok(buf_growth + mem_growth)
@@ -323,6 +385,44 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn unique_docs(&self) -> usize {
         self.n_unique_docs
     }
+
+    /// Returns the flags of this index.
+    pub fn flags(&self) -> IndexFlags {
+        self.flags
+    }
+
+    /// Return the debug summary for this inverted index.
+    pub fn summary(&self) -> Summary {
+        let has_efficiency = (self.flags & IndexFlags_Index_StoreNumeric) > 0;
+
+        let block_efficiency = if has_efficiency && !self.blocks.is_empty() {
+            self.n_unique_docs as f64 / self.blocks.len() as f64
+        } else {
+            0.0
+        };
+
+        Summary {
+            number_of_docs: self.n_unique_docs,
+            number_of_entries: self.n_unique_docs,
+            last_doc_id: self.last_doc_id().unwrap_or(0),
+            flags: self.flags as _,
+            number_of_blocks: self.blocks.len(),
+            block_efficiency,
+            has_efficiency,
+        }
+    }
+
+    /// Return basic information about the blocks in this inverted index.
+    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.blocks
+            .iter()
+            .map(|b| BlockSummary {
+                first_doc_id: b.first_doc_id,
+                last_doc_id: b.last_doc_id,
+                number_of_entries: b.num_entries,
+            })
+            .collect()
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -330,6 +430,71 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn reader(&self) -> IndexReader<'_, E::Decoder> {
         let decoder = E::decoder();
         IndexReader::new(&self.blocks, decoder)
+    }
+}
+
+/// A wrapper around the inverted index to track the total number of entries in the index.
+/// Unlike [`InvertedIndex::unique_docs()`], this counts all entries, including duplicates.
+pub struct EntriesTrackingIndex<E> {
+    /// The underlying inverted index that stores the entries.
+    index: InvertedIndex<E>,
+
+    /// The total number of entries in the index. This is not the number of unique documents, but
+    /// rather the total number of entries added to the index.
+    number_of_entries: usize,
+}
+
+impl<E: Encoder> EntriesTrackingIndex<E> {
+    /// Create a new entries tracking index with the given encoder.
+    pub fn new(flags: IndexFlags, encoder: E) -> Self {
+        Self {
+            index: InvertedIndex::new(flags, encoder),
+            number_of_entries: 0,
+        }
+    }
+
+    /// Add a new record to the index and return by how much memory grew. It is expected that
+    /// the document ID of the record is greater than or equal the last document ID in the index.
+    ///
+    /// The total number of entries in the index is incremented by one.
+    pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<usize> {
+        let mem_growth = self.index.add_record(record)?;
+
+        self.number_of_entries += 1;
+
+        Ok(mem_growth)
+    }
+
+    /// The memory size of the index in bytes.
+    pub fn memory_usage(&self) -> usize {
+        self.index.memory_usage() + std::mem::size_of::<usize>()
+    }
+
+    /// The total number of entries in the index. This is not the number of unique documents, but
+    /// rather the total number of entries added to the index.
+    pub fn number_of_entries(&self) -> usize {
+        self.number_of_entries
+    }
+
+    /// Return the debug summary for this inverted index.
+    pub fn summary(&self) -> Summary {
+        let mut summary = self.index.summary();
+
+        summary.number_of_entries = self.number_of_entries;
+
+        summary
+    }
+
+    /// Return basic information about the blocks in this inverted index.
+    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.index.blocks_summary()
+    }
+}
+
+impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
+    /// Create a new [`IndexReader`] for this inverted index.
+    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
+        self.index.reader()
     }
 }
 
@@ -346,9 +511,14 @@ pub struct FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// Create a new field mask tracking index with the given encoder.
-    pub fn new(encoder: E) -> Self {
+    pub fn new(flags: IndexFlags, encoder: E) -> Self {
+        debug_assert!(
+            flags & IndexFlags_Index_StoreFieldFlags > 1,
+            "FieldMaskTrackingIndex should only be used with indices that store field flags"
+        );
+
         Self {
-            index: InvertedIndex::new(encoder),
+            index: InvertedIndex::new(flags, encoder),
             field_mask: 0,
         }
     }

@@ -30,7 +30,7 @@ impl Encoder for FieldsOnly {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -83,7 +83,7 @@ impl Encoder for FieldsOnlyWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,

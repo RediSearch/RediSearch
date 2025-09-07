@@ -276,7 +276,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
   // for non leaf nodes - we try to descend into their children.
   // we do it in direction of sorting
   if (!NumericRangeNode_IsLeaf(n)) {
-    if (nf->asc) {
+    if (nf->ascending) {
       if(min <= n->value) {
         __recursiveAddRange(v, n->left, nf, total);
       }

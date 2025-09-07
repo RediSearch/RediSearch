@@ -30,16 +30,18 @@ impl Encoder for OffsetsOnly {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         assert!(matches!(record.data, RSResultData::Term(_)));
 
-        let mut bytes_written = qint_encode(&mut writer, [delta, record.offsets_sz])?;
-
         let offsets = offsets(record);
+        let offsets_sz = offsets.len() as u32;
+
+        let mut bytes_written = qint_encode(&mut writer, [delta, offsets_sz])?;
+
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
