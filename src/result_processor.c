@@ -1321,8 +1321,7 @@ static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
 // Insert the result processor before the first occurrence of a specific RP type in the upstream
 static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultProcessorType target_type) {
   ResultProcessor *cur = r->qiter.endProc;
-  ResultProcessor dummyHead = { .upstream = cur };
-  ResultProcessor *downstream = &dummyHead;
+  ResultProcessor *downstream = cur;
 
   bool found = false;
 
@@ -1335,33 +1334,26 @@ static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultPro
       downstream->upstream = rp;
       rp->upstream = cur;
       found = true;
+
+      // If we inserted before the current endProc,
+      if (cur == r->qiter.endProc) {
+        r->qiter.endProc = rp;
+      }
       break;
     }
+
     downstream = cur;
     cur = cur->upstream;
-  }
-
-  // This loop is to find the last RP in the stream
-  if (found) {
-    while (cur) {
-      if (!cur->upstream) {
-        break;
-      }
-      downstream = cur;
-      cur = cur->upstream;
-    }
-    // Update the endProc to the new head in case it was changed
-    r->qiter.endProc = dummyHead.upstream;
   }
 
   return found;
 }
 
 // Insert the result processor after the first occurrence of a specific RP type in the upstream
+// Cannot be the last RP in the stream
 static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProcessorType target_type) {
   ResultProcessor *cur = r->qiter.endProc;
-  ResultProcessor dummyHead = { .upstream = cur };
-  ResultProcessor *downstream = &dummyHead;
+  ResultProcessor *downstream = cur;
 
   bool found = false;
 
@@ -1370,6 +1362,9 @@ static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProc
     // Change downstream -> cur(type) -> cur->upstream
     // To: downstream -> cur(type) -> rp-> cur->upstream
     if (cur->type == target_type) {
+      if (!cur->upstream) {
+        return false;
+      }
       rp->upstream = cur->upstream;
       cur->upstream = rp;
       rp->parent = &r->qiter;
@@ -1379,20 +1374,6 @@ static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProc
     downstream = cur;
     cur = cur->upstream;
   }
-
-  // This loop is to find the last RP in the stream
-  if (found) {
-    while (cur) {
-      if (!cur->upstream) {
-        break;
-      }
-      downstream = cur;
-      cur = cur->upstream;
-    }
-    // Update the endProc to the new head in case it was changed
-    r->qiter.endProc = dummyHead.upstream;
-  }
-
   return found;
 }
 

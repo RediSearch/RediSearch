@@ -1127,6 +1127,10 @@ def test_query_controller_add_before_after(env):
 
     env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
 
+    # Check error when insert after Index RP
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_AFTER_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Index RP type not found in stream or tried to insert after last RP")
+
     for before in [True, False]:
 
         target_func = runDebugQueryCommandPauseBeforeRPAfterN if before else runDebugQueryCommandPauseAfterRPAfterN
@@ -1137,7 +1141,7 @@ def test_query_controller_add_before_after(env):
         .contains(f"Invalid PAUSE_{cmd_str}_RP_N RP type")
         # Check RP type that is not in the stream
         env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
-        .contains(f"Highlighter RP type not found in stream")
+        .contains(f"Highlighter RP type not found in stream or tried to insert after last RP")
         # Build threads
         t_query = threading.Thread(
             target=target_func,
