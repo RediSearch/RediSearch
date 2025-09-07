@@ -641,6 +641,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     }
   }
 
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+    PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(vectorRequest->parsedVectorData->fieldName);
+    AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
+  }
+
   // Save the current position to determine remaining arguments for the merge part
   const int remainingOffset = (int) ac.offset;
   const int remainingArgs = argc - 2 - remainingOffset;
