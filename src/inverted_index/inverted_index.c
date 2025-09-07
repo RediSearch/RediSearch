@@ -1477,10 +1477,8 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
   // Free blocks that will be replaced by repaired versions
   for (size_t i = 0; i < d->repaired_len; ++i) {
     const int64_t oldix = d->repaired[i].oldix;
-    if (oldix >= 0 && (size_t)oldix < InvertedIndex_NumBlocks(idx)) {
-      IndexBlock *blk = InvertedIndex_BlockRef(idx, (size_t)oldix);
-      indexBlock_Free(blk);
-    }
+    IndexBlock *blk = InvertedIndex_BlockRef(idx, (size_t)oldix);
+    indexBlock_Free(blk);
   }
 
   // Free raw buffers of fully deleted blocks
@@ -1544,6 +1542,7 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
     InvertedIndex_SetBlock(idx, (size_t)newix, d->repaired[i].blk);
     // ownership of repaired[i].blk buffer is now inside idx
   }
+  rm_free(d->repaired);
   d->repaired = NULL;
 
   // Update markers and lastId based on the final last block
