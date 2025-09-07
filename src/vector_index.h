@@ -12,6 +12,8 @@
 #include "index_iterator.h"
 #include "query_node.h"
 #include "query_ctx.h"
+#include "field_spec.h"
+#include "rmutil/rm_assert.h"
 
 #define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
@@ -140,6 +142,43 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+
+/**
+ * Extract the VecSimMetric from a vector field specification.
+ * Handles different algorithm types (TIERED, BF, HNSWLIB) and extracts
+ * the appropriate metric from the field's configuration.
+ *
+ * @param vectorField FieldSpec pointer to a vector field
+ * @return VecSimMetric enum value for the field's configured metric
+ */
+static inline VecSimMetric GetVecSimMetricFromVectorField(const FieldSpec *vectorField) {
+  RS_ASSERT(FIELD_IS(vectorField, INDEXFLD_T_VECTOR))
+  VecSimParams vec_params = vectorField->vectorOpts.vecSimParams;
+
+  VecSimAlgo field_algo = vec_params.algo;
+  AlgoParams algo_params = vec_params.algoParams;
+
+  if (field_algo == VecSimAlgo_TIERED) {
+    VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+    if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+      HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
+      return hnsw_params.metric;
+    } else if (primary_params->algo == VecSimAlgo_BF) {
+      BFParams bf_params = primary_params->algoParams.bfParams;
+      return bf_params.metric;
+    } else {
+      // Unknown primary algorithm in tiered index
+      RS_ABORT("Unknown primary algorithm in tiered index");
+    }
+  } else if (field_algo == VecSimAlgo_BF) {
+    return algo_params.bfParams.metric;
+  } else if (field_algo == VecSimAlgo_HNSWLIB) {
+    return algo_params.hnswParams.metric;
+  } else {
+    // Unknown algorithm type
+    RS_ABORT("Unknown VecSimAlgo in GetVecSimMetricFromVectorField");
+  }
+}
 
 void VecSimParams_Cleanup(VecSimParams *params);
 
