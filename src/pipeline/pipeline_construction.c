@@ -2,6 +2,7 @@
 #include "ext/default.h"
 #include "query_optimizer.h"
 #include "vector_normalization.h"
+#include "vector_index.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -548,7 +549,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         }
 
         // Extract distance metric from vector field
-        VecSimMetric metric = vectorField->vectorOpts.vecSimParams.metric;
+        VecSimMetric metric = GetVecSimMetricFromVectorField(vectorField);
 
         // Get appropriate normalization function
         VectorNormFunction normFunc = GetVectorNormalizationFunction(metric);
