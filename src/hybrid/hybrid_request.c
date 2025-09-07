@@ -72,8 +72,7 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
-    return rc;
+    return Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);;
 }
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
