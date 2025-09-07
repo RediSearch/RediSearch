@@ -591,7 +591,6 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
 }
 
 TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTextDefaultScorerLinear) {
-  // Create a complex hybrid query with SEARCH and VSIM subqueries, plus LOAD, SORTBY, and APPLY steps
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
@@ -611,7 +610,6 @@ TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTextDefaultScorerLi
 }
 
 TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTextDefaultScorerRRF) {
-  // Create a complex hybrid query with SEARCH and VSIM subqueries, plus LOAD, SORTBY, and APPLY steps
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
@@ -620,7 +618,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTextDefaultScorerRR
   HYBRID_TEST_SETUP("test_idx_complex", args);
 
   bool foundMaxScoreNormalizer = false;
-  // Verify that the default text scorer for LINEAR fusion is BM25STD.NORM
+  // Verify that there is no normalizer in search pipeline where RRF is the fusion method
   for (ResultProcessor *rp = hybridReq->requests[SEARCH_INDEX]->pipeline.qctx.endProc; rp; rp = rp->upstream) {
     if (rp->type == RP_MAX_SCORE_NORMALIZER) {
       foundMaxScoreNormalizer = true;

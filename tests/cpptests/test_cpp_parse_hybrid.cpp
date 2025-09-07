@@ -893,7 +893,6 @@ TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
 }
 
 TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
-  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
    "COMBINE", "LINEAR", "0.6", "0.4");
 
@@ -903,7 +902,6 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
 }
 
 TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
-  // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
    "COMBINE", "RRF", "2", "CONSTANT", "10");
 
