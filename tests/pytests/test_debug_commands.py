@@ -1155,16 +1155,15 @@ def test_query_controller_add_before_after(env):
         setPauseRPResume(env)
         t_query.join()
 
+@skip(cluster=False)
 def test_cluster_query_controller_pause_and_resume(env):
-    import threading
-    import time
-
     # Set workers to 1 on all shards to make sure queries can be paused
     verify_command_OK_on_all_shards(env, '_FT.CONFIG SET WORKERS 1')
 
     conn = getConnectionByEnv(env)
 
     n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
     n_docs = n_docs_per_shard * env.shardsCount
     for i in range(n_docs):
         res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
@@ -1173,6 +1172,9 @@ def test_cluster_query_controller_pause_and_resume(env):
     # Create index
     res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     env.assertEqual(res, 'OK')
+
+    # Wait until index scan completes to prevent contention on the spec lock
+    allShards_waitForIndexFinishScan(env, 'idx')
 
     # Helper to call a function and push its return value into a list
     def _call_and_store(fn, args, out_list):
