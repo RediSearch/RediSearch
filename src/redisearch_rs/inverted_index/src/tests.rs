@@ -8,14 +8,19 @@
 */
 
 use core::panic;
-use std::io::{Cursor, Read};
+use std::{
+    io::{Cursor, Read},
+    ptr,
+};
 
 use crate::{
-    Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterMaskReader, IdDelta,
-    IndexBlock, IndexReader, InvertedIndex, RSAggregateResult, RSIndexResult, RSResultData,
-    RSResultKind, RSTermRecord, SkipDuplicatesReader,
+    Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
+    FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, IndexReader, InvertedIndex,
+    NumericFilter, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
+    SkipDuplicatesReader,
     debug::{BlockSummary, Summary},
 };
+use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreNumeric,
@@ -505,6 +510,94 @@ fn index_reader_construction_with_no_blocks() {
 }
 
 #[test]
+fn index_reader_skip_to() {
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 5],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 15,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 16,
+            last_doc_id: 17,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 4],
+            num_entries: 2,
+            first_doc_id: 20,
+            last_doc_id: 24,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 40,
+            last_doc_id: 40,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 50,
+            last_doc_id: 50,
+        },
+    ];
+    let mut ir = IndexReader::new(&blocks, Dummy);
+
+    assert_eq!(ir.current_block_idx, 0, "should start at the first block");
+    assert_eq!(ir.last_doc_id, 10);
+
+    // Skipping to an ID in the current block should not change anything
+    assert!(ir.skip_to(12));
+    assert_eq!(ir.current_block_idx, 0, "we are still in the first block");
+    assert_eq!(ir.current_block, &blocks[0]);
+    assert_eq!(ir.last_doc_id, 10);
+
+    // Skipping to an ID in the next block should move to the next block
+    assert!(ir.skip_to(16));
+    assert_eq!(ir.current_block_idx, 1, "should be in the second block");
+    assert_eq!(ir.current_block, &blocks[1]);
+    assert_eq!(ir.last_doc_id, 16);
+
+    // Skipping to an ID in a later block should move to that block
+    assert!(ir.skip_to(30));
+    assert_eq!(ir.current_block_idx, 3, "should be in the fourth block");
+    assert_eq!(ir.current_block, &blocks[3]);
+    assert_eq!(ir.last_doc_id, 30);
+
+    // Skipping to an ID between blocks should give the block with the next highest ID
+    assert!(ir.skip_to(45));
+    assert_eq!(ir.current_block_idx, 5, "should be in the sixth block");
+    assert_eq!(ir.current_block, &blocks[5]);
+    assert_eq!(ir.last_doc_id, 50);
+
+    // Skipping to an ID beyond the last block should return false and stay at the last block
+    assert!(!ir.skip_to(100), "should not find a block for this ID");
+    assert_eq!(
+        ir.current_block_idx, 5,
+        "should still be in the sixth block"
+    );
+    assert_eq!(ir.current_block, &blocks[5]);
+    assert_eq!(ir.last_doc_id, 50);
+
+    // Skipping to an earlier ID should do nothing
+    assert!(ir.skip_to(5));
+    assert_eq!(
+        ir.current_block_idx, 5,
+        "should still be in the sixth block"
+    );
+    assert_eq!(ir.current_block, &blocks[5]);
+    assert_eq!(ir.last_doc_id, 50);
+}
+
+#[test]
 fn read_skipping_over_duplicates() {
     // Make an iterator where the first two entries have the same doc ID and the third one is different
     let iter = vec![
@@ -544,6 +637,84 @@ fn reading_filter_based_on_field_mask() {
         vec![
             RSIndexResult::default().doc_id(10).field_mask(0b0001),
             RSIndexResult::default().doc_id(12).field_mask(0b0100),
+        ]
+    );
+}
+
+#[test]
+fn reading_filter_based_on_numeric_filter() {
+    // Make an iterator with three records having different numeric values. The second record will be
+    // filtered out based on the numeric filter.
+    let iter = vec![
+        RSIndexResult::numeric(5.0).doc_id(10),
+        RSIndexResult::numeric(25.0).doc_id(11),
+        RSIndexResult::numeric(15.0).doc_id(12),
+    ];
+
+    let filter = NumericFilter {
+        min: 0.0,
+        max: 15.0,
+        min_inclusive: true,
+        max_inclusive: true,
+        field_spec: ptr::null(),
+        geo_filter: ptr::null(),
+        ascending: true,
+        limit: 10,
+        offset: 0,
+    };
+
+    let reader = FilterNumericReader::new(filter, iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::numeric(5.0).doc_id(10),
+            RSIndexResult::numeric(15.0).doc_id(12),
+        ]
+    );
+}
+
+#[test]
+fn reading_filter_based_on_geo_filter() {
+    /// Implement this FFI call for this test
+    #[unsafe(no_mangle)]
+    pub extern "C" fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool {
+        if d > unsafe { (*gf).radius } {
+            return false;
+        }
+
+        // Tests changing the distance value
+        unsafe { *distance /= 5.0 };
+
+        true
+    }
+
+    // Make an iterator with three records having different geo distances. The last record will be
+    // filtered out based on the geo distance.
+    let iter = vec![
+        RSIndexResult::numeric(5.0).doc_id(10),
+        RSIndexResult::numeric(15.0).doc_id(11),
+        RSIndexResult::numeric(25.0).doc_id(12),
+    ];
+
+    let filter = GeoFilter {
+        fieldSpec: ptr::null(),
+        lat: 0.0,
+        lon: 0.0,
+        radius: 20.0,
+        unitType: GeoDistance_GEO_DISTANCE_M,
+        numericFilters: ptr::null_mut(),
+    };
+
+    let reader = FilterGeoReader::new(&filter, iter.into_iter());
+    let records = reader.collect::<Vec<_>>();
+
+    assert_eq!(
+        records,
+        vec![
+            RSIndexResult::numeric(1.0).doc_id(10),
+            RSIndexResult::numeric(3.0).doc_id(11),
         ]
     );
 }

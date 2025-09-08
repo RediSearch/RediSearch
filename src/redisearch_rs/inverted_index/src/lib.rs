@@ -14,8 +14,8 @@ use std::{
 
 use debug::{BlockSummary, Summary};
 use ffi::{
-    FieldSpec, IndexFlags, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreNumeric,
+    FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_HasMultiValue,
+    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
 };
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
@@ -37,6 +37,17 @@ pub mod offsets_only;
 pub mod raw_doc_ids_only;
 #[doc(hidden)]
 pub mod test_utils;
+
+// Manually define some C functions, because we'll create a circular dependency if we use the FFI
+// crate to make them automatically.
+unsafe extern "C" {
+    /// Checks if a value (distance) is within the given geo filter.
+    ///
+    /// # Safety
+    /// The [`GeoFilter`] should not be null and a valid instance
+    #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
+    unsafe fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool;
+}
 
 /// Trait used to correctly derive the delta needed for different encoders
 pub trait IdDelta
@@ -215,6 +226,7 @@ pub struct InvertedIndex<E> {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
+#[derive(Debug, Eq, PartialEq)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -605,15 +617,12 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
         // Check if the current buffer is empty. The GC might clean out a block so we have to
         // continue checking until we find a block with data.
         while self.current_buffer.fill_buf()?.is_empty() {
-            let Some(next_block) = self.blocks.get(self.current_block_idx + 1) else {
+            if self.current_block_idx + 1 >= self.blocks.len() {
                 // No more blocks to read from
                 return Ok(None);
             };
 
-            self.current_block_idx += 1;
-            self.current_block = next_block;
-            self.last_doc_id = next_block.first_doc_id;
-            self.current_buffer = Cursor::new(&next_block.buffer);
+            self.set_current_block(self.current_block_idx + 1);
         }
 
         let base = D::base_id(self.current_block, self.last_doc_id);
@@ -623,6 +632,64 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
 
         Ok(Some(result))
     }
+
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        if self.current_block.last_doc_id >= doc_id {
+            // We are already in the correct block
+            return true;
+        }
+
+        // SAFETY: it is safe to unwrap because we checked that the blocks are not empty when
+        // creating the reader.
+        if self.blocks.last().unwrap().last_doc_id < doc_id {
+            // The document ID is greater than the last document ID in the index
+            return false;
+        }
+
+        // Check if the very next block is correct before doing a binary search. This is a small
+        // optimization for the common case where we are skipping to the next block.
+        let search_start = self.current_block_idx + 1;
+        if let Some(next_block) = self.blocks.get(search_start)
+            && next_block.last_doc_id >= doc_id
+        {
+            self.set_current_block(search_start);
+            return true;
+        }
+
+        // Binary search to find the correct block index
+        let relative_idx = self.blocks[search_start..]
+            .binary_search_by_key(&doc_id, |b| b.last_doc_id)
+            .unwrap_or_else(|insertion_point| insertion_point);
+
+        self.set_current_block(search_start + relative_idx);
+
+        true
+    }
+
+    /// Set the current active block to the given index
+    fn set_current_block(&mut self, index: usize) {
+        self.current_block_idx = index;
+        self.current_block = &self.blocks[self.current_block_idx];
+        self.last_doc_id = self.current_block.first_doc_id;
+        self.current_buffer = Cursor::new(&self.current_block.buffer);
+    }
+}
+
+/// Filter to apply when reading from an index. Entries which don't match the filter will not be
+/// returned by the reader.
+/// cbindgen:prefix-with-name=true
+#[repr(u8)]
+pub enum ReadFilter<'numeric_filter> {
+    /// No filter, all entries are accepted
+    None,
+
+    /// Accepts entries matching this field mask
+    FieldMask(t_fieldMask),
+
+    /// Accepts entries matching this numeric filter
+    Numeric(&'numeric_filter NumericFilter),
 }
 
 /// A reader that skips duplicate records in the index. It is used to ensure that the same document
@@ -691,11 +758,84 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskR
         loop {
             let next = self.inner.next()?;
 
-            if next.field_mask & self.mask == 0 {
-                continue;
+            if next.field_mask & self.mask > 0 {
+                return Some(next);
             }
+        }
+    }
+}
 
-            return Some(next);
+/// A reader that filters out records that do not match a given numeric filter. It is used to
+/// filter records in an index based on their numeric value, allowing only those that match the
+/// specified filter to be returned.
+///
+/// This should only be wrapped around readers that return numeric records.
+pub struct FilterNumericReader<I> {
+    /// The numeric filter that is used to filter the records.
+    filter: NumericFilter,
+
+    /// The inner reader that will be used to read the records from the index.
+    inner: I,
+}
+
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> FilterNumericReader<I> {
+    /// Create a new filter numeric reader with the given filter and inner iterator.
+    pub fn new(filter: NumericFilter, inner: I) -> Self {
+        Self { filter, inner }
+    }
+}
+
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterNumericReader<I> {
+    type Item = RSIndexResult<'index>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let next = self.inner.next()?;
+            let value = next.as_numeric()?;
+
+            if self.filter.value_in_range(value) {
+                return Some(next);
+            }
+        }
+    }
+}
+
+/// A reader that filters out records that do not match a given geo filter. It is used to
+/// filter records in an index based on their geo location, allowing only those that match the
+/// specified geo filter to be returned.
+///
+/// This should only be wrapped around readers that return numeric records.
+pub struct FilterGeoReader<'filter, I> {
+    /// Geo filter which a record needs to match to be valid
+    filter: &'filter GeoFilter,
+
+    /// The inner reader that will be used to read the records from the index.
+    inner: I,
+}
+
+impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterGeoReader<'filter, I> {
+    /// Create a new filter geo reader with the given geo filter and inner iterator
+    pub fn new(filter: &'filter GeoFilter, inner: I) -> Self {
+        Self { filter, inner }
+    }
+}
+
+impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
+    for FilterGeoReader<'filter, I>
+{
+    type Item = RSIndexResult<'index>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let mut next = self.inner.next()?;
+            let value = next.as_numeric_mut()?;
+
+            // SAFETY: we know the filter is not a null pointer since we hold a reference to it
+            let in_radius = unsafe { isWithinRadius(self.filter, *value, value) };
+
+            if in_radius {
+                return Some(next);
+            }
         }
     }
 }
