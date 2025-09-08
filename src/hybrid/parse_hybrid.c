@@ -643,7 +643,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    searchRequest->searchopts.scorerName = BM25_STD_NORMALIZED_MAX_SCORER_NAME;
+    if (!searchRequest->searchopts.scorerName) {
+      // if no explicit scorer, set the default one
+      searchRequest->searchopts.scorerName = BM25_STD_NORMALIZED_MAX_SCORER_NAME;
+    }
   }
 
   // Save the current position to determine remaining arguments for the merge part

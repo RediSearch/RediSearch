@@ -901,6 +901,15 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
   ASSERT_STREQ(result.search->searchopts.scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME);
 }
 
+TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", TEST_BLOB_DATA,\
+   "COMBINE", "LINEAR", "0.6", "0.4");
+
+  parseCommand(args);
+
+  ASSERT_STREQ(result.search->searchopts.scorerName, TFIDF_SCORER_NAME);
+}
+
 TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
    "COMBINE", "RRF", "2", "CONSTANT", "10");
@@ -909,4 +918,13 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
 
   // No explicit scorer should be set; the default scorer will be used
   ASSERT_EQ(result.search->searchopts.scorerName, nullptr);
+}
+
+TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", TEST_BLOB_DATA,\
+   "COMBINE", "RRF", "2", "CONSTANT", "10");
+
+  parseCommand(args);
+
+  ASSERT_STREQ(result.search->searchopts.scorerName, TFIDF_SCORER_NAME);
 }
