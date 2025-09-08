@@ -13,6 +13,7 @@
 #include "info/info_redis/block_client.h"
 #include "query_error.h"
 #include "spec.h"
+#include "ext/default.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -135,7 +136,6 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
-        initializeAREQ(requests[i]);
         QueryError_Init(&hybridReq->errors[i]);
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
@@ -250,7 +250,9 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
+  initializeAREQ(search);
   AREQ *vector = AREQ_New();
+  initializeAREQ(vector);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
   search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
   vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
