@@ -288,6 +288,16 @@ impl<E: Encoder> InvertedIndex<E> {
     /// contain duplicate entries and be ordered by document ID.
     #[cfg(test)]
     fn from_blocks(flags: IndexFlags, blocks: Vec<IndexBlock>, encoder: E) -> Self {
+        debug_assert!(!blocks.is_empty());
+        debug_assert!(
+            blocks.is_sorted_by(|a, b| a.last_doc_id < b.first_doc_id),
+            "blocks must be sorted and not overlap"
+        );
+        debug_assert!(
+            blocks.iter().all(|b| b.first_doc_id <= b.last_doc_id),
+            "blocks must have valid ranges"
+        );
+
         let n_unique_docs = blocks.iter().map(|b| b.num_entries).sum();
 
         Self {
