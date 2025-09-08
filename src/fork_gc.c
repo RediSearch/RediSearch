@@ -701,7 +701,6 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     .deleted_len = idxData->numDelBlocks,
     .repaired = (void *)idxData->changedBlocks,
     .repaired_len = info->nblocksRepaired,
-    .last_block_ignored = idxData->lastBlockIgnored,
   };
 
   InvertedIndex_ApplyGcDelta(idx, &delta, info->nblocksOrig, &info->nbytesAdded);

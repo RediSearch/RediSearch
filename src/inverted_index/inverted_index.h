@@ -109,10 +109,6 @@ typedef struct {
     int64_t newix;
   } *repaired;
   size_t repaired_len;
-
-  // Bookkeeping for stats only. Set by the caller when the last block edits
-  // from the child were ignored due to a race.
-  bool last_block_ignored;
 } InvertedIndexGcDelta;
 
 // -------------------------
