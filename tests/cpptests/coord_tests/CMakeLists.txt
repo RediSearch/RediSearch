@@ -21,7 +21,22 @@ set(COMMON_FILES
 )
 
 add_executable(rstest_coord ${TEST_SOURCES} ${COMMON_FILES})
-target_link_libraries(rstest_coord gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} stdc++)
+target_link_libraries(rstest_coord gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest_coord PROPERTIES LINKER_LANGUAGE CXX)
-target_link_options(rstest_coord PRIVATE -lstdc++)
+
+# Handle C++ standard library linking based on compiler
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    find_library(LIBCXX_FOUND c++)
+    if(LIBCXX_FOUND)
+        target_compile_options(rstest_coord PRIVATE -stdlib=libc++)
+        target_link_options(rstest_coord PRIVATE -stdlib=libc++)
+    else()
+        target_link_libraries(rstest_coord stdc++)
+        target_link_options(rstest_coord PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+else()
+    target_link_libraries(rstest_coord stdc++)
+    target_link_options(rstest_coord PRIVATE -lstdc++)
+endif()
+
 add_test(NAME rstest_coord COMMAND rstest_coord)
