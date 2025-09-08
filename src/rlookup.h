@@ -431,6 +431,25 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
  */
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
 
+/**
+ * Add keys from source lookup into destination lookup.
+ * For each key in src, check if it already exists in dest by name.
+ * If not exists, create new key in dest with unique dstidx.
+ * Handle existing keys based on flags (skip by default, override with RLOOKUP_F_OVERRIDE).
+ * Preserve key properties (flags, svidx) from source.
+ */
+void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags);
+
+/**
+ * Transfer field data from source row to destination row with different schemas.
+ * Iterate through source lookup keys, find corresponding keys in destination by name,
+ * and transfer ownership using RLookup_WriteOwnKey().
+ * Source row slots are nullified after transfer.
+ * Assumes all source keys exist in destination (enforce with ASSERT).
+ */
+void RLookupRow_TransferFields(RLookupRow *srcRow, const RLookup *srcLookup,
+                              RLookupRow *destRow, const RLookup *destLookup);
+
 #ifdef __cplusplus
 }
 #endif

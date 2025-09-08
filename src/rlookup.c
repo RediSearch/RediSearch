@@ -1054,3 +1054,60 @@ void RLookup_CloneInto(RLookup *dst, const RLookup *src) {
     src_key = src_key->next;
   }
 }
+
+void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags) {
+  RS_ASSERT(dest != NULL && src != NULL);
+  RS_ASSERT(dest != src);  // Prevent self-addition
+
+  // Iterate through all keys in source lookup
+  for (const RLookupKey *src_key = src->head; src_key; src_key = src_key->next) {
+    if (!src_key->name) {
+      // Skip overridden keys (they have name == NULL)
+      continue;
+    }
+
+    // Use the high-level API to get/create the key - it handles all the flag logic
+    RLookupKey *dest_key = RLookup_GetKey_Write(dest, src_key->name, flags);
+    if (dest_key) {
+      // Copy properties from source (flags are already handled by RLookup_GetKey_Write)
+      dest_key->svidx = src_key->svidx;
+    }
+  }
+}
+
+void RLookupRow_TransferFields(RLookupRow *srcRow, const RLookup *srcLookup,
+                              RLookupRow *destRow, const RLookup *destLookup) {
+  RS_ASSERT(srcRow != NULL && srcLookup != NULL);
+  RS_ASSERT(destRow != NULL && destLookup != NULL);
+
+  // Iterate through all source keys
+  for (const RLookupKey *src_key = srcLookup->head; src_key; src_key = src_key->next) {
+    if (!src_key->name) {
+      // Skip overridden keys
+      continue;
+    }
+
+    // Get value from source row
+    RSValue *value = RLookup_GetItem(src_key, srcRow);
+    if (!value) {
+      // No data for this key in source row
+      continue;
+    }
+
+    // Find corresponding key in destination lookup
+    RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
+    RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
+
+    // Transfer ownership - use RLookup_WriteOwnKey (no refcount increment)
+    RLookup_WriteOwnKey(dest_key, destRow, value);
+
+    // Nullify source pointer immediately after transfer (ownership moved)
+    if (srcRow->dyn && array_len(srcRow->dyn) > src_key->dstidx) {
+      srcRow->dyn[src_key->dstidx] = NULL;
+      srcRow->ndyn--;
+    }
+  }
+
+  // Clear any remaining source row data (all transferred pointers already nullified)
+  RLookupRow_Wipe(srcRow);
+}
