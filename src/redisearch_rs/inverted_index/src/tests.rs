@@ -535,6 +535,51 @@ fn read_using_the_first_block_id_as_the_base() {
 }
 
 #[test]
+fn seeking_records() {
+    // Make two blocks - each with three records
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            num_entries: 3,
+            first_doc_id: 10,
+            last_doc_id: 12,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
+            num_entries: 3,
+            first_doc_id: 100,
+            last_doc_id: 103,
+        },
+    ];
+
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+    let mut ir = ii.reader();
+
+    let record = ir
+        .seek_record(101)
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+
+    assert_eq!(record, RSIndexResult::virt().doc_id(101));
+
+    let record = ir
+        .seek_record(102)
+        .expect("to be able to read from the buffer")
+        .expect("to get a record");
+
+    assert_eq!(
+        record,
+        RSIndexResult::virt().doc_id(103),
+        "should seek to the next highest ID"
+    );
+
+    let record = ir
+        .seek_record(200)
+        .expect("to be able to read from the buffer");
+    assert_eq!(record, None);
+}
+
+#[test]
 #[should_panic(expected = "IndexReader should not be created with an empty inverted index")]
 fn index_reader_construction_with_no_blocks() {
     let ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);

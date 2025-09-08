@@ -641,6 +641,28 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
         Ok(Some(result))
     }
 
+    /// Seek to the record with the given document ID. If the document ID is found, then the
+    /// record is returned. If the document ID is not found, then the next record with a higher
+    /// document ID is returned. However, if the end of the index is reached before finding
+    /// the document ID, then `None` is returned.
+    pub fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        if !self.skip_to(doc_id) {
+            return Ok(None);
+        }
+
+        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        let result = self.decoder.seek(&mut self.current_buffer, base, doc_id)?;
+
+        if let Some(ref record) = result {
+            self.last_doc_id = record.doc_id;
+        }
+
+        Ok(result)
+    }
+
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
     pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
