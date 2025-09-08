@@ -536,7 +536,7 @@ fn read_using_the_first_block_id_as_the_base() {
 
 #[test]
 fn seeking_records() {
-    // Make two blocks - each with three records
+    // Make two blocks - the last one with four records
     let blocks = vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
@@ -545,10 +545,10 @@ fn seeking_records() {
             last_doc_id: 12,
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
-            num_entries: 3,
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 5],
+            num_entries: 4,
             first_doc_id: 100,
-            last_doc_id: 103,
+            last_doc_id: 108,
         },
     ];
 
@@ -563,13 +563,13 @@ fn seeking_records() {
     assert_eq!(record, RSIndexResult::virt().doc_id(101));
 
     let record = ir
-        .seek_record(102)
+        .seek_record(105)
         .expect("to be able to read from the buffer")
         .expect("to get a record");
 
     assert_eq!(
         record,
-        RSIndexResult::virt().doc_id(103),
+        RSIndexResult::virt().doc_id(108),
         "should seek to the next highest ID"
     );
 

@@ -179,7 +179,7 @@ pub trait Decoder {
     fn seek<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        mut base: t_docId,
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult<'index>>> {
         loop {
@@ -187,7 +187,10 @@ pub trait Decoder {
                 Ok(record) if record.doc_id >= target => {
                     return Ok(Some(record));
                 }
-                Ok(_) => continue,
+                Ok(record) => {
+                    base = record.doc_id;
+                    continue;
+                }
                 Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
                 Err(err) => return Err(err),
             }
