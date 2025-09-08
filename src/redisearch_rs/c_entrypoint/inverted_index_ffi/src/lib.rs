@@ -130,6 +130,15 @@ const NUMERIC_MASK: IndexFlags = IndexFlags_Index_StoreNumeric;
 ///
 /// The following invariant must be upheld when calling this function:
 /// - `mem_size` must be a valid pointer to a `usize`.
+///
+/// # Panics
+/// This function will panic if the provided flags does not set at least one of the following
+/// storage flags:
+/// - `StoreFreqs`
+/// - `StoreFieldFlags`
+/// - `StoreTermOffsets`
+/// - `StoreNumeric`
+/// - `DocIdsOnly`
 #[unsafe(no_mangle)]
 pub extern "C" fn NewInvertedIndex_Ex(
     flags: IndexFlags,
