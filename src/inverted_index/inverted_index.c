@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include "types_rs.h"
 #define QINT_API static
 #include "inverted_index.h"
 #include "math.h"
@@ -838,7 +839,7 @@ DECODER(readNumeric) {
   IndexResult_SetNumValue(res, value);
 
   const NumericFilter *f = ctx->numeric;
-  if (f) {
+  if (ctx->tag == IndexDecoderCtx_Numeric && f) {
     if (NumericFilter_IsNumeric(f)) {
       return NumericFilter_Match(f, value);
     } else {
