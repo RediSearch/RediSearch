@@ -1214,7 +1214,7 @@ cleanup:
 }
 
 // Helper function to register commands that write arbitrary keys
-// Attemp to use an additional flag `touches-arbitrary-keys` and if this fails, fallsback to the original flags.
+// Attempt to use an additional flag `touches-arbitrary-keys` and if this fails, fallsback to the original flags.
 static int RMCreateArbitraryWriteSearchCommand(RedisModuleCtx *ctx, const char *name,
                                              RedisModuleCmdFunc callback,
                                              const char *flags,
