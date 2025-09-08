@@ -29,6 +29,7 @@ typedef struct {
   QueryAttribute *attributes;     // Non-vector-specific attributes like YIELD_DISTANCE_AS (OWNED)
   bool isParameter;               // true if vector data is a parameter
   bool hasExplicitK;              // Flag to track if K was explicitly set in KNN query
+  char *scoreField;               // Determined score field name (OWNED)
 } ParsedVectorData;
 
 void ParsedVectorData_Free(ParsedVectorData *pvd);

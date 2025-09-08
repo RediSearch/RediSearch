@@ -24,5 +24,10 @@ void ParsedVectorData_Free(ParsedVectorData *pvd) {
     array_free_ex(pvd->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
   }
 
+  // Free scoreField if allocated
+  if (pvd->scoreField) {
+    rm_free(pvd->scoreField);
+  }
+
   rm_free(pvd);
 }

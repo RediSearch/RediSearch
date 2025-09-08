@@ -122,6 +122,16 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
+/**
+ * Returns a newly allocated string containing the default score field name for the given vector field.
+ * The caller is responsible for freeing the returned string using rm_free().
+ *
+ * @param fieldName The name of the vector field.
+ * @param fieldNameLen The length of the field name.
+ * @return A newly allocated string with the default score field name: "__<fieldName>_score".
+ */
+char *VectorQuery_DefaultScoreField(const char *fieldName, size_t fieldNameLen);
+void VectorQuery_SetScoreField(VectorQuery *vq, char *scoreField);
 void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
