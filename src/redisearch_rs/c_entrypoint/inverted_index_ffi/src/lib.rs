@@ -17,7 +17,7 @@ use ffi::{
 };
 
 use inverted_index::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as II, RSIndexResult,
+    EntriesTrackingIndex, FieldMaskTrackingIndex, RSIndexResult,
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     fields_only::{FieldsOnly, FieldsOnlyWide},
@@ -43,7 +43,7 @@ pub enum InvertedIndex {
     FreqsFields(FieldMaskTrackingIndex<FreqsFields>),
     // Needs to track the field masks because it has the `StoreFieldFlags` flag set
     FreqsFieldsWide(FieldMaskTrackingIndex<FreqsFieldsWide>),
-    FreqsOnly(II<FreqsOnly>),
+    FreqsOnly(inverted_index::InvertedIndex<FreqsOnly>),
     // Needs to track the field masks because it has the `StoreFieldFlags` flag set
     FieldsOnly(FieldMaskTrackingIndex<FieldsOnly>),
     // Needs to track the field masks because it has the `StoreFieldFlags` flag set
@@ -52,10 +52,10 @@ pub enum InvertedIndex {
     FieldsOffsets(FieldMaskTrackingIndex<FieldsOffsets>),
     // Needs to track the field masks because it has the `StoreFieldFlags` flag set
     FieldsOffsetsWide(FieldMaskTrackingIndex<FieldsOffsetsWide>),
-    OffsetsOnly(II<OffsetsOnly>),
-    FreqsOffsets(II<FreqsOffsets>),
-    DocumentIdOnly(II<DocIdsOnly>),
-    RawDocumentIdOnly(II<RawDocIdsOnly>),
+    OffsetsOnly(inverted_index::InvertedIndex<OffsetsOnly>),
+    FreqsOffsets(inverted_index::InvertedIndex<FreqsOffsets>),
+    DocumentIdOnly(inverted_index::InvertedIndex<DocIdsOnly>),
+    RawDocumentIdOnly(inverted_index::InvertedIndex<RawDocIdsOnly>),
     // Needs to track the entries count because it has the `StoreNumeric` flag set
     Numeric(EntriesTrackingIndex<Numeric>),
 }
@@ -152,7 +152,9 @@ pub extern "C" fn NewInvertedIndex_Ex(
         (FREQS_FIELDS_WIDE_MASK, _, _) => {
             InvertedIndex::FreqsFieldsWide(FieldMaskTrackingIndex::new(flags, FreqsFieldsWide))
         }
-        (FREQS_ONLY_MASK, _, _) => InvertedIndex::FreqsOnly(II::new(flags, FreqsOnly)),
+        (FREQS_ONLY_MASK, _, _) => {
+            InvertedIndex::FreqsOnly(inverted_index::InvertedIndex::new(flags, FreqsOnly))
+        }
         (FIELDS_ONLY_MASK, _, _) => {
             InvertedIndex::FieldsOnly(FieldMaskTrackingIndex::new(flags, FieldsOnly))
         }
@@ -165,12 +167,18 @@ pub extern "C" fn NewInvertedIndex_Ex(
         (FIELDS_OFFSETS_WIDE_MASK, _, _) => {
             InvertedIndex::FieldsOffsetsWide(FieldMaskTrackingIndex::new(flags, FieldsOffsetsWide))
         }
-        (OFFSETS_ONLY_MASK, _, _) => InvertedIndex::OffsetsOnly(II::new(flags, OffsetsOnly)),
-        (FREQS_OFFSETS_MASK, _, _) => InvertedIndex::FreqsOffsets(II::new(flags, FreqsOffsets)),
-        (DOC_IDS_ONLY_MASK, false, _) => InvertedIndex::DocumentIdOnly(II::new(flags, DocIdsOnly)),
-        (DOC_IDS_ONLY_MASK, true, _) => {
-            InvertedIndex::RawDocumentIdOnly(II::new(flags, RawDocIdsOnly))
+        (OFFSETS_ONLY_MASK, _, _) => {
+            InvertedIndex::OffsetsOnly(inverted_index::InvertedIndex::new(flags, OffsetsOnly))
         }
+        (FREQS_OFFSETS_MASK, _, _) => {
+            InvertedIndex::FreqsOffsets(inverted_index::InvertedIndex::new(flags, FreqsOffsets))
+        }
+        (DOC_IDS_ONLY_MASK, false, _) => {
+            InvertedIndex::DocumentIdOnly(inverted_index::InvertedIndex::new(flags, DocIdsOnly))
+        }
+        (DOC_IDS_ONLY_MASK, true, _) => InvertedIndex::RawDocumentIdOnly(
+            inverted_index::InvertedIndex::new(flags, RawDocIdsOnly),
+        ),
         (NUMERIC_MASK, _, false) => {
             InvertedIndex::Numeric(EntriesTrackingIndex::new(flags, Numeric::new()))
         }
