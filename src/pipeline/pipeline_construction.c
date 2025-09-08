@@ -554,9 +554,12 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         // Get appropriate normalization function
         VectorNormFunction normFunc = GetVectorNormalizationFunction(metric);
 
-        // Get score key for writing normalized scores
+        // Get score key for writing normalized scores if scoreField is provided
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
-        const RLookupKey *scoreKey = RLookup_GetKey_Write(curLookup, "__score", RLOOKUP_F_NOFLAGS);
+        const RLookupKey *scoreKey = NULL;
+        if (vnStep->scoreField) {
+          scoreKey = RLookup_GetKey_Read(curLookup, vnStep->scoreField, RLOOKUP_F_NOFLAGS);
+        }
 
         // Create vector normalizer result processor
         rp = RPVectorNormalizer_New(normFunc, scoreKey);

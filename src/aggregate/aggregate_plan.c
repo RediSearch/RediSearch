@@ -140,12 +140,13 @@ static void vectorNormalizerDtor(PLN_BaseStep *bstp) {
   rm_free(vnStep);
 }
 
-PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName) {
+PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName, const char *scoreField) {
   PLN_VectorNormalizerStep *vnStep = rm_calloc(1, sizeof(*vnStep));
   vnStep->base.type = PLN_T_VECTOR_NORMALIZER;
   vnStep->base.dtor = vectorNormalizerDtor;
   vnStep->base.getLookup = NULL;  // No lookup for this step
   vnStep->vectorFieldName = vectorFieldName;  // Not owned - points to parser tokens
+  vnStep->scoreField = scoreField;  // Not owned - points to parser tokens
   return vnStep;
 }
 

@@ -117,6 +117,7 @@ typedef struct {
 typedef struct {
   PLN_BaseStep base;
   const char *vectorFieldName;     // Vector field name (NOT owned - points to parser tokens)
+  const char *scoreField;          // Score field name (NOT owned - points to parser tokens)
 } PLN_VectorNormalizerStep;
 
 /* Group step - group by properties and reduce by several reducers */
@@ -210,7 +211,7 @@ void AGPLN_FreeSteps(AGGPlan *pln);
 void loadDtor(PLN_BaseStep *bstp);
 
 /* Constructor for PLN_VectorNormalizerStep */
-PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName);
+PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName, const char *scoreField);
 
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step);
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
