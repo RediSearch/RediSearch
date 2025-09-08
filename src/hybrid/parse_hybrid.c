@@ -30,6 +30,7 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
+#include "ext/default.h"
 
 
 static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
@@ -638,6 +639,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
     if (parseCombine(&ac, hybridParams->scoringCtx, HYBRID_REQUEST_NUM_SUBQUERIES, status) != REDISMODULE_OK) {
       goto error;
+    }
+  }
+
+  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
+    if (!searchRequest->searchopts.scorerName) {
+      // if no explicit scorer, set the default one
+      searchRequest->searchopts.scorerName = BM25_STD_NORMALIZED_MAX_SCORER_NAME;
     }
   }
 
