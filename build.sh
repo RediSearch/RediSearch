@@ -569,7 +569,6 @@ run_rust_tests() {
     RUST_TEST_OPTIONS="
       --doctests
       --codecov
-      $RUST_EXCLUDE_CRATES
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
@@ -579,7 +578,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -634,7 +633,7 @@ run_rust_valgrind_tests() {
         cargo $RUST_EXTENSIONS valgrind test \
         --profile=$RUST_PROFILE \
         $RUST_TEST_OPTIONS \
-        --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER \
+        --workspace $TEST_FILTER \
         -- --nocapture
   fi
 
