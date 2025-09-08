@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "result_processor.h"  /* Full SearchResult definition */
 #include "hybrid_search_result.h"
 #include "rmutil/alloc.h"
 #include "query_error.h"
@@ -108,6 +109,36 @@ double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
 }
 
 /**
+ * Create unified RLookupRow by merging field data from multiple source SearchResults.
+ * Initializes new RLookupRow and transfers fields from each source using RLookupRow_TransferFields.
+ */
+static RLookupRow* merge_rlookuprow(HybridSearchResult *hybridResult,
+                                   HybridLookupContext *lookupCtx) {
+    RS_ASSERT(hybridResult && lookupCtx);
+
+    // Create new unified RLookupRow
+    RLookupRow *unifiedRow = rm_calloc(1, sizeof(RLookupRow));
+    // Initialize with tail schema capacity
+    RLookupRow_Wipe(unifiedRow);
+
+    // Transfer fields from each source SearchResult
+    for (size_t i = 0; i < hybridResult->numSources; i++) {
+        if (hybridResult->hasResults[i]) {
+            SearchResult *sourceResult = hybridResult->searchResults[i];
+            RS_ASSERT(sourceResult);
+
+            // Transfer fields from source row to unified row
+            RLookupRow_TransferFields(&sourceResult->rowdata,
+                                    lookupCtx->sourceLookups[i],
+                                    unifiedRow,
+                                    lookupCtx->tailLookup);
+        }
+    }
+
+    return unifiedRow;
+}
+
+/**
  * Main function to merge SearchResults from multiple upstreams into a single comprehensive result.
  *
  * PRIMARY RESULT SELECTION:
@@ -117,7 +148,7 @@ double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
  * The primary result is the SearchResult we merge into and return to the downstream processor.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
  */
-SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx) {
+SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx, HybridLookupContext *lookupCtx) {
   RS_ASSERT(hybridResult && scoringCtx);
 
   // Find the primary result (first non-null result)
@@ -147,10 +178,16 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
       mergeFlags(&primary->flags, &hybridResult->searchResults[i]->flags);
     }
   }
-
+  // Create unified RLookupRow if lookup context is provided
+  if (lookupCtx) {
+    RLookupRow *unifiedRow = merge_rlookuprow(hybridResult, lookupCtx);
+    primary->rowdata = *unifiedRow;
+    rm_free(unifiedRow);  // Transfer ownership, free container
+  }
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;
   hybridResult->hasResults[targetIndex] = false;
 
   return primary;
 }
+

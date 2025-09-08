@@ -12,6 +12,7 @@
 
 #include "result_processor.h"
 #include "hybrid_scoring.h"
+#include "hybrid_lookup_context.h"
 #include "util/arr/arr.h"
 
 #ifdef __cplusplus
@@ -65,7 +66,7 @@ double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
  * The primary result is the SearchResult we merge into and return to the downstream processor.
  * This function transfers ownership of the primary result from the HybridSearchResult to the caller.
  */
-SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx);
+SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx, HybridLookupContext *lookupCtx);
 
 #ifdef __cplusplus
 }

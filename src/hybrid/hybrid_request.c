@@ -1,7 +1,9 @@
 #include "hybrid/hybrid_request.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
+#include "rlookup.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_lookup_context.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
@@ -61,11 +63,28 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     // Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
-    RLookup_CloneInto(lookup, AGPLN_GetLookup(AREQ_AGGPlan(req->requests[SEARCH_INDEX]), NULL, AGPLN_GETLOOKUP_FIRST));
+    // Add keys from all source lookups to create unified schema
+    for (size_t i = 0; i < req->nrequests; i++) {
+        RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+        if (srcLookup) {
+            RLookup_AddKeysFrom(lookup, srcLookup, RLOOKUP_F_NOFLAGS);
+        }
+    }
+
+    // Build lookup context for field merging
+    HybridLookupContext *lookupCtx = rm_calloc(1, sizeof(HybridLookupContext));
+    lookupCtx->tailLookup = lookup;
+    lookupCtx->numSources = req->nrequests;
+    lookupCtx->sourceLookups = array_newlen(const RLookup*, req->nrequests);
+
+    // Collect source lookups
+    for (size_t i = 0; i < req->nrequests; i++) {
+        lookupCtx->sourceLookups[i] = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+    }
 
     // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
