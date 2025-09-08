@@ -30,6 +30,7 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
+#include "ext/default.h"
 
 
 static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
@@ -644,6 +645,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
     PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(vectorRequest->parsedVectorData->fieldName);
     AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
+    if (!searchRequest->searchopts.scorerName) {
+      // if no explicit scorer, set the default one
+      searchRequest->searchopts.scorerName = BM25_STD_NORMALIZED_MAX_SCORER_NAME;
+    }
   }
 
   // Save the current position to determine remaining arguments for the merge part
