@@ -110,6 +110,10 @@ ifneq ($(REDIS_STANDALONE),)
     BUILD_ARGS += REDIS_STANDALONE=$(REDIS_STANDALONE)
 endif
 
+ifeq ($(LTO),1)
+	BUILD_ARGS += LTO
+endif
+
 # Package variables (used by pack target)
 MODULE_NAME := search
 PACKAGE_NAME ?=
@@ -149,6 +153,7 @@ Build:
     RUST_PROFILE=name  Rust profile to use (default: release)
     RUST_DYN_CRT=1     Use dynamic C runtime linking (for Alpine Linux)
     VERBOSE=1          Verbose build output
+    LTO=1              Enable Rust/C LTO
 
   make clean         Remove build artifacts
     ALL=1              Remove entire artifacts directory
