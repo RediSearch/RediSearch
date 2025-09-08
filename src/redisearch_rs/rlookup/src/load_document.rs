@@ -371,7 +371,7 @@ fn h_get_all_fallback(
 
         with_or_create_key(lookup, field_cstr, |rlk| {
             let mut coerce_ty = RLookupCoerceType::Str;
-            if options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
+            if !options.force_string && rlk.flags.contains(RLookupKeyFlag::QuerySrc) {
                 coerce_ty = RLookupCoerceType::Dbl;
             }
 
