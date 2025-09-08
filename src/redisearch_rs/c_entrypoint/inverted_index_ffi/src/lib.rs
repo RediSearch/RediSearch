@@ -195,6 +195,8 @@ pub extern "C" fn NewInvertedIndex_Ex(
 ///   [`NewInvertedIndex_Ex`] or `NewInvertedIndex`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let _ = unsafe { Box::from_raw(ii) };
 }
@@ -206,6 +208,8 @@ pub unsafe extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and must not be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usize {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*ii };
     ii_dispatch!(ii, memory_usage)
@@ -224,6 +228,8 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     doc_id: t_docId,
     value: f64,
 ) -> usize {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
     let record = RSIndexResult::numeric(value).doc_id(doc_id);
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
@@ -243,6 +249,9 @@ pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     ii: *mut InvertedIndex,
     record: *const RSIndexResult,
 ) -> usize {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+    debug_assert!(!record.is_null(), "record must not be null");
+
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &mut *ii };
 
