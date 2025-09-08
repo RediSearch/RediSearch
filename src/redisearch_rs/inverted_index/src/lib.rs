@@ -736,6 +736,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
 
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
+        debug_assert!(
+            index < self.ii.blocks.len(),
+            "block index should stay in bounds"
+        );
+
         self.current_block_idx = index;
         let current_block = &self.ii.blocks[self.current_block_idx];
         self.last_doc_id = current_block.first_doc_id;
