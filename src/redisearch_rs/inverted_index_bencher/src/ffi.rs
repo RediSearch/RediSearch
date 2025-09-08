@@ -27,6 +27,7 @@ mod bindings {
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
     pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
+    pub type IndexDecoderCtx = inverted_index::ReadFilter<'static>;
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }

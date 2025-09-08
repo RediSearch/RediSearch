@@ -179,7 +179,7 @@ pub trait Decoder {
     fn seek<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        mut base: t_docId,
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult<'index>>> {
         loop {
@@ -187,7 +187,10 @@ pub trait Decoder {
                 Ok(record) if record.doc_id >= target => {
                     return Ok(Some(record));
                 }
-                Ok(_) => continue,
+                Ok(record) => {
+                    base = record.doc_id;
+                    continue;
+                }
                 Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
                 Err(err) => return Err(err),
             }
@@ -279,6 +282,30 @@ impl<E: Encoder> InvertedIndex<E> {
         Self {
             blocks: Vec::new(),
             n_unique_docs: 0,
+            flags,
+            encoder,
+        }
+    }
+
+    /// Create a new inverted index from the given blocks and encoder. The blocks are expected to not
+    /// contain duplicate entries and be ordered by document ID.
+    #[cfg(test)]
+    fn from_blocks(flags: IndexFlags, blocks: Vec<IndexBlock>, encoder: E) -> Self {
+        debug_assert!(!blocks.is_empty());
+        debug_assert!(
+            blocks.is_sorted_by(|a, b| a.last_doc_id < b.first_doc_id),
+            "blocks must be sorted and not overlap"
+        );
+        debug_assert!(
+            blocks.iter().all(|b| b.first_doc_id <= b.last_doc_id),
+            "blocks must have valid ranges"
+        );
+
+        let n_unique_docs = blocks.iter().map(|b| b.num_entries).sum();
+
+        Self {
+            blocks,
+            n_unique_docs,
             flags,
             encoder,
         }
@@ -439,9 +466,8 @@ impl<E: Encoder> InvertedIndex<E> {
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, E::Decoder> {
-        let decoder = E::decoder();
-        IndexReader::new(&self.blocks, decoder)
+    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
+        IndexReader::new(self)
     }
 }
 
@@ -505,7 +531,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
+    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
         self.index.reader()
     }
 }
@@ -558,26 +584,22 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, impl Decoder> {
+    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
         self.index.reader()
     }
 }
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
-pub struct IndexReader<'index, D> {
+pub struct IndexReader<'index, E, D> {
     /// The block of the inverted index that is being read from. This might be used to determine the
     /// base document ID for delta calculations.
-    blocks: &'index Vec<IndexBlock>,
+    ii: &'index InvertedIndex<E>,
 
     /// The decoder used to decode the records from the index blocks.
     decoder: D,
 
     /// The current position in the block that is being read from.
     current_buffer: Cursor<&'index [u8]>,
-
-    /// The current block that is being read from. This might be used to determine the base document
-    /// ID for delta calculations and to read the next record from the block.
-    current_block: &'index IndexBlock,
 
     /// The index of the current block in the `blocks` vector. This is used to keep track of
     /// which block we are currently reading from, especially when the current buffer is empty and we
@@ -589,24 +611,23 @@ pub struct IndexReader<'index, D> {
     last_doc_id: t_docId,
 }
 
-impl<'index, D: Decoder> IndexReader<'index, D> {
-    /// Create a new index reader that reads from the given blocks using the provided decoder.
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
+    /// Create a new index reader that reads from the given [`InvertedIndex`].
     ///
     /// # Panic
-    /// This function will panic if the `blocks` vector is empty. The reader expects at least one block to read from.
-    pub fn new(blocks: &'index Vec<IndexBlock>, decoder: D) -> Self {
+    /// This function will panic if the inverted index is empty.
+    fn new(ii: &'index InvertedIndex<E>) -> Self {
         debug_assert!(
-            !blocks.is_empty(),
-            "IndexReader should not be created with an empty block list"
+            !ii.blocks.is_empty(),
+            "IndexReader should not be created with an empty inverted index"
         );
 
-        let first_block = blocks.first().expect("to have at least one block");
+        let first_block = ii.blocks.first().expect("to have at least one block");
 
         Self {
-            blocks,
-            decoder,
+            ii,
+            decoder: E::decoder(),
             current_buffer: Cursor::new(&first_block.buffer),
-            current_block: first_block,
             current_block_idx: 0,
             last_doc_id: first_block.first_doc_id,
         }
@@ -617,7 +638,7 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
         // Check if the current buffer is empty. The GC might clean out a block so we have to
         // continue checking until we find a block with data.
         while self.current_buffer.fill_buf()?.is_empty() {
-            if self.current_block_idx + 1 >= self.blocks.len() {
+            if self.current_block_idx + 1 >= self.ii.blocks.len() {
                 // No more blocks to read from
                 return Ok(None);
             };
@@ -625,7 +646,7 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
             self.set_current_block(self.current_block_idx + 1);
         }
 
-        let base = D::base_id(self.current_block, self.last_doc_id);
+        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
         let result = self.decoder.decode(&mut self.current_buffer, base)?;
 
         self.last_doc_id = result.doc_id;
@@ -633,17 +654,37 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
         Ok(Some(result))
     }
 
+    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
+    /// of the index is reached before finding the document ID, then `None` is returned.
+    pub fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        if !self.skip_to(doc_id) {
+            return Ok(None);
+        }
+
+        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        let result = self.decoder.seek(&mut self.current_buffer, base, doc_id)?;
+
+        if let Some(ref record) = result {
+            self.last_doc_id = record.doc_id;
+        }
+
+        Ok(result)
+    }
+
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
     pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
-        if self.current_block.last_doc_id >= doc_id {
+        if self.ii.blocks[self.current_block_idx].last_doc_id >= doc_id {
             // We are already in the correct block
             return true;
         }
 
         // SAFETY: it is safe to unwrap because we checked that the blocks are not empty when
         // creating the reader.
-        if self.blocks.last().unwrap().last_doc_id < doc_id {
+        if self.ii.blocks.last().unwrap().last_doc_id < doc_id {
             // The document ID is greater than the last document ID in the index
             return false;
         }
@@ -651,7 +692,7 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
         // Check if the very next block is correct before doing a binary search. This is a small
         // optimization for the common case where we are skipping to the next block.
         let search_start = self.current_block_idx + 1;
-        if let Some(next_block) = self.blocks.get(search_start)
+        if let Some(next_block) = self.ii.blocks.get(search_start)
             && next_block.last_doc_id >= doc_id
         {
             self.set_current_block(search_start);
@@ -659,7 +700,7 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
         }
 
         // Binary search to find the correct block index
-        let relative_idx = self.blocks[search_start..]
+        let relative_idx = self.ii.blocks[search_start..]
             .binary_search_by_key(&doc_id, |b| b.last_doc_id)
             .unwrap_or_else(|insertion_point| insertion_point);
 
@@ -668,12 +709,53 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
         true
     }
 
+    /// Reset the reader to the beginning of the index.
+    pub fn reset(&mut self) {
+        self.set_current_block(0);
+    }
+
+    /// Return the number of unique documents in the underlying index.
+    pub fn unique_docs(&self) -> usize {
+        self.ii.unique_docs()
+    }
+
+    /// Returns true if the underlying index has duplicate document IDs.
+    pub fn has_duplicates(&self) -> bool {
+        self.ii.flags() & IndexFlags_Index_HasMultiValue > 0
+    }
+
+    /// Get the flags of the underlying index
+    pub fn flags(&self) -> IndexFlags {
+        self.ii.flags()
+    }
+
+    /// Check if this reader is reading from the given index
+    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+        std::ptr::eq(self.ii, index)
+    }
+
+    /// Swap the inverted index of the reader with the supplied index. This is only used by the C
+    /// tests to trigger a revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+        std::mem::swap(&mut self.ii, index);
+    }
+
+    /// Get the internal index of the reader. This is only used by some C tests.
+    pub fn internal_index(&self) -> &InvertedIndex<E> {
+        self.ii
+    }
+
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
+        debug_assert!(
+            index < self.ii.blocks.len(),
+            "block index should stay in bounds"
+        );
+
         self.current_block_idx = index;
-        self.current_block = &self.blocks[self.current_block_idx];
-        self.last_doc_id = self.current_block.first_doc_id;
-        self.current_buffer = Cursor::new(&self.current_block.buffer);
+        let current_block = &self.ii.blocks[self.current_block_idx];
+        self.last_doc_id = current_block.first_doc_id;
+        self.current_buffer = Cursor::new(&current_block.buffer);
     }
 }
 
