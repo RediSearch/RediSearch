@@ -757,6 +757,18 @@ fn reader_flags() {
 }
 
 #[test]
+fn reader_is_index() {
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+    let ir = ii.reader();
+
+    assert!(ir.is_index(&ii));
+
+    let ii2 = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    assert!(!ir.is_index(&ii2));
+}
+
+#[test]
 fn read_skipping_over_duplicates() {
     // Make an iterator where the first two entries have the same doc ID and the third one is different
     let iter = vec![

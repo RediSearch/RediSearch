@@ -696,6 +696,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
         self.ii.flags()
     }
 
+    /// Check if this reader is reading from the given index
+    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+        std::ptr::eq(self.ii, index)
+    }
+
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
         self.current_block_idx = index;
