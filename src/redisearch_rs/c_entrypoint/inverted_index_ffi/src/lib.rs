@@ -31,8 +31,9 @@ use inverted_index::{
 };
 
 /// An opaque inverted index structure. The actual implementation is determined at runtime based on
-/// the index flags provided when creating the index. However, C does not support generics, so we
-/// need to use an enum to represent the different implementations.
+/// the index flags provided when creating the index. This allows us to have a single interface for
+/// all index types while still being able to optimize the storage and performance for each index
+/// type.
 pub enum InvertedIndex {
     // Needs to track the field masks because it has the `StoreFieldFlags` flag set
     Full(FieldMaskTrackingIndex<Full>),
@@ -120,7 +121,7 @@ const NUMERIC_MASK: IndexFlags = IndexFlags_Index_StoreNumeric;
 /// controls whether document IDs only encoding should use raw encoding (true) or varint encoding
 /// (false). `compress_floats` controls whether numeric encoding should have its floating point
 /// numbers compressed (true) or not (false). Compressing floating point numbers saves memory
-/// but losses some precision.
+/// but lowers precision.
 ///
 /// The output parameter `mem_size` will be set to the memory usage of the created index. The
 /// inverted index should be freed using [`InvertedIndex_Free`] when no longer needed.
@@ -186,13 +187,12 @@ pub extern "C" fn NewInvertedIndex_Ex(
     Box::into_raw(ii_boxed)
 }
 
-/// Free the memory associated with the inverted index instance created using [`NewInvertedIndex_Ex`].
+/// Free the memory associated with an inverted index instance created using [`NewInvertedIndex_Ex`].
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance created using
+/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance created using
 ///   [`NewInvertedIndex_Ex`] or `NewInvertedIndex`.
-/// - `ii` must not be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
