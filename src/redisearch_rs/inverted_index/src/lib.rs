@@ -723,6 +723,17 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
         std::ptr::eq(self.ii, index)
     }
 
+    /// Swap the inverted index of the reader with the supplied index. This is only used by the C
+    /// tests to trigger a revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+        std::mem::swap(&mut self.ii, index);
+    }
+
+    /// Get the internal index of the reader. This is only used by some C tests.
+    pub fn internal_index(&self) -> &InvertedIndex<E> {
+        self.ii
+    }
+
     /// Set the current active block to the given index
     fn set_current_block(&mut self, index: usize) {
         self.current_block_idx = index;
