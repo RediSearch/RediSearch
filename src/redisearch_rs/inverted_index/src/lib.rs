@@ -14,8 +14,8 @@ use std::{
 
 use debug::{BlockSummary, Summary};
 use ffi::{
-    FieldSpec, IndexFlags, IndexFlags_Index_HasMultiValue, IndexFlags_Index_StoreFieldFlags,
-    IndexFlags_Index_StoreNumeric,
+    FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_HasMultiValue,
+    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
 };
 pub use ffi::{t_docId, t_fieldMask};
 pub use index_result::{
@@ -37,6 +37,17 @@ pub mod offsets_only;
 pub mod raw_doc_ids_only;
 #[doc(hidden)]
 pub mod test_utils;
+
+// Manually define some C functions, because we'll create a circular dependency if we use the FFI
+// crate to make them automatically.
+unsafe extern "C" {
+    /// Checks if a value (distance) is within the given geo filter.
+    ///
+    /// # Safety
+    /// The [`GeoFilter`] should not be null and a valid instance
+    #[allow(improper_ctypes)] // The doc_id in `RSIndexResult` might be a u128
+    unsafe fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool;
+}
 
 /// Trait used to correctly derive the delta needed for different encoders
 pub trait IdDelta
@@ -747,11 +758,84 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskR
         loop {
             let next = self.inner.next()?;
 
-            if next.field_mask & self.mask == 0 {
-                continue;
+            if next.field_mask & self.mask > 0 {
+                return Some(next);
             }
+        }
+    }
+}
 
-            return Some(next);
+/// A reader that filters out records that do not match a given numeric filter. It is used to
+/// filter records in an index based on their numeric value, allowing only those that match the
+/// specified filter to be returned.
+///
+/// This should only be wrapped around readers that return numeric records.
+pub struct FilterNumericReader<I> {
+    /// The numeric filter that is used to filter the records.
+    filter: NumericFilter,
+
+    /// The inner reader that will be used to read the records from the index.
+    inner: I,
+}
+
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> FilterNumericReader<I> {
+    /// Create a new filter numeric reader with the given filter and inner iterator.
+    pub fn new(filter: NumericFilter, inner: I) -> Self {
+        Self { filter, inner }
+    }
+}
+
+impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterNumericReader<I> {
+    type Item = RSIndexResult<'index>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let next = self.inner.next()?;
+            let value = next.as_numeric()?;
+
+            if self.filter.value_in_range(value) {
+                return Some(next);
+            }
+        }
+    }
+}
+
+/// A reader that filters out records that do not match a given geo filter. It is used to
+/// filter records in an index based on their geo location, allowing only those that match the
+/// specified geo filter to be returned.
+///
+/// This should only be wrapped around readers that return numeric records.
+pub struct FilterGeoReader<'filter, I> {
+    /// Geo filter which a record needs to match to be valid
+    filter: &'filter GeoFilter,
+
+    /// The inner reader that will be used to read the records from the index.
+    inner: I,
+}
+
+impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterGeoReader<'filter, I> {
+    /// Create a new filter geo reader with the given geo filter and inner iterator
+    pub fn new(filter: &'filter GeoFilter, inner: I) -> Self {
+        Self { filter, inner }
+    }
+}
+
+impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
+    for FilterGeoReader<'filter, I>
+{
+    type Item = RSIndexResult<'index>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let mut next = self.inner.next()?;
+            let value = next.as_numeric_mut()?;
+
+            // SAFETY: we know the filter is not a null pointer since we hold a reference to it
+            let in_radius = unsafe { isWithinRadius(self.filter, *value, value) };
+
+            if in_radius {
+                return Some(next);
+            }
         }
     }
 }
