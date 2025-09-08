@@ -641,10 +641,8 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
         Ok(Some(result))
     }
 
-    /// Seek to the record with the given document ID. If the document ID is found, then the
-    /// record is returned. If the document ID is not found, then the next record with a higher
-    /// document ID is returned. However, if the end of the index is reached before finding
-    /// the document ID, then `None` is returned.
+    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
+    /// of the index is reached before finding the document ID, then `None` is returned.
     pub fn seek_record(
         &mut self,
         doc_id: t_docId,
