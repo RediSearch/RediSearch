@@ -360,7 +360,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
   }
 
   /** Create a scorer if:
-   *  * WITHSCORES is defined
+   *  * WITHSCORES/ADDSCORES is defined
    *  * there is no subsequent sorter within this grouping */
   const int reqflags = params->common.reqflags;
   if ((reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||

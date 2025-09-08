@@ -1202,8 +1202,12 @@ cleanup:
   return rc;
 }
 
-int RSHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return hybridCommandHandler(ctx, argv, argc);
+int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return hybridCommandHandler(ctx, argv, argc, true);
+}
+
+int RSClientHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return hybridCommandHandler(ctx, argv, argc, false);
 }
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
@@ -1292,7 +1296,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "", true))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_HYBRID_CMD, RSHybridCommand, "readonly",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_HYBRID_CMD, RSShardedHybridCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,
@@ -3774,7 +3778,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
            SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
   }
   RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
-    SafeCmd(hybridCommandHandler), "readonly", 0, 0, -1, "read", false))
+    SafeCmd(RSClientHybridCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
