@@ -55,17 +55,6 @@ typedef struct IndexBlockReader {
   t_docId curBaseId; // The current value to add to the decoded delta, to get the actual docId.
 } IndexBlockReader;
 
-/**
- * This context is passed to the decoder callback, and can contain either
- * a pointer or an integer. It is intended to relay along any kind of additional
- * configuration information to help the decoder determine whether to filter
- * the entry */
-typedef union {
-  uint32_t mask;
-  t_fieldMask wideMask;
-  const NumericFilter *filter;
-} IndexDecoderCtx;
-
 typedef struct {
   size_t bytesBeforFix;
   size_t bytesAfterFix;

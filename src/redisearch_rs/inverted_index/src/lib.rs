@@ -666,6 +666,21 @@ impl<'index, D: Decoder> IndexReader<'index, D> {
     }
 }
 
+/// Filter to apply when reading from an index. Entries which don't match the filter will not be
+/// returned by the reader.
+/// cbindgen:prefix-with-name=true
+#[repr(u8)]
+pub enum ReadFilter<'numeric_filter> {
+    /// No filter, all entries are accepted
+    None,
+
+    /// Accepts entries matching this field mask
+    FieldMask(t_fieldMask),
+
+    /// Accepts entries matching this numeric filter
+    Numeric(&'numeric_filter NumericFilter),
+}
+
 /// A reader that skips duplicate records in the index. It is used to ensure that the same document
 /// ID is not returned multiple times in the results. This is useful when the index contains
 /// multiple entries for the same document ID, such as when the document has multiple values for a
