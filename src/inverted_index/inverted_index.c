@@ -1471,6 +1471,15 @@ size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexR
   return frags;
 }
 
+struct InvertedIndexGcDelta {
+  IndexBlock *new_blocklist;
+  size_t new_blocklist_size;
+  InvertedIndex_DeletedInput *deleted;
+  size_t deleted_len;
+  InvertedIndex_RepairedInput *repaired;
+  size_t repaired_len;
+};
+
 void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
                                 InvertedIndexGcDelta *d,
                                 size_t nblocks_orig,
@@ -1553,5 +1562,49 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
   InvertedIndex_SetLastId(idx, IndexBlock_LastId(last));
 }
 
+// ------------------ builders
+
+InvertedIndexGcDelta *InvertedIndex_GcDelta_New(void) {
+  return rm_calloc(1, sizeof(InvertedIndexGcDelta));
+}
+
+void InvertedIndex_GcDelta_SetNewBlocklist(InvertedIndexGcDelta *d, IndexBlock *blocks, size_t count) {
+  d->new_blocklist = blocks;
+  d->new_blocklist_size = count;
+}
+
+void InvertedIndex_GcDelta_SetDeleted(InvertedIndexGcDelta *d, InvertedIndex_DeletedInput *arr, size_t len) {
+  d->deleted = arr;
+  d->deleted_len = len;
+}
+
+void InvertedIndex_GcDelta_SetRepaired(InvertedIndexGcDelta *d, InvertedIndex_RepairedInput *arr, size_t len) {
+  d->repaired = arr;
+  d->repaired_len = len;
+}
+
+void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d) {
+  if (!d) {
+      return;
+  }
+
+  if (d->new_blocklist) {
+    rm_free(d->new_blocklist);
+    d->new_blocklist = NULL;
+    d->new_blocklist_size = 0;
+  }
+  if (d->deleted) {
+    rm_free(d->deleted);
+    d->deleted = NULL;
+    d->deleted_len = 0;
+  }
+  if (d->repaired) {
+    rm_free(d->repaired);
+    d->repaired = NULL;
+    d->repaired_len = 0;
+  }
+
+  rm_free(d);
+}
+
 // ---------------------
-//
