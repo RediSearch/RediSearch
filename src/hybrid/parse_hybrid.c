@@ -369,14 +369,6 @@ final:
       break;
   }
 
-  // If no KNN/RANGE clause was specified, set default score field
-  if (!pvd->scoreField) {
-    pvd->scoreField = VectorQuery_DefaultScoreField(pvd->fieldName, strlen(pvd->fieldName));
-  }
-
-  // Set score field in VectorQuery
-  VectorQuery_SetScoreField(vq, rm_strdup(pvd->scoreField));
-
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
 
