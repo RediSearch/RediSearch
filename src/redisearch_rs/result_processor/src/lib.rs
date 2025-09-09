@@ -24,7 +24,7 @@ mod test_utils;
 use libc::{c_int, timespec};
 use pin_project::pin_project;
 #[cfg(debug_assertions)]
-use std::any::{type_name, TypeId};
+use std::any::{TypeId, type_name};
 use std::{
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
@@ -432,7 +432,7 @@ where
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{default_search_result, Chain, ResultRP};
+    use crate::test_utils::{Chain, ResultRP, default_search_result};
 
     // Compile time check to ensure that `Header` (which currently duplicates `ffi::ResultProcessor`)
     // has the exact same size, alignment, and field layout.
