@@ -129,6 +129,7 @@ fn test_seek_offsets_only() {
         0, 10, 4, 5, 6, 7, 8, // Third record: 10 delta; 4 offsets len
         0, 5, 2, 10, 11, // Fourth record: 5 delta; 2 offsets len
         0, 20, 2, 20, 21, // Fifth record: 20 delta; 2 offsets len
+        0, 5, 2, 20, 21, // Sixth record: 5 delta; 2 offsets len
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
@@ -157,4 +158,10 @@ fn test_seek_offsets_only() {
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
     );
+
+    let record_decoded = decoder
+        .seek(&mut buf, 55, 70)
+        .expect("to decode fields offsets record");
+
+    assert_eq!(record_decoded, None);
 }

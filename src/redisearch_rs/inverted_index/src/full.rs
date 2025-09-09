@@ -146,8 +146,11 @@ impl Decoder for Full {
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult<'index>>> {
         let (freq, field_mask, offsets_sz) = loop {
-            let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
-            let [delta, freq, field_mask, offsets_sz] = decoded_values;
+            let [delta, freq, field_mask, offsets_sz] = match qint_decode::<4, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) => return Err(error),
+            };
 
             base += delta as t_docId;
 
@@ -237,8 +240,11 @@ impl Decoder for FullWide {
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult<'index>>> {
         let (freq, field_mask, offsets_sz) = loop {
-            let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
-            let [delta, freq, offsets_sz] = decoded_values;
+            let [delta, freq, offsets_sz] = match qint_decode::<3, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) => return Err(error),
+            };
             let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
             base += delta as t_docId;

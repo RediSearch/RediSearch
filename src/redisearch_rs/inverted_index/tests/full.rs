@@ -302,6 +302,7 @@ fn test_seek_full() {
         11, // Fourth record: 5 delta; 1 freqs; 10 field mask; 2 offsets len
         0, 20, 9, 4, 2, 20,
         21, // Fifth record: 20 delta; 9 freqs; 4 field mask; 2 offsets len
+        0, 5, 1, 4, 2, 20, 21, // Sixth record: 5 delta; 1 freqs; 4 field mask; 2 offsets len
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
@@ -330,6 +331,12 @@ fn test_seek_full() {
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
     );
+
+    let record_decoded = decoder
+        .seek(&mut buf, 55, 70)
+        .expect("to decode fields offsets record");
+
+    assert_eq!(record_decoded, None);
 }
 
 #[test]
@@ -345,6 +352,7 @@ fn test_seek_full_wide() {
         11, // Fourth record: 5 delta; 1 freqs; 10 field mask; 2 offsets len
         0, 20, 9, 2, 4, 20,
         21, // Fifth record: 20 delta; 9 freqs; 4 field mask; 2 offsets len
+        0, 5, 1, 2, 4, 20, 21, // Sixth record: 5 delta; 1 freqs; 4 field mask; 2 offsets len
     ];
     let mut buf = Cursor::new(buf.as_ref());
 
@@ -373,4 +381,10 @@ fn test_seek_full_wide() {
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
     );
+
+    let record_decoded = decoder
+        .seek(&mut buf, 55, 70)
+        .expect("to decode fields offsets record");
+
+    assert_eq!(record_decoded, None);
 }
