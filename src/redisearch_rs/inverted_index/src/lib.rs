@@ -393,7 +393,8 @@ impl<E: Encoder> InvertedIndex<E> {
         Ok(buf_growth + mem_growth)
     }
 
-    fn last_doc_id(&self) -> Option<t_docId> {
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
@@ -524,6 +525,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         self.number_of_entries
     }
 
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
+        self.index.last_doc_id()
+    }
+
     /// Returns the number of unique documents in the index.
     pub fn unique_docs(&self) -> usize {
         self.index.unique_docs()
@@ -604,6 +610,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// The memory size of the index in bytes.
     pub fn memory_usage(&self) -> usize {
         self.index.memory_usage() + std::mem::size_of::<t_fieldMask>()
+    }
+
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
+        self.index.last_doc_id()
     }
 
     /// Returns the number of unique documents in the index.

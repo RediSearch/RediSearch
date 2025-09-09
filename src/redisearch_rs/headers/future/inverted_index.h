@@ -173,6 +173,16 @@ void InvertedIndex_BlocksSummaryFree(IIBlockSummary *blocks,
 const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii,
                                                 uintptr_t block_idx);
 
+/**
+ * Get ID of the last document in the index. Returns 0 if the index is empty.
+ * This is used by some C tests.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

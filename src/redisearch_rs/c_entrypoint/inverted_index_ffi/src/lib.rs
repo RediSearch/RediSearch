@@ -401,3 +401,18 @@ pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
     let ii: &'index _ = unsafe { &*ii };
     ii_dispatch!(ii, block_ref, block_idx)
 }
+
+/// Get ID of the last document in the index. Returns 0 if the index is empty.
+/// This is used by some C tests.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> t_docId {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+    ii_dispatch!(ii, last_doc_id).unwrap_or(0)
+}
