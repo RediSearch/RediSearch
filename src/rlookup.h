@@ -107,8 +107,6 @@ typedef struct RLookup {
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
 
-static inline const RSSortingVector* RLookupRow_GetSortingVector(const RLookupRow* row) {return row->sv;}
-static inline void RLookupRow_SetSortingVector(RLookupRow* row, const RSSortingVector* sv) {row->sv = sv;}
 
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)

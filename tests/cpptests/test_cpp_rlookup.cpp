@@ -54,7 +54,7 @@ TEST_F(RLookupTest, testRow) {
   RSValue *vtmp = RLookup_GetItem(fook, &rr);
   ASSERT_EQ(vfoo, vtmp);
   ASSERT_EQ(2, vfoo->refcount);
-  ASSERT_EQ(1, rr.ndyn);
+  ASSERT_EQ(1, RLookupRow_GetDynLen(&rr));
 
   // Write a NULL value
   RLookup_WriteKey(fook, &rr, RS_NullVal());

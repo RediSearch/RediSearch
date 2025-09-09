@@ -182,6 +182,24 @@ void RLookupRow_Wipe(RLookupRow *row);
  */
 void RLookupRow_Reset(RLookupRow *row);
 
+/**
+ * Sets a sorting vector for the row.
+ * Safety:
+ * 1. `row` must be a valid pointer to an [`RLookupRow`].
+ * 2. `sv` must be a valid pointer to an [`ffi::RSSortingVector`].
+ */
+void RLookupRow_SetSortingVector(RLookupRow *row, const RSSortingVector *sv);
+
+/**
+ * Returns a pointer to the sorting vector if it exists, or null otherwise.
+ *
+ * Safety:
+ * The caller does not own the returned pointer and must not attempt to free it.
+ */
+const RSSortingVector *RLookupRow_GetSortingVector(RLookupRow *row);
+
+uint32_t RLookupRow_GetDynLen(RLookupRow *row);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
