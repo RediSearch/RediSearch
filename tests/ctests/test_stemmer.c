@@ -31,6 +31,44 @@ int testStemmer() {
   return 0;
 }
 
+int testIndonesianStemmer() {
+  printf("Testing Indonesian stemmer...\n");
+
+  // Test Indonesian stemmer creation
+  Stemmer *s = NewStemmer(SnowballStemmer, RS_LANG_INDONESIAN);
+  ASSERT(s != NULL)
+  printf("✓ Indonesian stemmer created successfully\n");
+
+  // Test some Indonesian words
+  struct {
+    const char *word;
+    const char *description;
+  } test_words[] = {
+    {"membaca", "reading"},
+    {"menulis", "writing"},
+    {"berlari", "running"},
+    {"bermain", "playing"},
+    {"makanan", "food"},
+    {"minuman", "drink"},
+    {"berjalan", "walking"},
+    {"bekerja", "working"},
+    {NULL, NULL}
+  };
+
+  for (int i = 0; test_words[i].word != NULL; i++) {
+    size_t sl;
+    const char *stem = s->Stem(s->ctx, test_words[i].word, strlen(test_words[i].word), &sl);
+    ASSERT(stem != NULL);
+    ASSERT(sl > 0);
+    printf("Indonesian word: %-12s (%s) -> stem: %s\n",
+           test_words[i].word, test_words[i].description, stem);
+  }
+
+  s->Free(s);
+  printf("✓ Indonesian stemmer test completed successfully\n");
+  return 0;
+}
+
 typedef struct {
   int num;
   const char **expectedTokens;
@@ -91,6 +129,7 @@ int testTokenize() {
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStemmer);
+  TESTFUNC(testIndonesianStemmer);
   TESTFUNC(testTokenize);
   StopWordList_FreeGlobals();
 });
