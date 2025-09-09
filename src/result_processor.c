@@ -1122,6 +1122,11 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   return self->profileCount;
 }
 
+void RPProfile_IncrementCount(ResultProcessor *rp) {
+  RPProfile *self = (RPProfile *)rp;
+  self->profileCount++;
+}
+
 void Profile_AddRPs(QueryProcessingCtx *qiter) {
   ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
   while (cur && cur->upstream && cur->upstream->upstream) {

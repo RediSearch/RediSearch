@@ -9,8 +9,8 @@
 
 use crate::ResultProcessor;
 
-#[derive(Debug)]
 /// A processor to track the number of entries yielded by the previous processor in the chain.
+#[derive(Debug)]
 pub struct Counter {
     count: usize,
 }
@@ -38,6 +38,15 @@ impl ResultProcessor for Counter {
             }
         }
 
+        // This logic was present in the original C code, with the following comment:
+        // > Since this never returns RM_OK, in profile mode, count should be increased to compensate for EOF.
+        if upstream.ty() == ffi::ResultProcessorType_RP_PROFILE {
+            // Safety: If the upstream processor is a Profile, then the original C code currently
+            // expects the last processor (`base->parent->endProc`) to be a `RPProfile*`, and
+            // increments its count. This is replicating that behavior.
+            unsafe { ffi::RPProfile_IncrementCount(cx.last_processor()) }
+        }
+
         Ok(None)
     }
 }
@@ -57,7 +66,7 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, default_search_result, from_iter};
+    use crate::test_utils::{default_search_result, from_iter, Chain};
     use std::iter;
 
     #[test]
