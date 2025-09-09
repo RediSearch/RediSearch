@@ -175,6 +175,10 @@ pub trait Decoder {
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
+    /// Decoders can override the default implementation to provide a more efficient one by reading the
+    /// document ID first and skipping ahead if the ID does not match the target, saving decoding
+    /// the rest of the record.
+    ///
     /// Returns `None` if no record has a document ID greater than or equal to `target`.
     fn seek<'index>(
         &self,
