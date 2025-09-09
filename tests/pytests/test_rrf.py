@@ -2,6 +2,8 @@ from RLTest import Env
 from includes import *
 from common import *
 
+SCORE_FIELD = "__score"
+
 def setup_hybrid_tag_scoring_index(env):
     """Setup index and populate test data"""
     conn = env.getClusterConnectionIfNeeded()
@@ -37,8 +39,8 @@ def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
     results_with_tag = get_results_from_hybrid_response(hybrid_res_with_tag)
     shared_keys = results_no_tag.keys() & results_with_tag.keys()
     for key in shared_keys:
-        score_no_tag = results_no_tag[key]
-        score_with_tag = results_with_tag[key]
+        score_no_tag = float(results_no_tag[key][SCORE_FIELD])
+        score_with_tag = float(results_with_tag[key][SCORE_FIELD])
         env.assertAlmostEqual(score_no_tag, score_no_tag, delta=1E-6)
 
         # Compare with regular search
