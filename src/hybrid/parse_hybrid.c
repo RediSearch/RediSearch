@@ -639,7 +639,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (!searchRequest->searchopts.scorerName) {
       // if no explicit scorer, set the default one
       searchRequest->searchopts.scorerName = BM25_STD_NORMALIZED_MAX_SCORER_NAME;
-      vectorRequest->searchopts.scorerName = VECTOR_IDENTITY_SCORER;
+      vectorRequest->searchopts.scorerName = VECTOR_RAW_DISTANCE_SCORER;
     }
   }
 

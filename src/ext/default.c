@@ -605,20 +605,20 @@ int SynonymExpand(RSQueryExpanderCtx *ctx, RSToken *token) {
   return REDISMODULE_OK;
 }
 
-static double VectorIdentityScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
-                                   const RSDocumentMetadata *dmd, double minScore) {
+static double VectorRawDistanceScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *h,
+                                      const RSDocumentMetadata *dmd, double minScore) {
   if (h) {
     // For HybridMetric results, the vector distance is in the first child
     if (h->type == RSResultType_HybridMetric) {
-      if (h->data.agg.numChildren > 0 && h->data.agg.children[0]) {
+      if (h->data.agg.numChildren > 0) {
+        RS_ASSERT(h->data.agg.children[0]);
         RSIndexResult *vectorChild = h->data.agg.children[0];
         if (vectorChild->type == RSResultType_Metric) {
           return vectorChild->data.num.value;  // Raw vector distance
         }
       }
-    }
-    // For pure Metric results (RANGE), the distance is directly in data.num.value
-    if (h->type == RSResultType_Metric) {
+    } else if (h->type == RSResultType_Metric) {
+      // For pure Metric results (RANGE), the distance is directly in data.num.value
       return h->data.num.value;  // Raw vector distance from RANGE
     }
   }
@@ -756,8 +756,8 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
-  /* Vector identity scorer */
-  if (ctx->RegisterScoringFunction(VECTOR_IDENTITY_SCORER, VectorIdentityScorer, NULL, NULL) == REDISEARCH_ERR) {
+  /* Vector raw distance scorer */
+  if (ctx->RegisterScoringFunction(VECTOR_RAW_DISTANCE_SCORER, VectorRawDistanceScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
