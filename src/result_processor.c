@@ -87,21 +87,23 @@ static bool checkOOM(RedisModuleCtx *ctx) {
   return isOOM;
 }
 
-// This function holds the GIL if needed and checks for OOM.
+// This function holds the GIL if needed and checks for OOM
 static bool checkOOMfromRP_withCounter(ResultProcessor *base, size_t *counter, bool background) {
 
+  bool oom = false;
   if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == OOM_COUNTER_LIMIT) {
     *counter = 0;
     if (background) {
+      // This is a background query, we need to hold the GIL before checking for OOM
       RedisModule_ThreadSafeContextLock(RP_SCTX(base)->redisCtx);
-    }
-    bool oom = checkOOM(RP_SCTX(base)->redisCtx);
-    if (background) {
+      oom = checkOOM(RP_SCTX(base)->redisCtx);
       RedisModule_ThreadSafeContextUnlock(RP_SCTX(base)->redisCtx);
     }
-    return oom;
+    else {
+      oom = checkOOM(RP_SCTX(base)->redisCtx);
+    }
   }
-  return false;
+  return oom;
 }
 
 static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_status) {
