@@ -399,23 +399,9 @@ void RLookup_Init(RLookup *l, IndexSpecCache *cache);
 void RLookup_Cleanup(RLookup *l);
 
 /**
- * Creates a clone of an RLookupKey with complete independence.
- * IMPORTANT: Cloned keys ALWAYS allocate their own strings, regardless of
- * whether the source had allocated strings (RLOOKUP_F_NAMEALLOC flag).
- */
-RLookupKey *RLookupKey_Clone(const RLookupKey *src);
-
-/**
  * Frees an individual RLookupKey, cleaning up its allocated strings
  */
 void RLookupKey_Free(RLookupKey *k);
-
-/**
- * Clones the contents of src into an already-initialized dst lookup.
- * This preserves dst's initialization state (like spcache) while copying
- * src's keys and structure.
- */
-void RLookup_CloneInto(RLookup *dst, const RLookup *src);
 
 /**
  * Initialize the lookup with fields from hash.
