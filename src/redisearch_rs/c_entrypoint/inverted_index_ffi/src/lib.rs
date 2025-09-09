@@ -13,7 +13,7 @@
 use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    IndexFlags_Index_WideSchema, t_docId,
+    IndexFlags_Index_WideSchema, t_docId, t_fieldMask,
 };
 
 use inverted_index::{
@@ -382,6 +382,38 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSumma
 
     // SAFETY: We can safely convert the slice back to a boxed slice and drop it to free the memory
     let _ = unsafe { Box::from_raw(blocks) };
+}
+
+/// Get the field mask used in the inverted index. This is only valid for indexes created with the
+/// `StoreFieldFlags` flag. For other index types, this function will return 0.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+#[allow(improper_ctypes_definitions)] // `t_fieldMask` is type `u128`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> t_fieldMask {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+
+    match ii {
+        InvertedIndex::Full(ii) => ii.field_mask(),
+        InvertedIndex::FullWide(ii) => ii.field_mask(),
+        InvertedIndex::FreqsFields(ii) => ii.field_mask(),
+        InvertedIndex::FreqsFieldsWide(ii) => ii.field_mask(),
+        InvertedIndex::FieldsOnly(ii) => ii.field_mask(),
+        InvertedIndex::FieldsOnlyWide(ii) => ii.field_mask(),
+        InvertedIndex::FieldsOffsets(ii) => ii.field_mask(),
+        InvertedIndex::FieldsOffsetsWide(ii) => ii.field_mask(),
+        InvertedIndex::FreqsOnly(_)
+        | InvertedIndex::OffsetsOnly(_)
+        | InvertedIndex::FreqsOffsets(_)
+        | InvertedIndex::DocumentIdOnly(_)
+        | InvertedIndex::RawDocumentIdOnly(_)
+        | InvertedIndex::Numeric(_) => 0,
+    }
 }
 
 /// Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.

@@ -163,6 +163,16 @@ void InvertedIndex_BlocksSummaryFree(IIBlockSummary *blocks,
                                      uintptr_t count);
 
 /**
+ * Get the field mask used in the inverted index. This is only valid for indexes created with the
+ * `StoreFieldFlags` flag. For other index types, this function will return 0.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+t_fieldMask InvertedIndex_FieldMask(const struct InvertedIndex *ii);
+
+/**
  * Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
  * This is used by some C tests.
  *
