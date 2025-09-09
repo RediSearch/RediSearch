@@ -1031,16 +1031,10 @@ void RLookupRow_TransferFields(RLookupRow *srcRow, const RLookup *srcLookup,
     RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
     RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
 
-    // Transfer ownership - use RLookup_WriteOwnKey (no refcount increment)
-    RLookup_WriteOwnKey(dest_key, destRow, value);
-
-    // Nullify source pointer immediately after transfer (ownership moved)
-    if (srcRow->dyn && array_len(srcRow->dyn) > src_key->dstidx) {
-      srcRow->dyn[src_key->dstidx] = NULL;
-      srcRow->ndyn--;
-    }
+    // Transfer fields - write to destination (increments refcount, shares ownership)
+    RLookup_WriteKey(dest_key, destRow, value);
   }
 
-  // Clear any remaining source row data (all transferred pointers already nullified)
-  RLookupRow_Wipe(srcRow);
+  // Note: Source row remains unchanged - both source and destination now share the values
+  // Caller is responsible for managing source row lifecycle
 }

@@ -371,15 +371,19 @@ TEST_F(RLookupTest, testTransferFieldsBasic) {
   // Verify transferred values are correct and accessible by field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2"}, {100.0, 200.0});
 
-  // Verify ownership transfer (same pointers, not copies)
+  // Verify shared ownership (same pointers in both source and destination)
   RLookupKey *dest_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *dest_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_EQ(original_ptr1, RLookup_GetItem(dest_key1, &destRow));
   ASSERT_EQ(original_ptr2, RLookup_GetItem(dest_key2, &destRow));
 
-  // Verify source row slots are nullified (ownership transferred)
-  ASSERT_EQ(nullptr, RLookup_GetItem(srcKeys.keys[0], &srcRow));
-  ASSERT_EQ(nullptr, RLookup_GetItem(srcKeys.keys[1], &srcRow));
+  // Verify source row still contains the values (shared ownership, not transferred)
+  ASSERT_EQ(original_ptr1, RLookup_GetItem(srcKeys.keys[0], &srcRow));
+  ASSERT_EQ(original_ptr2, RLookup_GetItem(srcKeys.keys[1], &srcRow));
+
+  // Verify refcounts increased due to sharing (now referenced by both rows)
+  ASSERT_EQ(3, original_ptr1->refcount);  // 1 original + 1 source row + 1 dest row
+  ASSERT_EQ(3, original_ptr2->refcount);  // 1 original + 1 source row + 1 dest row
 
   // Cleanup
   cleanup_values(values);
@@ -458,43 +462,43 @@ TEST_F(RLookupTest, testTransferFieldsDifferentMapping) {
 
   // Create rows and add data with distinct values
   RLookupRow srcRow = {0}, destRow = {0};
-  RSValue *value1 = RS_Int64Val(111);
-  RSValue *value2 = RS_Int64Val(222);
-  RSValue *value3 = RS_Int64Val(333);
-  RLookup_WriteKey(src_key1, &srcRow, value1);  // field1=111
-  RLookup_WriteKey(src_key2, &srcRow, value2);  // field2=222
-  RLookup_WriteKey(src_key3, &srcRow, value3);  // field3=333
+
+  // Create test values with distinct data
+  RSValue *values[] = {RS_Int64Val(111), RS_Int64Val(222), RS_Int64Val(333)};
+  RSValue *value1 = values[0], *value2 = values[1], *value3 = values[2];
+  RLookupKey *src_keys[] = {src_key1, src_key2, src_key3};
+
+  // Write values to source row
+  for (int i = 0; i < 3; i++) {
+    RLookup_WriteKey(src_keys[i], &srcRow, values[i]);
+  }
 
   // Transfer fields
   RLookupRow_TransferFields(&srcRow, &source, &destRow, &dest);
 
   // Verify data is readable by field names despite potentially different indices
-  RSValue *dest_val1 = RLookup_GetItem(dest_key1, &destRow);
-  RSValue *dest_val2 = RLookup_GetItem(dest_key2, &destRow);
-  RSValue *dest_val3 = RLookup_GetItem(dest_key3, &destRow);
-  ASSERT_TRUE(dest_val1 && dest_val2 && dest_val3);
+  RLookupKey *dest_keys[] = {dest_key1, dest_key2, dest_key3};
+  RSValue *dest_vals[3];
+  double expected_nums[] = {111.0, 222.0, 333.0};
 
-  // Verify correct values
-  double num_val1 = 0, num_val2 = 0, num_val3 = 0;
-  int result1 = RSValue_ToNumber(dest_val1, &num_val1);
-  int result2 = RSValue_ToNumber(dest_val2, &num_val2);
-  int result3 = RSValue_ToNumber(dest_val3, &num_val3);
-  ASSERT_EQ(1, result1);
-  ASSERT_EQ(1, result2);
-  ASSERT_EQ(1, result3);
-  ASSERT_EQ(111.0, num_val1);
-  ASSERT_EQ(222.0, num_val2);
-  ASSERT_EQ(333.0, num_val3);
+  for (int i = 0; i < 3; i++) {
+    dest_vals[i] = RLookup_GetItem(dest_keys[i], &destRow);
+    ASSERT_TRUE(dest_vals[i]) << "dest_vals[" << i << "] should exist";
 
-  // Verify ownership transfer (same pointers)
-  ASSERT_EQ(value1, dest_val1);
-  ASSERT_EQ(value2, dest_val2);
-  ASSERT_EQ(value3, dest_val3);
+    // Verify correct values
+    double num_val;
+    int result = RSValue_ToNumber(dest_vals[i], &num_val);
+    ASSERT_EQ(1, result) << "Failed to convert dest_vals[" << i << "]";
+    ASSERT_EQ(expected_nums[i], num_val) << "Wrong value for dest_vals[" << i << "]";
+
+    // Verify ownership transfer (same pointers)
+    ASSERT_EQ(values[i], dest_vals[i]) << "dest_vals[" << i << "] should point to values[" << i << "]";
+  }
 
   // Cleanup
-  RSValue_Decref(value1);
-  RSValue_Decref(value2);
-  RSValue_Decref(value3);
+  for (int i = 0; i < 3; i++) {
+    RSValue_Decref(values[i]);
+  }
   RLookupRow_Cleanup(&srcRow);
   RLookupRow_Cleanup(&destRow);
   RLookup_Cleanup(&source);
@@ -574,30 +578,57 @@ TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
 
   // Create rows with conflicting data for "field2"
   RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
-  RSValue *s1_val2 = RS_Int64Val(100);  // src1 field2 = 100 (will be overwritten)
-  RSValue *s2_val2 = RS_Int64Val(999);  // src2 field2 = 999 (wins due to last transfer)
-  RSValue *s1_val1 = RS_Int64Val(1);
-  RSValue *s1_val3 = RS_Int64Val(3);
-  RSValue *s2_val4 = RS_Int64Val(4);
-  RSValue *s2_val5 = RS_Int64Val(5);
 
-  RLookup_WriteKey(s1_key1, &src1Row, s1_val1);
-  RLookup_WriteKey(s1_key2, &src1Row, s1_val2);  // field2=100 (first)
-  RLookup_WriteKey(s1_key3, &src1Row, s1_val3);
+  // Create src1 values: field1=1, field2=100, field3=3
+  RSValue *s1_vals[] = {RS_Int64Val(1), RS_Int64Val(100), RS_Int64Val(3)};
+  RSValue *s1_val1 = s1_vals[0], *s1_val2 = s1_vals[1], *s1_val3 = s1_vals[2];
 
-  RLookup_WriteKey(s2_key2, &src2Row, s2_val2);  // field2=999 (should be ignored)
-  RLookup_WriteKey(s2_key4, &src2Row, s2_val4);
-  RLookup_WriteKey(s2_key5, &src2Row, s2_val5);
+  // Create src2 values: field2=999 (conflict), field4=4, field5=5
+  RSValue *s2_vals[] = {RS_Int64Val(999), RS_Int64Val(4), RS_Int64Val(5)};
+  RSValue *s2_val2 = s2_vals[0], *s2_val4 = s2_vals[1], *s2_val5 = s2_vals[2];
+
+  // Initially all values have refcount = 1 (just created, no rows reference them yet)
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ(1, s1_vals[i]->refcount) << "s1_vals[" << i << "] initial refcount";
+    ASSERT_EQ(1, s2_vals[i]->refcount) << "s2_vals[" << i << "] initial refcount";
+  }
+
+  // Write values to rows - refcount should increase by 1 for each row that references the value
+  RLookup_WriteKey(s1_key1, &src1Row, s1_val1);  // s1_val1 now in 1 row
+  RLookup_WriteKey(s1_key2, &src1Row, s1_val2);  // s1_val2 now in 1 row
+  RLookup_WriteKey(s1_key3, &src1Row, s1_val3);  // s1_val3 now in 1 row
+
+  RLookup_WriteKey(s2_key2, &src2Row, s2_val2);  // s2_val2 now in 1 row
+  RLookup_WriteKey(s2_key4, &src2Row, s2_val4);  // s2_val4 now in 1 row
+  RLookup_WriteKey(s2_key5, &src2Row, s2_val5);  // s2_val5 now in 1 row
+
+  // Verify refcounts after writing to rows - all should be 2 (original + row)
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ(2, s1_vals[i]->refcount) << "s1_vals[" << i << "] refcount after writing to src1Row";
+    ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] refcount after writing to src2Row";
+  }
 
   // Transfer src1 first, then src2
   RLookupRow_TransferFields(&src1Row, &src1, &destRow, &dest);
+
+  // After first transfer, s1_val2 should have refcount 3 (original + src1Row + destRow)
+  ASSERT_EQ(3, s1_val2->refcount);  // Shared between source and destination
+  ASSERT_EQ(2, s2_val2->refcount);  // s2_val2 unchanged yet
+
   RLookupRow_TransferFields(&src2Row, &src2, &destRow, &dest);
+
+  // After second transfer, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
+  ASSERT_EQ(2, s1_val2->refcount);  // Back to original + src1Row (removed from destRow)
+  ASSERT_EQ(3, s2_val2->refcount);  // Now shared: original + src2Row + destRow
 
   // Verify field2 contains src2 data (last transfer wins)
   RLookupKey *dest_field2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_field2);
   RSValue *field2_val = RLookup_GetItem(dest_field2, &destRow);
   ASSERT_TRUE(field2_val);
+
+  // Verify it's the same pointer (ownership transfer, not copy)
+  ASSERT_EQ(s2_val2, field2_val);
 
   double field2_num;
   ASSERT_EQ(1, RSValue_ToNumber(field2_val, &field2_num));
@@ -609,8 +640,10 @@ TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
   ASSERT_TRUE(dest_field1 && dest_field4);
 
   // Cleanup
-  RSValue_Decref(s1_val1); RSValue_Decref(s1_val2); RSValue_Decref(s1_val3);
-  RSValue_Decref(s2_val2); RSValue_Decref(s2_val4); RSValue_Decref(s2_val5);
+  for (int i = 0; i < 3; i++) {
+    RSValue_Decref(s1_vals[i]);
+    RSValue_Decref(s2_vals[i]);
+  }
   RLookupRow_Cleanup(&src1Row); RLookupRow_Cleanup(&src2Row); RLookupRow_Cleanup(&destRow);
   RLookup_Cleanup(&src1); RLookup_Cleanup(&src2); RLookup_Cleanup(&dest);
 }
@@ -641,27 +674,46 @@ TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
 
   // Create rows with different data for same field names
   RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
-  RSValue *s1_val1 = RS_Int64Val(100);
-  RSValue *s1_val2 = RS_Int64Val(200);
-  RSValue *s1_val3 = RS_Int64Val(300);
-  RSValue *s2_val1 = RS_Int64Val(999);  // Will overwrite src1
-  RSValue *s2_val2 = RS_Int64Val(888);  // Will overwrite src1
-  RSValue *s2_val3 = RS_Int64Val(777);  // Will overwrite src1
 
-  RLookup_WriteKey(s1_key1, &src1Row, s1_val1);
-  RLookup_WriteKey(s1_key2, &src1Row, s1_val2);
-  RLookup_WriteKey(s1_key3, &src1Row, s1_val3);
+  // Create test values using arrays for less repetition
+  RSValue *s1_vals[] = {RS_Int64Val(100), RS_Int64Val(200), RS_Int64Val(300)};
+  RSValue *s2_vals[] = {RS_Int64Val(999), RS_Int64Val(888), RS_Int64Val(777)};  // Will overwrite src1
+  RLookupKey *s1_keys[] = {s1_key1, s1_key2, s1_key3};
+  RLookupKey *s2_keys[] = {s2_key1, s2_key2, s2_key3};
 
-  RLookup_WriteKey(s2_key1, &src2Row, s2_val1);
-  RLookup_WriteKey(s2_key2, &src2Row, s2_val2);
-  RLookup_WriteKey(s2_key3, &src2Row, s2_val3);
+  // Write values to rows using loops
+  for (int i = 0; i < 3; i++) {
+    RLookup_WriteKey(s1_keys[i], &src1Row, s1_vals[i]);
+    RLookup_WriteKey(s2_keys[i], &src2Row, s2_vals[i]);
+  }
 
-  // Transfer src1 first, then src2
+  // Verify initial refcounts before any transfers - all should be 2 (original + row)
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ(2, s1_vals[i]->refcount) << "s1_vals[" << i << "] refcount after writing to src1Row";
+    ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] refcount after writing to src2Row";
+  }
+
+  // Transfer src1 first
   RLookupRow_TransferFields(&src1Row, &src1, &destRow, &dest);
+
+  // After first transfer, src1 values should have refcount 3 (shared: original + src1Row + destRow)
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ(3, s1_vals[i]->refcount) << "s1_vals[" << i << "] should be shared between src1Row and destRow";
+    ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] should be unchanged";
+  }
+
+  // Transfer src2 - this will overwrite all src1 values
   RLookupRow_TransferFields(&src2Row, &src2, &destRow, &dest);
 
-  // NOTE: Since both sources have identical field names, src2 overwrites src1 data
-  // This test demonstrates "last transfer wins" behavior, not "first source wins"
+  // After second transfer, all src1 values should be decremented (overwritten in destRow)
+  // and all src2 values should have refcount 3 (shared: original + src2Row + destRow)
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ(2, s1_vals[i]->refcount) << "s1_vals[" << i << "] back to original + src1Row (removed from destRow)";
+    ASSERT_EQ(3, s2_vals[i]->refcount) << "s2_vals[" << i << "] shared between src2Row and destRow";
+  }
+
+  // NOTE: Since both sources have identical field names, src2 overwrites src1 data in destination
+  // This test demonstrates "last transfer wins" behavior for the destination row
   RLookupKey *d_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *d_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
   RLookupKey *d_key3 = RLookup_GetKey_Read(&dest, "field3", RLOOKUP_F_NOFLAGS);
@@ -672,17 +724,23 @@ TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
   RSValue *dest_val3 = RLookup_GetItem(d_key3, &destRow);
   ASSERT_TRUE(dest_val1 && dest_val2 && dest_val3);
 
-  double num1, num2, num3;
-  ASSERT_EQ(1, RSValue_ToNumber(dest_val1, &num1));
-  ASSERT_EQ(1, RSValue_ToNumber(dest_val2, &num2));
-  ASSERT_EQ(1, RSValue_ToNumber(dest_val3, &num3));
-  ASSERT_EQ(999.0, num1);  // src2 overwrites src1
-  ASSERT_EQ(888.0, num2);  // src2 overwrites src1
-  ASSERT_EQ(777.0, num3);  // src2 overwrites src1
+  // Verify pointers are from src2 (shared ownership, same pointers)
+  RSValue *dest_vals[] = {dest_val1, dest_val2, dest_val3};
+  double expected_nums[] = {999.0, 888.0, 777.0};
+
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ(s2_vals[i], dest_vals[i]) << "dest_val" << (i+1) << " should point to s2_vals[" << i << "]";
+
+    double num_val;
+    ASSERT_EQ(1, RSValue_ToNumber(dest_vals[i], &num_val)) << "Failed to convert dest_val" << (i+1);
+    ASSERT_EQ(expected_nums[i], num_val) << "Wrong value for dest_val" << (i+1);
+  }
 
   // Cleanup
-  RSValue_Decref(s1_val1); RSValue_Decref(s1_val2); RSValue_Decref(s1_val3);
-  RSValue_Decref(s2_val1); RSValue_Decref(s2_val2); RSValue_Decref(s2_val3);
+  for (int i = 0; i < 3; i++) {
+    RSValue_Decref(s1_vals[i]);
+    RSValue_Decref(s2_vals[i]);
+  }
   RLookupRow_Cleanup(&src1Row); RLookupRow_Cleanup(&src2Row); RLookupRow_Cleanup(&destRow);
   RLookup_Cleanup(&src1); RLookup_Cleanup(&src2); RLookup_Cleanup(&dest);
 }

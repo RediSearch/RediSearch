@@ -177,8 +177,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   return REDISMODULE_OK;
 }
 
-
-static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
+static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector RANGE ...
   //                                ^
   long long params;
@@ -243,7 +242,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
         .value = rm_strdup(value),
         .vallen = strlen(value)
       };
-      *attributes = array_ensure_append_1(*attributes, attr);
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       hasYieldDistanceAs = true;
 
     } else {
