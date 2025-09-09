@@ -179,7 +179,7 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
     // Prepare primary row and move merged data from temporary row
     RLookupRow_Wipe(&primary->rowdata);  // Clear primary row
     RLookupRow_Move(lookupCtx->tailLookup, &tempRow, &primary->rowdata);  // Move temp → primary
-    // Note: RLookupRow_Move automatically calls RLookupRow_Wipe(&tempRow) to clean up references
+    RLookupRow_Cleanup(&tempRow);
   }
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;
