@@ -24,7 +24,7 @@ mod test_utils;
 use libc::{c_int, timespec};
 use pin_project::pin_project;
 #[cfg(debug_assertions)]
-use std::any::{TypeId, type_name};
+use std::any::{type_name, TypeId};
 use std::{
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
@@ -123,6 +123,18 @@ impl Context<'_> {
             _borrow: PhantomData,
         })
     }
+
+    /// Returns the last processor in the pipeline.
+    pub fn last_processor(&mut self) -> *mut ffi::ResultProcessor {
+        // Safety: We trust that this result processor's pointer is valid.
+        let query_processing_context_ptr = unsafe { self.ptr.as_ref() }.parent;
+        // Safety: We trust that the pointer to the owning (parent) structure is valid.
+        let query_processing_context_ref = unsafe { query_processing_context_ptr.as_ref() };
+
+        query_processing_context_ref
+            .expect("result processor `parent` was null")
+            .endProc
+    }
 }
 
 /// The previous result processor in the pipeline.
@@ -133,6 +145,12 @@ pub struct Upstream<'a> {
 }
 
 impl Upstream<'_> {
+    pub fn ty(&self) -> ffi::ResultProcessorType {
+        // Safety: We have to trust that the upstream pointer set by our QueryInterator parent
+        // is correct
+        unsafe { self.ptr.as_ref().ty }
+    }
+
     /// Pull the next [`ffi::SearchResult`] from this result processor into the provided `res` location.
     ///
     /// Returns `Ok(Some(()))` if a search result was successfully pulled from the processor
@@ -203,8 +221,8 @@ impl Upstream<'_> {
 #[repr(C)]
 #[derive(Debug)]
 struct Header {
-    /// Reference to the parent QueryIterator that owns this result processor
-    parent: *mut ffi::QueryIterator,
+    /// Reference to the parent QueryProcessingCtx that owns this result processor
+    parent: *mut ffi::QueryProcessingCtx,
     /// Previous result processor in the chain
     upstream: *mut Header,
     /// Type of result processor
@@ -414,7 +432,7 @@ where
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, ResultRP, default_search_result};
+    use crate::test_utils::{default_search_result, Chain, ResultRP};
 
     // Compile time check to ensure that `Header` (which currently duplicates `ffi::ResultProcessor`)
     // has the exact same size, alignment, and field layout.
