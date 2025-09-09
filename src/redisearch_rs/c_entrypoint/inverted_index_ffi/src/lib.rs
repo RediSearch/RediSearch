@@ -416,6 +416,37 @@ pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> t_
     }
 }
 
+/// Get the number of entries in the inverted index. This is only valid for numeric indexes created
+/// with the `StoreNumeric` flag. For other index types, this function will return 0.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_NumEntries(ii: *const InvertedIndex) -> usize {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+
+    match ii {
+        InvertedIndex::Numeric(ii) => ii.number_of_entries(),
+        InvertedIndex::Full(_)
+        | InvertedIndex::FullWide(_)
+        | InvertedIndex::FreqsFields(_)
+        | InvertedIndex::FreqsFieldsWide(_)
+        | InvertedIndex::FreqsOnly(_)
+        | InvertedIndex::FieldsOnly(_)
+        | InvertedIndex::FieldsOnlyWide(_)
+        | InvertedIndex::FieldsOffsets(_)
+        | InvertedIndex::FieldsOffsetsWide(_)
+        | InvertedIndex::OffsetsOnly(_)
+        | InvertedIndex::FreqsOffsets(_)
+        | InvertedIndex::DocumentIdOnly(_)
+        | InvertedIndex::RawDocumentIdOnly(_) => 0,
+    }
+}
+
 /// Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
 /// This is used by some C tests.
 ///
