@@ -25,11 +25,12 @@ COV=${COV:-0}    # Coverage mode (for building and testing)
 SVS_PRE_COMPILED_LIB=${SVS_PRE_COMPILED_LIB:-0} # Use SVS pre-compiled library
 
 # Test configuration (0=disabled, 1=enabled)
-BUILD_TESTS=0    # Build test binaries
-RUN_UNIT_TESTS=0 # Run C/C++ unit tests
-RUN_RUST_TESTS=0 # Run Rust tests
-RUN_PYTEST=0     # Run Python tests
-RUN_ALL_TESTS=0  # Run all test types
+BUILD_TESTS=0          # Build test binaries
+RUN_UNIT_TESTS=0       # Run C/C++ unit tests
+RUN_RUST_TESTS=0       # Run Rust tests
+RUN_RUST_VALGRIND=0    # Run Valgrind Rust tests
+RUN_PYTEST=0           # Run Python tests
+RUN_ALL_TESTS=0        # Run all test types
 RUN_MICRO_BENCHMARKS=0 # Run micro-benchmarks
 
 # Rust configuration
@@ -69,6 +70,9 @@ parse_arguments() {
         ;;
       RUN_RUST_TESTS|run_rust_tests)
         RUN_RUST_TESTS=1
+        ;;
+      RUN_RUST_VALGRIND|run_rust_valgrind)
+        RUN_RUST_VALGRIND=1
         ;;
       RUN_MICRO_BENCHMARKS|run_micro_benchmarks|RUN_MICROBENCHMARKS|run_microbenchmarks)
         RUN_MICRO_BENCHMARKS=1
@@ -129,7 +133,7 @@ parse_arguments() {
 #-----------------------------------------------------------------------------
 setup_test_configuration() {
   # If any tests will be run, ensure BUILD_TESTS is enabled
-  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
+  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_RUST_VALGRIND" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
     if [[ "$BUILD_TESTS" != "1" ]]; then
       echo "Test execution requested, enabling test build automatically"
       BUILD_TESTS="1"
@@ -546,7 +550,7 @@ run_rust_tests() {
 
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
-  
+
   # Set up RUSTFLAGS for warnings
   if [[ "$RUST_DENY_WARNS" == "1" ]]; then
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
@@ -583,6 +587,63 @@ run_rust_tests() {
     echo "All Rust tests passed!"
   else
     echo "Some Rust tests failed. Check the test logs above for details."
+    HAS_FAILURES=1
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Function: run_rust_valgrind_tests
+# Run Rust Valgrind tests (to detect memory leaks)
+#-----------------------------------------------------------------------------
+run_rust_valgrind_tests() {
+  if [[ "$RUN_RUST_VALGRIND" != "1" ]]; then
+    return 0
+  fi
+
+  echo "Running Rust tests..."
+
+  # Set Rust test environment
+  RUST_DIR="$ROOT/src/redisearch_rs"
+
+  # Set up RUSTFLAGS for warnings
+  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
+  fi
+
+  # Pin a specific working version of nightly to prevent breaking the CI because
+  # regressions in a nightly build.
+  # Make sure to synchronize updates across all modules: Redis and RedisJSON.
+  NIGHTLY_VERSION="nightly-2025-07-30"
+
+  # Add Rust test extensions
+  if [[ -n "$SAN" ]]; then
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
+  fi
+
+  cd "$RUST_DIR"
+
+  if [[ "$OS_NAME" == "macos" ]]; then
+    # no valgrind on apple silicon... so...
+    echo "The valgrind test target is only supported on Linux"
+    HAS_FAILURES=1
+    return 0
+  else
+    # Run cargo valgrind with the appropriate filter
+    VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp \
+        RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
+        cargo $RUST_EXTENSIONS valgrind test \
+        --profile=$RUST_PROFILE \
+        $RUST_TEST_OPTIONS \
+        --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER \
+        -- --nocapture
+  fi
+
+  # Check test results
+  RUST_TEST_RESULT=$?
+  if [[ $RUST_TEST_RESULT -eq 0 ]]; then
+    echo "Rust Valgrind test passed!"
+  else
+    echo "Some Rust valgrind tests failed. Check the test logs above for details."
     HAS_FAILURES=1
   fi
 }
@@ -758,6 +819,9 @@ build_project
 
 # Run tests if requested
 run_tests
+
+# Run Rust valgrind tests if requested
+run_rust_valgrind_tests
 
 # Run micro-benchmarks if requested
 run_micro_benchmarks
