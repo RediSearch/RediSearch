@@ -21,7 +21,7 @@ extern "C" {
  * HybridLookupContext structure that provides RLookup context for field merging.
  * Contains source lookups from each upstream and the unified destination lookup.
  *
- * This structure is used to facilitate proper field mapping and data transfer
+ * This structure is used to facilitate proper field mapping and data writing
  * between different search result sources (search index vs vector index) in
  * hybrid search operations.
  */

@@ -16,13 +16,15 @@ The test data creates a 2D vector space with 4 documents positioned as follows:
           │            │  ● Query
           │            │    Vector
     doc:1 ●────────────● doc:2
+        Query
+        Vector
 
     Coordinates:
     - doc:1: (0.0, 0.0) - "red shoes"
     - doc:2: (1.0, 0.0) - "red running shoes"
     - doc:3: (0.0, 1.0) - "running gear"
     - doc:4: (1.0, 1.0) - "blue shoes"
-    - Query Vector: (1.2, 0.2)
+    - Query Vector: (0.0, 0.0)
 
 """
 
@@ -96,7 +98,7 @@ def test_hybrid_vector_range_with_distance():
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    radius = 3**2
+    radius = 1
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
                         'RANGE', '4', 'RADIUS', str(radius), 'YIELD_DISTANCE_AS', 'vector_distance')
     results = get_results_from_hybrid_response(response)

@@ -427,14 +427,13 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
 void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags);
 
 /**
- * Transfer field data from source row to destination row with different schemas.
+ * Write field data from source row to destination row with different schemas.
  * Iterate through source lookup keys, find corresponding keys in destination by name,
- * and transfer ownership using RLookup_WriteOwnKey().
- * Source row slots are nullified after transfer.
+ * and write it to destination row using RLookup_WriteOwnKey().
  * Assumes all source keys exist in destination (enforce with ASSERT).
  */
-void RLookupRow_TransferFields(RLookupRow *srcRow, const RLookup *srcLookup,
-                              RLookupRow *destRow, const RLookup *destLookup);
+void RLookupRow_WriteFieldsFrom(RLookupRow *srcRow, const RLookup *srcLookup,
+                               RLookupRow *destRow, const RLookup *destLookup);
 
 #ifdef __cplusplus
 }

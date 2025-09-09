@@ -110,27 +110,27 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
 
 /**
  * Merge field data from multiple source SearchResults into destination RLookupRow.
- * Initializes destination row and transfers fields from each source using RLookupRow_TransferFields.
+ * Initializes destination row and writes fields from each source using RLookupRow_WriteFieldsFrom.
  */
 static void merge_rlookuprow(HybridSearchResult *hybridResult,
                             HybridLookupContext *lookupCtx,
                             RLookupRow *destination) {
-    RS_ASSERT(hybridResult && lookupCtx && destination);
+  RS_ASSERT(hybridResult && lookupCtx && destination);
 
-    // Initialize destination row
-    RLookupRow_Wipe(destination);
+  // Initialize destination row
+  RLookupRow_Wipe(destination);
 
-    // Transfer fields from each source SearchResult
-    for (size_t i = 0; i < hybridResult->numSources; i++) {
-        if (hybridResult->hasResults[i]) {
-            SearchResult *sourceResult = hybridResult->searchResults[i];
-            RS_ASSERT(sourceResult);
+  // Write fields from each source SearchResult
+  for (size_t i = 0; i < hybridResult->numSources; i++) {
+    if (hybridResult->hasResults[i]) {
+      SearchResult *sourceResult = hybridResult->searchResults[i];
+      RS_ASSERT(sourceResult);
 
-            // Transfer fields from source row to destination row
-            RLookupRow_TransferFields(&sourceResult->rowdata, lookupCtx->sourceLookups[i],
-                                    destination, lookupCtx->tailLookup);
-        }
+      // Write fields from source row to destination row
+      RLookupRow_WriteFieldsFrom(&sourceResult->rowdata, lookupCtx->sourceLookups[i],
+                                destination, lookupCtx->tailLookup);
     }
+  }
 }
 
 /**

@@ -1008,8 +1008,8 @@ void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags) {
   }
 }
 
-void RLookupRow_TransferFields(RLookupRow *srcRow, const RLookup *srcLookup,
-                              RLookupRow *destRow, const RLookup *destLookup) {
+void RLookupRow_WriteFieldsFrom(RLookupRow *srcRow, const RLookup *srcLookup,
+                               RLookupRow *destRow, const RLookup *destLookup) {
   RS_ASSERT(srcRow != NULL && srcLookup != NULL);
   RS_ASSERT(destRow != NULL && destLookup != NULL);
 
@@ -1031,10 +1031,8 @@ void RLookupRow_TransferFields(RLookupRow *srcRow, const RLookup *srcLookup,
     RLookupKey *dest_key = RLookup_FindKey(destLookup, src_key->name, src_key->name_len);
     RS_ASSERT(dest_key != NULL);  // Assumption: all source keys exist in destination
 
-    // Transfer fields - write to destination (increments refcount, shares ownership)
+    // Write fields to destination (increments refcount, shares ownership)
     RLookup_WriteKey(dest_key, destRow, value);
   }
-
-  // Note: Source row remains unchanged - both source and destination now share the values
   // Caller is responsible for managing source row lifecycle
 }

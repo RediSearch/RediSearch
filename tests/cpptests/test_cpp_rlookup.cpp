@@ -72,9 +72,6 @@ TEST_F(RLookupTest, testRow) {
   RLookup_Cleanup(&lk);
 }
 
-//
-// NEW TESTS FOR HYBRID SEARCH RLOOKUP FUNCTIONS
-//
 
 // Helper functions for test setup and verification
 struct TestKeySet {
@@ -153,14 +150,8 @@ void cleanup_values(const std::vector<RSValue*>& values) {
   }
 }
 
-/*
- * Test Group 1: RLookup_AddKeysFrom Basic Functionality
- */
 
-/*
- * Test 1.1: Basic Key Addition
- * Verifies that keys from source are correctly added to destination
- */
+// Tests basic key addition from source to destination lookup
 TEST_F(RLookupTest, testAddKeysFromBasic) {
   RLookup source = {0}, dest = {0};
   RLookup_Init(&source, NULL);
@@ -187,10 +178,7 @@ TEST_F(RLookupTest, testAddKeysFromBasic) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test 1.2: Empty Source Lookup
- * Verifies that adding from empty source doesn't change destination
- */
+// Tests that adding keys from empty source doesn't change destination
 TEST_F(RLookupTest, testAddKeysFromEmptySource) {
   RLookup source = {0}, dest = {0};
   RLookup_Init(&source, NULL);
@@ -217,10 +205,7 @@ TEST_F(RLookupTest, testAddKeysFromEmptySource) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test 1.3: Key Name Conflicts - Default Behavior (First Wins)
- * Verifies that existing keys in destination are preserved by default
- */
+// Tests key name conflicts with default behavior (first wins)
 TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
   RLookup source = {0}, dest = {0};
   RLookup_Init(&source, NULL);
@@ -256,10 +241,7 @@ TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test 1.4: Key Name Conflicts - Override Behavior
- * Verifies that RLOOKUP_F_OVERRIDE flag causes existing keys to be overridden
- */
+// Tests key name conflicts with override behavior
 TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
   RLookup source = {0}, dest = {0};
   RLookup_Init(&source, NULL);
@@ -298,14 +280,8 @@ TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test Group 2: RLookup_AddKeysFrom Edge Cases
- */
 
-/*
- * Test 2.1: Multiple Additions
- * Verifies sequential additions from multiple sources with conflict resolution
- */
+// Tests sequential additions from multiple sources with conflict resolution
 TEST_F(RLookupTest, testAddKeysFromMultipleAdditions) {
   RLookup src1 = {0}, src2 = {0}, src3 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
@@ -339,15 +315,9 @@ TEST_F(RLookupTest, testAddKeysFromMultipleAdditions) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test Group 3: RLookupRow_TransferFields Functionality
- */
 
-/*
- * Test 3.1: Basic Field Transfer
- * Verifies that data is correctly transferred and accessible by field names
- */
-TEST_F(RLookupTest, testTransferFieldsBasic) {
+// Tests basic field writing between lookup rows
+TEST_F(RLookupTest, testWriteFieldsBasic) {
   RLookup source = {0}, dest = {0};
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
@@ -365,10 +335,10 @@ TEST_F(RLookupTest, testTransferFieldsBasic) {
   RSValue *original_ptr1 = values[0];
   RSValue *original_ptr2 = values[1];
 
-  // Transfer fields from source to destination
-  RLookupRow_TransferFields(&srcRow, &source, &destRow, &dest);
+  // Write fields from source to destination
+  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
 
-  // Verify transferred values are correct and accessible by field names
+  // Verify written values are correct and accessible by field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2"}, {100.0, 200.0});
 
   // Verify shared ownership (same pointers in both source and destination)
@@ -377,7 +347,7 @@ TEST_F(RLookupTest, testTransferFieldsBasic) {
   ASSERT_EQ(original_ptr1, RLookup_GetItem(dest_key1, &destRow));
   ASSERT_EQ(original_ptr2, RLookup_GetItem(dest_key2, &destRow));
 
-  // Verify source row still contains the values (shared ownership, not transferred)
+  // Verify source row still contains the values (shared ownership, not moved)
   ASSERT_EQ(original_ptr1, RLookup_GetItem(srcKeys.keys[0], &srcRow));
   ASSERT_EQ(original_ptr2, RLookup_GetItem(srcKeys.keys[1], &srcRow));
 
@@ -393,11 +363,8 @@ TEST_F(RLookupTest, testTransferFieldsBasic) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test 3.2: Empty Source Row
- * Verifies transfer behavior when source row has no data
- */
-TEST_F(RLookupTest, testTransferFieldsEmptySource) {
+// Tests field writing when source row has no data
+TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   RLookup source = {0}, dest = {0};
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
@@ -413,8 +380,8 @@ TEST_F(RLookupTest, testTransferFieldsEmptySource) {
   // Create empty rows
   RLookupRow srcRow = {0}, destRow = {0};
 
-  // Transfer from empty source
-  RLookupRow_TransferFields(&srcRow, &source, &destRow, &dest);
+  // Write from empty source
+  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
 
   // Verify destination remains empty
   RLookupKey *dest_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
@@ -433,11 +400,8 @@ TEST_F(RLookupTest, testTransferFieldsEmptySource) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test 3.3: Different Schema Mapping
- * Verifies transfer between schemas with different internal indices
- */
-TEST_F(RLookupTest, testTransferFieldsDifferentMapping) {
+// Tests field writing between schemas with different internal indices
+TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   RLookup source = {0}, dest = {0};
   RLookup_Init(&source, NULL);
   RLookup_Init(&dest, NULL);
@@ -473,8 +437,8 @@ TEST_F(RLookupTest, testTransferFieldsDifferentMapping) {
     RLookup_WriteKey(src_keys[i], &srcRow, values[i]);
   }
 
-  // Transfer fields
-  RLookupRow_TransferFields(&srcRow, &source, &destRow, &dest);
+  // Write fields
+  RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
 
   // Verify data is readable by field names despite potentially different indices
   RLookupKey *dest_keys[] = {dest_key1, dest_key2, dest_key3};
@@ -491,7 +455,7 @@ TEST_F(RLookupTest, testTransferFieldsDifferentMapping) {
     ASSERT_EQ(1, result) << "Failed to convert dest_vals[" << i << "]";
     ASSERT_EQ(expected_nums[i], num_val) << "Wrong value for dest_vals[" << i << "]";
 
-    // Verify ownership transfer (same pointers)
+    // Verify shared ownership (same pointers)
     ASSERT_EQ(values[i], dest_vals[i]) << "dest_vals[" << i << "] should point to values[" << i << "]";
   }
 
@@ -505,14 +469,8 @@ TEST_F(RLookupTest, testTransferFieldsDifferentMapping) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test Group 4: Multiple Upstream Integration Tests
- */
 
-/*
- * Test 4.1: No Overlap - Distinct Field Sets
- * Simulates hybrid search with completely different field sets from each source
- */
+// Tests hybrid search with distinct field sets from each source
 TEST_F(RLookupTest, testMultipleUpstreamNoOverlap) {
   RLookup src1 = {0}, src2 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
@@ -535,9 +493,9 @@ TEST_F(RLookupTest, testMultipleUpstreamNoOverlap) {
   write_values_to_row(src1Keys, &src1Row, src1Values);
   write_values_to_row(src2Keys, &src2Row, src2Values);
 
-  // Transfer data from both sources to single destination row
-  RLookupRow_TransferFields(&src1Row, &src1, &destRow, &dest);
-  RLookupRow_TransferFields(&src2Row, &src2, &destRow, &dest);
+  // Write data from both sources to single destination row
+  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);
 
   // Verify all 4 fields are readable from destination using field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3", "field4"}, {10.0, 20.0, 30.0, 40.0});
@@ -553,10 +511,7 @@ TEST_F(RLookupTest, testMultipleUpstreamNoOverlap) {
   RLookup_Cleanup(&dest);
 }
 
-/*
- * Test 4.2: Partial Overlap - Some Shared Fields
- * Simulates hybrid search with overlapping field names (first source wins)
- */
+// Tests hybrid search with overlapping field names (last write wins)
 TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
   RLookup src1 = {0}, src2 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
@@ -572,7 +527,7 @@ TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
   RLookupKey *s2_key5 = RLookup_GetKey_Write(&src2, "field5", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(s1_key1 && s1_key2 && s1_key3 && s2_key2 && s2_key4 && s2_key5);
 
-  // Add keys (first source wins for key creation, but last transfer wins for data)
+  // Add keys (first source wins for key creation, but last write wins for data)
   RLookup_AddKeysFrom(&dest, &src1, RLOOKUP_F_NOFLAGS);
   RLookup_AddKeysFrom(&dest, &src2, RLOOKUP_F_NOFLAGS);
 
@@ -608,33 +563,33 @@ TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
     ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] refcount after writing to src2Row";
   }
 
-  // Transfer src1 first, then src2
-  RLookupRow_TransferFields(&src1Row, &src1, &destRow, &dest);
+  // Write src1 first, then src2
+  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
 
-  // After first transfer, s1_val2 should have refcount 3 (original + src1Row + destRow)
+  // After first write, s1_val2 should have refcount 3 (original + src1Row + destRow)
   ASSERT_EQ(3, s1_val2->refcount);  // Shared between source and destination
   ASSERT_EQ(2, s2_val2->refcount);  // s2_val2 unchanged yet
 
-  RLookupRow_TransferFields(&src2Row, &src2, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);
 
-  // After second transfer, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
+  // After second write, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
   ASSERT_EQ(2, s1_val2->refcount);  // Back to original + src1Row (removed from destRow)
   ASSERT_EQ(3, s2_val2->refcount);  // Now shared: original + src2Row + destRow
 
-  // Verify field2 contains src2 data (last transfer wins)
+  // Verify field2 contains src2 data (last write wins)
   RLookupKey *dest_field2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_field2);
   RSValue *field2_val = RLookup_GetItem(dest_field2, &destRow);
   ASSERT_TRUE(field2_val);
 
-  // Verify it's the same pointer (ownership transfer, not copy)
+  // Verify it's the same pointer (shared ownership, not copy)
   ASSERT_EQ(s2_val2, field2_val);
 
   double field2_num;
   ASSERT_EQ(1, RSValue_ToNumber(field2_val, &field2_num));
-  ASSERT_EQ(999.0, field2_num);  // Should be 999 (src2), last transfer wins
+  ASSERT_EQ(999.0, field2_num);  // Should be 999 (src2), last write wins
 
-  // Verify all unique fields transferred correctly
+  // Verify all unique fields written correctly
   RLookupKey *dest_field1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *dest_field4 = RLookup_GetKey_Read(&dest, "field4", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_field1 && dest_field4);
@@ -648,11 +603,7 @@ TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
   RLookup_Cleanup(&src1); RLookup_Cleanup(&src2); RLookup_Cleanup(&dest);
 }
 
-/*
- * Test 4.3: Full Overlap - Identical Field Sets (Last Transfer Wins)
- * Simulates hybrid search where both sources have same field names.
- * Demonstrates that data transfer order matters: last transfer overwrites previous data.
- */
+// Tests hybrid search with identical field sets (last write wins)
 TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
   RLookup src1 = {0}, src2 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
@@ -687,25 +638,25 @@ TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
     RLookup_WriteKey(s2_keys[i], &src2Row, s2_vals[i]);
   }
 
-  // Verify initial refcounts before any transfers - all should be 2 (original + row)
+  // Verify initial refcounts before any writes - all should be 2 (original + row)
   for (int i = 0; i < 3; i++) {
     ASSERT_EQ(2, s1_vals[i]->refcount) << "s1_vals[" << i << "] refcount after writing to src1Row";
     ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] refcount after writing to src2Row";
   }
 
-  // Transfer src1 first
-  RLookupRow_TransferFields(&src1Row, &src1, &destRow, &dest);
+  // Write src1 first
+  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
 
-  // After first transfer, src1 values should have refcount 3 (shared: original + src1Row + destRow)
+  // After first write, src1 values should have refcount 3 (shared: original + src1Row + destRow)
   for (int i = 0; i < 3; i++) {
     ASSERT_EQ(3, s1_vals[i]->refcount) << "s1_vals[" << i << "] should be shared between src1Row and destRow";
     ASSERT_EQ(2, s2_vals[i]->refcount) << "s2_vals[" << i << "] should be unchanged";
   }
 
-  // Transfer src2 - this will overwrite all src1 values
-  RLookupRow_TransferFields(&src2Row, &src2, &destRow, &dest);
+  // Write src2 - this will overwrite all src1 values
+  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);
 
-  // After second transfer, all src1 values should be decremented (overwritten in destRow)
+  // After second write, all src1 values should be decremented (overwritten in destRow)
   // and all src2 values should have refcount 3 (shared: original + src2Row + destRow)
   for (int i = 0; i < 3; i++) {
     ASSERT_EQ(2, s1_vals[i]->refcount) << "s1_vals[" << i << "] back to original + src1Row (removed from destRow)";
@@ -713,7 +664,7 @@ TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
   }
 
   // NOTE: Since both sources have identical field names, src2 overwrites src1 data in destination
-  // This test demonstrates "last transfer wins" behavior for the destination row
+  // This test demonstrates "last write wins" behavior for the destination row
   RLookupKey *d_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
   RLookupKey *d_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
   RLookupKey *d_key3 = RLookup_GetKey_Read(&dest, "field3", RLOOKUP_F_NOFLAGS);
@@ -745,10 +696,7 @@ TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
   RLookup_Cleanup(&src1); RLookup_Cleanup(&src2); RLookup_Cleanup(&dest);
 }
 
-/*
- * Test 4.4: One Empty Source
- * Simulates hybrid search where one source has no data
- */
+// Tests hybrid search where one source has no data
 TEST_F(RLookupTest, testMultipleUpstreamOneEmpty) {
   RLookup src1 = {0}, src2 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
@@ -770,9 +718,9 @@ TEST_F(RLookupTest, testMultipleUpstreamOneEmpty) {
   write_values_to_row(src1Keys, &src1Row, src1Values);
   // src2Row intentionally left empty
 
-  // Transfer from both sources
-  RLookupRow_TransferFields(&src1Row, &src1, &destRow, &dest);
-  RLookupRow_TransferFields(&src2Row, &src2, &destRow, &dest);  // Empty source
+  // Write from both sources
+  RLookupRow_WriteFieldsFrom(&src1Row, &src1, &destRow, &dest);
+  RLookupRow_WriteFieldsFrom(&src2Row, &src2, &destRow, &dest);  // Empty source
 
   // Verify src1 data is present and accessible by field names
   verify_values_by_names(&dest, &destRow, {"field1", "field2"}, {50.0, 60.0});
