@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "result_processor.h"  /* Full SearchResult definition */
+#include "result_processor.h"
 #include "hybrid_search_result.h"
 #include "rmutil/alloc.h"
 #include "query_error.h"
@@ -81,11 +81,11 @@ void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResu
 
 
 /**
- * Apply hybrid scoring to compute combined score from multiple sources.
+ * Calculate hybrid score from multiple sources by combining their individual scores.
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  */
-double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, HybridScoringContext *scoringCtx) {
-  RS_ASSERT(scoringCtx && hybridResult && hybridResult->hasResults[targetIndex])
+double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx) {
+  RS_ASSERT(scoringCtx && hybridResult)
 
   // Extract values from SearchResults
   arrayof(double) values = array_newlen(double, hybridResult->numSources);
@@ -109,17 +109,16 @@ double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, 
 }
 
 /**
- * Create unified RLookupRow by merging field data from multiple source SearchResults.
- * Initializes new RLookupRow and transfers fields from each source using RLookupRow_TransferFields.
+ * Merge field data from multiple source SearchResults into destination RLookupRow.
+ * Initializes destination row and transfers fields from each source using RLookupRow_TransferFields.
  */
-static RLookupRow* merge_rlookuprow(HybridSearchResult *hybridResult,
-                                   HybridLookupContext *lookupCtx) {
-    RS_ASSERT(hybridResult && lookupCtx);
+static void merge_rlookuprow(HybridSearchResult *hybridResult,
+                            HybridLookupContext *lookupCtx,
+                            RLookupRow *destination) {
+    RS_ASSERT(hybridResult && lookupCtx && destination);
 
-    // Create new unified RLookupRow
-    RLookupRow *unifiedRow = rm_calloc(1, sizeof(RLookupRow));
-    // Initialize with tail schema capacity
-    RLookupRow_Wipe(unifiedRow);
+    // Initialize destination row
+    RLookupRow_Wipe(destination);
 
     // Transfer fields from each source SearchResult
     for (size_t i = 0; i < hybridResult->numSources; i++) {
@@ -127,15 +126,11 @@ static RLookupRow* merge_rlookuprow(HybridSearchResult *hybridResult,
             SearchResult *sourceResult = hybridResult->searchResults[i];
             RS_ASSERT(sourceResult);
 
-            // Transfer fields from source row to unified row
-            RLookupRow_TransferFields(&sourceResult->rowdata,
-                                    lookupCtx->sourceLookups[i],
-                                    unifiedRow,
-                                    lookupCtx->tailLookup);
+            // Transfer fields from source row to destination row
+            RLookupRow_TransferFields(&sourceResult->rowdata, lookupCtx->sourceLookups[i],
+                                    destination, lookupCtx->tailLookup);
         }
     }
-
-    return unifiedRow;
 }
 
 /**
@@ -165,11 +160,8 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
 
   RS_ASSERT(primary && targetIndex != -1);
 
-  // Apply hybrid scoring to compute hybrid score and merge explanations
-  double hybridScore = applyHybridScoring(hybridResult, targetIndex, scoringCtx);
-
-  // Update primary result's score, we are using the combined score in the rest of the pipeline, so sorting for example is done on the combined score
-  primary->score = hybridScore;
+  // Calculate hybrid score by combining scores from all sources
+  primary->score = calculateHybridScore(hybridResult, scoringCtx);
 
   // Merge flags from all upstreams
   for (size_t i = 0; i < hybridResult->numSources; i++) {
@@ -178,11 +170,16 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
       mergeFlags(&primary->flags, &hybridResult->searchResults[i]->flags);
     }
   }
-  // Create unified RLookupRow if lookup context is provided
+  // Merge field data into primary result's rowdata if lookup context is provided
   if (lookupCtx) {
-    RLookupRow *unifiedRow = merge_rlookuprow(hybridResult, lookupCtx);
-    primary->rowdata = *unifiedRow;
-    rm_free(unifiedRow);  // Transfer ownership, free container
+    // Create temporary row for merging (avoids modifying primary while reading from it)
+    RLookupRow tempRow = {0};  // Stack allocation, zero-initialized
+    merge_rlookuprow(hybridResult, lookupCtx, &tempRow);
+
+    // Prepare primary row and move merged data from temporary row
+    RLookupRow_Wipe(&primary->rowdata);  // Clear primary row
+    RLookupRow_Move(lookupCtx->tailLookup, &tempRow, &primary->rowdata);  // Move temp → primary
+    // Note: RLookupRow_Move automatically calls RLookupRow_Wipe(&tempRow) to clean up references
   }
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;

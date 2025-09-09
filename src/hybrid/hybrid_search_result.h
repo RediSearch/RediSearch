@@ -51,10 +51,10 @@ void HybridSearchResult_StoreResult(HybridSearchResult* hybridResult, SearchResu
 void mergeFlags(uint8_t *target_flags, const uint8_t *source_flags);
 
 /**
- * Apply hybrid scoring to compute combined score from multiple sources.
+ * Calculate hybrid score from multiple sources by combining their individual scores.
  * Supports both RRF (with ranks) and Linear (with scores) hybrid scoring.
  */
-double applyHybridScoring(HybridSearchResult *hybridResult, int8_t targetIndex, HybridScoringContext *scoringCtx);
+double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringContext *scoringCtx);
 
 /**
  * Main function to merge SearchResults from multiple upstreams into a single comprehensive result.
