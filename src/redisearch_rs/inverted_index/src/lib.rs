@@ -467,6 +467,11 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn number_of_blocks(&self) -> usize {
         self.blocks.len()
     }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.blocks.get(index)
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -547,6 +552,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     pub fn number_of_blocks(&self) -> usize {
         self.index.number_of_blocks()
     }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.index.block_ref(index)
+    }
 }
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
@@ -624,6 +634,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// Returns the number of blocks in this index.
     pub fn number_of_blocks(&self) -> usize {
         self.index.number_of_blocks()
+    }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.index.block_ref(index)
     }
 }
 

@@ -17,7 +17,7 @@ use ffi::{
 };
 
 use inverted_index::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, RSIndexResult,
+    EntriesTrackingIndex, FieldMaskTrackingIndex, IndexBlock, RSIndexResult,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -382,4 +382,22 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSumma
 
     // SAFETY: We can safely convert the slice back to a boxed slice and drop it to free the memory
     let _ = unsafe { Box::from_raw(blocks) };
+}
+
+/// Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
+/// This is used by some C tests.
+///
+/// # Safety
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
+    ii: *const InvertedIndex,
+    block_idx: usize,
+) -> Option<&'index IndexBlock> {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii: &'index _ = unsafe { &*ii };
+    ii_dispatch!(ii, block_ref, block_idx)
 }

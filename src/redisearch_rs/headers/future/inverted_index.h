@@ -11,6 +11,15 @@
 #include "types_rs.h"
 
 /**
+ * Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
+ * are ordered by document ID, so the first entry in the block has the lowest document ID, and the
+ * last entry has the highest document ID. The block also contains a buffer that is used to
+ * store the encoded entries. The buffer is dynamically resized as needed when new entries are
+ * added to the block.
+ */
+typedef struct IndexBlock IndexBlock;
+
+/**
  * An opaque inverted index structure. The actual implementation is determined at runtime based on
  * the index flags provided when creating the index. This allows us to have a single interface for
  * all index types while still being able to optimize the storage and performance for each index
@@ -152,6 +161,17 @@ IIBlockSummary *InvertedIndex_BlocksSummary(const struct InvertedIndex *ii, uint
  */
 void InvertedIndex_BlocksSummaryFree(IIBlockSummary *blocks,
                                      uintptr_t count);
+
+/**
+ * Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
+ * This is used by some C tests.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii,
+                                                uintptr_t block_idx);
 
 #ifdef __cplusplus
 }  // extern "C"
