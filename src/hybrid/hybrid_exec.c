@@ -141,7 +141,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
             v = RS_DUOVAL_OTHER2VAL(*v);
           }
         }
-        RSValue_SendReply(reply, v, flags);
+        RedisModule_Reply_RSValue(reply, v, flags);
       }
     }
   }

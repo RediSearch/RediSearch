@@ -19,14 +19,6 @@
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////
-static size_t RSValue_NumToString(double dd, char *buf) {
-  long long ll = dd;
-  if (ll == dd) {
-    return sprintf(buf, "%lld", ll);
-  } else {
-    return sprintf(buf, "%.12g", dd);
-  }
-}
 
 pthread_key_t mempoolKey_g;
 
@@ -240,7 +232,7 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     }
     case RSValue_Number: {
       char tmpbuf[128];
-      size_t len = RSValue_NumToString(v->numval, tmpbuf);
+      size_t len = RSValue_NumToString(v, tmpbuf);
       char *buf = rm_strdup(tmpbuf);
       RSValue_SetString(dst, buf, len);
       break;
@@ -670,82 +662,6 @@ static int RSValue_SendReply_Collection(RedisModule_Reply *reply, const RSValue 
 }
 #endif //0
 
-/* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags) {
-  v = RSValue_Dereference(v);
-
-  switch (v->t) {
-    case RSValue_String:
-      return RedisModule_Reply_StringBuffer(reply, v->strval.str, v->strval.len);
-
-    case RSValue_RedisString:
-    case RSValue_OwnRstring:
-      return RedisModule_Reply_String(reply, v->rstrval);
-
-    case RSValue_Number: {
-      if (!(flags & SENDREPLY_FLAG_EXPAND)) {
-        char buf[128];
-        size_t len = RSValue_NumToString(v->numval, buf);
-
-        if (flags & SENDREPLY_FLAG_TYPED) {
-          if (reply->resp3) {
-            return RedisModule_Reply_Double(reply, v->numval);
-          } else {
-             // In RESP2, RM_ReplyWithDouble() does not tag the response as
-             // double, it's just a plain string. So we send it as simple string
-             // that is converted to double by MRReply_ToValue().
-            return RedisModule_Reply_Error(reply, buf);
-          }
-        } else {
-          return RedisModule_Reply_StringBuffer(reply, buf, len);
-        }
-      } else {
-        long long ll = v->numval;
-        if (ll == v->numval) {
-          return RedisModule_Reply_LongLong(reply, ll);
-        } else {
-          return RedisModule_Reply_Double(reply, v->numval);
-        }
-      }
-    }
-
-    case RSValue_Null:
-      return RedisModule_Reply_Null(reply);
-
-    case RSValue_Duo: {
-      return RSValue_SendReply(reply, RS_DUOVAL_OTHERVAL(*v), flags);
-    }
-
-#if 1
-    case RSValue_Array:
-      RedisModule_Reply_Array(reply);
-        for (uint32_t i = 0; i < v->arrval.len; i++) {
-          RSValue_SendReply(reply, v->arrval.vals[i], flags);
-        }
-      RedisModule_Reply_ArrayEnd(reply);
-      return REDISMODULE_OK;
-
-    case RSValue_Map:
-      // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
-      RedisModule_Reply_Map(reply);
-      for (uint32_t i = 0; i < v->mapval.len; i++) {
-          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], flags);
-          RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], flags);
-      }
-      RedisModule_Reply_MapEnd(reply);
-      break;
-#else // non-recursive
-    case RSValue_Array:
-    case RSValue_Map:
-      return RSValue_SendReply_Collection(reply, v, flags);
-#endif
-
-    default:
-      RedisModule_Reply_Null(reply);
-  }
-  return REDISMODULE_OK;
-}
-
 sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
   if (!v) {
     return sdscat(s, "nil");
@@ -782,7 +698,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
         return sdscat(s, Obfuscate_Number(v->numval));
       } else {
         char buf[128];
-        size_t len = RSValue_NumToString(v->numval, buf);
+        size_t len = RSValue_NumToString(v, buf);
         return sdscatlen(s, buf, len);
       }
       break;
