@@ -1991,6 +1991,17 @@ name = "value"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "low_memory_thin_vec",
+]
+
+[[package]]
+name = "value_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cbindgen",
+ "libc",
+ "value",
 ]
 
 [[package]]

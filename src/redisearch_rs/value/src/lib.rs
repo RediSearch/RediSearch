@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#![allow(dead_code, unused_variables)]
 //! Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 //! Rust port of the RSValue type.
 
@@ -15,7 +16,166 @@ mod test_utils;
 #[cfg(feature = "test_utils")]
 pub use test_utils::RSValueMock;
 
-use std::{ffi::c_char, ptr::NonNull};
+use std::{ffi::c_char, fmt::Debug, num::ParseFloatError, ptr::NonNull, sync::Arc};
+
+use crate::{ffi_safe_arc::FFISafeArc, ffi_safe_string::FfiSafeString};
+
+mod ffi_safe_arc;
+mod ffi_safe_string;
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct SDS(); // TODO bind
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct RedisModuleString();
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub enum RsValueInternal {
+    Null,
+    Number(f64),
+    // String variants
+    SharedString(FFISafeArc<*const u8>),
+    OwnedString(FfiSafeString),
+    // BorrowedString(*const u8),
+    SharedRedisString(FFISafeArc<RedisModuleString>),
+    RedisString(RedisModuleString),
+    BorrowedRedisString(RedisModuleString),
+
+    SharedSds(FFISafeArc<SDS>),
+    Sds(SDS),
+    // BorrowedSds(*const SDS),
+
+    // Array(LowMemoryThinVec<SharedRsValue>), // LowMemVec?
+    Ref(SharedRsValue),
+    Duo(SharedRsValue, SharedRsValue),
+    // Map(std::collections::HashMap<SharedRsValue, SharedRsValue>), // todo hash algo? do we even want hashmap
+}
+
+/// cbindgen:prefix-with-name
+#[derive(Debug, Default, Clone)]
+#[repr(C)]
+pub enum RsValue {
+    #[default]
+    Undefined,
+    Defined(RsValueInternal),
+}
+
+impl RsValue {
+    pub const fn undefined() -> Self {
+        Self::Undefined
+    }
+
+    pub const fn null() -> Self {
+        Self::Defined(RsValueInternal::Null)
+    }
+
+    pub fn number(n: f64) -> Self {
+        Self::Defined(RsValueInternal::Number(n))
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::Undefined
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+#[repr(C)]
+/// cbindgen:prefix-with-name
+pub enum SharedRsValue {
+    #[default]
+    Undefined,
+    Defined(FFISafeArc<RsValueInternal>),
+}
+
+impl SharedRsValue {
+    pub fn undefined() -> Self {
+        Self::default()
+    }
+
+    pub fn number(n: f64) -> Self {
+        Self::from_internal(RsValueInternal::Number(n))
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::Undefined;
+    }
+
+    pub fn mem_size(&self) -> usize {
+        todo!("Implement mem_size, taking into account the heap space")
+    }
+
+    pub fn parse_number(s: &str) -> Result<Self, ParseFloatError> {
+        Ok(Self::from_internal(RsValueInternal::Number(s.parse()?)))
+    }
+
+    fn from_internal(internal: RsValueInternal) -> Self {
+        let internal = Arc::new(internal);
+        Self::Defined(internal.into())
+    }
+
+    fn defined(&self) -> Option<&FFISafeArc<RsValueInternal>> {
+        match self {
+            SharedRsValue::Undefined => None,
+            SharedRsValue::Defined(d) => Some(d),
+        }
+    }
+
+    fn internal_as_ref(&self) -> Option<&RsValueInternal> {
+        // self.inner.as_ref().map(|i| i.as_ref())
+        todo!()
+    }
+}
+
+impl RSValueTrait for SharedRsValue {
+    fn create_null() -> Self {
+        Self::from_internal(RsValueInternal::Null)
+    }
+
+    fn create_string(s: String) -> Self {
+        todo!()
+    }
+
+    fn create_num(num: f64) -> Self {
+        todo!()
+    }
+
+    fn create_ref(value: Self) -> Self {
+        todo!()
+    }
+
+    fn is_null(&self) -> bool {
+        matches!(self.internal_as_ref(), Some(RsValueInternal::Null))
+    }
+
+    fn get_ref(&self) -> Option<&Self> {
+        match self.internal_as_ref()? {
+            RsValueInternal::Ref(val) => Some(val),
+            _ => None,
+        }
+    }
+
+    fn as_str(&self) -> Option<&str> {
+        todo!()
+    }
+
+    fn as_num(&self) -> Option<f64> {
+        match self.internal_as_ref()? {
+            RsValueInternal::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    fn get_type(&self) -> ffi::RSValueType {
+        todo!()
+    }
+
+    fn is_ptr_type() -> bool {
+        todo!()
+    }
+}
 
 /// A trait that defines the behavior of a RediSearch RSValue.
 ///
