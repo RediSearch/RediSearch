@@ -104,7 +104,7 @@ static void writeGroupValues(const Grouper *g, const Group *gr, SearchResult *r)
     const RLookupKey *dstkey = g->dstkeys[ii];
     RSValue *groupval = RLookup_GetItem(dstkey, &gr->rowdata);
     if (groupval) {
-      RLookup_WriteKey(dstkey, &r->rowdata, groupval);
+      RLookup_WriteKey(dstkey, SearchResult_GetRowDataMut(r), groupval);
     }
   }
 }
@@ -123,7 +123,7 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
     for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
-      RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
+      RLookup_WriteOwnKey(rd->dstkey, SearchResult_GetRowDataMut(r), v);
     }
     ++g->iter;
     return RS_RESULT_OK;
@@ -223,7 +223,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   int rc;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    invokeGroupReducers(g, &res->rowdata);
+    invokeGroupReducers(g, SearchResult_GetRowDataMut(res));
     SearchResult_Clear(res);
   }
   base->parent->resultLimit = chunkLimit; // restore the limit
