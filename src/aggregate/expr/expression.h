@@ -121,7 +121,7 @@ typedef struct RSExpr {
 typedef struct ExprEval {
   QueryError *err;
   const RLookup *lookup;
-  const SearchResult *res;
+  SearchResult *res;
   const RLookupRow *srcrow;
   const RSExpr *root;
   BlkAlloc stralloc; // Optional. YNOT?
