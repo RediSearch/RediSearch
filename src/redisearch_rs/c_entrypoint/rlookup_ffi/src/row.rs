@@ -11,6 +11,7 @@ use std::ptr::NonNull;
 
 use rlookup::RLookupKey;
 
+use sorting_vector::RSSortingVector;
 use value::{RSValueFFI, RSValueTrait};
 
 pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
@@ -81,4 +82,44 @@ pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let vec = unsafe { row.expect("row must not be null").as_mut() };
     vec.reset_dyn_values();
+}
+
+/// Sets a sorting vector for the row.
+/// Safety:
+/// 1. `row` must be a valid pointer to an [`RLookupRow`].
+/// 2. `sv` must be a valid pointer to an [`ffi::RSSortingVector`].
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_SetSortingVector(
+    row: Option<NonNull<RLookupRow>>,
+    sv: *const ffi::RSSortingVector,
+) {
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
+    let row = unsafe { row.expect("row must not be null").as_mut() };
+    let sv: *const RSSortingVector<RSValueFFI> = sv.cast();
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RSSortingVector.
+    let sv = unsafe { sv.as_ref() };
+
+    row.set_sorting_vector(sv.unwrap());
+}
+
+/// Returns a pointer to the sorting vector if it exists, or null otherwise.
+///
+/// Safety:
+/// The caller does not own the returned pointer and must not attempt to free it.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_GetSortingVector(
+    row: Option<NonNull<RLookupRow>>,
+) -> *const ffi::RSSortingVector {
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
+    let row = unsafe { row.expect("row must not be null").as_ref() };
+    // Safety: The caller has to ensure that the pointer is kept around
+    unsafe { row.get_sorting_vector() as *const ffi::RSSortingVector }
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_GetDynLen(row: Option<NonNull<RLookupRow>>) -> u32 {
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
+    let row = unsafe { row.expect("row must not be null").as_ref() };
+    // Safety: The caller has to ensure that the pointer is kept around
+    row.num_dyn_values()
 }
