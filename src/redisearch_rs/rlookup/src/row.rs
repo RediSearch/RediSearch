@@ -228,4 +228,15 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
             }
         }
     }
+
+    /// Returns a pointer to the sorting vector if it exists, or a null pointer otherwise.
+    ///
+    /// # Safety
+    /// The caller does not own the returned pointer and must not attempt to free it.
+    pub unsafe fn get_sorting_vector(&self) -> *const RSSortingVector<T> {
+        match self.sorting_vector {
+            Some(sv) => sv as *const RSSortingVector<T>,
+            None => std::ptr::null(),
+        }
+    }
 }

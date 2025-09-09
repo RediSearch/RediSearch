@@ -237,7 +237,7 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    RSValue *rv = RLookup_GetItem(val_out, SearchResult_GetRowData(&res));
+    const RSValue *rv = RLookup_GetItem(val_out, SearchResult_GetRowDataMut(&res));
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
     ASSERT_TRUE(RSValue_IsString(rv));

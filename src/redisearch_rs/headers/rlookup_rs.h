@@ -423,6 +423,64 @@ void RLookupRow_Reset(RLookupRow *row);
  */
 void RLookupRow_Move(struct RLookup *lookup, RLookupRow *src, RLookupRow *dst);
 
+/**
+ * Write fields from a source row into a destination row, the fields must exist in both lookups (schemas).
+ *
+ * Iterate through the source lookup keys, if it finds a corresponding key in the destination
+ * lookup by name, then it's value is written to this row as a destination.
+ *
+ * If a source key is not found in the destination lookup the function will panic (same as C behavior).
+ *
+ * If a source key has no value in the source row, it is skipped.
+ *
+ * # Safety
+ * 1. `src_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 3. `dst_lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 4. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ */
+void RLookupRow_WriteFieldsFrom(RLookupRow *src_row,
+                                struct RLookup *src_lookup,
+                                RLookupRow *dst_row,
+                                struct RLookup *dst_lookup);
+
+/**
+ * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
+ * The function first checks for dynamic values, and if not found, it checks the sorting vector
+ * if the `SvSrc` flag is set in the key.
+ * If the item is not found in either location, it returns `None`.
+ *
+ * # Safety
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ */
+const RSValue *RLookup_GetItem(struct RLookupKey *key, RLookupRow *row);
+
+/**
+ * Sets a sorting vector for the row.
+ * Safety:
+ * 1. `row` must be a valid pointer to an [`RLookupRow`].
+ * 2. `sv` must be a valid pointer to an [`ffi::RSSortingVector`].
+ */
+void RLookupRow_SetSortingVector(RLookupRow *row, const RSSortingVector *sv);
+
+/**
+ * Returns a pointer to the sorting vector if it exists, or null otherwise.
+ *
+ * Safety:
+ * The caller does not own the returned pointer and must not attempt to free it.
+ */
+const RSSortingVector *RLookupRow_GetSortingVector(RLookupRow *row);
+
+/**
+ * Returns the number of dynamic values in the row.
+ *
+ * # Safety
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ *
+ */
+uint32_t RLookupRow_GetDynLen(RLookupRow *row);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
