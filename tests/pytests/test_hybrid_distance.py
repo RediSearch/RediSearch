@@ -98,7 +98,7 @@ def test_hybrid_vector_range_with_distance():
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    radius = 1
+    radius = 2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
                         'RANGE', '4', 'RADIUS', str(radius), 'YIELD_DISTANCE_AS', 'vector_distance')
     results = get_results_from_hybrid_response(response)
