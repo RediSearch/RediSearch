@@ -36,7 +36,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     endif()
 else()
     target_link_libraries(rstest_coord stdc++)
-    target_link_options(rstest_coord PRIVATE -lstdc++)
+    target_link_options(rstest_coord PRIVATE -shared-libgcc)
 endif()
 
 add_test(NAME rstest_coord COMMAND rstest_coord)
