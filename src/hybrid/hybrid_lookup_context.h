@@ -28,7 +28,6 @@ extern "C" {
 typedef struct {
   arrayof(const RLookup*) sourceLookups;  // Source lookups from each request
   const RLookup *tailLookup;              // Unified destination lookup
-  size_t numSources;                      // Number of source lookups
 } HybridLookupContext;
 
 #ifdef __cplusplus

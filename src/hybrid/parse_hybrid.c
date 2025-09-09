@@ -161,7 +161,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      // Set score field directly
       hasYieldDistanceAs = true;
 
     } else {
@@ -179,7 +178,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 }
 
 
-static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
+static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
   // VSIM @vectorfield vector RANGE ...
   //                                ^
   long long params;
@@ -244,8 +243,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         .value = rm_strdup(value),
         .vallen = strlen(value)
       };
-      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      // Set score field directly
+      *attributes = array_ensure_append_1(*attributes, attr);
       hasYieldDistanceAs = true;
 
     } else {

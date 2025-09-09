@@ -58,30 +58,44 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
     return depleters;
 }
 
+/**
+ * Initialize unified lookup schema and hybrid lookup context for field merging.
+ *
+ * @param requests Array of AREQ pointers containing source lookups
+ * @param tailLookup The destination lookup to populate with unified schema
+ * @return Initialized HybridLookupContext, or NULL on failure
+ */
+static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) requests, RLookup *tailLookup) {
+    size_t nrequests = array_len(requests);
+
+    // Add keys from all source lookups to create unified schema
+    for (size_t i = 0; i < nrequests; i++) {
+        RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+        if (srcLookup) {
+            RLookup_AddKeysFrom(tailLookup, srcLookup, RLOOKUP_F_NOFLAGS);
+        }
+    }
+
+    // Build lookup context for field merging
+    HybridLookupContext *lookupCtx = rm_calloc(1, sizeof(HybridLookupContext));
+    lookupCtx->tailLookup = tailLookup;
+    lookupCtx->sourceLookups = array_newlen(const RLookup*, nrequests);
+
+    // Collect source lookups
+    for (size_t i = 0; i < nrequests; i++) {
+        lookupCtx->sourceLookups[i] = AGPLN_GetLookup(AREQ_AGGPlan(requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+    }
+
+    return lookupCtx;
+}
+
 int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, arrayof(ResultProcessor*) depleters) {
     // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
     // and contain only keys from the loading step
     // Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
-    // Add keys from all source lookups to create unified schema
-    for (size_t i = 0; i < req->nrequests; i++) {
-        RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
-        if (srcLookup) {
-            RLookup_AddKeysFrom(lookup, srcLookup, RLOOKUP_F_NOFLAGS);
-        }
-    }
-
-    // Build lookup context for field merging
-    HybridLookupContext *lookupCtx = rm_calloc(1, sizeof(HybridLookupContext));
-    lookupCtx->tailLookup = lookup;
-    lookupCtx->numSources = req->nrequests;
-    lookupCtx->sourceLookups = array_newlen(const RLookup*, req->nrequests);
-
-    // Collect source lookups
-    for (size_t i = 0; i < req->nrequests; i++) {
-        lookupCtx->sourceLookups[i] = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
-    }
+    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
 
     // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
