@@ -211,7 +211,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, bool runInBackground);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,

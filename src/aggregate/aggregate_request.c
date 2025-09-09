@@ -1460,7 +1460,9 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPQueryIterator_New(req->rootiter);
+  // Check if the query is executed in the background.
+  bool runInBackground = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
+  ResultProcessor *rp = RPQueryIterator_New(req->rootiter, runInBackground);
   req->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
   req->qiter.rootProc = req->qiter.endProc = rp;

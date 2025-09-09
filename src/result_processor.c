@@ -78,21 +78,28 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
-#define OOM_COUNTER_LIMIT 100
+#define OOM_COUNTER_LIMIT 1
 
-static bool checkOOMfromRP(ResultProcessor *base) {
-  // Hold GIL
-  RedisModuleCtx *ctx = RP_SCTX(base)->redisCtx;
-  RedisModule_ThreadSafeContextLock(ctx);
+
+// GIL must be held before calling this function
+static bool checkOOM(RedisModuleCtx *ctx) {
   bool isOOM = RedisMemory_GetUsedMemoryRatioUnified(ctx) >= 1.0;
-  RedisModule_ThreadSafeContextUnlock(ctx);
   return isOOM;
 }
-static bool checkOOMfromRP_withCounter(ResultProcessor *base, size_t *counter) {
+
+// This function holds the GIL if needed and checks for OOM.
+static bool checkOOMfromRP_withCounter(ResultProcessor *base, size_t *counter, bool background) {
 
   if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == OOM_COUNTER_LIMIT) {
     *counter = 0;
-    return checkOOMfromRP(base);
+    if (background) {
+      RedisModule_ThreadSafeContextLock(RP_SCTX(base)->redisCtx);
+    }
+    bool oom = checkOOM(RP_SCTX(base)->redisCtx);
+    if (background) {
+      RedisModule_ThreadSafeContextUnlock(RP_SCTX(base)->redisCtx);
+    }
+    return oom;
   }
   return false;
 }
@@ -106,6 +113,7 @@ typedef struct {
   QueryIterator *iterator;
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
   size_t oomLimiter;       // counter to limit number of calls to OOM_WithCounter()
+  bool runInBackground;
 } RPQueryIterator;
 
 /* Next implementation */
@@ -139,7 +147,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     }
 
-    if (checkOOMfromRP_withCounter(base, &self->oomLimiter)) {
+    if (checkOOMfromRP_withCounter(base, &self->oomLimiter, self->runInBackground)) {
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_OOM);
     }
 
@@ -198,13 +206,14 @@ static void rpQueryItFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, bool runInBackground) {
   RS_ASSERT(root != NULL);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
   ret->base.type = RP_INDEX;
+  ret->runInBackground = runInBackground;
   return &ret->base;
 }
 
