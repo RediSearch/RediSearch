@@ -144,9 +144,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
-      // TODO: Remove this once we support YIELD_DISTANCE_AS (not part of phase 1)
-      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
-      return REDISMODULE_ERR;
       if (hasYieldDistanceAs) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
@@ -164,6 +161,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+      // Set score field directly
       hasYieldDistanceAs = true;
 
     } else {
@@ -181,7 +179,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 }
 
 
-static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
+static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector RANGE ...
   //                                ^
   long long params;
@@ -230,9 +228,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
-      // TODO: Remove this once we support YIELD_DISTANCE_AS (not part of phase 1)
-      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
-      return REDISMODULE_ERR;
       if (hasYieldDistanceAs) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
@@ -249,7 +244,8 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
         .value = rm_strdup(value),
         .vallen = strlen(value)
       };
-      *attributes = array_ensure_append_1(*attributes, attr);
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+      // Set score field directly
       hasYieldDistanceAs = true;
 
     } else {
@@ -333,7 +329,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     vq->type = VECSIM_QT_KNN;
     vq->knn.order = BY_SCORE;
   } else if (AC_AdvanceIfMatch(ac, "RANGE")) {
-    if (parseRangeClause(ac, vq, &pvd->attributes, status) != REDISMODULE_OK) {
+    if (parseRangeClause(ac, vq, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
     vq->type = VECSIM_QT_RANGE;

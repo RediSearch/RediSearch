@@ -20,6 +20,7 @@
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"
+#include "hybrid/hybrid_lookup_context.h"
 #include "src/util/likely.h"
 #include "config.h"
 
@@ -1091,7 +1092,7 @@ static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader"
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
                                      "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer",
-                                     "Hybrid Merger", "Depleter"};
+                                     "Vector Normalizer", "Hybrid Merger", "Depleter"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1694,6 +1695,7 @@ dictType dictTypeHybridSearchResult = {
  dictIterator *iterator; // Iterator for yielding results
  const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
  RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
+ HybridLookupContext *lookupCtx;  // Lookup context for field merging
 } RPHybridMerger;
 
 /* Generic helper function to check if any upstream has a specific return code */
@@ -1775,7 +1777,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
    RS_ASSERT(hybridResult);
 
-   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx);
+   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
    if (!mergedResult) {
      return RS_RESULT_ERROR;
    }
@@ -1866,6 +1868,12 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
    array_free(self->upstreams);
 
+   // Free lookup context if it exists
+   if (self->lookupCtx) {
+     array_free(self->lookupCtx->sourceLookups);
+     rm_free(self->lookupCtx);
+   }
+
    // Free the processor itself
    rm_free(self);
  }
@@ -1883,7 +1891,8 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
                                     const RLookupKey *scoreKey,
-                                    RPStatus *subqueriesReturnCodes) {
+                                    RPStatus *subqueriesReturnCodes,
+                                    HybridLookupContext *lookupCtx) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   RS_ASSERT(numUpstreams > 0);
@@ -1899,6 +1908,9 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
   // Store reference to the hybrid request's subqueries return codes array
   RS_ASSERT(subqueriesReturnCodes);
   ret->upstreamReturnCodes = subqueriesReturnCodes;
+
+  // Store lookup context for field merging (takes ownership)
+  ret->lookupCtx = lookupCtx;
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
