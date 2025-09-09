@@ -546,7 +546,6 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       return RedisModule_Reply_RSValue(reply, RS_DUOVAL_OTHERVAL(*v), flags);
     }
 
-#if 1
     case RSValue_Array:
       RedisModule_Reply_Array(reply);
         for (uint32_t i = 0; i < v->arrval.len; i++) {
@@ -564,12 +563,7 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       }
       RedisModule_Reply_MapEnd(reply);
       break;
-#else // non-recursive
-    case RSValue_Array:
-    case RSValue_Map:
-      return RSValue_SendReply_Collection(reply, v, flags);
-#endif
-
+      
     default:
       RedisModule_Reply_Null(reply);
   }
