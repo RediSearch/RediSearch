@@ -22,18 +22,18 @@ unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
     let r = unsafe { r.as_mut().unwrap() };
 
     // This won't affect anything if the result is null
-    r.score = 0.0;
+    r.__score = 0.0;
 
     // SEDestroy(r->scoreExplain);
-    r.scoreExplain = ptr::null_mut();
+    r.__scoreExplain = ptr::null_mut();
 
     // IndexResult_Free(r->indexResult);
-    r.indexResult = ptr::null_mut();
+    r.__indexResult = ptr::null_mut();
 
-    r.flags = 0;
+    r.__flags = 0;
     // RLookupRow_Wipe(&r->rowdata);
 
-    r.dmd = ptr::null();
+    r.__dmd = ptr::null();
     //   DMD_Return(r->dmd);
 }
 
