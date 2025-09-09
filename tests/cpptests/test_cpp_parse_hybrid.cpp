@@ -900,3 +900,21 @@ TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
 
   ASSERT_STREQ(result.search->searchopts.scorerName, TFIDF_SCORER_NAME);
 }
+
+TEST_F(ParseHybridTest, testImplicitVectorScorerForLinear) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
+   "COMBINE", "LINEAR", "0.6", "0.4");
+
+  parseCommand(args);
+
+  ASSERT_STREQ(result.vector->searchopts.scorerName, VECTOR_RAW_DISTANCE_SCORER);
+}
+
+TEST_F(ParseHybridTest, testImplicitVectorScorerForRRF) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
+   "COMBINE", "RRF", "2", "CONSTANT", "10");
+
+  parseCommand(args);
+
+  ASSERT_STREQ(result.vector->searchopts.scorerName, NULL);
+}

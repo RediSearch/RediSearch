@@ -303,7 +303,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
   // Define expected pipelines for each request
   std::vector<std::vector<ResultProcessorType>> expectedPipelines = {
     {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
-    {RP_DEPLETER, RP_LOADER, RP_INDEX}                         // Other requests pipeline
+    {RP_DEPLETER, RP_LOADER, RP_SCORER, RP_INDEX}                         // Other requests pipeline
   };
 
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
@@ -626,4 +626,23 @@ TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTextDefaultScorerRR
     }
   }
   ASSERT_FALSE(foundMaxScoreNormalizer) << "Max Score Normalizer should not be found in the pipeline";
+}
+
+TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineVectorDefaultScorerLinear) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
+                      "SEARCH", "artificial",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "COMBINE","LINEAR", "0.6", "0.4");
+
+  HYBRID_TEST_SETUP("test_idx_complex", args);
+
+  bool foundScorer = false;
+  // Verify that there is no normalizer in search pipeline where RRF is the fusion method
+  for (ResultProcessor *rp = hybridReq->requests[SEARCH_INDEX]->pipeline.qctx.endProc; rp; rp = rp->upstream) {
+    if (rp->type == RP_SCORER) {
+      foundScorer = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(foundScorer) << "Must contain a scorer to fetch the vector distance";
 }
