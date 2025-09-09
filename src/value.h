@@ -12,19 +12,17 @@
 #include "redisearch.h"
 #include "rmalloc.h"
 #include "query_error.h"
-#include "reply.h"
 
 #include "util/fnv.h"
 
-#include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
 #include "hiredis/sds.h"
 
+#include <assert.h>
 #include <string.h>
 #include <sys/param.h>
 #include <stdarg.h>
 #include <errno.h>
-#include <math.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -388,13 +386,20 @@ static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
   return arr ? arr->arrval.len : 0;
 }
 
-typedef enum {
-  SENDREPLY_FLAG_TYPED = 0x01,
-  SENDREPLY_FLAG_EXPAND = 0x02,
-} SendReplyFlags;
-
-/* Based on the value type, serialize the value into redis client response */
-int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
+/**
+ * Formats the passed numeric RSValue as a string. Asserts
+ * that said RSValue is indeed of type RSValue_Number.
+ */
+static size_t RSValue_NumToString(const RSValue *v, char *buf) {
+  assert(v->t == RSValue_Number);
+  double dd = v->numval;
+  long long ll = dd;
+  if (ll == dd) {
+    return sprintf(buf, "%lld", ll);
+  } else {
+    return sprintf(buf, "%.12g", dd);
+  }
+}
 
 // Formats the parsed expression object into a string, obfuscating the values if needed based on the obfuscate boolean
 // The returned string must be freed by the caller using sdsfree
