@@ -78,7 +78,7 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
 // can be accessed safely.
 #define RP_SPEC(rpctx) (RP_SCTX(rpctx)->spec)
 
-#define OOM_COUNTER_LIMIT 1
+#define OOM_COUNTER_LIMIT 100
 
 
 // GIL must be held before calling this function
