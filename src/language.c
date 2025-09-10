@@ -32,8 +32,6 @@ langPair_t __langPairs[] = {
   { "hindi",      RS_LANG_HINDI },
   { "hungarian",  RS_LANG_HUNGARIAN },
   { "indonesian", RS_LANG_INDONESIAN },
-  { "id",         RS_LANG_INDONESIAN },  // ISO 639-1 code for Indonesian
-  { "ind",        RS_LANG_INDONESIAN },  // ISO 639-2 code for Indonesian
   { "irish",      RS_LANG_IRISH },
   { "italian",    RS_LANG_ITALIAN },
   { "lithuanian", RS_LANG_LITHUANIAN },

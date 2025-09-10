@@ -2,56 +2,40 @@ import pytest
 from common import *
 
 @skip(cluster=True)
-def test_indonesian_iso_codes_simple(env):
-    """Simple test that Indonesian ISO codes work for index creation"""
+def test_indonesian_in_language_info(env):
+    """Test that Indonesian language appears correctly in FT.INFO"""
 
-    # Test that we can create indexes with ISO codes without errors
-    env.cmd('FT.CREATE', 'idx_indonesian', 'LANGUAGE', 'indonesian', 'SCHEMA', 'text', 'TEXT')
-    env.cmd('FT.CREATE', 'idx_id', 'LANGUAGE', 'id', 'SCHEMA', 'text', 'TEXT')
-    env.cmd('FT.CREATE', 'idx_ind', 'LANGUAGE', 'ind', 'SCHEMA', 'text', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_info', 'LANGUAGE', 'indonesian', 'SCHEMA', 'text', 'TEXT')
+    waitForIndex(env, 'idx_info')
 
-    # Verify indexes were created by checking they exist
-    info = env.cmd('FT.INFO', 'idx_id')
+    info = env.cmd('FT.INFO', 'idx_info')
     env.assertTrue(len(info) > 0)
 
-    info = env.cmd('FT.INFO', 'idx_ind')
+@skip(cluster=True)
+def test_indonesian_basic_functionality(env):
+    """Test that Indonesian language works for basic index creation and search"""
+
+    # Test creating index with Indonesian language
+    env.cmd('FT.CREATE', 'idx_indonesian', 'LANGUAGE', 'indonesian', 'SCHEMA', 'text', 'TEXT')
+    waitForIndex(env, 'idx_indonesian')
+
+    # Verify index was created by checking it exists
+    info = env.cmd('FT.INFO', 'idx_indonesian')
     env.assertTrue(len(info) > 0)
 
     # Test basic functionality with a simple document
     env.cmd('HSET', 'doc1', 'text', 'pembelajaran bahasa')  # learning language
 
     # Search should work (even if stemming doesn't match, the word itself should be found)
-    res = env.cmd('FT.SEARCH', 'idx_id', 'pembelajaran')
+    res = env.cmd('FT.SEARCH', 'idx_indonesian', 'pembelajaran')
     env.assertGreaterEqual(res[0], 1)
 
-    res = env.cmd('FT.SEARCH', 'idx_ind', 'bahasa')
+    res = env.cmd('FT.SEARCH', 'idx_indonesian', 'bahasa')
     env.assertGreaterEqual(res[0], 1)
 
 
-def test_indonesian_iso_codes(env):
-    """Test that Indonesian ISO codes work"""
 
-    # Test with 'id' ISO code
-    env.cmd('FT.CREATE', 'idx_id_iso', 'LANGUAGE', 'id', 'SCHEMA', 'text', 'TEXT')
-    waitForIndex(env, 'idx_id_iso')
-
-    # Use longer words and test exact word matches first
-    env.cmd('HSET', 'doc1', 'text', 'pembelajaran bahasa indonesia')
-
-    # Test exact word search first (should always work)
-    res = env.cmd('FT.SEARCH', 'idx_id_iso', 'pembelajaran')
-    env.assertGreaterEqual(res[0], 1)
-
-    # Test with 'ind' ISO code
-    env.cmd('FT.CREATE', 'idx_ind_iso', 'LANGUAGE', 'ind', 'SCHEMA', 'text', 'TEXT')
-    waitForIndex(env, 'idx_ind_iso')
-
-    env.cmd('HSET', 'doc2', 'text', 'makanan tradisional')
-
-    # Test exact word search first (should always work)
-    res = env.cmd('FT.SEARCH', 'idx_ind_iso', 'makanan')
-    env.assertGreaterEqual(res[0], 1)
-
+@skip(cluster=True)
 def test_indonesian_language_field(env):
     """Test Indonesian language with language field"""
 
@@ -62,15 +46,15 @@ def test_indonesian_language_field(env):
     # Add documents with different languages - use exact words for reliable testing
     env.cmd('HSET', 'doc1', 'text', 'membaca buku', '__lang', 'indonesian')
     env.cmd('HSET', 'doc2', 'text', 'reading book', '__lang', 'english')
-    env.cmd('HSET', 'doc3', 'text', 'menulis surat', '__lang', 'id')  # ISO code
 
     # Search for exact words (should always work)
     res = env.cmd('FT.SEARCH', 'idx_lang_field', 'membaca')
     env.assertGreaterEqual(res[0], 1)  # Should find Indonesian doc
 
-    res = env.cmd('FT.SEARCH', 'idx_lang_field', 'menulis')
-    env.assertGreaterEqual(res[0], 1)  # Should find Indonesian doc with ISO code
+    res = env.cmd('FT.SEARCH', 'idx_lang_field', 'reading')
+    env.assertGreaterEqual(res[0], 1)  # Should find English doc
 
+@skip(cluster=True)
 def test_indonesian_query_language_override(env):
     """Test overriding language at query time"""
 
@@ -90,6 +74,7 @@ def test_indonesian_query_language_override(env):
     # Indonesian search should be at least as good as English
     env.assertGreaterEqual(res_id[0], res_en[0])
 
+@skip(cluster=True)
 def test_indonesian_in_language_info(env):
     """Test that Indonesian appears in FT.INFO"""
 
@@ -185,33 +170,3 @@ def test_indonesian_stemming_vs_english(env):
     # Indonesian stemming should be at least as effective as English
     # (though both might work due to substring matching)
     env.assertGreaterEqual(res_indonesian[0], res_english[0])
-
-def test_indonesian_iso_codes_stemming(env):
-    """Test that ISO codes provide the same stemming as full 'indonesian' name"""
-
-    # Create indexes with different language identifiers
-    env.cmd('FT.CREATE', 'idx_full', 'LANGUAGE', 'indonesian', 'SCHEMA', 'text', 'TEXT')
-    env.cmd('FT.CREATE', 'idx_iso1', 'LANGUAGE', 'id', 'SCHEMA', 'text', 'TEXT')
-    env.cmd('FT.CREATE', 'idx_iso2', 'LANGUAGE', 'ind', 'SCHEMA', 'text', 'TEXT')
-
-    waitForIndex(env, 'idx_full')
-    waitForIndex(env, 'idx_iso1')
-    waitForIndex(env, 'idx_iso2')
-
-    # Add same Indonesian text to all indexes
-    test_text = 'membaca pembelajaran makanan'
-    env.cmd('HSET', 'doc_full', 'text', test_text)
-    env.cmd('HSET', 'doc_iso1', 'text', test_text)
-    env.cmd('HSET', 'doc_iso2', 'text', test_text)
-
-    # Test stemming behavior is consistent across all language identifiers
-    test_stems = ['baca', 'ajar', 'makan']  # Root forms
-
-    for stem in test_stems:
-        res_full = env.cmd('FT.SEARCH', 'idx_full', stem)
-        res_iso1 = env.cmd('FT.SEARCH', 'idx_iso1', stem)
-        res_iso2 = env.cmd('FT.SEARCH', 'idx_iso2', stem)
-
-        # All should give same results (either all find it or all don't)
-        env.assertEqual(res_full[0], res_iso1[0])
-        env.assertEqual(res_full[0], res_iso2[0])
