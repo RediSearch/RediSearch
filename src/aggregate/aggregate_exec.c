@@ -536,7 +536,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    cursor_done = isCursorDone(rc, &req->reqConfig);
+    cursor_done = isCursorDone(rc, req);
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
@@ -679,7 +679,7 @@ done_3:
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
-    cursor_done = isCursorDone(rc, &req->reqConfig);
+    cursor_done = isCursorDone(rc, req);
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
