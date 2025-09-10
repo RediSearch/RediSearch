@@ -10,32 +10,6 @@
 //! This file contains tests to ensure the FFI functions behave as expected.
 
 use result_processor_ffi::counter::*;
-use std::ptr;
-
-/// Mock implementation of `SearchResult_Clear` for tests
-///
-/// this doesn't actually free anything, so will leak resources but hopefully this is fine for the few Rust
-/// tests for now
-// FIXME replace with SearchResult::clear once `ffi::SearchResult` is ported to Rust
-#[unsafe(no_mangle)]
-unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
-    let r = unsafe { r.as_mut().unwrap() };
-
-    // This won't affect anything if the result is null
-    r.score = 0.0;
-
-    // SEDestroy(r->scoreExplain);
-    r.scoreExplain = ptr::null_mut();
-
-    // IndexResult_Free(r->indexResult);
-    r.indexResult = ptr::null_mut();
-
-    r.flags = 0;
-    // RLookupRow_Wipe(&r->rowdata);
-
-    r.dmd = ptr::null();
-    //   DMD_Return(r->dmd);
-}
 
 /// Stub implementation of `RPProfile_IncrementCount` for the linker to not complain when running these tests.
 /// This should not be called during these tests.
@@ -95,4 +69,28 @@ fn rp_counter_new_creates_unique_instances() {
             .expect("Rust result processor must have a free function");
         free_fn(counter2);
     }
+}
+
+/// Mock implementation of `DMD_Free` for tests
+#[unsafe(no_mangle)]
+unsafe extern "C" fn DMD_Free(_cmd: *const ffi::RSDocumentMetadata) {
+    unreachable!()
+}
+
+/// Mock implementation of `RSValue_Decref` for tests
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RSValue_Decref(_v: *mut ffi::RSValue) {
+    unreachable!()
+}
+
+/// Mock implementation of `SEDestroy` for tests
+#[unsafe(no_mangle)]
+unsafe extern "C" fn SEDestroy(_scr_exp: *mut ffi::RSScoreExplain) {
+    unreachable!()
+}
+
+/// Mock implementation of `RLookupRow_Wipe` for tests
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_Wipe(_row: *mut ffi::RLookupRow) {
+    unreachable!()
 }
