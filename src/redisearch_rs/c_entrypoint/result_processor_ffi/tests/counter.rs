@@ -12,31 +12,6 @@
 use result_processor_ffi::counter::*;
 use std::ptr;
 
-/// Mock implementation of `SearchResult_Clear` for tests
-///
-/// this doesn't actually free anything, so will leak resources but hopefully this is fine for the few Rust
-/// tests for now
-// FIXME replace with SearchResult::clear once `ffi::SearchResult` is ported to Rust
-#[unsafe(no_mangle)]
-unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
-    let r = unsafe { r.as_mut().unwrap() };
-
-    // This won't affect anything if the result is null
-    r.__score = 0.0;
-
-    // SEDestroy(r->scoreExplain);
-    r.__scoreExplain = ptr::null_mut();
-
-    // IndexResult_Free(r->indexResult);
-    r.__indexResult = ptr::null_mut();
-
-    r.__flags = 0;
-    // RLookupRow_Wipe(&r->rowdata);
-
-    r.__dmd = ptr::null();
-    //   DMD_Return(r->dmd);
-}
-
 #[test]
 fn rp_counter_new_returns_valid_pointer() {
     let counter = unsafe { RPCounter_New() };

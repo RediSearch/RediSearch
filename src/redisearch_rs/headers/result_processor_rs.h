@@ -6,32 +6,25 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "rlookup_rs.h"
+#include "rlookup.h"
 #include "redisearch.h"
 #include "score_explain.h"
 /**
  * Forward declaration of ResultProcessor. It will be defined in `result_processor.h`
  */
-typedef struct ResultProcessor;
+typedef struct ResultProcessor ResultProcessor;
 
 typedef struct SearchResult {
   uint8_t opaque;
 } SearchResult;
 
+/* SearchResult flags */
+static const uint8_t Result_ExpiredDoc = 1 << 0;
+
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Crate a new heap-allocated `Counter` result processor
- *
- * # Safety
- *
- * - The caller must never move the allocated result processor from its original allocation.
- * - The caller must ensure to call the `Free` VTable function to properly destroy the type.
- */
-ResultProcessor *RPCounter_New(void);
 
 SearchResult *SearchResult_Copy(SearchResult *res);
 

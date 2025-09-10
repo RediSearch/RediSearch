@@ -20,6 +20,7 @@
 #include "extension.h"
 #include "score_explain.h"
 #include "rs_wall_clock.h"
+#include "result_processor_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -109,35 +110,6 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
-/*
- * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
- * and a list of fields loaded by the chain
- */
-typedef struct {
-  t_docId __docId;
-
-  // not all results have score - TBD
-  double __score;
-
-  RSScoreExplain *__scoreExplain;
-
-  const RSDocumentMetadata *__dmd;
-
-  // index result should cover what you need for highlighting,
-  // but we will add a method to duplicate index results to make
-  // them thread safe
-  RSIndexResult *__indexResult;
-
-  // Row data. Use RLookup_* functions to access
-  RLookupRow __rowdata;
-
-  uint8_t __flags;
-} SearchResult;
-
-/* SearchResult flags */
-static const uint8_t Result_ExpiredDoc = 1 << 0;
-
 /* Result processor return codes */
 
 /** Possible return values from Next() */
@@ -189,85 +161,6 @@ typedef struct ResultProcessor {
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
-
-/**
- * This function allocates a new SearchResult, copies the data from `src` to it,
- * and returns it.
-*/
-SearchResult *SearchResult_Copy(SearchResult *r);
-
-/**
- * This function resets the search result, so that it may be reused again.
- * Internal caches are reset but not freed
- */
-void SearchResult_Clear(SearchResult *r);
-
-/**
- * This function clears the search result, also freeing its internals. Internal
- * caches are freed. Use this function if `r` will not be used again.
- */
-void SearchResult_Destroy(SearchResult *r);
-
-
-static inline const t_docId SearchResult_GetDocId(const SearchResult* res) {
-    return res->__docId;
-}
-
-static inline void SearchResult_SetDocId(SearchResult* res, t_docId docId) {
-    res->__docId = docId;
-}
-
-static inline const double SearchResult_GetScore(const SearchResult* res) {
-    return res->__score;
-}
-
-static inline void SearchResult_SetScore(SearchResult* res, double score) {
-    res->__score = score;
-}
-
-static inline RSScoreExplain *SearchResult_GetScoreExplain(SearchResult* res) {
-    return res->__scoreExplain;
-}
-
-static inline void SearchResult_SetScoreExplain(SearchResult* res, RSScoreExplain * scoreExplain) {
-    res->__scoreExplain = scoreExplain;
-}
-
-static inline const RSDocumentMetadata *SearchResult_GetDocumentMetadata(const SearchResult* res) {
-    return res->__dmd;
-}
-
-static inline void SearchResult_SetDocumentMetadata(SearchResult* res, const RSDocumentMetadata *dmd) {
-    res->__dmd = dmd;
-}
-
-static inline const RSIndexResult *SearchResult_GetIndexResult(const SearchResult* res) {
-    return res->__indexResult;
-}
-
-static inline bool SearchResult_HasIndexResult(const SearchResult* res) {
-    return res->__indexResult;
-}
-
-static inline void SearchResult_SetIndexResult(SearchResult* res, RSIndexResult *indexResult) {
-    res->__indexResult = indexResult;
-}
-
-static inline const RLookupRow *SearchResult_GetRowData(const SearchResult* res) {
-    return &res->__rowdata;
-}
-
-static inline RLookupRow *SearchResult_GetRowDataMut(SearchResult* res) {
-    return &res->__rowdata;
-}
-
-static inline const uint8_t SearchResult_GetFlags(const SearchResult* res) {
-    return res->__flags;
-}
-
-static inline void SearchResult_SetFlags(SearchResult* res, uint8_t flags) {
-    res->__flags = flags;
-}
 
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr);
 
