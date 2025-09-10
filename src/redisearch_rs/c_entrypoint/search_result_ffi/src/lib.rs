@@ -16,7 +16,7 @@ pub type SearchResult = search_result::SearchResult<'static>;
 
 /// Construct a new [`SearchResult`].
 #[unsafe(no_mangle)]
-pub extern "C" fn SearchResult_New() -> mimic::Size72Align8 {
+pub extern "C" fn SearchResult_New() -> mimic::Size80Align8 {
     SearchResult::new().into_mimic()
 }
 

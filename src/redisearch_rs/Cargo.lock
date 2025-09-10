@@ -1385,6 +1385,7 @@ dependencies = [
  "buffer",
  "redis-module",
  "result_processor_ffi",
+ "search_result_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
@@ -1426,6 +1427,7 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
+ "search_result",
 ]
 
 [[package]]
@@ -1604,6 +1606,7 @@ dependencies = [
 name = "search_result"
 version = "0.0.1"
 dependencies = [
+ "canary",
  "enumflags2",
  "ffi",
  "inverted_index",

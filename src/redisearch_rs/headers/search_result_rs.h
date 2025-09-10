@@ -17,10 +17,10 @@ static const uint8_t Result_ExpiredDoc = 1 << 0;
 
 
 /**
- * A type with a size of `72` bytes and alignment `8`.
+ * A type with a size of `80` bytes and alignment `8`.
  */
 typedef struct ALIGNED(8) SearchResult {
-  uint64_t _0[9];
+  uint64_t _0[10];
 } SearchResult;
 
 #ifdef __cplusplus
