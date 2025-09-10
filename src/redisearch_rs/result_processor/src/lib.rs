@@ -17,7 +17,9 @@
 //! At the head of the chain, you will always find an index iterator, yielding entries from
 //! the database indexes.
 
+mod bindings;
 pub mod counter;
+pub mod search_result;
 #[cfg(test)]
 mod test_utils;
 

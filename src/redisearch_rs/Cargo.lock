@@ -1412,9 +1412,12 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 name = "result_processor"
 version = "0.0.1"
 dependencies = [
+ "enumflags2",
  "ffi",
  "libc",
  "pin-project",
+ "rlookup",
+ "value",
 ]
 
 [[package]]
