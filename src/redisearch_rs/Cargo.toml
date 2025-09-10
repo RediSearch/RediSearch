@@ -22,7 +22,7 @@ members = [
     "rqe_iterators",
     "rqe_iterators_bencher",
     "varint_bencher",
-    "wildcard",
+    "wildcard", "canary",
 ]
 
 resolver = "3"
@@ -70,6 +70,7 @@ varint = { path = "./varint" }
 qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
+canary = { path = "./canary" }
 
 cbindgen = "0.29"
 cc = "1"

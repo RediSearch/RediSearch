@@ -238,7 +238,7 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -294,7 +294,7 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -355,7 +355,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -412,7 +412,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -468,7 +468,7 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -521,7 +521,7 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -596,7 +596,7 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
 
   // Process and verify results
   size_t count = 0;
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
 
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
@@ -666,7 +666,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -727,7 +727,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -799,7 +799,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
 
   // Process and verify results - should collect anything available
   std::vector<t_docId> receivedDocIds;
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int rc;
 
@@ -866,7 +866,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
 
   // Process and verify results
   size_t count = 0;
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int rc;
 
@@ -922,7 +922,7 @@ TEST_F(HybridMergerTest, testRRFScoring) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -997,7 +997,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
 
   // Process and verify results
   size_t count = 0;
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
 
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
@@ -1058,7 +1058,7 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
 
@@ -1108,7 +1108,7 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
 
@@ -1182,7 +1182,7 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process results and verify RRF calculation
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
 
   // Expected RRF scores (constant=60):
@@ -1254,7 +1254,7 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights, lookupCtx);
 
   // Process and verify that the most severe error (RS_RESULT_ERROR) is returned
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   int result;
   size_t count = 0;
 
@@ -1298,7 +1298,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results focus on flag merging
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -1350,7 +1350,7 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
   QITR_PushRP(&qitr, hybridMerger);
 
   // Process and verify results focus on flag merging
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   int lastResult;
   size_t count = 0;
@@ -1426,7 +1426,7 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   ResultProcessor *hybridMerger = RPHybridMerger_New(hybridScoringCtx, upstreams, 3, NULL, returnCodes, lookupCtx);
 
   // Process results - this should capture the return codes
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   int result;
   while ((result = hybridMerger->Next(hybridMerger, &r)) == RS_RESULT_OK) {
     SearchResult_Clear(&r);

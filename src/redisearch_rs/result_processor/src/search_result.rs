@@ -7,11 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use canary::Canary;
 use enumflags2::{BitFlags, bitflags};
 use inverted_index::RSIndexResult;
 use std::ptr::{self, NonNull};
 
 use crate::bindings::DocumentMetadata;
+
+const SEARCH_RESULT_CANARY: u64 = u64::from_le_bytes(*b"srchrslt");
 
 #[bitflags]
 #[repr(u8)]
@@ -22,13 +25,16 @@ pub enum SearchResultFlag {
 
 pub type SearchResultFlags = enumflags2::BitFlags<SearchResultFlag>;
 
+#[derive(Clone, Debug)]
+pub struct SearchResult<'a>(Canary<SearchResultInner<'a>, SEARCH_RESULT_CANARY>);
+
 // /*
 //  * SearchResult - the object all the processing chain is working on.
 //  * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
 //  * and a list of fields loaded by the chain
 //  */
 #[derive(Clone, Debug)]
-pub struct SearchResult<'a> {
+struct SearchResultInner<'a> {
     doc_id: ffi::t_docId,
     // not all results have score - TBD
     score: f64,
@@ -64,7 +70,7 @@ impl Drop for SearchResult<'_> {
         self.clear();
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
         unsafe {
-            ffi::RLookupRow_Reset(ptr::from_mut(&mut self.row_data));
+            ffi::RLookupRow_Reset(ptr::from_mut(&mut self.0.row_data));
         }
     }
 }
@@ -77,7 +83,7 @@ impl<'a> Default for SearchResult<'a> {
 
 impl<'a> SearchResult<'a> {
     pub const fn new() -> Self {
-        Self {
+        Self(Canary::new(SearchResultInner {
             doc_id: 0,
             score: 0.0,
             score_explain: None,
@@ -89,15 +95,20 @@ impl<'a> SearchResult<'a> {
                 ndyn: 0,
             },
             flags: SearchResultFlags::from_bits_truncate_c(0, BitFlags::CONST_TOKEN),
-        }
+        }))
+    }
+
+    /// Asserts as many of the search results’s invariants as possible.
+    pub fn assert_valid(&self) {
+        Canary::assert_valid(&self.0);
     }
 
     /// Clears the search result, removing all values from the [`RLookupRow`][ffi::RLookupRow].
     /// This has no effect on the allocated capacity of the lookup row.
     pub fn clear(&mut self) {
-        self.score = 0.0;
+        self.0.score = 0.0;
 
-        if let Some(score_explain) = self.score_explain.take() {
+        if let Some(score_explain) = self.0.score_explain.take() {
             // Safety: the caller of `SearchResult::set_score_explain` promised the pointer is a valid pointer to a `RSScoreExplain`
             unsafe {
                 ffi::SEDestroy(score_explain.as_ptr());
@@ -106,44 +117,44 @@ impl<'a> SearchResult<'a> {
 
         // explicitly drop the DMD here to make clear we maintain the
         // same "drop order" as the old C implementation had.
-        let _ = self.document_metadata.take();
+        let _ = self.0.document_metadata.take();
 
-        if let Some(_index_result) = self.index_result.take() {
+        if let Some(_index_result) = self.0.index_result.take() {
             // TODO figure out if this should be called
             //   // IndexResult_Free(r->indexResult);
         }
 
         // Safety: we own (and therefore correctly initialized) the row data struct and have mutable access to it.
         unsafe {
-            ffi::RLookupRow_Wipe(ptr::from_mut(&mut self.row_data));
+            ffi::RLookupRow_Wipe(ptr::from_mut(&mut self.0.row_data));
         }
 
-        self.flags = SearchResultFlags::empty();
+        self.0.flags = SearchResultFlags::empty();
     }
 
     /// Sets the document ID of this search result.
     pub fn doc_id(&self) -> ffi::t_docId {
-        self.doc_id
+        self.0.doc_id
     }
 
     /// Sets the document ID of this search result.
     pub fn set_doc_id(&mut self, doc_id: ffi::t_docId) {
-        self.doc_id = doc_id;
+        self.0.doc_id = doc_id;
     }
 
     /// Returns the score of this search result.
     pub fn score(&self) -> f64 {
-        self.score
+        self.0.score
     }
 
     /// Sets the score of this search result.
     pub fn set_score(&mut self, score: f64) {
-        self.score = score;
+        self.0.score = score;
     }
 
     /// Returns an immutable reference to the [`ffi::RSScoreExplain`] associated with this search result.
     pub fn score_explain(&self) -> Option<&ffi::RSScoreExplain> {
-        self.score_explain.map(|s| {
+        self.0.score_explain.map(|s| {
             // Safety: we expect the RSScoreExplain pointer to be valid (see SearchResult::set_score_explain)
             unsafe { s.as_ref() }
         })
@@ -151,7 +162,7 @@ impl<'a> SearchResult<'a> {
 
     /// Returns an immutable reference to the [`ffi::RSScoreExplain`] associated with this search result.
     pub fn score_explain_mut(&mut self) -> Option<&mut ffi::RSScoreExplain> {
-        self.score_explain.map(|mut s| {
+        self.0.score_explain.map(|mut s| {
             // Safety: we expect the RSScoreExplain pointer to be valid (see SearchResult::set_score_explain)
             unsafe { s.as_mut() }
         })
@@ -169,22 +180,22 @@ impl<'a> SearchResult<'a> {
         &mut self,
         score_explain: Option<NonNull<ffi::RSScoreExplain>>,
     ) {
-        self.score_explain = score_explain;
+        self.0.score_explain = score_explain;
     }
 
     /// Returns an immutable reference to the [`DocumentMetadata`] associated with this search result.
     pub fn document_metadata(&self) -> Option<&ffi::RSDocumentMetadata> {
-        self.document_metadata.as_deref()
+        self.0.document_metadata.as_deref()
     }
 
     /// Sets the [`DocumentMetadata`] associated with this search result.
     pub fn set_document_metadata(&mut self, document_metadata: Option<DocumentMetadata>) {
-        self.document_metadata = document_metadata;
+        self.0.document_metadata = document_metadata;
     }
 
     /// Returns an immutable reference to the [`ffi::RSIndexResult`] associated with this search result.
     pub fn index_result(&self) -> Option<&RSIndexResult<'a>> {
-        self.index_result.map(|s| {
+        self.0.index_result.map(|s| {
             // Safety: we expect the RSIndexResult pointer to be valid (see SearchResult::set_index_result)
             unsafe { s.as_ref() }
         })
@@ -192,7 +203,7 @@ impl<'a> SearchResult<'a> {
 
     /// Returns a mutable reference to the [`ffi::RSIndexResult`] associated with this search result.
     pub fn index_result_mut(&mut self) -> Option<&mut RSIndexResult<'a>> {
-        self.index_result.map(|mut s| {
+        self.0.index_result.map(|mut s| {
             // Safety: we expect the RSIndexResult pointer to be valid (see SearchResult::set_index_result)
             unsafe { s.as_mut() }
         })
@@ -207,26 +218,53 @@ impl<'a> SearchResult<'a> {
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn set_index_result(&mut self, index_result: Option<NonNull<RSIndexResult<'a>>>) {
-        self.index_result = index_result;
+        self.0.index_result = index_result;
     }
 
     /// Returns an immutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
     pub fn row_data(&self) -> &ffi::RLookupRow {
-        &self.row_data
+        &self.0.row_data
     }
 
     /// Returns a mutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
     pub fn row_data_mut(&mut self) -> &mut ffi::RLookupRow {
-        &mut self.row_data
+        &mut self.0.row_data
     }
 
     /// Returns the [`SearchResultFlags`] of this search result.
     pub fn flags(&self) -> SearchResultFlags {
-        self.flags
+        self.0.flags
     }
 
     /// Sets the [`SearchResultFlags`] of this search result.
     pub fn set_flags(&mut self, flags: SearchResultFlags) {
-        self.flags = flags;
+        self.0.flags = flags;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Mock implementation of `DMD_Free` for tests
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn DMD_Free(_cmd: *const ffi::RSDocumentMetadata) {
+        unreachable!()
+    }
+
+    /// Mock implementation of `RSValue_IncrRef` for tests
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn RSValue_IncrRef(_v: *mut ffi::RSValue) {
+        unreachable!()
+    }
+
+    /// Mock implementation of `RSValue_Decref` for tests
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn RSValue_Decref(_v: *mut ffi::RSValue) {
+        unreachable!()
+    }
+
+    /// Mock implementation of `SEDestroy` for tests
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn SEDestroy(_scr_exp: *mut ffi::RSScoreExplain) {
+        unreachable!()
     }
 }

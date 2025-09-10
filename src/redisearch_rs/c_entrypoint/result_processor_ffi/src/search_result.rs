@@ -16,8 +16,22 @@ pub type SearchResult = result_processor::SearchResult<'static>;
 
 /// Construct a new [`SearchResult`].
 #[unsafe(no_mangle)]
-pub extern "C" fn SearchResult_New() -> mimic::Size72Align8 {
+pub extern "C" fn SearchResult_New() -> mimic::Size80Align8 {
     SearchResult::new().into_mimic()
+}
+
+/// Asserts as many of the search results’s invariants as possible.
+///
+/// # Safety
+///
+/// 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SearchResult_AssertValid(res: *const SearchResult) {
+    // Safety: ensured by caller (1.)
+    let res = unsafe { res.as_ref().unwrap() };
+    res.assert_valid();
 }
 
 /// Moves the contents the [`SearchResult`] pointed to by `res` into a new heap allocation.
