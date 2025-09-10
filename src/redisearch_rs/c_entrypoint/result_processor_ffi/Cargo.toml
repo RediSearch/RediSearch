@@ -8,6 +8,8 @@ publish.workspace = true
 [dependencies]
 result_processor.workspace = true
 ffi.workspace = true
+value.workspace = true
+rlookup.workspace = true
 
 [build-dependencies]
 cbindgen.workspace = true

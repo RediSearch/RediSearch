@@ -38,7 +38,7 @@ fn rerun_if_changes(dir: &Path, extensions: &[&str]) -> std::io::Result<()> {
         } else if let Some(extension) = path.extension().and_then(|ext| ext.to_str())
             && extensions.contains(&extension)
         {
-            println!("cargo:rerun-if-changed={}", path.display());
+            println!("cargo::rerun-if-changed={}", path.display());
         }
     }
     Ok(())
@@ -110,7 +110,7 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
     // configuration is stricter: it exits with an error if any symbol is undefined.
     // We intentionally relax it here.
     if target_os != "macos" {
-        println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
 
     let bin_root = root.join(format!(
@@ -130,9 +130,9 @@ fn link_static_lib(
     let lib_dir = bin_root.join(lib_subdir);
     let lib = lib_dir.join(format!("lib{lib_name}.a"));
     if std::fs::exists(&lib).unwrap_or(false) {
-        println!("cargo:rustc-link-lib=static={lib_name}");
-        println!("cargo:rerun-if-changed={}", lib.display());
-        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+        println!("cargo::rustc-link-lib=static={lib_name}");
+        println!("cargo::rerun-if-changed={}", lib.display());
+        println!("cargo::rustc-link-search=native={}", lib_dir.display());
         Ok(())
     } else {
         Err(format!("Static library not found: {}", lib.display()).into())

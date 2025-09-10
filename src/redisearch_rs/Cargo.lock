@@ -1428,6 +1428,8 @@ dependencies = [
  "cbindgen",
  "ffi",
  "result_processor",
+ "rlookup",
+ "value",
 ]
 
 [[package]]

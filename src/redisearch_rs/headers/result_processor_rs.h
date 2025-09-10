@@ -6,10 +6,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rlookup_rs.h"
+#include "redisearch.h"
+#include "score_explain.h"
 /**
  * Forward declaration of ResultProcessor. It will be defined in `result_processor.h`
  */
 typedef struct ResultProcessor;
+
+typedef struct SearchResult {
+  uint8_t opaque;
+} SearchResult;
 
 
 #ifdef __cplusplus
@@ -25,6 +32,49 @@ extern "C" {
  * - The caller must ensure to call the `Free` VTable function to properly destroy the type.
  */
 ResultProcessor *RPCounter_New(void);
+
+SearchResult *SearchResult_Copy(SearchResult *res);
+
+void SearchResult_Override(SearchResult *dst, SearchResult *src);
+
+void SearchResult_Clear(SearchResult *res);
+
+void SearchResult_Destroy(SearchResult *res);
+
+t_docId SearchResult_GetDocId(const SearchResult *res);
+
+void SearchResult_SetDocId(SearchResult *res, t_docId doc_id);
+
+float SearchResult_GetScore(const SearchResult *res);
+
+void SearchResult_SetScore(SearchResult *res, float score);
+
+const RSScoreExplain *SearchResult_GetScoreExplain(const SearchResult *res);
+
+RSScoreExplain *SearchResult_GetScoreExplainMut(SearchResult *res);
+
+void SearchResult_SetScoreExplain(SearchResult *res, RSScoreExplain *score_explain);
+
+const RSDocumentMetadata *SearchResult_GetDocumentMetadata(const SearchResult *res);
+
+void SearchResult_SetDocumentMetadata(SearchResult *res,
+                                      const RSDocumentMetadata *document_metadata);
+
+const RSIndexResult *SearchResult_GetIndexResult(const SearchResult *res);
+
+RSIndexResult *SearchResult_GetIndexResultMut(SearchResult *res);
+
+bool SearchResult_HasIndexResult(const SearchResult *res);
+
+void SearchResult_SetIndexResult(SearchResult *res, RSIndexResult *index_result);
+
+const RLookupRow *SearchResult_GetRowData(const SearchResult *res);
+
+RLookupRow *SearchResult_GetRowDataMut(SearchResult *res);
+
+uint8_t SearchResult_GetFlags(const SearchResult *res);
+
+void SearchResult_SetFlags(SearchResult *res, uint8_t flags);
 
 #ifdef __cplusplus
 }  // extern "C"
