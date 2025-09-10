@@ -16,6 +16,14 @@ use std::{
 #[derive(Debug)]
 pub struct DocumentMetadata(NonNull<ffi::RSDocumentMetadata>);
 
+impl DocumentMetadata {
+    pub unsafe fn from_raw(ptr: NonNull<ffi::RSDocumentMetadata>) -> Self {
+        debug_assert!(ptr.is_aligned());
+
+        Self(ptr)
+    }
+}
+
 impl Deref for DocumentMetadata {
     type Target = ffi::RSDocumentMetadata;
 
