@@ -7,16 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{Context, Error, ResultProcessor, ResultProcessorWrapper};
-use std::{
-    pin::Pin,
-    ptr::{self, NonNull},
-};
+use crate::{Context, Error, ResultProcessor, ResultProcessorWrapper, search_result::SearchResult};
+use std::{pin::Pin, ptr::NonNull};
 
 /// Create a ResultProcessor from an `Iterator` for testing purposes
 pub fn from_iter<I>(i: I) -> IterResultProcessor<I::IntoIter>
 where
-    I: IntoIterator<Item = ffi::SearchResult>,
+    I: IntoIterator<Item = SearchResult<'static>>,
 {
     IterResultProcessor {
         iter: i.into_iter(),
@@ -31,11 +28,11 @@ pub struct IterResultProcessor<I> {
 
 impl<I> ResultProcessor for IterResultProcessor<I>
 where
-    I: Iterator<Item = ffi::SearchResult>,
+    I: Iterator<Item = SearchResult<'static>>,
 {
     const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX + 1;
 
-    fn next(&mut self, _cx: Context, out: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+    fn next(&mut self, _cx: Context, out: &mut SearchResult) -> Result<Option<()>, Error> {
         if let Some(res) = self.iter.next() {
             *out = res;
             Ok(Some(()))
@@ -69,7 +66,7 @@ impl ResultRP {
 impl ResultProcessor for ResultRP {
     const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
-    fn next(&mut self, _cx: Context, _res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+    fn next(&mut self, _cx: Context, _res: &mut SearchResult) -> Result<Option<()>, Error> {
         self.res.take().unwrap()
     }
 }
@@ -175,48 +172,4 @@ impl Drop for Chain {
             unsafe { (ptr.as_mut().free.unwrap())(ptr.as_ptr()) }
         }
     }
-}
-
-/// Return the default value for [`ffi::SearchResult`]
-// FIXME: Replace with `Default::default` once [MOD-9920] is completed.
-pub const fn default_search_result() -> ffi::SearchResult {
-    const SEARCH_RESULT_INIT: ffi::SearchResult = ffi::SearchResult {
-        __docId: 0,
-        __score: 0.0,
-        __scoreExplain: ptr::null_mut(),
-        __dmd: ptr::null(),
-        __indexResult: ptr::null_mut(),
-        __rowdata: ffi::RLookupRow {
-            sv: ptr::null(),
-            dyn_: ptr::null_mut(),
-            ndyn: 0,
-        },
-        __flags: 0,
-    };
-    SEARCH_RESULT_INIT
-}
-
-/// Mock implementation of `SearchResult_Clear` for tests
-///
-/// this doesn't actually free anything, so will leak resources but hopefully this is fine for the few Rust
-/// tests for now
-// FIXME: replace with `SearchResult::clear` once [MOD-9920] is completed.
-#[unsafe(no_mangle)]
-unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
-    let r = unsafe { r.as_mut().unwrap() };
-
-    // This won't affect anything if the result is null
-    r.__score = 0.0;
-
-    // SEDestroy(r->scoreExplain);
-    r.__scoreExplain = ptr::null_mut();
-
-    // IndexResult_Free(r->indexResult);
-    r.__indexResult = ptr::null_mut();
-
-    r.__flags = 0;
-    // RLookupRow_Wipe(&r->rowdata);
-
-    r.__dmd = ptr::null();
-    //   DMD_Return(r->dmd);
 }

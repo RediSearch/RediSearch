@@ -12,58 +12,13 @@
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
+#include "redisearch_rs/headers/result_processor_rs.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
 #include "iterators/empty_iterator.h"
 #include "rs_wall_clock.h"
-/*******************************************************************************************************************
- *  General Result Processor Helper functions
- *******************************************************************************************************************/
-
-// Allocates a new SearchResult, and populates it with `r`'s data (takes
-// ownership as well)
-SearchResult *SearchResult_Copy(SearchResult *r) {
-  SearchResult *ret = rm_malloc(sizeof(*ret));
-  *ret = *r;
-  return ret;
-}
-
-void SearchResult_Clear(SearchResult *r) {
-  // This won't affect anything if the result is null
-  r->__score = 0;
-  if (r->__scoreExplain) {
-    SEDestroy(r->__scoreExplain);
-    r->__scoreExplain = NULL;
-  }
-  if (r->__indexResult) {
-    // IndexResult_Free(r->indexResult);
-    r->__indexResult = NULL;
-  }
-
-  r->__flags = 0;
-  RLookupRow_Wipe(&r->__rowdata);
-  if (r->__dmd) {
-    DMD_Return(r->__dmd);
-    r->__dmd = NULL;
-  }
-}
-
-/* Free the search result object including the object itself */
-void SearchResult_Destroy(SearchResult *r) {
-  SearchResult_Clear(r);
-  RLookupRow_Reset(SearchResult_GetRowDataMut(r));
-}
-
-// Overwrites the contents of 'dst' with those from 'src'.
-// Ensures proper cleanup of any existing data in 'dst'.
-static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
-  if (!src) return;
-  RLookupRow oldrow = dst->__rowdata;
-  *dst = *src;
-  RLookupRow_Reset(&oldrow);
-}
-
+#include "result_processor_rs.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -211,12 +166,12 @@ void QITR_FreeChain(QueryProcessingCtx *qitr) {
 
 /* Compare results for the heap by score */
 static inline int cmpByScore(const SearchResult *h1, const SearchResult *h2, const void *udata) {
-  if (h1->__score < h2->__score) {
+  if (SearchResult_GetScore(h1) < SearchResult_GetScore(h2)) {
     return -1;
-  } else if (h1->__score > h2->__score) {
+  } else if (SearchResult_GetScore(h1) > SearchResult_GetScore(h2)) {
     return 1;
   }
-  return h1->__docId > h2->__docId ? -1 : 1;
+  return SearchResult_GetDocId(h1) > SearchResult_GetDocId(h2) ? -1 : 1;
 }
 
 /*******************************************************************************************************************
