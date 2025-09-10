@@ -17,7 +17,9 @@
 //! At the head of the chain, you will always find an index iterator, yielding entries from
 //! the database indexes.
 
+pub mod bindings;
 pub mod counter;
+mod search_result;
 #[cfg(test)]
 mod test_utils;
 
@@ -30,6 +32,8 @@ use std::{
     pin::Pin,
     ptr::{self, NonNull},
 };
+
+pub use search_result::{SearchResult, SearchResultFlag, SearchResultFlags};
 
 /// Errors that can be returned by [`ResultProcessor`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
