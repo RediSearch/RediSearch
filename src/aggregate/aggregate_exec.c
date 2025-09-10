@@ -43,6 +43,15 @@ typedef struct {
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 
+static inline bool isCursorDone(int rc, AREQ *req) {
+  switch (rc) {
+    case RS_RESULT_OK:       return false;
+    case RS_RESULT_TIMEDOUT: return req->reqConfig.timeoutPolicy != FailurePolicy_Return;
+    case RS_RESULT_OOM:      return req->reqConfig.OOMPolicy     != FailurePolicy_Return;
+    default:                 return true;
+  }
+}
+
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
@@ -523,9 +532,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    cursor_done = (rc != RS_RESULT_OK
-                   && !(rc == RS_RESULT_TIMEDOUT
-                        && req->reqConfig.timeoutPolicy == FailurePolicy_Return));
+    cursor_done = isCursorDone(rc, &req->reqConfig);
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
@@ -536,6 +543,7 @@ done_2:
       .timedout = has_timedout,
       .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
       .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
+      .queryOOM = has_OOM,
     };
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
