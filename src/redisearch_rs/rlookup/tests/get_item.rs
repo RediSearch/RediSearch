@@ -7,12 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 
 use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow, rlookup_get_item};
 use sorting_vector::RSSortingVector;
 use value::RSValueTrait;
-
 #[test]
 fn test_rlookup_get_item_dynamic_values_success() {
     // Test case 1: Successfully retrieve item from dynamic values
@@ -26,6 +25,10 @@ fn test_rlookup_get_item_dynamic_values_success() {
     let result = rlookup_get_item(&key2, &row);
     assert!(result.is_some());
     assert_eq!(result.unwrap().as_str(), Some("dynamic_value_2"));
+
+    let result = rlookup_get_item(&key1, &row);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().as_str(), Some("dynamic_value_1"));
 }
 
 #[test]
@@ -40,7 +43,7 @@ fn test_rlookup_get_item_static_values_success() {
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
-    let key = create_mock_key(10, 1, flags); // Out of bounds for dynamic values
+    let key = create_mock_key(0, 1, flags);
 
     let result = rlookup_get_item(&key, &row);
     assert!(result.is_some());
@@ -56,7 +59,7 @@ fn test_rlookup_get_item_missing_svsrc_flag() {
     let mut row = RLookupRow::new();
     row.set_sorting_vector(&sv);
 
-    let key = create_mock_key(10, 0, RLookupKeyFlags::empty()); // No SvSrc flag
+    let key = create_mock_key(0, 0, RLookupKeyFlags::empty()); // No SvSrc flag
 
     let result = rlookup_get_item(&key, &row);
     assert!(result.is_none());
@@ -86,7 +89,7 @@ fn test_rlookup_get_item_static_out_of_bounds() {
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
-    let key = create_mock_key(10, 5, flags); // Out of bounds for sorting vector
+    let key = create_mock_key(0, 5, flags); // Out of bounds for sorting vector
 
     let result = rlookup_get_item(&key, &row);
     assert!(result.is_none());
@@ -99,7 +102,7 @@ fn test_rlookup_get_item_no_sorting_vector() {
 
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
-    let key = create_mock_key(10, 0, flags);
+    let key = create_mock_key(0, 0, flags);
 
     let result = rlookup_get_item(&key, &row);
     assert!(result.is_none());
@@ -144,8 +147,7 @@ fn test_rlookup_get_item_priority_dynamic_over_static() {
     // Test case 9: Dynamic values take priority over sorting vector
     let sv = create_sorting_vector(vec![MockRSValue::new("static_value")]);
     let mut row: RLookupRow<'_, MockRSValue> = RLookupRow::new();
-    let creation_flags = RLookupKeyFlags::empty();
-    let key = create_mock_key(0, 0, creation_flags);
+    let key = create_mock_key(0, 0, RLookupKeyFlags::empty());
     // Index 0 created for both
     row.write_key(&key, MockRSValue::new("dynamic_value"));
     row.set_sorting_vector(&sv);
@@ -243,9 +245,7 @@ fn create_sorting_vector(values: Vec<MockRSValue>) -> RSSortingVector<MockRSValu
 fn create_mock_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKey<'static> {
     let str = format!("mock_key_{}_{}", dstidx, svidx);
     let cstring = CString::new(str).unwrap();
-    let cstr: &'static CStr = Box::leak(cstring.into_boxed_c_str());
-
-    let mut key = RLookupKey::new(cstr, flags);
+    let mut key = RLookupKey::new_owned(cstring, flags);
     key.dstidx = dstidx;
     key.svidx = svidx;
 
