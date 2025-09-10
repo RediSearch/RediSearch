@@ -16,6 +16,7 @@ fn main() {
 
     let config = Config::from_file("cbindgen.toml").expect("Failed to find cbindgen config");
     let _ = rerun_cbinden(&config);
+    println!("cargo::rerun-if-changed=cbindgen.toml");
 
     cbindgen::Builder::new()
         .with_crate(crate_dir)
