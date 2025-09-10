@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 
 use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow, rlookup_get_item};
 use sorting_vector::RSSortingVector;
@@ -243,9 +243,7 @@ fn create_sorting_vector(values: Vec<MockRSValue>) -> RSSortingVector<MockRSValu
 fn create_mock_key(dstidx: u16, svidx: u16, flags: RLookupKeyFlags) -> RLookupKey<'static> {
     let str = format!("mock_key_{}_{}", dstidx, svidx);
     let cstring = CString::new(str).unwrap();
-    let cstr: &'static CStr = Box::leak(cstring.into_boxed_c_str());
-
-    let mut key = RLookupKey::new(cstr, flags);
+    let mut key = RLookupKey::new_owned(cstring, flags);
     key.dstidx = dstidx;
     key.svidx = svidx;
 
