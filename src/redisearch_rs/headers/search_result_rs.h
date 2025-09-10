@@ -16,6 +16,13 @@
 static const uint8_t Result_ExpiredDoc = 1 << 0;
 
 
+/**
+ * A type with a size of `80` bytes and alignment `8`.
+ */
+typedef struct ALIGNED(8) SearchResult {
+  uint64_t _0[10];
+} SearchResult;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -23,7 +30,7 @@ extern "C" {
 /**
  * Construct a new [`SearchResult`].
  */
-SearchResult SearchResult_New(void);
+struct SearchResult SearchResult_New(void);
 
 /**
  * Overrides the contents of `dst` with those from `src` taking ownership of `src`.
@@ -202,6 +209,15 @@ bool SearchResult_HasIndexResult(const SearchResult *res);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void SearchResult_SetIndexResult(SearchResult *res, const RSIndexResult *index_result);
+
+/**
+ * Sets the [`RLookupRow`][ffi::RLookupRow] of `res`.
+ *
+ * # Safety
+ *
+ * 1. `res` must be a correctly initialized [`RLookupRow`][ffi::RLookupRow].
+ */
+void SearchResult_SetRowData(SearchResult *res, RLookupRow row_data);
 
 /**
  * Returns an immutable pointer to the [`RLookupRow`][ffi::RLookupRow] of `res`.

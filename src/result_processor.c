@@ -13,6 +13,8 @@
 #include <util/minmax_heap.h>
 #include "ext/default.h"
 #include "rmutil/rm_assert.h"
+#include "search_result_rs.h"
+#include "util/arr/arr.h"
 #include "util/timeout.h"
 #include "util/arr.h"
 #include "iterators_rs.h"
@@ -28,9 +30,10 @@
 #include "module.h"
 #include "search_disk.h"
 #include "debug_commands.h"
-#include "search_result.h"
 #include "redisearch.h"
 #include "asm_state_machine.h"
+#include "search_result_rs.h"
+#include "result_processor_rs.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -1798,16 +1801,16 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
  static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = {0};
-  RLookupRow_WriteFieldsFrom(&r->rowdata, self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
-  RLookupRow_Reset(&r->rowdata);
-  r->rowdata = translated;
+  RLookupRow_WriteFieldsFrom(SearchResult_GetRowDataMut(r), self->lookupCtx->sourceLookups[upstreamIndex], &translated, self->lookupCtx->tailLookup);
+  RLookupRow_Reset(SearchResult_GetRowDataMut(r));
+  SearchResult_SetRowData(r, translated);
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;
   if (fallbackToLookup) {
-    RSValue *docKeyValue = RLookup_GetItem(self->docKey, &r->rowdata);
+    RSValue *docKeyValue = RLookup_GetItem(self->docKey, SearchResult_GetRowData(r));
     if (docKeyValue != NULL) {
       keyPtr = RSValue_StringPtrLen(docKeyValue, NULL);
     }

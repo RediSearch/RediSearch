@@ -8,6 +8,7 @@
 */
 
 use crate::ResultProcessor;
+use search_result::SearchResult;
 
 /// A processor to track the number of entries yielded by the previous processor in the chain.
 #[derive(Debug)]
@@ -21,7 +22,7 @@ impl ResultProcessor for Counter {
     fn next(
         &mut self,
         mut cx: crate::Context,
-        res: &mut ffi::SearchResult,
+        res: &mut SearchResult<'_>,
     ) -> Result<Option<()>, crate::Error> {
         let mut upstream = cx
             .upstream()
@@ -30,12 +31,7 @@ impl ResultProcessor for Counter {
         while upstream.next(res)?.is_some() {
             self.count += 1;
 
-            // Safety: This function should only be called on initialized SearchResults. Luckily,
-            // a ResultProcessor returning `RPStatus_RS_RESULT_OK` means "Result is filled with valid data"
-            // so it is safe to call this function inside this loop.
-            unsafe {
-                ffi::SearchResult_Clear(res);
-            }
+            res.clear();
         }
 
         // In profiling mode, RPProfile is interleaved into the result processor chain: A chain of
@@ -81,7 +77,7 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, MockResultProcessor, default_search_result, from_iter};
+    use crate::test_utils::{Chain, MockResultProcessor, from_iter};
     use std::{
         iter,
         sync::atomic::{AtomicUsize, Ordering},
@@ -101,12 +97,14 @@ pub(crate) mod test {
     fn basically_works() {
         // Set up the result processor chain
         let mut chain = Chain::new();
-        chain.append(from_iter(iter::repeat_n(default_search_result(), 3)));
+        chain.append(from_iter(
+            iter::from_fn(|| Some(SearchResult::new())).take(3),
+        ));
         chain.append(Counter::new());
 
         let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
 
-        assert!(rp.next(cx, &mut default_search_result()).unwrap().is_none());
+        assert!(rp.next(cx, &mut SearchResult::new()).unwrap().is_none());
         assert_eq!(rp.count, 3);
     }
 
@@ -116,13 +114,15 @@ pub(crate) mod test {
         type MockRPProfile = MockResultProcessor<{ ffi::ResultProcessorType_RP_PROFILE }>;
 
         let mut chain = Chain::new();
-        chain.append(from_iter(iter::repeat_n(default_search_result(), 3)));
+        chain.append(from_iter(
+            iter::from_fn(|| Some(SearchResult::new())).take(3),
+        ));
         chain.append(MockRPProfile::new());
         chain.append(Counter::new());
         chain.append(MockRPProfile::new());
 
         let (cx, rp) = chain.last_as_context_and_inner::<MockRPProfile>();
-        rp.next(cx, &mut default_search_result()).unwrap();
+        rp.next(cx, &mut SearchResult::new()).unwrap();
 
         assert_eq!(PROFILE_COUNTER.load(Ordering::Relaxed), 1);
     }

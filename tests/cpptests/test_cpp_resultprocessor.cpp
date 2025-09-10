@@ -12,7 +12,7 @@
 #include "query.h"
 #include "value.h"
 #include "gtest/gtest.h"
-#include "search_result.h"
+#include "search_result_rs.h"
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {

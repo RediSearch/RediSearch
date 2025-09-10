@@ -25,7 +25,7 @@
 #include "hybrid/hybrid_lookup_context.h"
 #include "vector_normalization.h"
 #include "result_processor_rs.h"
-#include "search_result.h"
+#include "search_result_rs.h"
 #include "slot_ranges.h"
 
 #ifdef __cplusplus

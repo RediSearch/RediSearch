@@ -11,6 +11,7 @@
  #include "info/global_stats.h"
  #include "rmalloc.h"
  #include "util/array.h"
+ #include "search_result_rs.h"
 
  bool hasTimeoutError(QueryError *err) {
    return QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT;
