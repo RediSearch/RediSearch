@@ -9,6 +9,7 @@ publish.workspace = true
 pin-project.workspace = true
 libc = { workspace = true, features = ["extra_traits"] }
 ffi.workspace = true
+search_result.workspace = true
 
 [lints]
 workspace = true
