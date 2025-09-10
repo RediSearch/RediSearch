@@ -386,6 +386,10 @@ static void ReplyWithTimeoutError(RedisModule_Reply *reply) {
   RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
 }
 
+static void ReplyWithOOMError(RedisModule_Reply *reply) {
+  RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_QUERYOOMFAIL));
+}
+
 void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   if (req->reqConfig.timeoutPolicy == FailurePolicy_Fail || req->reqConfig.OOMPolicy == FailurePolicy_Fail) {
       // Aggregate all results before populating the response
@@ -476,7 +480,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithOOMError(rc, req)) {
-      RedisModule_Reply_Error(reply, "Out of memory WIP");
+      ReplyWithOOMError(reply);
       cursor_done = true;
       goto done_2_err;
     }
