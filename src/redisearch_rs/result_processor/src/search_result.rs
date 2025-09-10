@@ -212,3 +212,30 @@ impl<'a> SearchResult<'a> {
         self.flags = flags;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Mock implementation of `DMD_Free` for tests
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn DMD_Free(_cmd: *const ffi::RSDocumentMetadata) {
+        unreachable!()
+    }
+
+    /// Mock implementation of `RSValue_IncrRef` for tests
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn RSValue_IncrRef(_v: *mut ffi::RSValue) {
+        unreachable!()
+    }
+
+    /// Mock implementation of `RSValue_Decref` for tests
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn RSValue_Decref(_v: *mut ffi::RSValue) {
+        unreachable!()
+    }
+
+    /// Mock implementation of `SEDestroy` for tests
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn SEDestroy(_scr_exp: *mut ffi::RSScoreExplain) {
+        unreachable!()
+    }
+}
