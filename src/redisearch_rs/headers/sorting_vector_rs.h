@@ -9,8 +9,6 @@
 
 #define RS_SORTABLES_MAX 1024
 
-typedef struct RSSortingVector RSSortingVector;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -19,34 +17,42 @@ extern "C" {
  * Gets a RSValue from the sorting vector at the given index. If a out of bounds occurs it returns a nullptr.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-RSValue *RSSortingVector_Get(const struct RSSortingVector *vec,
+RSValue *RSSortingVector_Get(const RSSortingVector *vec,
                              size_t idx);
 
 /**
  * Returns the length of the sorting vector. For nullptr it returns 0.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or null.
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or null.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-size_t RSSortingVector_Length(const struct RSSortingVector *vec);
+size_t RSSortingVector_Length(const RSSortingVector *vec);
 
 /**
  * Returns the memory size of the sorting vector.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-size_t RSSortingVector_GetMemorySize(struct RSSortingVector *vector);
+size_t RSSortingVector_GetMemorySize(const RSSortingVector *vec);
 
 /**
  * Puts a number (double) at the given index in the sorting vector. If a out of bounds occurs it returns silently.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSSortingVector_PutNum(struct RSSortingVector *vec,
+void RSSortingVector_PutNum(RSSortingVector *vec,
                             size_t idx,
                             double num);
 
@@ -56,11 +62,11 @@ void RSSortingVector_PutNum(struct RSSortingVector *vec,
  * This function will normalize the string to lowercase and use utf normalization for sorting if `is_normalized` is true.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- * 2. The `str` pointer must point to a valid C string (null-terminated).
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 2. The `str` must be a [valid] pointer to a C string (null-terminated).
  * 3. The `str` pointer must be normalized (lowercase and utf normalization).
  */
-void RSSortingVector_PutStr(struct RSSortingVector *vec,
+void RSSortingVector_PutStr(RSSortingVector *vec,
                             size_t idx,
                             const char *str);
 
@@ -68,10 +74,12 @@ void RSSortingVector_PutStr(struct RSSortingVector *vec,
  * Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
- * 2. The `val` pointer must point to a valid `RSValue` instance.
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 2. The `val` must be a [valid] pointer must point to a `RSValue`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSSortingVector_PutRSVal(struct RSSortingVector *vec,
+void RSSortingVector_PutRSVal(RSSortingVector *vec,
                               size_t idx,
                               RSValue *val);
 
@@ -79,25 +87,29 @@ void RSSortingVector_PutRSVal(struct RSSortingVector *vec,
  * Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSSortingVector_PutNull(struct RSSortingVector *vec,
+void RSSortingVector_PutNull(RSSortingVector *vec,
                              size_t idx);
 
 /**
  * Creates a new `RSSortingVector` with the given length. If the length is greater than `RS_SORTABLES_MAX`=`1024`, it returns a null pointer.
  */
-struct RSSortingVector *RSSortingVector_New(size_t len);
+RSSortingVector *RSSortingVector_New(size_t len);
 
 /**
  * Reduces the refcount of every `RSValue` and frees the memory allocated for an `RSSortingVector`.
  * Called by the C code to deallocate the vector.
  *
  * Safety:
- * 1. The pointer must be a valid pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
  * 2. The pointer must not have been freed before this call to avoid double free.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RSSortingVector_Free(struct RSSortingVector *vector);
+void RSSortingVector_Free(RSSortingVector *vec);
 
 #ifdef __cplusplus
 }  // extern "C"
