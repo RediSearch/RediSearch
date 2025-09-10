@@ -22,7 +22,7 @@ use crate::RLookupKey;
 /// [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
 ///
 /// The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RLookupRow<'a, T: RSValueTrait> {
     /// Sorting vector attached to document
     sorting_vector: Option<&'a RSSortingVector<T>>,
@@ -36,12 +36,45 @@ pub struct RLookupRow<'a, T: RSValueTrait> {
 }
 
 impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
-    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and
-    /// a [`RLookupRow::sorting_vector`] of the given length.
-    pub fn new() -> Self {
+    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector no
+    /// [`RLookupRow::sorting_vector`].
+    pub const fn new() -> Self {
         Self {
             sorting_vector: None,
             dyn_values: vec![],
+            num_dyn_values: 0,
+        }
+    }
+
+    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector and the given
+    /// [`RSSortingVector`].
+    pub const fn with_sorting_vector(sorting_vector: &'a RSSortingVector<T>) -> Self {
+        Self {
+            sorting_vector: Some(sorting_vector),
+            dyn_values: vec![],
+            num_dyn_values: 0,
+        }
+    }
+
+    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector of capacity `capacity` and
+    /// no [`RLookupRow::sorting_vector`].
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            sorting_vector: None,
+            dyn_values: Vec::with_capacity(capacity),
+            num_dyn_values: 0,
+        }
+    }
+
+    /// Creates a new `RLookupRow` with an empty [`RLookupRow::dyn_values`] vector of capacity `capacity` and the given
+    /// [`RSSortingVector`].
+    pub fn with_capacity_and_sorting_vector(
+        capacity: usize,
+        sorting_vector: &'a RSSortingVector<T>,
+    ) -> Self {
+        Self {
+            sorting_vector: Some(sorting_vector),
+            dyn_values: Vec::with_capacity(capacity),
             num_dyn_values: 0,
         }
     }
@@ -106,7 +139,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
     /// This does not free all the memory consumed by the row, but simply resets
-    /// the row data (preserving any caches) so that it may be refilled.    
+    /// the row data (preserving any caches) so that it may be refilled.
     pub fn wipe(&mut self) {
         for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
             value.as_mut().unwrap().decrement();
