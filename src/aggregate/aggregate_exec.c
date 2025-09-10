@@ -598,6 +598,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_3_err;
+    } else if (ShouldReplyWithOOMError(rc, req)) {
+      ReplyWithOOMError(reply);
+      cursor_done = true;
+      goto done_3_err;
     }
 
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
@@ -665,6 +669,8 @@ done_3:
     }
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+    } else if (rc == RS_RESULT_OOM) {
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_QUERYOOMFAIL));
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
       RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(req->qiter.err));
@@ -673,18 +679,18 @@ done_3:
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
-    cursor_done = (rc != RS_RESULT_OK
-                   && !(rc == RS_RESULT_TIMEDOUT
-                        && req->reqConfig.timeoutPolicy == FailurePolicy_Return));
+    cursor_done = isCursorDone(rc, &req->reqConfig);
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
+    bool has_OOM = (rc == RS_RESULT_OOM);
     // Prepare profile printer context
     ProfilePrinterCtx profileCtx = {
       .req = req,
       .timedout = has_timedout,
       .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
       .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
+      .queryOOM = has_OOM,
     };
 
     if (IsProfile(req)) {
