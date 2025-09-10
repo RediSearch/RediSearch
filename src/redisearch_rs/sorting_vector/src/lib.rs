@@ -14,36 +14,21 @@ use std::{
 };
 
 use icu_casemap::CaseMapper;
-use thiserror::Error;
 use value::RSValueTrait;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
 ///
 /// In case for debug builds, it contains the index and the length of the vector for better debugging but has zero size in release builds.
-#[derive(Error, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct IndexOutOfBounds {
-    #[cfg(debug_assertions)]
-    pub index: usize,
-    #[cfg(debug_assertions)]
-    pub len: usize,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IndexOutOfBounds(());
 
 impl Display for IndexOutOfBounds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        #[cfg(debug_assertions)]
-        {
-            write!(
-                f,
-                "Index out of bounds: index={}, len={}",
-                self.index, self.len
-            )
-        }
-        #[cfg(not(debug_assertions))]
-        {
-            write!(f, "Index out of bounds")
-        }
+        write!(f, "Index out of bounds")
     }
 }
+
+impl std::error::Error for IndexOutOfBounds {}
 
 /// [`RSSortingVector`] acts as a cache for sortable fields in a document.
 ///
@@ -84,8 +69,8 @@ impl<T: RSValueTrait> RSSortingVector<T> {
 
     /// Set a number (double) at the given index
     pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), IndexOutOfBounds> {
-        self.in_bounds(idx)?;
-        self.values[idx] = T::create_num(num);
+        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        *spot = T::create_num(num);
         Ok(())
     }
 
@@ -103,35 +88,35 @@ impl<T: RSValueTrait> RSSortingVector<T> {
             unimplemented!("We cannot yet allocate RSValues in Rust. See MOD-10347 for details.");
         }
 
-        self.in_bounds(idx)?;
         let casemapper = CaseMapper::new();
 
         // In Rust we will use ICU4X for case folding. This has been done in C by a different library, called
         // lib_nu. Before we switch to use this code in production we need to make sure that the behavior is the same.
         // See MOD-10320 for details.
         let normalized = casemapper.fold_string(str.as_ref()).into_owned();
-        self.values[idx] = T::create_string(normalized);
+        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        *spot = T::create_string(normalized);
         Ok(())
     }
 
     /// Set a value at the given index
     pub fn try_insert_val(&mut self, idx: usize, value: T) -> Result<(), IndexOutOfBounds> {
-        self.in_bounds(idx)?;
-        self.values[idx] = value;
+        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        *spot = value;
         Ok(())
     }
 
     /// Set a reference to the value at the given index
     pub fn try_insert_val_as_ref(&mut self, idx: usize, value: T) -> Result<(), IndexOutOfBounds> {
-        self.in_bounds(idx)?;
-        self.values[idx] = T::create_ref(value);
+        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        *spot = T::create_ref(value);
         Ok(())
     }
 
     /// Set a null value at the given index
     pub fn try_insert_null(&mut self, idx: usize) -> Result<(), IndexOutOfBounds> {
-        self.in_bounds(idx)?;
-        self.values[idx] = T::create_null();
+        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        *spot = T::create_null();
         Ok(())
     }
 
@@ -176,21 +161,6 @@ impl<T: RSValueTrait> RSSortingVector<T> {
             }
         }
         sz
-    }
-
-    /// Returns `Ok(())` if the index is in bounds, [`Error::OutOfBounds`] otherwise.
-    fn in_bounds(&self, idx: usize) -> Result<(), IndexOutOfBounds> {
-        if idx < self.values.len() {
-            Ok(())
-        } else {
-            #[cfg(debug_assertions)]
-            return Err(IndexOutOfBounds {
-                index: idx,
-                len: self.values.len(),
-            });
-            #[cfg(not(debug_assertions))]
-            return Err(IndexOutOfBounds {});
-        }
     }
 }
 
