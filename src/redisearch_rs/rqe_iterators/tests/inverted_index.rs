@@ -9,9 +9,19 @@
 
 use core::panic;
 
-use ffi::{IndexFlags, IndexFlags_Index_DocIdsOnly, t_docId};
-use inverted_index::{Encoder, InvertedIndex, RSIndexResult, numeric::Numeric};
-use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index_it::NumericFull};
+use ffi::{
+    IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
+    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs,
+    IndexFlags_Index_StoreTermOffsets, t_docId, t_fieldMask,
+};
+use inverted_index::{
+    Encoder, InvertedIndex, RSIndexResult, RSOffsetVector, RSResultKind, full::Full,
+    numeric::Numeric, test_utils::TermRecordCompare,
+};
+use rqe_iterators::{
+    RQEIterator, SkipToOutcome,
+    inverted_index_it::{NumericFull, TermFull},
+};
 
 mod c_mocks;
 
@@ -20,6 +30,16 @@ struct BaseTest<E> {
     doc_ids: Vec<t_docId>,
     ii: InvertedIndex<E>,
     expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+}
+
+/// assert that both records are equal
+fn check_record(record: &RSIndexResult, expected: &RSIndexResult) {
+    if record.kind() == RSResultKind::Term {
+        // the term record is not encoded in the II so we can't compare it directly
+        assert_eq!(TermRecordCompare(record), TermRecordCompare(expected));
+    } else {
+        assert_eq!(record, expected);
+    }
 }
 
 impl<E: Encoder + Default> BaseTest<E> {
@@ -54,7 +74,7 @@ impl<E: Encoder + Default> BaseTest<E> {
                 let result = it.read();
                 match result {
                     Ok(Some(record)) => {
-                        assert_eq!(record, &expected_record(record.doc_id));
+                        check_record(record, &expected_record(record.doc_id));
                     }
                     _ => break,
                 }
@@ -89,7 +109,7 @@ impl<E: Encoder + Default> BaseTest<E> {
                     panic!("skip_to {i} should succeed with NotFound: {res:?}");
                 };
 
-                assert_eq!(record, &expected_record(id));
+                check_record(record, &expected_record(id));
                 assert_eq!(it.last_doc_id(), id);
                 i += 1;
             }
@@ -98,7 +118,7 @@ impl<E: Encoder + Default> BaseTest<E> {
             let Ok(Some(SkipToOutcome::Found(record))) = res else {
                 panic!("skip_to {id} should succeed with Found: {res:?}");
             };
-            assert_eq!(record, &expected_record(id));
+            check_record(record, &expected_record(id));
             assert_eq!(it.last_doc_id(), id);
             i += 1;
         }
@@ -118,7 +138,7 @@ impl<E: Encoder + Default> BaseTest<E> {
             let Ok(Some(SkipToOutcome::Found(record))) = res else {
                 panic!("skip_to {id} should succeed with Found: {res:?}");
             };
-            assert_eq!(record, &expected_record(id));
+            check_record(record, &expected_record(id));
             assert_eq!(it.last_doc_id(), id);
         }
 
@@ -170,5 +190,76 @@ fn numeric_full_read() {
 /// test skipping from NumericFull iterator
 fn numeric_full_skip_to() {
     let test = NumericTest::new();
+    test.skip_to();
+}
+
+struct TermTest {
+    test: BaseTest<Full>,
+}
+
+impl TermTest {
+    fn expected_record(
+        doc_id: t_docId,
+        term: &Box<ffi::RSQueryTerm>,
+        offsets: &Vec<u8>,
+    ) -> RSIndexResult<'static> {
+        let term: *const _ = &*term;
+
+        RSIndexResult::term_with_term_ptr(
+            term as _,
+            RSOffsetVector::with_data(offsets.as_ptr() as _, offsets.len() as _),
+            doc_id,
+            (doc_id / 2) as t_fieldMask + 1,
+            (doc_id / 2) as u32 + 1,
+        )
+    }
+
+    fn new() -> Self {
+        let flags = IndexFlags_Index_StoreFreqs
+            | IndexFlags_Index_StoreTermOffsets
+            | IndexFlags_Index_StoreFieldFlags
+            | IndexFlags_Index_StoreByteOffsets;
+
+        const TEST_STR: &str = "term";
+        let test_str_ptr = TEST_STR.as_ptr() as *mut _;
+        let term = Box::new(ffi::RSQueryTerm {
+            str_: test_str_ptr,
+            len: TEST_STR.len(),
+            idf: 5.0,
+            id: 1,
+            flags: 0,
+            bm25_idf: 10.0,
+        });
+
+        let offsets = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+        Self {
+            test: BaseTest::new(
+                flags,
+                Box::new(move |doc_id| Self::expected_record(doc_id, &term, &offsets)),
+            ),
+        }
+    }
+
+    fn read(self) {
+        self.test.read(TermFull::new(self.test.ii.reader()));
+    }
+
+    fn skip_to(self) {
+        self.test.skip_to(TermFull::new(self.test.ii.reader()));
+    }
+}
+
+#[test]
+/// test reading from TermFull iterator
+fn term_full_read() {
+    let test = TermTest::new();
+    test.read();
+}
+
+#[test]
+/// test skipping from TermFull iterator
+fn term_full_skip_to() {
+    let test = TermTest::new();
     test.skip_to();
 }
