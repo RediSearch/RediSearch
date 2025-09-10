@@ -9,8 +9,8 @@
 
 use core::panic;
 
-use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
-use inverted_index::{Encoder, InvertedIndex, RSIndexResult};
+use ffi::{IndexFlags, IndexFlags_Index_DocIdsOnly, t_docId};
+use inverted_index::{Encoder, InvertedIndex, RSIndexResult, numeric::Numeric};
 use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index_it::NumericFull};
 
 mod c_mocks;
@@ -19,28 +19,34 @@ mod c_mocks;
 struct BaseTest<E> {
     doc_ids: Vec<t_docId>,
     ii: InvertedIndex<E>,
+    expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
 }
 
-impl<E: Encoder> BaseTest<E> {
-    fn new(enc: E) -> Self {
-        let n_records = E::RECOMMENDED_BLOCK_ENTRIES;
+impl<E: Encoder + Default> BaseTest<E> {
+    fn new(
+        ii_flags: IndexFlags,
+        expected_record: Box<dyn Fn(t_docId) -> RSIndexResult<'static>>,
+    ) -> Self {
+        let create_record = &*expected_record;
         // Generate a set of odd document IDs for testing, starting from 1.
-        // The numeric record has a value of `doc_id * 2.0`.
-        let doc_ids = (0..n_records)
-            .map(|i| (2 * i + 1) as t_docId)
-            .collect::<Vec<_>>();
+        let doc_ids = (0..100).map(|i| (2 * i + 1) as t_docId).collect::<Vec<_>>();
 
-        let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, enc);
+        let mut ii = InvertedIndex::new(ii_flags, E::default());
         for doc_id in doc_ids.iter() {
-            let record = RSIndexResult::numeric(*doc_id as f64 * 2.0).doc_id(*doc_id);
+            let record = create_record(*doc_id);
             ii.add_record(&record).expect("failed to add record");
         }
 
-        Self { doc_ids, ii }
+        Self {
+            doc_ids,
+            ii,
+            expected_record,
+        }
     }
 
     /// test read functionality for a given iterator.
     fn read<I: RQEIterator>(&self, mut it: I) {
+        let expected_record = &*self.expected_record;
         let mut i = 0;
 
         loop {
@@ -48,8 +54,7 @@ impl<E: Encoder> BaseTest<E> {
                 let result = it.read();
                 match result {
                     Ok(Some(record)) => {
-                        assert_eq!(record.doc_id, self.doc_ids[i]);
-                        assert_eq!(record.as_numeric(), Some(self.doc_ids[i] as f64 * 2.0));
+                        assert_eq!(record, &expected_record(record.doc_id));
                     }
                     _ => break,
                 }
@@ -73,6 +78,7 @@ impl<E: Encoder> BaseTest<E> {
 
     /// test skip_to functionality for a given iterator.
     fn skip_to<I: RQEIterator>(&self, mut it: I) {
+        let expected_record = &*self.expected_record;
         // Test skipping to any id between 1 and the last id
         let mut i = 1;
         for id in self.doc_ids.iter().copied() {
@@ -83,8 +89,7 @@ impl<E: Encoder> BaseTest<E> {
                     panic!("skip_to {i} should succeed with NotFound: {res:?}");
                 };
 
-                assert_eq!(record.doc_id, id);
-                assert_eq!(record.as_numeric(), Some(id as f64 * 2.0));
+                assert_eq!(record, &expected_record(id));
                 assert_eq!(it.last_doc_id(), id);
                 i += 1;
             }
@@ -93,8 +98,7 @@ impl<E: Encoder> BaseTest<E> {
             let Ok(Some(SkipToOutcome::Found(record))) = res else {
                 panic!("skip_to {id} should succeed with Found: {res:?}");
             };
-            assert_eq!(record.doc_id, id);
-            assert_eq!(record.as_numeric(), Some(id as f64 * 2.0));
+            assert_eq!(record, &expected_record(id));
             assert_eq!(it.last_doc_id(), id);
             i += 1;
         }
@@ -114,7 +118,7 @@ impl<E: Encoder> BaseTest<E> {
             let Ok(Some(SkipToOutcome::Found(record))) = res else {
                 panic!("skip_to {id} should succeed with Found: {res:?}");
             };
-            assert_eq!(record.doc_id, id);
+            assert_eq!(record, &expected_record(id));
             assert_eq!(it.last_doc_id(), id);
         }
 
@@ -130,16 +134,41 @@ impl<E: Encoder> BaseTest<E> {
     }
 }
 
+struct NumericTest {
+    test: BaseTest<Numeric>,
+}
+
+impl NumericTest {
+    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        // The numeric record has a value of `doc_id * 2.0`.
+        RSIndexResult::numeric(doc_id as f64 * 2.0).doc_id(doc_id)
+    }
+
+    fn new() -> Self {
+        Self {
+            test: BaseTest::new(IndexFlags_Index_DocIdsOnly, Box::new(Self::expected_record)),
+        }
+    }
+
+    fn read(self) {
+        self.test.read(NumericFull::new(self.test.ii.reader()));
+    }
+
+    fn skip_to(self) {
+        self.test.skip_to(NumericFull::new(self.test.ii.reader()));
+    }
+}
+
 #[test]
 /// test reading from NumericFull iterator
 fn numeric_full_read() {
-    let test = BaseTest::new(inverted_index::numeric::Numeric::default());
-    test.read(NumericFull::new(test.ii.reader()));
+    let test = NumericTest::new();
+    test.read();
 }
 
 #[test]
 /// test skipping from NumericFull iterator
 fn numeric_full_skip_to() {
-    let test = BaseTest::new(inverted_index::numeric::Numeric::default());
-    test.skip_to(NumericFull::new(test.ii.reader()));
+    let test = NumericTest::new();
+    test.skip_to();
 }
