@@ -8,7 +8,6 @@ publish.workspace = true
 [dependencies]
 ffi.workspace = true
 icu_casemap.workspace = true
-thiserror.workspace = true
 value = { workspace = true, features = ["c_ffi_impl"] }
 
 [dev-dependencies]
