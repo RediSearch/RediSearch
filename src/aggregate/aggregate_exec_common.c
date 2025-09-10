@@ -11,6 +11,7 @@
  #include "info/global_stats.h"
  #include "rmalloc.h"
  #include "util/array.h"
+ #include "search_result_rs.h"
 
  bool hasTimeoutError(QueryError *err) {
    return QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT;
@@ -46,7 +47,7 @@
 
  SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
    SearchResult **results = array_new(SearchResult *, 8);
-   SearchResult r = {0};
+   SearchResult r = SearchResult_New();
    while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;
@@ -54,7 +55,7 @@
      array_append(results, SearchResult_AllocateMove(&r));
 
      // clean the search result
-     r = (SearchResult){0};
+     r = SearchResult_New();
    }
 
    if (*rc != RS_RESULT_OK) {

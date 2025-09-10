@@ -12,7 +12,7 @@
 #include "query.h"
 #include "value.h"
 #include "gtest/gtest.h"
-#include "search_result.h"
+#include "search_result_rs.h"
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -68,7 +68,7 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   QITR_PushRP(&qitr, p2);
 
   size_t count = 0;
-  SearchResult r = {0};
+  SearchResult r = SearchResult_New();
   ResultProcessor *rpTail = qitr.endProc;
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     count++;
@@ -95,8 +95,8 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
  * Test SearchResult_mergeFlags function with no flags set
  */
 TEST_F(ResultProcessorTest, testmergeFlags_NoFlags) {
-  SearchResult a = {0};
-  SearchResult b = {0};
+  SearchResult a = SearchResult_New();
+  SearchResult b = SearchResult_New();
 
   // Test merging no flags
   SearchResult_MergeFlags(&a, &b);
@@ -107,8 +107,8 @@ TEST_F(ResultProcessorTest, testmergeFlags_NoFlags) {
  * Test SearchResult_mergeFlags function with Result_ExpiredDoc flag
  */
 TEST_F(ResultProcessorTest, testmergeFlags_ExpiredDoc) {
-  SearchResult a = {0};
-  SearchResult b = {0};
+  SearchResult a = SearchResult_New();
+  SearchResult b = SearchResult_New();
   SearchResult_SetFlags(&b, Result_ExpiredDoc); // Source has expired flag
 
   // Test merging expired flag

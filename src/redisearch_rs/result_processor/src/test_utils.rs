@@ -8,15 +8,13 @@
 */
 
 use crate::{Context, Error, ResultProcessor, ResultProcessorWrapper};
-use std::{
-    pin::Pin,
-    ptr::{self, NonNull},
-};
+use search_result::SearchResult;
+use std::{pin::Pin, ptr::NonNull};
 
 /// Create a ResultProcessor from an `Iterator` for testing purposes
 pub fn from_iter<I>(i: I) -> IterResultProcessor<I::IntoIter>
 where
-    I: IntoIterator<Item = ffi::SearchResult>,
+    I: IntoIterator<Item = SearchResult<'static>>,
 {
     IterResultProcessor {
         iter: i.into_iter(),
@@ -31,11 +29,11 @@ pub struct IterResultProcessor<I> {
 
 impl<I> ResultProcessor for IterResultProcessor<I>
 where
-    I: Iterator<Item = ffi::SearchResult>,
+    I: Iterator<Item = SearchResult<'static>>,
 {
     const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX + 1;
 
-    fn next(&mut self, _cx: Context, out: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+    fn next(&mut self, _cx: Context, out: &mut SearchResult) -> Result<Option<()>, Error> {
         if let Some(res) = self.iter.next() {
             *out = res;
             Ok(Some(()))
@@ -69,7 +67,7 @@ impl ResultRP {
 impl ResultProcessor for ResultRP {
     const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
-    fn next(&mut self, _cx: Context, _res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+    fn next(&mut self, _cx: Context, _res: &mut SearchResult) -> Result<Option<()>, Error> {
         self.res.take().unwrap()
     }
 }
@@ -86,7 +84,7 @@ impl<const RP_TYPE: ffi::ResultProcessorType> MockResultProcessor<RP_TYPE> {
 impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for MockResultProcessor<RP_TYPE> {
     const TYPE: ffi::ResultProcessorType = RP_TYPE;
 
-    fn next(&mut self, mut cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+    fn next(&mut self, mut cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
         let Some(mut upstream) = cx.upstream() else {
             return Ok(None);
         };
@@ -214,46 +212,32 @@ impl Drop for Chain {
     }
 }
 
-/// Return the default value for [`ffi::SearchResult`]
-// FIXME: Replace with `Default::default` once [MOD-9920] is completed.
-pub const fn default_search_result() -> ffi::SearchResult {
-    const SEARCH_RESULT_INIT: ffi::SearchResult = ffi::SearchResult {
-        docId: 0,
-        score: 0.0,
-        scoreExplain: ptr::null_mut(),
-        dmd: ptr::null(),
-        indexResult: ptr::null_mut(),
-        rowdata: ffi::RLookupRow {
-            sv: ptr::null(),
-            dyn_: ptr::null_mut(),
-            ndyn: 0,
-        },
-        flags: 0,
-    };
-    SEARCH_RESULT_INIT
+/// Mock implementation of `DMD_Free` for tests
+#[unsafe(no_mangle)]
+unsafe extern "C" fn DMD_Free(_cmd: *const ffi::RSDocumentMetadata) {
+    unreachable!()
 }
 
-/// Mock implementation of `SearchResult_Clear` for tests
-///
-/// this doesn't actually free anything, so will leak resources but hopefully this is fine for the few Rust
-/// tests for now
-// FIXME: replace with `SearchResult::clear` once [MOD-9920] is completed.
+/// Mock implementation of `RSValue_Decref` for tests
 #[unsafe(no_mangle)]
-unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
-    let r = unsafe { r.as_mut().unwrap() };
+unsafe extern "C" fn RSValue_Decref(_v: *mut ffi::RSValue) {
+    unreachable!()
+}
 
-    // This won't affect anything if the result is null
-    r.score = 0.0;
+/// Mock implementation of `SEDestroy` for tests
+#[unsafe(no_mangle)]
+unsafe extern "C" fn SEDestroy(_scr_exp: *mut ffi::RSScoreExplain) {
+    unreachable!()
+}
 
-    // SEDestroy(r->scoreExplain);
-    r.scoreExplain = ptr::null_mut();
+/// Mock implementation of `RLookupRow_Wipe` for tests
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_Reset(_row: *mut ffi::RLookupRow) {
+    // unreachable!()
+}
 
-    // IndexResult_Free(r->indexResult);
-    r.indexResult = ptr::null_mut();
-
-    r.flags = 0;
-    // RLookupRow_Wipe(&r->rowdata);
-
-    r.dmd = ptr::null();
-    //   DMD_Return(r->dmd);
+/// Mock implementation of `RLookupRow_Wipe` for tests
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_Wipe(_row: *mut ffi::RLookupRow) {
+    // unreachable!()
 }
