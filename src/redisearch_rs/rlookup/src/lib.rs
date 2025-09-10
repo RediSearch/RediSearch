@@ -36,15 +36,11 @@ pub fn rlookup_get_item<'a>(
         return row.dyn_values()[key.dstidx as usize].as_ref();
     }
 
-    if !key.flags.contains(RLookupKeyFlag::SvSrc) {
-        return None;
+    // 2. If not found in dynamic values, check the sorting vector if the SvSrc flag is set
+    if key.flags.contains(RLookupKeyFlag::SvSrc) {
+        let sv = row.sorting_vector()?;
+        sv.get(key.svidx as usize)
+    } else {
+        None
     }
-
-    // 3. Linearly search the sorting vector if it exists
-    let sv = row.sorting_vector()?;
-    if sv.len() <= key.svidx as usize {
-        return None;
-    }
-
-    Some(&sv[key.svidx as usize])
 }

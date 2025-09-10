@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 use std::ffi::{CStr, CString};
 
 use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow, rlookup_get_item};
@@ -144,6 +153,7 @@ fn test_rlookup_get_item_priority_dynamic_over_static() {
     let mut flags = RLookupKeyFlags::empty();
     flags.insert(RLookupKeyFlag::SvSrc);
 
+    let key = create_mock_key(0, 0, flags);
     // asked for static, but dynamic should take priority
     let result = rlookup_get_item(&key, &row);
     assert!(result.is_some());
