@@ -137,6 +137,7 @@ void loadDtor(PLN_BaseStep *bstp) {
 static void vectorNormalizerDtor(PLN_BaseStep *bstp) {
   PLN_VectorNormalizerStep *vnStep = (PLN_VectorNormalizerStep *)bstp;
   // vectorFieldName is not owned (points to parser tokens), so don't free it
+
   if (vnStep->distanceFieldAlias) {
     rm_free(vnStep->distanceFieldAlias);
   }

@@ -30,7 +30,7 @@ typedef struct {
   bool isParameter;                // true if vector data is a parameter
   bool hasExplicitK;               // Flag to track if K was explicitly set in KNN query
   bool hasExplicitYieldDistanceAs; // Flag to track if YIELD_DISTANCE_AS was explicitly set
-  char *distanceFieldAlias;        //
+  char *distanceFieldAlias;        // Alias for the distance field (OWNED)
 } ParsedVectorData;
 
 void ParsedVectorData_Free(ParsedVectorData *pvd);

@@ -643,7 +643,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   const char *distanceFieldAlias = NULL;
   if (vectorRequest->parsedVectorData->hasExplicitYieldDistanceAs) {
-    distanceFieldAlias = rm_strdup(vectorRequest->parsedVectorData->distanceFieldAlias);
+    distanceFieldAlias = vectorRequest->parsedVectorData->distanceFieldAlias;
+    vectorRequest->parsedVectorData->distanceFieldAlias = NULL;
   } else {
     distanceFieldAlias = VectorQuery_GetDefaultScoreFieldName(vectorRequest->parsedVectorData->fieldName, strlen(vectorRequest->parsedVectorData->fieldName));
   }

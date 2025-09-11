@@ -1000,7 +1000,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // This function creates the array if it's the first name, and ensure its size is sufficient.
   size_t idx = -1;
   if (qn->vn.vq->scoreField) {
-    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL, qn->opts.flags & QueryNode_HideDistanceField);
+    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL, qn->opts.flags & QueryNode_HideVectorDistanceField);
   }
 
   IndexIterator *child_it = NULL;
