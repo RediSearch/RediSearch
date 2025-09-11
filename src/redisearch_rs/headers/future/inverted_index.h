@@ -11,6 +11,15 @@
 #include "types_rs.h"
 
 /**
+ * Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
+ * are ordered by document ID, so the first entry in the block has the lowest document ID, and the
+ * last entry has the highest document ID. The block also contains a buffer that is used to
+ * store the encoded entries. The buffer is dynamically resized as needed when new entries are
+ * added to the block.
+ */
+typedef struct IndexBlock IndexBlock;
+
+/**
  * An opaque inverted index structure. The actual implementation is determined at runtime based on
  * the index flags provided when creating the index. This allows us to have a single interface for
  * all index types while still being able to optimize the storage and performance for each index
@@ -91,6 +100,108 @@ uintptr_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_
  * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
  */
 uintptr_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
+
+/**
+ * Return the number of blocks in the inverted index.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+uintptr_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
+
+/**
+ * Get the flags used to create the inverted index.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+IndexFlags InvertedIndex_Flags(const struct InvertedIndex *ii);
+
+/**
+ * Get the number of unique documents in the inverted index.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+uintptr_t InvertedIndex_NumDocs(const struct InvertedIndex *ii);
+
+/**
+ * Get a summary of the inverted index for debugging purposes.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+IISummary InvertedIndex_Summary(const struct InvertedIndex *ii);
+
+/**
+ * Get an array of summaries of all blocks in the inverted index. The output parameter `count` will
+ * be set to the number of blocks in the index. The returned pointer must be freed using
+ * [`InvertedIndex_BlocksSummaryFree`].
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ * - `count` must be a valid pointer to a `usize` and cannot be NULL.
+ */
+IIBlockSummary *InvertedIndex_BlocksSummary(const struct InvertedIndex *ii, uintptr_t *count);
+
+/**
+ * Free the memory associated with the array of block summaries returned by [`InvertedIndex_BlocksSummary`].
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `blocks` must be a valid pointer to an array of `BlockSummary` instances returned by
+ *   [`InvertedIndex_BlocksSummary`].
+ * - `count` must have the same value as the `count` output parameter passed to
+ *   [`InvertedIndex_BlocksSummary`].
+ */
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *blocks,
+                                     uintptr_t count);
+
+/**
+ * Get the field mask used in the inverted index. This is only valid for indexes created with the
+ * `StoreFieldFlags` flag. For other index types, this function will return 0.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+t_fieldMask InvertedIndex_FieldMask(const struct InvertedIndex *ii);
+
+/**
+ * Get the number of entries in the inverted index. This is only valid for numeric indexes created
+ * with the `StoreNumeric` flag. For other index types, this function will return 0.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+uintptr_t InvertedIndex_NumEntries(const struct InvertedIndex *ii);
+
+/**
+ * Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
+ * This is used by some C tests.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii,
+                                                uintptr_t block_idx);
+
+/**
+ * Get ID of the last document in the index. Returns 0 if the index is empty.
+ * This is used by some C tests.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+ */
+t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
 
 #ifdef __cplusplus
 }  // extern "C"

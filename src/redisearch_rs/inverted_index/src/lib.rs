@@ -397,7 +397,8 @@ impl<E: Encoder> InvertedIndex<E> {
         Ok(buf_growth + mem_growth)
     }
 
-    fn last_doc_id(&self) -> Option<t_docId> {
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
@@ -466,6 +467,16 @@ impl<E: Encoder> InvertedIndex<E> {
             })
             .collect()
     }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.blocks.get(index)
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -518,6 +529,21 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         self.number_of_entries
     }
 
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
+        self.index.last_doc_id()
+    }
+
+    /// Returns the number of unique documents in the index.
+    pub fn unique_docs(&self) -> usize {
+        self.index.unique_docs()
+    }
+
+    /// Returns the flags of this index.
+    pub fn flags(&self) -> IndexFlags {
+        self.index.flags()
+    }
+
     /// Return the debug summary for this inverted index.
     pub fn summary(&self) -> Summary {
         let mut summary = self.index.summary();
@@ -530,6 +556,16 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Return basic information about the blocks in this inverted index.
     pub fn blocks_summary(&self) -> Vec<BlockSummary> {
         self.index.blocks_summary()
+    }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.index.number_of_blocks()
+    }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.index.block_ref(index)
     }
 }
 
@@ -580,9 +616,44 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.memory_usage() + std::mem::size_of::<t_fieldMask>()
     }
 
+    /// Returns the last document ID in the index, if any.
+    pub fn last_doc_id(&self) -> Option<t_docId> {
+        self.index.last_doc_id()
+    }
+
+    /// Returns the number of unique documents in the index.
+    pub fn unique_docs(&self) -> usize {
+        self.index.unique_docs()
+    }
+
+    /// Returns the flags of this index.
+    pub fn flags(&self) -> IndexFlags {
+        self.index.flags()
+    }
+
     /// Get the combined field mask of all records in the index.
     pub fn field_mask(&self) -> t_fieldMask {
         self.field_mask
+    }
+
+    /// Return the debug summary for this inverted index.
+    pub fn summary(&self) -> Summary {
+        self.index.summary()
+    }
+
+    /// Return basic information about the blocks in this inverted index.
+    pub fn blocks_summary(&self) -> Vec<BlockSummary> {
+        self.index.blocks_summary()
+    }
+
+    /// Returns the number of blocks in this index.
+    pub fn number_of_blocks(&self) -> usize {
+        self.index.number_of_blocks()
+    }
+
+    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
+        self.index.block_ref(index)
     }
 }
 
