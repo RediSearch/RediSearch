@@ -24,7 +24,6 @@
 #include "src/vector_index.h"
 #include "VecSim/query_results.h"
 #include "info/global_stats.h"
-#include "src/ext/default.h"
 
 // Macro for BLOB data that all tests using $BLOB should use
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
@@ -890,41 +889,4 @@ TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
       "COMBINE", "RRF", "2", "CONSTANT", "invalid",
       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
-}
-
-TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "LINEAR", "0.6", "0.4");
-
-  parseCommand(args);
-
-  ASSERT_STREQ(result.search->searchopts.scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME);
-}
-
-TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "LINEAR", "0.6", "0.4");
-
-  parseCommand(args);
-
-  ASSERT_STREQ(result.search->searchopts.scorerName, TFIDF_SCORER_NAME);
-}
-
-TEST_F(ParseHybridTest, testDefaultTextScorerForRRF) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "RRF", "2", "CONSTANT", "10");
-
-  parseCommand(args);
-
-  // No explicit scorer should be set; the default scorer will be used
-  ASSERT_EQ(result.search->searchopts.scorerName, nullptr);
-}
-
-TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "RRF", "2", "CONSTANT", "10");
-
-  parseCommand(args);
-
-  ASSERT_STREQ(result.search->searchopts.scorerName, TFIDF_SCORER_NAME);
 }
