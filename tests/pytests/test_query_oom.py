@@ -48,7 +48,7 @@ def _test_oom_before_rp(env, rp_type, pause_after_n, fail_on_oom):
         query_result[0].contains(OOM_QUERY_ERROR)
     else:
         # Verify amount of results
-        # Assuming the OOM happened before loader changed to yeild mode
+        # Assuming the OOM happened before loader changed to yield mode
         env.assertEqual(query_result[0][0], _expected_results(pause_after_n))
 
     # Reset memory
