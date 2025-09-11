@@ -22,8 +22,13 @@ fn benchmark_id_list(c: &mut Criterion) {
     bencher.bench(c);
 }
 
-fn benchmark_inverted_index(c: &mut Criterion) {
+fn benchmark_inverted_index_numeric(c: &mut Criterion) {
     let bencher = benchers::inverted_index::NumericFullBencher::default();
+    bencher.bench(c);
+}
+
+fn benchmark_inverted_index_term(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::TermFullBencher::default();
     bencher.bench(c);
 }
 
@@ -31,7 +36,8 @@ criterion_group!(
     benches,
     benchmark_empty,
     benchmark_id_list,
-    benchmark_inverted_index,
+    benchmark_inverted_index_numeric,
+    benchmark_inverted_index_term,
 );
 
 criterion_main!(benches);

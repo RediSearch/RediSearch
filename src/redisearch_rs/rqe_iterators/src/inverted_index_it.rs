@@ -8,22 +8,32 @@
 */
 
 //! Inverted index iterator implementation
+use core::panic;
+
 use ffi::t_docId;
-use inverted_index::{IndexReader, RSIndexResult, numeric::Numeric};
+use inverted_index::{
+    DecodedBy, Decoder, IndexReader, RSIndexResult, full::Full, numeric::Numeric,
+};
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
-/// An iterator over numeric inverted index entries.
+/// A generic full iterator over inverted index entries.
 ///
-/// This iterator provides full index scan to all document IDs in a numeric inverted index.
+/// This iterator provides full index scan to all document IDs in an inverted index.
 /// It is not suitable for queries.
 ///
 /// # Type Parameters
 ///
 /// * `'index` - The lifetime of the index being iterated over.
-pub struct NumericFull<'index> {
+/// * `E` - The encoderype used to encode the inverted index.
+/// * `D` - The decoder type used to decode the inverted index.
+struct FullIterator<'index, E, D>
+where
+    E: DecodedBy<Decoder = D>,
+    D: Decoder,
+{
     /// The reader used to iterate over the inverted index.
-    reader: IndexReader<'index, Numeric, Numeric>,
+    reader: IndexReader<'index, E, D>,
     /// if we reached the end of the index.
     at_eos: bool,
     /// the last document ID read by the iterator.
@@ -32,27 +42,49 @@ pub struct NumericFull<'index> {
     result: RSIndexResult<'static>,
 }
 
-impl<'index> NumericFull<'index> {
-    pub fn new(reader: IndexReader<'index, Numeric, Numeric>) -> Self {
+impl<'index, E, D> FullIterator<'index, E, D>
+where
+    E: DecodedBy<Decoder = D>,
+    D: Decoder,
+{
+    fn new(reader: IndexReader<'index, E, D>, result: RSIndexResult<'static>) -> Self {
         Self {
             reader,
             at_eos: false,
             last_doc_id: 0,
-            result: RSIndexResult::numeric(0.0),
+            result,
         }
     }
 
     fn update_result(&mut self, record: RSIndexResult<'_>) {
         self.last_doc_id = record.doc_id;
         self.result.doc_id = record.doc_id;
-        // SAFETY: the Numeric decoder always return numeric records
-        let record_num = record.as_numeric().expect("record is not numeric");
-        // SAFETY: we created this record as numeric
-        *self.result.as_numeric_mut().unwrap() = record_num;
+        self.result.field_mask = record.field_mask;
+        self.result.freq = record.freq;
+
+        match (&record.data, &mut self.result.data) {
+            (
+                inverted_index::RSResultData::Numeric(src),
+                inverted_index::RSResultData::Numeric(dst),
+            ) => {
+                *dst = *src;
+            }
+            (inverted_index::RSResultData::Term(src), inverted_index::RSResultData::Term(dst)) => {
+                // Update the term data
+                *dst = src.to_owned();
+            }
+            _ => {
+                panic!("Result data type mismatch");
+            }
+        }
     }
 }
 
-impl<'index> RQEIterator for NumericFull<'index> {
+impl<'index, E, D> RQEIterator for FullIterator<'index, E, D>
+where
+    E: DecodedBy<Decoder = D>,
+    D: Decoder,
+{
     fn read<'it>(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
         if self.at_eos {
             return Ok(None);
@@ -121,5 +153,105 @@ impl<'index> RQEIterator for NumericFull<'index> {
 
     fn at_eof(&self) -> bool {
         self.at_eos
+    }
+}
+
+/// An iterator over numeric inverted index entries.
+///
+/// This iterator provides full index scan to all document IDs in a numeric inverted index.
+/// It is not suitable for queries.
+///
+/// # Type Parameters
+///
+/// * `'index` - The lifetime of the index being iterated over.
+pub struct NumericFull<'index> {
+    it: FullIterator<'index, Numeric, Numeric>,
+}
+
+impl<'index> NumericFull<'index> {
+    pub fn new(reader: IndexReader<'index, Numeric, Numeric>) -> Self {
+        let result = RSIndexResult::numeric(0.0);
+        Self {
+            it: FullIterator::new(reader, result),
+        }
+    }
+}
+
+impl<'index> RQEIterator for NumericFull<'index> {
+    fn read<'it>(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+        self.it.read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+        self.it.skip_to(doc_id)
+    }
+
+    fn rewind(&mut self) {
+        self.it.rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.it.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.it.at_eof()
+    }
+}
+
+/// An iterator over term inverted index entries.
+///
+/// This iterator provides full index scan to all document IDs in a term inverted index.
+/// It is not suitable for queries.
+///
+/// # Type Parameters
+///
+/// * `'index` - The lifetime of the index being iterated over.
+pub struct TermFull<'index> {
+    it: FullIterator<'index, Full, Full>,
+}
+
+impl<'index> TermFull<'index> {
+    pub fn new(reader: IndexReader<'index, Full, Full>) -> Self {
+        let result = RSIndexResult::term();
+        Self {
+            it: FullIterator::new(reader, result),
+        }
+    }
+}
+
+impl<'index> RQEIterator for TermFull<'index> {
+    fn read<'it>(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
+        self.it.read()
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
+        self.it.skip_to(doc_id)
+    }
+
+    fn rewind(&mut self) {
+        self.it.rewind()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        self.it.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.it.at_eof()
     }
 }
