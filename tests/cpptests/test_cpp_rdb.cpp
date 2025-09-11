@@ -211,19 +211,6 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     if (lockResult == 0) {
         pthread_rwlock_unlock(&loadedSpec->rwlock);
     }
-    // verify initial lock states are the same
-    // int sameLockState = memcmp((const void*)&spec->rwlock, (const void *)&loadedSpec->rwlock, sizeof(pthread_rwlock_t));
-    // EXPECT_EQ(0, sameInitialLockState);
-    // EXPECT_EQ(0, sameLockState);
-    // print the memory layout of the locks
-    printf("spec->rwlock: %p\n", &spec->rwlock);
-    for (int i = 0; i < sizeof(pthread_rwlock_t); i++) {
-        printf("[%d]: %x\n", i, ((char *)&spec->rwlock)[i]);
-    }
-    printf("loadedSpec->rwlock: %p\n", &loadedSpec->rwlock);
-    for (int i = 0; i < sizeof(pthread_rwlock_t); i++) {
-        printf("[%d]: %x\n", i, ((char *)&loadedSpec->rwlock)[i]);
-    }
 
     // Verify field specifications are preserved
     for (int i = 0; i < loadedSpec->numFields; i++) {
