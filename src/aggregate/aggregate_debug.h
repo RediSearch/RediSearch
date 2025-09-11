@@ -41,6 +41,12 @@
  *         - Only applicable in FT.AGGREGATE cluster mode.
  *         - If specified, the timeout applies solely to internal shard queries,
  *           without affecting the coordinator pipeline.
+ *       - **`PAUSE_AFTER_RP_N <RP_TYPE> <N>`**:
+ *         - Inserts a pause RP **after** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
+ *           flow past that RP. Fails if `<RP_TYPE>` is invalid or not present.
+ *       - **`PAUSE_BEFORE_RP_N <RP_TYPE> <N>`**:
+ *         - Inserts a pause RP **before** the first occurrence of `<RP_TYPE>`; pauses after `<N>` results
+ *           are produced upstream of that insertion point. Fails if `<RP_TYPE>` is invalid or not present.
  *
  *   - `<DEBUG_PARAMS_COUNT>`:
  *     - Specifies the number of expected arguments in `<DEBUG_QUERY_ARGS>`.
@@ -51,11 +57,13 @@
  *   ```
  *   _FT.DEBUG FT.SEARCH idx "*" TIMEOUT_AFTER_N 100 DEBUG_PARAMS_COUNT 2
  *   ```
+ *     ```
  *
  * -----------------------------------------------------------------------------
  *
  * ### Limitations:
  * - `_FT.DEBUG` does not support `FT.PROFILE`.
+ * - Pause debugging affects at most one query at a time (single debug pause RP at once).
  *
  * -----------------------------------------------------------------------------
  *
@@ -150,6 +158,17 @@
  *      - Second reply: 4 results (EOF)
  *      - Third reply: 3 results (EOF)
  *      - Total results = 12, no timeout warning.
+ *
+ * #### Pause Simulation:
+ * Allows pausing query execution
+ *
+ * - **`PAUSE_AFTER_RP_N <RP_TYPE> <N>`**, **`PAUSE_BEFORE_RP_N <RP_TYPE> <N>`**:
+ *   - Inserts a pause RP after/before the first occurrence of `<RP_TYPE>`.
+ *   - Fails fast on invalid RP type or if the type is not found in the stream.
+ *
+ * **Notes (Pause):**
+ * - Only one pause RP is supported at a time.
+ * - `N` must be `>= 0`. `N == 0` pauses immediately after insertion point.
  *
  * **Recommendations:**
  * - In `FT.AGGREGATE` (cluster mode), do not expect an exact number of results unless
