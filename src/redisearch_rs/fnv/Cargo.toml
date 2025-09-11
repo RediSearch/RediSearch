@@ -1,0 +1,12 @@
+[package]
+name = "fnv"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+proptest = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true
