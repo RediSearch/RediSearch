@@ -150,6 +150,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     }
 
     if (checkOOMfromRP_withCounter(base, &self->oomLimiter, self->runInBackground)) {
+      RedisModule_Log(RP_SCTX(base)->redisCtx, "debug", "QueryIterator detected out of memory");
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_OOM);
     }
 
