@@ -842,7 +842,6 @@ def runDebugQueryCommand(env, query_cmd, debug_params):
     args = parseDebugQueryCommandArgs(query_cmd, debug_params)
     return env.cmd(debug_cmd(), *args)
 
-
 def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
     debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
     if internal_only:
@@ -852,8 +851,6 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
 def runDebugQueryCommandAndCrash(env, query_cmd):
     debug_params = ['CRASH']
     return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
-
-
 
 def runDebugQueryCommandPauseAfterRPAfterN(env, query_cmd, rp_type, pause_after_n):
     debug_params = ['PAUSE_AFTER_RP_N', rp_type, pause_after_n]
