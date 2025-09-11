@@ -158,6 +158,7 @@ typedef enum {
   QueryNode_IsTag = 0x10,
   // Marks this as the main vector node in a hybrid vector subquery
   QueryNode_HybridVectorSubqueryNode = 0x20,
+  QueryNode_HideDistanceField = 0x40,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.

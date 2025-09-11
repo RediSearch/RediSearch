@@ -105,9 +105,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
     return REDISMODULE_ERR;
   }
 
-  bool hasK = false;  // codespell:ignore
   bool hasEF = false;
-  bool hasYieldDistanceAs = false;
 
   for (int i=0; i<params; i+=2) {
     if (AC_IsAtEnd(ac)) {
@@ -116,7 +114,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
     }
 
     if (AC_AdvanceIfMatch(ac, "K")) {
-      if (hasK) { // codespell:ignore
+      if (pvd->hasExplicitK) { // codespell:ignore
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate K parameter");
         return REDISMODULE_ERR;
       }
@@ -126,7 +124,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         return REDISMODULE_ERR;
       }
       vq->knn.k = (size_t)kValue;
-      hasK = true;  // codespell:ignore
       pvd->hasExplicitK = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
@@ -144,7 +141,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
-      if (hasYieldDistanceAs) {
+      if (pvd->hasExplicitYieldDistanceAs) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
       }
@@ -161,8 +158,8 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      hasYieldDistanceAs = true;
-
+      pvd->hasExplicitYieldDistanceAs = true;
+      pvd->distanceFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -170,7 +167,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       return REDISMODULE_ERR;
     }
   }
-  if (!hasK) { // codespell:ignore
+  if (!pvd->hasExplicitK) { // codespell:ignore
     QueryError_SetError(status, QUERY_EPARSEARGS, "Missing K parameter");
     return REDISMODULE_ERR;
   }
@@ -190,7 +187,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   }
   bool hasRadius = false;
   bool hasEpsilon = false;
-  bool hasYieldDistanceAs = false;
 
   for (int i=0; i<params; i+=2) {
     if (AC_IsAtEnd(ac)) {
@@ -226,7 +222,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
-      if (hasYieldDistanceAs) {
+      if (pvd->hasExplicitYieldDistanceAs) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
       }
@@ -243,8 +239,8 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      hasYieldDistanceAs = true;
-
+      pvd->hasExplicitYieldDistanceAs = true;
+      pvd->distanceFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -357,6 +353,9 @@ final:
       vq->range.vecLen = vectorParamLen;
       break;
   }
+
+  // Set default scoreField using vector field name (can be done during parsing)
+  VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
 
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
@@ -642,10 +641,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     }
   }
 
-  if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(vectorRequest->parsedVectorData->fieldName);
-    AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
+  const char *distanceFieldAlias = NULL;
+  if (vectorRequest->parsedVectorData->hasExplicitYieldDistanceAs) {
+    distanceFieldAlias = rm_strdup(vectorRequest->parsedVectorData->distanceFieldAlias);
+  } else {
+    distanceFieldAlias = VectorQuery_GetDefaultScoreFieldName(vectorRequest->parsedVectorData->fieldName, strlen(vectorRequest->parsedVectorData->fieldName));
   }
+  PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(vectorRequest->parsedVectorData->fieldName, distanceFieldAlias);
+  AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
   // Save the current position to determine remaining arguments for the merge part
   const int remainingOffset = (int) ac.offset;

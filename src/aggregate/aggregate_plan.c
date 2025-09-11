@@ -137,15 +137,20 @@ void loadDtor(PLN_BaseStep *bstp) {
 static void vectorNormalizerDtor(PLN_BaseStep *bstp) {
   PLN_VectorNormalizerStep *vnStep = (PLN_VectorNormalizerStep *)bstp;
   // vectorFieldName is not owned (points to parser tokens), so don't free it
+  if (vnStep->distanceFieldAlias) {
+    rm_free(vnStep->distanceFieldAlias);
+  }
   rm_free(vnStep);
+
 }
 
-PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName) {
+PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName, const char *distanceFieldAlias) {
   PLN_VectorNormalizerStep *vnStep = rm_calloc(1, sizeof(*vnStep));
   vnStep->base.type = PLN_T_VECTOR_NORMALIZER;
   vnStep->base.dtor = vectorNormalizerDtor;
   vnStep->base.getLookup = NULL;  // No lookup for this step
-  vnStep->vectorFieldName = vectorFieldName;  // Not owned - points to parser tokens
+  vnStep->vectorFieldName = vectorFieldName;
+  vnStep->distanceFieldAlias = distanceFieldAlias;
   return vnStep;
 }
 
