@@ -107,10 +107,24 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// This does not free all the memory consumed by the row, but simply resets
     /// the row data (preserving any caches) so that it may be refilled.
     pub fn wipe(&mut self) {
-        for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
-            *value = None;
-            self.num_dyn_values -= 1;
+        for value in &mut self.dyn_values {
+            if value.is_some() {
+                *value = None;
+                self.num_dyn_values -= 1;
+            }
         }
+        /*
+                for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
+        <<<<<<< Conflict 3 of 3
+        %%%%%%% Changes from base to side #1
+        -            value.as_mut().unwrap().decrement();
+        +++++++ Contents of side #2
+                    // this will drop the value, decrementing the ref count
+        >>>>>>> Conflict 3 of 3 ends
+                    *value = None;
+                    self.num_dyn_values -= 1;
+                }
+                */
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.
