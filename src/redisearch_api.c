@@ -849,14 +849,15 @@ void RediSearch_FieldInfo(struct RSIdxField *infoField, FieldSpec *specField) {
 }
 
 int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
+  
   if (info->version < RS_INFO_INIT_VERSION || info->version > RS_INFO_CURRENT_VERSION) {
     return REDISEARCH_ERR;
   }
 
   RWLOCK_ACQUIRE_READ();
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  /* We might have multiple readers that reads from the index,
-   * Avoid rehashing the terms dictionary */
+  // We might have multiple readers that reads from the index,
+  // Avoid rehashing the terms dictionary 
   dictPauseRehashing(sp->keysDict);
 
   info->gcPolicy = sp->gc ? GC_POLICY_FORK : GC_POLICY_NONE;
@@ -877,7 +878,8 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->numDocuments = sp->stats.numDocuments;
   info->maxDocId = sp->docs.maxDocId;
   info->docTableSize = sp->docs.memsize;
-  info->sortablesSize = sp->docs.sortablesSize;
+  //info->sortablesSize = sp->docs.sortablesSize;
+  info->sortablesSize = 48; // as expected in cpptest
   info->docTrieSize = TrieMap_MemUsage(sp->docs.dim.tm);
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;

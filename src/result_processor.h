@@ -10,7 +10,7 @@
 #pragma once
 
 #include "redisearch.h"
-#include "sortable.h"
+#include "sorting_vector_rs.h"
 #include "value.h"
 #include "concurrent_ctx.h"
 #include "search_ctx.h"
