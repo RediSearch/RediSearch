@@ -168,6 +168,22 @@ unsafe extern "C" fn RSSortingVector_PutStr(
     // Safety: Caller must ensure 2. --> strlen gets a valid C string pointer
     let len = unsafe { libc::strlen(str) };
 
+    //[cfg(debug_assertions)]
+    {
+        // Safety: Caller must ensure 2. --> strcmp gets a valid C string pointer
+        let normalized = unsafe { ffi::normalizeStr(str) };
+
+        // Safety: we compare two string pointers that are valid C strings (2.)
+        let cmp_val = unsafe { libc::strcmp(str, normalized) };
+        if cmp_val != 0 {
+            // Safety: Caller must ensure 2. --> from_ptr gets a valid C string pointer
+            let rstr = unsafe { std::ffi::CStr::from_ptr(str) }.to_string_lossy();
+            panic!(
+                "RSSortingVector_PutStr called with non-normalized string: {}",
+                rstr
+            );
+        }
+    }
     // Safety: RS_StringVal receives a valid C string pointer (1) and length
     let value = unsafe { RS_StringVal(str.cast_mut(), len as u32) };
     // Safety: We assume RS_StringVal never returns a null pointer
