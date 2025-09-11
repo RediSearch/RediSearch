@@ -85,7 +85,7 @@ DISTANCE_CALCULATORS = {
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vector_normalizer():
-    """Test that yield_distance_as value equals __score when using COMBINE LINEAR 0 1 for all distance metrics"""
+    """Test that yield_distance_as value equals the expected distance for all distance metrics"""
 
     # Test all supported distance metrics
     for metric in ['L2', 'COSINE', 'IP']:
@@ -93,7 +93,7 @@ def test_hybrid_vector_normalizer():
         setup_index_with_metric(env, metric)
         query_vector = np.array([0.5, 0.5]).astype(np.float32).tobytes()
 
-        for vector_query in [['KNN', '4', 'K', '10'], ['RANGE', '4', 'RADIUS', '1']]:
+        for vector_query in [['KNN', '4', 'K', '10'], ['RANGE', '4', 'RADIUS', '10']]:
             response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
                                 *vector_query, 'YIELD_DISTANCE_AS', 'vector_distance')
             results = get_results_from_hybrid_response(response)
