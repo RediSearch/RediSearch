@@ -422,7 +422,12 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
  * For each key in src, check if it already exists in dest by name.
  * If not exists, create new key in dest with unique dstidx.
  * Handle existing keys based on flags (skip by default, override with RLOOKUP_F_OVERRIDE).
- * Preserve key properties (flags, svidx) from source.
+ *
+ * Flag handling:
+ * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ * - Final flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
  */
 void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags);
 
