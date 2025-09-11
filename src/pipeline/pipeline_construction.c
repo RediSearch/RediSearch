@@ -117,7 +117,10 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
       QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }
-    RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, RLOOKUP_F_NOFLAGS);
+    // Set HIDDEN flag for internal metrics
+    uint32_t flags = requests[i].isInternal ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+
+    RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, flags);
     if (!key) {
       QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
       return NULL;
@@ -556,8 +559,7 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
 
         // Get score key for writing normalized scores
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
-        const RLookupKey *scoreKey = RLookup_GetKey_Write(curLookup, "__score", RLOOKUP_F_NOFLAGS);
-
+        const RLookupKey *scoreKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
         // Create vector normalizer result processor
         rp = RPVectorNormalizer_New(normFunc, scoreKey);
         PUSH_RP();

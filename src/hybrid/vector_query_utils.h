@@ -25,10 +25,12 @@ extern "C" {
  */
 typedef struct {
   VectorQuery *query;
-  const char *fieldName;          // Field name for later resolution (NOT owned - points to args)
-  QueryAttribute *attributes;     // Non-vector-specific attributes like YIELD_DISTANCE_AS (OWNED)
-  bool isParameter;               // true if vector data is a parameter
-  bool hasExplicitK;              // Flag to track if K was explicitly set in KNN query
+  const char *fieldName;           // Field name for later resolution (NOT owned - points to args)
+  QueryAttribute *attributes;      // Non-vector-specific attributes like YIELD_DISTANCE_AS (OWNED)
+  bool isParameter;                // true if vector data is a parameter
+  bool hasExplicitK;               // Flag to track if K was explicitly set in KNN query
+  bool hasExplicitYieldDistanceAs; // Flag to track if YIELD_DISTANCE_AS was explicitly set
+  char *distanceFieldAlias;        //
 } ParsedVectorData;
 
 void ParsedVectorData_Free(ParsedVectorData *pvd);

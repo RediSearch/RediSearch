@@ -32,6 +32,7 @@ extern "C" {
 typedef struct MetricRequest{
   const char *metric_name;
   RLookupKey **key_ptr;
+  bool isInternal;
 } MetricRequest;
 
 // Flags indicating which syntax features are enabled for this query

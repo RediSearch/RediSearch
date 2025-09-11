@@ -139,8 +139,8 @@ void RangeNumber_Free(RangeNumber *r) {
 }
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
-static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr) {
-  MetricRequest mr = {metric_name, key_addr};
+static int addMetricRequest(QueryEvalCtx *q, char *metric_name, RLookupKey **key_addr, bool isInternal) {
+  MetricRequest mr = {metric_name, key_addr, isInternal};
   *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
 }
@@ -1000,7 +1000,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // This function creates the array if it's the first name, and ensure its size is sufficient.
   size_t idx = -1;
   if (qn->vn.vq->scoreField) {
-    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
+    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL, qn->opts.flags & QueryNode_HideDistanceField);
   }
 
   IndexIterator *child_it = NULL;
