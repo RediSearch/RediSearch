@@ -50,6 +50,7 @@ typedef struct {
   bool timedout;
   bool reachedMaxPrefixExpansions;
   bool bgScanOOM;
+  bool queryOOM;
 } ProfilePrinterCtx; // Context for the profile printing callback
 
 void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);

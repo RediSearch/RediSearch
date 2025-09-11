@@ -61,9 +61,11 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
-  RP_TIMEOUT, // DEBUG ONLY
-  RP_CRASH, // DEBUG ONLY
   RP_MAX,
+  // Debug only result processors
+  RP_TIMEOUT,
+  RP_CRASH,
+  RP_PAUSE,
 } ResultProcessorType;
 
 struct ResultProcessor;
@@ -152,6 +154,8 @@ typedef enum {
   // Aborted because of error. The QueryState (parent->status) should have
   // more information.
   RS_RESULT_ERROR,
+  // Execution halted because of Out of memory
+  RS_RESULT_OOM,
   // Not a return code per se, but a marker signifying the end of the 'public'
   // return codes. Implementations can use this for extensions.
   RS_RESULT_MAX
@@ -207,7 +211,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, bool runInBackground);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -283,6 +287,22 @@ void Profile_AddRPs(QueryProcessingCtx *qiter);
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
 
+// Return RPType for string
+ResultProcessorType StringToRPType(const char *str);
+
+/*******************************************************************************************************************
+ *  Normalizer Result Processor
+ *
+ * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+ * First accumulates all results from the upstream, then normalizes and yields them.
+ *******************************************************************************************************************/
+ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+/*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
+
 /*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY
  *
@@ -299,13 +319,16 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 ResultProcessor *RPCrash_New();
 void PipelineAddCrash(struct AREQ *r);
 
- /*******************************************************************************************************************
-  *  Normalizer Result Processor
-  *
-  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
-  * First accumulates all results from the upstream, then normalizes and yields them.
-  *******************************************************************************************************************/
- ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPPauseAfterCount_New(size_t count);
+
+// Adds a pause processor after N results, before/after a specific RP type
+bool PipelineAddPauseRPcount(struct AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type);
+
 
 #ifdef __cplusplus
 }
