@@ -23,7 +23,7 @@ members = [
     "rqe_iterators",
     "rqe_iterators_bencher",
     "varint_bencher",
-    "wildcard", "fnv",
+    "wildcard",
 ]
 
 resolver = "3"
