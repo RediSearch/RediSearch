@@ -23,6 +23,8 @@
 #include <iostream>
 #include <cstdarg>
 
+#include "rlookup_rs.h"
+
 class AggTest : public ::testing::Test {};
 using RS::addDocument;
 
@@ -71,13 +73,14 @@ TEST_F(AggTest, testBasic) {
   ASSERT_FALSE(rp == NULL);
 
   SearchResult res = {0};
+  res.rowdata = NewRLookupRow();
   RLookup *lk = AGPLN_GetLookup(&rr->ap, NULL, AGPLN_GETLOOKUP_LAST);
   size_t count = 0;
   while ((rv = rp->Next(rp, &res)) == RS_RESULT_OK) {
     count++;
     // std::cerr << "Doc ID: " << res.docId << std::endl;
     // for (auto kk = lk->head; kk; kk = kk->next) {
-    //   RSValue *vv = RLookup_GetItem(kk, &res.rowdata);
+    //   RSValue *vv = RLookup_GetItem(kk, res.rowdata);
     //   if (vv != NULL) {
     //     std::cerr << "  " << kk->name << ": ";
     //     sds s = RSValue_DumpSds(vv);
@@ -153,8 +156,8 @@ TEST_F(AggTest, testGroupBy) {
 
     RSValue *sval = RS_ConstStringValC((char *)p->values[p->counter % p->numvals]);
     RSValue *scoreval = RS_NumVal(p->counter);
-    RLookup_WriteOwnKey(p->rkvalue, &res->rowdata, sval);
-    RLookup_WriteOwnKey(p->rkscore, &res->rowdata, scoreval);
+    RLookup_WriteOwnKey(p->rkvalue, res->rowdata, sval);
+    RLookup_WriteOwnKey(p->rkscore, res->rowdata, scoreval);
     //* res = * p->res;
     return RS_RESULT_OK;
   };
@@ -178,6 +181,7 @@ TEST_F(AggTest, testGroupBy) {
   ASSERT_TRUE(sumReducer != NULL) << QueryError_GetUserError(sumOptions.status);
   Grouper_AddReducer(gr, sumReducer, score_out);
   SearchResult res = {0};
+  res.rowdata = NewRLookupRow();
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);
 
@@ -216,6 +220,7 @@ TEST_F(AggTest, testGroupSplit) {
   opt.args = &args;
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
   SearchResult res = {0};
+  res.rowdata = NewRLookupRow();
   size_t ii = 0;
 
   QITR_PushRP(&qitr, &gen);
@@ -225,7 +230,7 @@ TEST_F(AggTest, testGroupSplit) {
     ArrayGenerator *p = static_cast<ArrayGenerator *>(rp);
     if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
     res->docId = ++p->counter;
-    RLookup_WriteOwnKey(p->kvalue, &res->rowdata,
+    RLookup_WriteOwnKey(p->kvalue, res->rowdata,
                         RS_StringArrayT((char **)&p->values[0], p->values.size(), RSString_Const));
     //* res = * p->res;
     return RS_RESULT_OK;
@@ -234,7 +239,7 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    RSValue *rv = RLookup_GetItem(val_out, &res.rowdata);
+    RSValue *rv = RLookup_GetItem(val_out, res.rowdata);
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
     ASSERT_TRUE(RSValue_IsString(rv));

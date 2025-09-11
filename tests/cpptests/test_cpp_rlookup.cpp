@@ -10,6 +10,8 @@
 #include "rlookup.h"
 #include "gtest/gtest.h"
 
+#include "rlookup_rs.h"
+
 class RLookupTest : public ::testing::Test {};
 
 TEST_F(RLookupTest, testInit) {
@@ -41,33 +43,33 @@ TEST_F(RLookupTest, testRow) {
   RLookup_Init(&lk, NULL);
   RLookupKey *fook = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *bark = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
+  RLookupRow *rr = NewRLookupRow();
   RSValue *vfoo = RS_Int64Val(42);
   RSValue *vbar = RS_Int64Val(666);
 
   ASSERT_EQ(1, vfoo->refcount);
-  RLookup_WriteKey(fook, &rr, vfoo);
+  RLookup_WriteKey(fook, rr, vfoo);
   ASSERT_EQ(2, vfoo->refcount);
 
-  RSValue *vtmp = RLookup_GetItem(fook, &rr);
+  RSValue *vtmp = RLookup_GetItem(fook, rr);
   ASSERT_EQ(vfoo, vtmp);
   ASSERT_EQ(2, vfoo->refcount);
-  ASSERT_EQ(1, rr.ndyn);
+  ASSERT_EQ(1, RLookupRow_GetDynLen(rr));
 
   // Write a NULL value
-  RLookup_WriteKey(fook, &rr, RS_NullVal());
+  RLookup_WriteKey(fook, rr, RS_NullVal());
   ASSERT_EQ(1, vfoo->refcount);
 
   // Get the 'bar' key -- should be NULL
-  ASSERT_TRUE(NULL == RLookup_GetItem(bark, &rr));
+  ASSERT_TRUE(NULL == RLookup_GetItem(bark, rr));
 
   // Clean up the row
-  RLookupRow_Wipe(&rr);
-  vtmp = RLookup_GetItem(fook, &rr);
-  ASSERT_TRUE(NULL == RLookup_GetItem(fook, &rr));
+  RLookupRow_Wipe(rr);
+  vtmp = RLookup_GetItem(fook, rr);
+  ASSERT_TRUE(NULL == RLookup_GetItem(fook, rr));
 
   RSValue_Decref(vfoo);
   RSValue_Decref(vbar);
-  RLookupRow_Reset(&rr);
+  RLookupRow_Reset(rr);
   RLookup_Cleanup(&lk);
 }

@@ -15,4 +15,5 @@ build_utils = { path = "../../build_utils" }
 [dependencies]
 rlookup.workspace = true
 ffi.workspace = true
+sorting_vector.workspace = true
 value.workspace = true

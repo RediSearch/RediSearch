@@ -28,6 +28,7 @@
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
+#include "rlookup_rs.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -874,7 +875,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   RLookup lookup_s;
-  RLookupRow row = {0};
+  RLookupRow* row = NewRLookupRow();
   IndexSpecCache *spcache = IndexSpec_GetSpecCache(sctx->spec);
   RLookup_Init(&lookup_s, spcache);
   lookup_s.options |= RLOOKUP_OPT_ALL_LOADED; // Setting this option will cause creating keys of non-sortable fields possible
@@ -883,11 +884,11 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   RLookupLoadOptions loadopts = {.sctx = sctx, .dmd = dmd, .status = status};
-  if (RLookup_LoadDocument(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+  if (RLookup_LoadDocument(&lookup_s, row, &loadopts) != REDISMODULE_OK) {
     goto CleanUp;
   }
 
-  ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = &row, .root = e};
+  ExprEval evaluator = {.err = status, .lookup = &lookup_s, .res = NULL, .srcrow = row, .root = e};
   RSValue rv = RSVALUE_STATIC;
   if (ExprEval_Eval(&evaluator, &rv) != EXPR_EVAL_OK) {
     goto CleanUp;
@@ -898,7 +899,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   rc = REDISMODULE_OK;
 
 CleanUp:
-  RLookupRow_Reset(&row);
+  RLookupRow_Reset(row);
+  rm_free(row);
   RLookup_Cleanup(&lookup_s);
 done:
   ExprAST_Free(e);

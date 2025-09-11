@@ -9,6 +9,7 @@
 #include "expression.h"
 #include "result_processor.h"
 #include "rlookup.h"
+#include "rlookup_rs.h"
 #include "profile.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -332,13 +333,12 @@ EvalCtx *EvalCtx_Create() {
   RLookup _lk = {0};
   r->lk = _lk;
   RLookup_Init(&r->lk, NULL);
-  RLookupRow _row = {0};
-  r->row = _row;
+  r->row = NewRLookupRow();
   QueryError _status = {0};
   r->status = _status;
 
   r->ee.lookup = &r->lk;
-  r->ee.srcrow = &r->row;
+  r->ee.srcrow = r->row;
   r->ee.err = &r->status;
 
   r->res = *RS_NullVal();
@@ -377,7 +377,8 @@ void EvalCtx_Destroy(EvalCtx *r) {
   if (r->_expr && r->_own_expr) {
     ExprAST_Free((RSExpr *) r->_expr);
   }
-  RLookupRow_Reset(&r->row);
+  RLookupRow_Reset(r->row);
+  rm_free(r->row);
   RLookup_Cleanup(&r->lk);
   rm_free(r);
 }
@@ -439,7 +440,7 @@ static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   }
 
   pc->eval.res = r;
-  pc->eval.srcrow = &r->rowdata;
+  pc->eval.srcrow = r->rowdata;
 
   // TODO: Set this once only
   pc->eval.err = pc->base.parent->err;
@@ -462,7 +463,7 @@ static int rpevalNext_project(ResultProcessor *rp, SearchResult *r) {
   if (rc != RS_RESULT_OK) {
     return rc;
   }
-  RLookup_WriteOwnKey(pc->outkey, &r->rowdata, pc->val);
+  RLookup_WriteOwnKey(pc->outkey, r->rowdata, pc->val);
   pc->val = NULL;
   return RS_RESULT_OK;
 }

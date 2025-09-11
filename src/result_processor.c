@@ -17,6 +17,8 @@
 #include "util/arr.h"
 #include "iterators/empty_iterator.h"
 #include "rs_wall_clock.h"
+#include "rlookup_rs.h"
+
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -42,7 +44,9 @@ void SearchResult_Clear(SearchResult *r) {
   }
 
   r->flags = 0;
-  RLookupRow_Wipe(&r->rowdata);
+  if(r->rowdata) {
+    RLookupRow_Wipe(r->rowdata);
+  }
   if (r->dmd) {
     DMD_Return(r->dmd);
     r->dmd = NULL;
@@ -52,16 +56,19 @@ void SearchResult_Clear(SearchResult *r) {
 /* Free the search result object including the object itself */
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
-  RLookupRow_Reset(&r->rowdata);
+  if(r->rowdata) {
+    RLookupRow_Reset(r->rowdata);
+  }
 }
 
 // Overwrites the contents of 'dst' with those from 'src'.
 // Ensures proper cleanup of any existing data in 'dst'.
 static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
   if (!src) return;
-  RLookupRow oldrow = dst->rowdata;
+  RLookupRow* oldrow = dst->rowdata;
   *dst = *src;
-  RLookupRow_Reset(&oldrow);
+  RLookupRow_Reset(oldrow);
+  rm_free(oldrow);
 }
 
 
@@ -161,7 +168,9 @@ validate_current:
   res->indexResult = it->current;
   res->score = 0;
   res->dmd = dmd;
-  RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
+  if(dmd && dmd->sortVector) {
+    RLookupRow_SetSortingVector(res->rowdata, dmd->sortVector);
+  }
   return RS_RESULT_OK;
 }
 
@@ -251,7 +260,7 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
       continue;
     }
     if (self->scoreKey) {
-      RLookup_WriteOwnKey(self->scoreKey, &res->rowdata, RS_NumVal(res->score));
+      RLookup_WriteOwnKey(self->scoreKey, res->rowdata, RS_NumVal(res->score));
     }
 
     break;
@@ -308,7 +317,7 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
 
   arrayof(RSYieldableMetric) arr = res->indexResult->metrics;
   for (size_t i = 0; i < array_len(arr); i++) {
-    RLookup_WriteKey(arr[i].key, &(res->rowdata), arr[i].value);
+    RLookup_WriteKey(arr[i].key, res->rowdata, arr[i].value);
   }
 
   return rc;
@@ -434,6 +443,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     }
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+    self->pooledResult->rowdata = NewRLookupRow();
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -489,8 +499,8 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
   }
 
   for (size_t i = 0; i < self->fieldcmp.nkeys && i < SORTASCMAP_MAXFIELDS; i++) {
-    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], &h1->rowdata);
-    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], &h2->rowdata);
+    const RSValue *v1 = RLookup_GetItem(self->fieldcmp.keys[i], h1->rowdata);
+    const RSValue *v2 = RLookup_GetItem(self->fieldcmp.keys[i], h2->rowdata);
     // take the ascending bit for this property from the ascending bitmap
     ascending = SORTASCMAP_GETASC(self->fieldcmp.ascendMap, i);
     if (!v1 || !v2) {
@@ -531,6 +541,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
   ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  ret->pooledResult->rowdata = NewRLookupRow();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
@@ -642,7 +653,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   self->loadopts.dmd = r->dmd;
   // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
-  if (RLookup_LoadDocument(self->lk, &r->rowdata, &self->loadopts) != REDISMODULE_OK) {
+  if (RLookup_LoadDocument(self->lk, r->rowdata, &self->loadopts) != REDISMODULE_OK) {
     // mark the document as "failed to open" for later loaders or other threads (optimization)
     ((RSDocumentMetadata *)(r->dmd))->flags |= Document_FailedToOpen;
     // The result contains an expired document.
@@ -742,7 +753,7 @@ typedef struct RPSafeLoader {
 
 static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
-  RLookupRow_Reset(&result_output->rowdata);
+  RLookupRow_Reset(result_output->rowdata);
   *result_output = *buffered_result;
 }
 
@@ -861,6 +872,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   int result_status;
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = {0};
+  resToBuffer.rowdata = NewRLookupRow();
   SearchResult *currBlock = NULL;
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
@@ -961,7 +973,7 @@ static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   if (RS_RESULT_OK == rc) {
     RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
     size_t keyLen = sdslen(res->dmd->keyPtr); // keyPtr is an sds
-    RLookup_WriteOwnKey(nl->out, &res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
+    RLookup_WriteOwnKey(nl->out, res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
   }
   return rc;
 }
@@ -1350,7 +1362,7 @@ void PipelineAddCrash(struct AREQ *r) {
     r->score /= self->maxValue;
   }
   if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+    RLookup_WriteOwnKey(self->scoreKey, r->rowdata, RS_NumVal(r->score));
   }
   EXPLAIN(r->scoreExplain,
         "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
@@ -1381,6 +1393,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
 
   // we need to allocate a new result for the next iteration
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+  self->pooledResult->rowdata = NewRLookupRow();
   return RESULT_QUEUED;
 }
 
@@ -1398,6 +1411,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk) {
   RPMaxScoreNormalizer *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  ret->pooledResult->rowdata = NewRLookupRow();
   ret->pool = array_new(SearchResult*, 0);
   ret->base.Next = RPMaxScoreNormalizer_Accum;
   ret->base.Free = RPMaxScoreNormalizer_Free;

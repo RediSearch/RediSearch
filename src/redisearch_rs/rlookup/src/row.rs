@@ -94,12 +94,13 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
             self.set_dyn_capacity((idx + 1) as usize);
         }
 
+        // keep track of the number of dynamic values
         let in_place = &mut self.dyn_values[idx as usize];
-        if let Some(existing_value) = in_place {
-            existing_value.decrement();
+        if in_place.is_some() {
             self.num_dyn_values -= 1;
         }
 
+        // drop occurs here decrementing the ref count of existing values
         *in_place = Some(val);
         self.num_dyn_values += 1;
     }
@@ -108,11 +109,19 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     /// This does not free all the memory consumed by the row, but simply resets
     /// the row data (preserving any caches) so that it may be refilled.    
     pub fn wipe(&mut self) {
+        for value in &mut self.dyn_values {
+            if value.is_some() {
+                *value = None;
+                self.num_dyn_values -= 1;
+            }
+        }
+        /*
         for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
-            value.as_mut().unwrap().decrement();
+            // this will drop the value, decrementing the ref count
             *value = None;
             self.num_dyn_values -= 1;
         }
+        */
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.
@@ -121,6 +130,17 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     pub fn reset_dyn_values(&mut self) {
         self.wipe();
         self.dyn_values = vec![];
+    }
+
+    /// Returns a pointer to the sorting vector if it exists, or a null pointer otherwise.
+    ///
+    /// # Safety
+    /// The caller does not own the returned pointer and must not attempt to free it.
+    pub unsafe fn get_sorting_vector(&self) -> *const RSSortingVector<T> {
+        match self.sorting_vector {
+            Some(sv) => sv as *const RSSortingVector<T>,
+            None => std::ptr::null(),
+        }
     }
 }
 

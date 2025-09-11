@@ -76,6 +76,11 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         }
     }
 
+    /// Returns a reference to the value at the given index, or `None` if the index is out of bounds.
+    pub fn get(&self, idx: usize) -> Option<&T> {
+        self.values.get(idx)
+    }
+
     /// Returns `Ok(())` if the index is in bounds, [`Error::OutOfBounds`] otherwise.
     fn in_bounds(&self, idx: usize) -> Result<(), IndexOutOfBounds> {
         if idx < self.values.len() {

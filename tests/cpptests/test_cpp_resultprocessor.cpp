@@ -12,6 +12,8 @@
 #include "query.h"
 #include "gtest/gtest.h"
 
+#include "rlookup_rs.h"
+
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
     memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
@@ -29,7 +31,7 @@ static int p1_Next(ResultProcessor *rp, SearchResult *res) {
 
   res->docId = ++p->counter;
   res->score = (double)res->docId;
-  RLookup_WriteOwnKey(p->kout, &res->rowdata, RS_NumVal(res->docId));
+  RLookup_WriteOwnKey(p->kout, res->rowdata, RS_NumVal(res->docId));
   return RS_RESULT_OK;
 }
 
@@ -67,12 +69,13 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
 
   size_t count = 0;
   SearchResult r = {0};
+  r.rowdata = NewRLookupRow();
   ResultProcessor *rpTail = qitr.endProc;
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     count++;
     ASSERT_EQ(count, r.docId);
     ASSERT_EQ(count, r.score);
-    RSValue *v = RLookup_GetItem(p->kout, &r.rowdata);
+    RSValue *v = RLookup_GetItem(p->kout, r.rowdata);
     ASSERT_TRUE(v != NULL);
     ASSERT_EQ(RSValue_Number, v->t);
     ASSERT_EQ(count, v->numval);
