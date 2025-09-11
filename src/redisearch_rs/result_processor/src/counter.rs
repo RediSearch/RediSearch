@@ -77,7 +77,7 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{default_search_result, from_iter, Chain};
+    use crate::test_utils::{Chain, default_search_result, from_iter};
     use std::iter;
 
     /// Mock implementation of `RPProfile_IncrementCount` for tests
