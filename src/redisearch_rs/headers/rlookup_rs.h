@@ -140,6 +140,8 @@ extern "C" {
 RSValue *RLookup_GetItem(const struct RLookupKey *key,
                          const struct RLookupRow *row);
 
+RLookupRow *NewRLookupRow(void);
+
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *

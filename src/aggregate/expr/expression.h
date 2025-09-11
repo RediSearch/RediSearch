@@ -139,7 +139,7 @@ typedef struct ExprEval {
 
 typedef struct EvalCtx {
   RLookup lk;
-  RLookupRow row;
+  RLookupRow* row;
   QueryError status;
   ExprEval ee;
   RSValue res;

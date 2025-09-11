@@ -322,7 +322,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
                              .iovsArr = NULL,
                              .indexResult = ir,
-                             .row = &r->rowdata};
+                             .row = r->rowdata};
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {

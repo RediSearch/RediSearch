@@ -13,8 +13,12 @@ use rlookup::RLookupKey;
 
 use sorting_vector::RSSortingVector;
 use value::{RSValueFFI, RSValueTrait};
-
 pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewRLookupRow() -> *mut RLookupRow {
+    Box::into_raw(Box::new(RLookupRow::new()))
+}
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
