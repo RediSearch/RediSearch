@@ -48,11 +48,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
  * RLookup registry. Returns NULL if there is no sorting key
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
-  const RSSortingVector* sv = RLookupRow_GetSortingVector(&r->rowdata);
+  const RSSortingVector* sv = RLookupRow_GetSortingVector(r->rowdata);
   if ((kk->flags & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > kk->svidx)) {
     return RSSortingVector_Get(sv, kk->svidx);
   } else {
-    return RLookup_GetItem(kk, &r->rowdata);
+    return RLookup_GetItem(kk, r->rowdata);
   }
 }
 
@@ -231,7 +231,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       RedisModule_Reply_Map(reply);
         int i = 0;
@@ -239,7 +239,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           if (!kk->name || !skipFieldIndex[i++]) {
             continue;
           }
-          const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+          const RSValue *v = RLookup_GetItem(kk, r->rowdata);
           RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
           RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);
@@ -325,6 +325,7 @@ static size_t getResultsFactor(AREQ *req) {
 static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
   SearchResult **results = array_new(SearchResult *, 8);
   SearchResult r = {0};
+  r.rowdata = NewRLookupRow();
   while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
     // Decrement the result limit, now that we got a valid result.
     rp->parent->resultLimit--;
@@ -333,6 +334,8 @@ static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
 
     // clean the search result
     r = (SearchResult){0};
+    FreeRLookupRow(r.rowdata);
+    r.rowdata = NewRLookupRow();
   }
 
   if (rc != RS_RESULT_OK) {
@@ -443,6 +446,7 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
 static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
+    r.rowdata = NewRLookupRow();
     int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
@@ -552,6 +556,8 @@ done_2_err:
     if (resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && resultsLen != nelem) {
       RS_LOG_ASSERT_FMT(false, "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", resultsLen, nelem);
     }
+
+    FreeRLookupRow(r.rowdata);
 }
 
 /**
@@ -560,6 +566,7 @@ done_2_err:
 static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
   cachedVars cv) {
     SearchResult r = {0};
+    r.rowdata = NewRLookupRow();
     int rc = RS_RESULT_EOF;
     ResultProcessor *rp = req->qiter.endProc;
     SearchResult **results = NULL;
@@ -684,6 +691,8 @@ done_3:
 
 done_3_err:
     finishSendChunk(req, results, &r, cursor_done);
+
+    FreeRLookupRow(r.rowdata);
 }
 
 /**

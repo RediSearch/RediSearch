@@ -312,13 +312,13 @@ TEST_F(ExprTest, testPredicate) {
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(1));
-  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(2));
+  RLookupRow *rr = NewRLookupRow();
+  RLookup_WriteOwnKey(kfoo, rr, RS_NumVal(1));
+  RLookup_WriteOwnKey(kbar, rr, RS_NumVal(2));
   QueryError status = {QueryErrorCode(0)};
 #define TEST_EVAL(e, expected)                          \
   {                                                     \
-    EvalResult restmp = testEval(e, &lk, &rr, &status); \
+    EvalResult restmp = testEval(e, &lk, rr, &status); \
     ASSERT_TRUE(restmp.success) << restmp.errmsg;       \
     ASSERT_EQ(expected, restmp.rv);                     \
   }
@@ -373,7 +373,8 @@ TEST_F(ExprTest, testPredicate) {
   TEST_EVAL("3 * @bar + 1", 7);
   TEST_EVAL("@bar * 3 + 1", 7);
 
-  RLookupRow_Reset(&rr);
+  RLookupRow_Reset(rr);
+  FreeRLookupRow(rr);
   RLookup_Cleanup(&lk);
 }
 
@@ -392,14 +393,14 @@ TEST_F(ExprTest, testPropertyFetch) {
   TEvalCtx ctx("log(@foo) + 2*sqrt(@bar)");
   RLookup lk;
   RLookup_Init(&lk, NULL);
-  RLookupRow rr = {0};
+  RLookupRow *rr = NewRLookupRow();
   RLookupKey *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupKey *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(10));
-  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
+  RLookup_WriteOwnKey(kfoo, rr, RS_NumVal(10));
+  RLookup_WriteOwnKey(kbar, rr, RS_NumVal(10));
 
   ctx.lookup = &lk;
-  ctx.srcrow = &rr;
+  ctx.srcrow = rr;
 
   int rc = ctx.bindLookupKeys();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
@@ -408,7 +409,8 @@ TEST_F(ExprTest, testPropertyFetch) {
   ASSERT_EQ(RSValue_Number, ctx.result().t);
   ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), ctx.result().numval);
 
-  RLookupRow_Reset(&rr);
+  RLookupRow_Reset(rr);
+  FreeRLookupRow(rr);
   RLookup_Cleanup(&lk);
 }
 
@@ -452,19 +454,20 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(5));
-  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
+  RLookupRow *rr = NewRLookupRow();
+  RLookup_WriteOwnKey(kfoo, rr, RS_NumVal(5));
+  RLookup_WriteOwnKey(kbar, rr, RS_NumVal(10));
 
   TEvalCtx ctx("case(@foo < @bar, 1, 0)");  // 5 < 10 is true
   ASSERT_TRUE(ctx) << ctx.error();
   ctx.lookup = &lk;
-  ctx.srcrow = &rr;
+  ctx.srcrow = rr;
 
   ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
   ASSERT_EXPR_EVAL_NUMBER(ctx, 1);  // @foo < @bar is true, so should return 1
 
-  RLookupRow_Reset(&rr);
+  RLookupRow_Reset(rr);
+  FreeRLookupRow(rr);
   RLookup_Cleanup(&lk);
 }
 
@@ -472,13 +475,13 @@ TEST_F(ExprTest, testEvalFuncCaseWithExists) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(42));
+  RLookupRow *rr = NewRLookupRow();
+  RLookup_WriteOwnKey(kfoo, rr, RS_NumVal(42));
 
   TEvalCtx ctx("case(exists(@foo), 1, 0)");  // @foo exists
   ASSERT_TRUE(ctx) << ctx.error();
   ctx.lookup = &lk;
-  ctx.srcrow = &rr;
+  ctx.srcrow = rr;
 
   ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
   ASSERT_EXPR_EVAL_NUMBER(ctx, 1);  // @foo exists, so should return true branch (1)
@@ -487,12 +490,13 @@ TEST_F(ExprTest, testEvalFuncCaseWithExists) {
   TEvalCtx ctx1("case(!exists(@foo), 1, 0)");  // @foo exists, so !exists(@foo) is false
   ASSERT_TRUE(ctx1) << ctx1.error();
   ctx1.lookup = &lk;
-  ctx1.srcrow = &rr;
+  ctx1.srcrow = rr;
 
   ASSERT_EQ(EXPR_EVAL_OK, ctx1.bindLookupKeys());
   ASSERT_EXPR_EVAL_NUMBER(ctx1, 0);  // !exists(@foo) is false, so should return false branch (0)
 
-  RLookupRow_Reset(&rr);
+  RLookupRow_Reset(rr);
+  FreeRLookupRow(rr);
   RLookup_Cleanup(&lk);
 }
 
@@ -571,20 +575,21 @@ TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
   auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
-  RLookupRow rr = {0};
-  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(5));
+  RLookupRow *rr = NewRLookupRow();
+  RLookup_WriteOwnKey(kfoo, rr, RS_NumVal(5));
 
   TEvalCtx ctx("case(1, @foo + 10, @foo / 0)");
   ASSERT_TRUE(ctx) << ctx.error();
   ctx.lookup = &lk;
-  ctx.srcrow = &rr;
+  ctx.srcrow = rr;
 
   // Test that only the selected branch is evaluated
   // When condition is true, only the true branch should be evaluated
   ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
   ASSERT_EXPR_EVAL_NUMBER(ctx, 15);  // @foo + 10 = 5 + 10 = 15
 
-  RLookupRow_Reset(&rr);
+  RLookupRow_Reset(rr);
+  FreeRLookupRow(rr);
   RLookup_Cleanup(&lk);
 }
 

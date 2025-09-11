@@ -141,6 +141,23 @@ RSValue *RLookup_GetItem(const struct RLookupKey *key,
                          const struct RLookupRow *row);
 
 /**
+ * Creates a new RLookupRow and returns a pointer to it.
+ *
+ * Safety:
+ * The caller is responsible for freeing the returned pointer using `FreeRLookupRow`.
+ */
+RLookupRow *NewRLookupRow(void);
+
+/**
+ * Frees a RLookupRow created by `NewRLookupRow`.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RLookupRow`] created by [`NewRLookupRow`].
+ * 2. The pointer must not be used after calling this function.
+ */
+void FreeRLookupRow(RLookupRow *row);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * Safety:

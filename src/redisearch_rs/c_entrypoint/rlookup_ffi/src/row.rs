@@ -12,9 +12,33 @@ use std::ptr::NonNull;
 use rlookup::RLookupKey;
 
 use sorting_vector::RSSortingVector;
+
 use value::RSValueFFI;
 
 pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
+
+/// Creates a new RLookupRow and returns a pointer to it.
+///
+/// Safety:
+/// The caller is responsible for freeing the returned pointer using `FreeRLookupRow`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewRLookupRow() -> *mut RLookupRow {
+    Box::into_raw(Box::new(RLookupRow::new()))
+}
+
+/// Frees a RLookupRow created by `NewRLookupRow`.
+///
+/// Safety:
+/// 1. The pointer must be a valid pointer to an [`RLookupRow`] created by [`NewRLookupRow`].
+/// 2. The pointer must not be used after calling this function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FreeRLookupRow(row: Option<NonNull<RLookupRow>>) {
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
+    if let Some(row) = row {
+        // Safety: Caller has to provide a valid pointer
+        drop(unsafe { Box::from_raw(row.as_ptr()) });
+    }
+}
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///

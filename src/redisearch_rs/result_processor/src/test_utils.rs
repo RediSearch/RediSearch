@@ -186,11 +186,8 @@ pub const fn default_search_result() -> ffi::SearchResult {
         scoreExplain: ptr::null_mut(),
         dmd: ptr::null(),
         indexResult: ptr::null_mut(),
-        rowdata: ffi::RLookupRow {
-            sv: ptr::null(),
-            dyn_: ptr::null_mut(),
-            ndyn: 0,
-        },
+        //        rowdata: NewRLookupRow(),
+        rowdata: ptr::null_mut(),
         flags: 0,
     };
     SEARCH_RESULT_INIT
