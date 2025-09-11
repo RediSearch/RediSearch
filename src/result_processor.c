@@ -20,8 +20,6 @@
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"
-#include "hybrid/hybrid_lookup_context.h"
-#include "src/util/likely.h"
 #include "config.h"
 
 /*******************************************************************************************************************

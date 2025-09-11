@@ -13,7 +13,6 @@
 #include "info/info_redis/block_client.h"
 #include "query_error.h"
 #include "spec.h"
-#include "ext/default.h"
 
 #ifdef __cplusplus
 extern "C" {

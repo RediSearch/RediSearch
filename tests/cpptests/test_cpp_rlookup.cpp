@@ -118,7 +118,7 @@ void verify_values_by_names(RLookup* lookup, RLookupRow* row,
                            const std::vector<double>& expectedValues) {
   EXPECT_EQ(fieldNames.size(), expectedValues.size()) << "Field count must match expected value count";
 
-  for (size_t i = 0; i < fieldNames.size() && i < expectedValues.size(); i++) {
+  for (size_t i = 0; i < fieldNames.size(); i++) {
     RLookupKey* key = RLookup_GetKey_Read(lookup, fieldNames[i], RLOOKUP_F_NOFLAGS);
     EXPECT_TRUE(key != nullptr) << "Field not found: " << fieldNames[i];
 

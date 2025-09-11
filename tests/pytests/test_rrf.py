@@ -41,7 +41,7 @@ def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
     for key in shared_keys:
         score_no_tag = float(results_no_tag[key][SCORE_FIELD])
         score_with_tag = float(results_with_tag[key][SCORE_FIELD])
-        env.assertAlmostEqual(score_no_tag, score_no_tag, delta=1E-6)
+        env.assertAlmostEqual(score_with_tag, score_no_tag, delta=1E-6)
 
         # Compare with regular search
         search_res = env.cmd('FT.SEARCH', 'idx', no_tag_search_query, 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
