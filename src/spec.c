@@ -2057,6 +2057,9 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name) {
   memset(&sp->stats, 0, sizeof(sp->stats));
   sp->stats.indexError = IndexError_Init();
 
+  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
+  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
+
   IndexSpec_InitLock(sp);
 }
 
@@ -2065,8 +2068,6 @@ IndexSpec *NewIndexSpec(const HiddenString *name) {
   initializeIndexSpec(sp, name);
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
   sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
-  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
   return sp;
 }
 
@@ -2919,18 +2920,13 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
+  initializeIndexSpec(sp, specName);
 
-  // `indexError` must be initialized before attempting to free the spec
-  sp->stats.indexError = IndexError_Init();
+  // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
 
   IndexSpec_MakeKeyless(sp);
-  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
-  sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->specName = specName;
-  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
   sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
-  sp->monitorDocumentExpiration = true;
-  sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
+  // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
@@ -2972,14 +2968,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     goto cleanup;
   }
 
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
-  /* For version 3 or up - load the generic trie */
-  //  if (encver >= 3) {
-  //    sp->terms = TrieType_GenericLoad(rdb, 0);
-  //  } else {
-  //    sp->terms = NewTrie(NULL);
-  //  }
-
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
     if (sp->stopwords == NULL)
@@ -3009,7 +2997,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
     }
   }
 
-  sp->scan_in_progress = false;
   return sp;
 
 cleanup:
