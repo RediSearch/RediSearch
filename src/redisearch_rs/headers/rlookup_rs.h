@@ -268,6 +268,17 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Gets an item from the RLookupRow based on the provided RLookupKey. If the item is not found, it returns a null pointer.
+ *
+ * Safety:
+ * 1. `key` must be a valid pointer to an [`RLookupKey`].
+ * 2. `row` must be a valid pointer to an [`RLookupRow`].
+ * 3. The returned pointer must not be freed by the caller, as it is managed by Rust.
+ */
+RSValue *RLookup_GetItem(const struct RLookupKey *key,
+                         const struct RLookupRow *row);
+
+/**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
  *
  * Safety:
