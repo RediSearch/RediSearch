@@ -26,6 +26,8 @@
 #define DOCSCORE_SCORER "DOCSCORE"
 #define HAMMINGDISTANCE_SCORER "HAMMING"
 
+#define VECTOR_RAW_DISTANCE_SCORER "VECTOR_RAW_DISTANCE"
+
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 
 #endif
