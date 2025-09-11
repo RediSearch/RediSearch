@@ -124,16 +124,14 @@ impl Context<'_> {
         })
     }
 
-    /// Returns the last processor in the pipeline.
-    pub fn last_processor(&mut self) -> *mut ffi::ResultProcessor {
+    /// Returns the owning [`ffi::QueryProcessingCtx`] of the pipeline.
+    pub fn parent_mut(&mut self) -> Option<&mut ffi::QueryProcessingCtx> {
         // Safety: We trust that this result processor's pointer is valid.
         let query_processing_context_ptr = unsafe { self.ptr.as_ref() }.parent;
-        // Safety: We trust that the pointer to the owning (parent) structure is valid.
-        let query_processing_context_ref = unsafe { query_processing_context_ptr.as_ref() };
 
-        query_processing_context_ref
-            .expect("result processor `parent` was null")
-            .endProc
+        // Safety: We trust that the pointer to the parent context, if set, is
+        // set to an appropriate structure.
+        unsafe { query_processing_context_ptr.as_mut() }
     }
 }
 
@@ -146,8 +144,7 @@ pub struct Upstream<'a> {
 
 impl Upstream<'_> {
     pub fn ty(&self) -> ffi::ResultProcessorType {
-        // Safety: We have to trust that the upstream pointer set by our QueryInterator parent
-        // is correct
+        // Safety: We have to trust the pointer to this upstream result processor was set correctly.
         unsafe { self.ptr.as_ref().ty }
     }
 

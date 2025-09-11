@@ -37,6 +37,12 @@ unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
     //   DMD_Return(r->dmd);
 }
 
+/// Mock implementation of `RPProfile_IncrementCount` for tests
+///
+// FIXME: replace with `Profile::increment_count` once the profile result processor is ported.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RPProfile_IncrementCount(_r: *mut ffi::ResultProcessor) {}
+
 #[test]
 fn rp_counter_new_returns_valid_pointer() {
     let counter = unsafe { RPCounter_New() };

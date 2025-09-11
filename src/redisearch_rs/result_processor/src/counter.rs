@@ -38,13 +38,24 @@ impl ResultProcessor for Counter {
             }
         }
 
-        // This logic was present in the original C code, with the following comment:
-        // > Since this never returns RM_OK, in profile mode, count should be increased to compensate for EOF.
+        // In profiling mode, RPProfile is interleaved into the result processor chain: A chain of
+        // processors A -> B -> C becomes A -> RPProfile -> B -> RPProfile -> C -> RPProfile, to
+        // profile each of the individual result processors.
+        //
+        // Because the Counter result processor returns Ok(None), this is equivalent to returning
+        // ffi::RPStatus_RS_RESULT_EOF (see ResultProcessorWrapper::result_processor_next). This
+        // apparently (in a way enricozb cannot figure out) prevents from the very last RPProfile
+        // from appropriately counting, so this patches that by manually incrementing the counter.
         if upstream.ty() == ffi::ResultProcessorType_RP_PROFILE {
-            // Safety: If the upstream processor is a Profile, then the original C code currently
-            // expects the last processor (`base->parent->endProc`) to be a `RPProfile*`, and
-            // increments its count. This is replicating that behavior.
-            unsafe { ffi::RPProfile_IncrementCount(cx.last_processor()) }
+            let end_proc = cx
+                .parent_mut()
+                .expect("This processor has no parent.")
+                .endProc;
+
+            // Safety: If the previous (upstream) result processor is a profiling result processor,
+            // then we are in profiling mode, and every other result processor is an RPProfile.
+            // Thus, the last result processor is also an RPProfile.
+            unsafe { ffi::RPProfile_IncrementCount(end_proc) }
         }
 
         Ok(None)
@@ -66,8 +77,14 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, default_search_result, from_iter};
+    use crate::test_utils::{default_search_result, from_iter, Chain};
     use std::iter;
+
+    /// Mock implementation of `RPProfile_IncrementCount` for tests
+    ///
+    // FIXME: replace with `Profile::increment_count` once the profile result processor is ported.
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn RPProfile_IncrementCount(_r: *mut ffi::ResultProcessor) {}
 
     #[test]
     fn basically_works() {
@@ -81,4 +98,20 @@ pub(crate) mod test {
         assert!(rp.next(cx, &mut default_search_result()).unwrap().is_none());
         assert_eq!(rp.count, 3);
     }
+
+    // #[test]
+    // fn test_profile_count() {
+    //     // Set up the result processor chain
+    //     let mut chain = Chain::new();
+    //     chain.append(from_iter(iter::repeat_n(default_search_result(), 3)));
+    //     // push profile 1
+    //     chain.append(Counter::new());
+    //     // push profile 2
+
+    //     let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
+
+    //     assert!(rp.next(cx, &mut default_search_result()).unwrap().is_none());
+    //     assert_eq!(rp.count, 3);
+    //     assert_eq!(PROFILE_COUNTER.load(Ordering::Relaxed), 2);
+    // }
 }
