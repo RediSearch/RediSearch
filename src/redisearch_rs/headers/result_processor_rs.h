@@ -9,7 +9,7 @@
 /**
  * Forward declaration of ResultProcessor. It will be defined in `result_processor.h`
  */
-typedef struct ResultProcessor;
+typedef struct ResultProcessor ResultProcessor;
 
 
 #ifdef __cplusplus
