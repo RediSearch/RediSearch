@@ -14,6 +14,7 @@
 //! and is not just a 32-bit truncation of the 64-bit hashing algorithm.
 //!
 //! [FNV-1a hashing]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-1a
+//! [fnv]: https://docs.rs/fnv
 
 use std::hash::Hasher;
 
@@ -24,17 +25,17 @@ impl Fnv32 {
     /// The 32-bit [FNV-1 prime].
     ///
     /// [FNV-1 prime]:http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
-    const PRIME: u32 = 0x1000193;
+    pub(crate) const PRIME: u32 = 0x1000193;
 
     /// The 32-bit [FNV-1 offset basis].
     ///
     /// [FNV-1 prime]:http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
-    const OFFSET_BASIS: u32 = 0x811c9dc5;
+    pub(crate) const OFFSET_BASIS: u32 = 0x811c9dc5;
 }
 
-/// A `Fnv32` with an [offset basis] of [`Fnv32::OFFSET_BASIS`].
+/// A `Fnv32` initialized with a [32-bit FNV-1 offset basis].
 ///
-/// [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
+/// [32-bit FNV-1 offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
 impl Default for Fnv32 {
     fn default() -> Fnv32 {
         Fnv32(Self::OFFSET_BASIS)
@@ -82,9 +83,9 @@ impl Fnv64 {
     const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 }
 
-/// A `Fnv64` with an [offset basis] of [`Fnv64::OFFSET_BASIS`].
+/// A `Fnv64` initialized with a [64-bit FNV-1 offset basis].
 ///
-/// [offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
+/// [64-bit FNV-1 offset basis]: http://www.isthe.com/chongo/tech/comp/fnv/#FNV-param
 impl Default for Fnv64 {
     fn default() -> Fnv64 {
         Fnv64(Self::OFFSET_BASIS)
