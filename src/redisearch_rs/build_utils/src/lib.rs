@@ -109,7 +109,9 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
     // This is the default linker behaviour on macOS. On other platforms, the default
     // configuration is stricter: it exits with an error if any symbol is undefined.
     // We intentionally relax it here.
-    if target_os != "macos" {
+    if target_os == "macos" {
+        println!("cargo:rustc-link-arg=-Wl,-undefined,dynamic_lookup");
+    } else {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
 
