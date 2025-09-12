@@ -187,10 +187,18 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   return 1;
 }
 
+char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {
+  // Generate default scoreField name using vector field name
+  char *scoreFieldName = NULL;
+  int n_written = rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
+  RS_ASSERT(n_written != -1);
+  return scoreFieldName;
+}
+
 void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen) {
   // Set default scoreField using vector field name
-  int n_written = rm_asprintf(&vq->scoreField, "__%.*s_score", (int)fieldNameLen, fieldName);
-  RS_ASSERT(n_written != -1);
+  char *defaultName = VectorQuery_GetDefaultScoreFieldName(fieldName, fieldNameLen);
+  vq->scoreField = defaultName;
 }
 
 void VectorQuery_Free(VectorQuery *vq) {

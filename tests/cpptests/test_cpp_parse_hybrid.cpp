@@ -398,7 +398,8 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_TRUE(vq->field != NULL);
-  ASSERT_TRUE(vq->scoreField == NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
   ASSERT_EQ(vq->knn.k, 10);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
@@ -433,7 +434,8 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_TRUE(vq->field != NULL);
-  ASSERT_TRUE(vq->scoreField == NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
   ASSERT_EQ(vq->knn.k, 10);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
@@ -478,7 +480,8 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_TRUE(vq->field != NULL);
-  ASSERT_TRUE(vq->scoreField == NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
   ASSERT_EQ(vq->knn.k, 5);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
@@ -547,7 +550,8 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_TRUE(vq->field != NULL);
-  ASSERT_TRUE(vq->scoreField == NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.5);
   ASSERT_EQ(vq->range.order, BY_SCORE);
@@ -583,7 +587,8 @@ TEST_F(ParseHybridTest, testVsimRangeWithEpsilon) {
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_TRUE(vq->field != NULL);
-  ASSERT_TRUE(vq->scoreField == NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_RANGE);
   ASSERT_EQ(vq->range.radius, 0.8);
   ASSERT_EQ(vq->range.order, BY_SCORE);
@@ -628,7 +633,8 @@ TEST_F(ParseHybridTest, testDirectVectorSyntax) {
   VectorQuery *vq = vn->vn.vq;
   ASSERT_TRUE(vq != NULL);
   ASSERT_TRUE(vq->field != NULL);
-  ASSERT_TRUE(vq->scoreField == NULL);
+  ASSERT_TRUE(vq->scoreField != NULL);
+  ASSERT_STREQ(vq->scoreField, "__vector_score");
   ASSERT_EQ(vq->type, VECSIM_QT_KNN);
   ASSERT_EQ(vq->knn.k, 5);
   ASSERT_EQ(vq->knn.order, BY_SCORE);

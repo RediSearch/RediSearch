@@ -24,5 +24,9 @@ void ParsedVectorData_Free(ParsedVectorData *pvd) {
     array_free_ex(pvd->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
   }
 
+  if (pvd->distanceFieldAlias) {
+    rm_free(pvd->distanceFieldAlias);
+  }
+
   rm_free(pvd);
 }

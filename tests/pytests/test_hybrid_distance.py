@@ -63,11 +63,14 @@ def setup_basic_index(env):
 IMPORTANT: to save calculations, redis stores only the squared distance in the vector index,
 therefore we square the radius and numpy l2 norm to get the squared distance
 """
-def calculate_l2_distance(vec1_bytes, vec2_bytes):
+def calculate_l2_distance_normalized(vec1_bytes, vec2_bytes):
+    def VectorNorm_L2 (distance):
+        return 1.0 / (1.0 + distance)
+
     """Calculate L2 distance between two vector byte arrays"""
     vec1 = np.frombuffer(vec1_bytes, dtype=np.float32)
     vec2 = np.frombuffer(vec2_bytes, dtype=np.float32)
-    return np.linalg.norm(vec1 - vec2)**2
+    return VectorNorm_L2(np.linalg.norm(vec1 - vec2)**2)
 
 
 # TODO: remove once FT.HYBRID for cluster is implemented
@@ -87,7 +90,7 @@ def test_hybrid_vector_knn_with_distance():
     for doc_key in results:
         doc_result = results[doc_key]
         returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance(query_vector, test_data[doc_key]['embedding'])
+        expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
 
         # Validate that the returned distance matches the calculated L2 distance
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
@@ -109,7 +112,7 @@ def test_hybrid_vector_range_with_distance():
     for doc_key in results:
         doc_result = results[doc_key]
         returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance(query_vector, test_data[doc_key]['embedding'])
+        expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
 
         # Validate that the returned distance matches the calculated L2 distance
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)

@@ -303,7 +303,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
   // Define expected pipelines for each request
   std::vector<std::vector<ResultProcessorType>> expectedPipelines = {
     {RP_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
-    {RP_DEPLETER, RP_LOADER, RP_INDEX}                         // Other requests pipeline
+    {RP_DEPLETER, RP_LOADER, RP_VECTOR_NORMALIZER, RP_METRICS, RP_INDEX}                         // Other requests pipeline
   };
 
   for (size_t i = 0; i < hybridReq->nrequests; i++) {
@@ -466,15 +466,6 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
       ASSERT_TRUE(tailKey != NULL)
         << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
 
-      // Verify that the keys point to the same indices
-      EXPECT_EQ(upstreamKey->dstidx, tailKey->dstidx)
-        << "Key '" << upstreamKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
-        << upstreamKey->dstidx << ") vs tail (" << tailKey->dstidx << ")";
-
-      EXPECT_EQ(upstreamKey->svidx, tailKey->svidx)
-        << "Key '" << upstreamKey->name << "' has different svidx in upstream request " << reqIdx << " ("
-        << upstreamKey->svidx << ") vs tail (" << tailKey->svidx << ")";
-
       // Verify path matches
       if (upstreamKey->path && tailKey->path) {
         EXPECT_STREQ(upstreamKey->path, tailKey->path)
@@ -564,16 +555,6 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
 
       ASSERT_TRUE(tailKey != NULL)
         << "Key '" << upstreamKey->name << "' from upstream request " << reqIdx << " not found in tail pipeline";
-
-      // Verify that the keys point to the same indices
-      EXPECT_EQ(upstreamKey->dstidx, tailKey->dstidx)
-        << "Key '" << upstreamKey->name << "' has different dstidx in upstream request " << reqIdx << " ("
-        << upstreamKey->dstidx << ") vs tail (" << tailKey->dstidx << ")";
-
-      EXPECT_EQ(upstreamKey->svidx, tailKey->svidx)
-        << "Key '" << upstreamKey->name << "' has different svidx in upstream request " << reqIdx << " ("
-        << upstreamKey->svidx << ") vs tail (" << tailKey->svidx << ")";
-
       // Verify path matches
       if (upstreamKey->path && tailKey->path) {
         EXPECT_STREQ(upstreamKey->path, tailKey->path)

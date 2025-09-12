@@ -22,6 +22,7 @@
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
+#include "vector_normalization.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +64,7 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_VECTOR_NORMALIZER,
   RP_HYBRID_MERGER,
   RP_DEPLETER,
   RP_TIMEOUT,               // DEBUG ONLY
@@ -312,6 +314,15 @@ void PipelineAddCrash(struct AREQ *r);
   * First accumulates all results from the upstream, then normalizes and yields them.
   *******************************************************************************************************************/
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+ /*******************************************************************************************************************
+  *  Vector Normalizer Result Processor
+  *
+  * Normalizes vector distance scores using a provided normalization function.
+  * Processes results immediately without accumulation.
+  * The normalization function is provided by pipeline construction logic.
+  *******************************************************************************************************************/
+ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey);
 
 /*******************************************************************************
  * Depleter Result Processor
