@@ -71,7 +71,7 @@ static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) request
     for (size_t i = 0; i < nrequests; i++) {
         RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
         if (srcLookup) {
-            RLookup_AddKeysFrom(tailLookup, srcLookup, RLOOKUP_F_NOFLAGS);
+            RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS);
         }
     }
 

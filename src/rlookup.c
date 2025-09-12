@@ -988,7 +988,7 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   return rv;
 }
 
-void RLookup_AddKeysFrom( const RLookup *src, RLookup *dest, uint32_t flags) {
+void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
   RS_ASSERT(dest != NULL && src != NULL);
   RS_ASSERT(dest != src);  // Prevent self-addition
 
