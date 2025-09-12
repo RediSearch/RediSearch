@@ -17,8 +17,17 @@ extern "C" {
 
 #ifdef NU_WITH_UDB
 
+typedef uint16_t nu_mph_codepoints_bmp_t;
+typedef uint32_t nu_mph_codepoints_full_t;
+
+#ifdef NU_WITH_BMP_ONLY
+	typedef nu_mph_codepoints_bmp_t nu_mph_codepoints_t;
+#else
+	typedef nu_mph_codepoints_full_t nu_mph_codepoints_t;
+#endif /* NU_BMP_ONLY */
+
 /* those need to be the same values as used in MPH generation */
-#define PRIME        0x01000193
+#define PRIME 0x01000193
 
 /** Calculate G offset from codepoint
  */
@@ -48,10 +57,10 @@ uint32_t nu_mph_hash(const int16_t *G, size_t G_SIZE,
 /** Lookup value in MPH
  */
 static inline
-uint32_t nu_mph_lookup(const uint32_t *V_C, const uint16_t *V_I,
+uint32_t nu_mph_lookup(const nu_mph_codepoints_t *V_C, const uint16_t *V_I,
 	uint32_t codepoint, uint32_t hash) {
 
-	const uint32_t *c = (V_C + hash);
+	const nu_mph_codepoints_t *c = (V_C + hash);
 	const uint16_t *i = (V_I + hash);
 
 	/* due to nature of minimal perfect hash, it will always
