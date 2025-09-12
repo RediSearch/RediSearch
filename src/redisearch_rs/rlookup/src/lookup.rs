@@ -14,7 +14,7 @@ use pin_project::pin_project;
 use std::{
     borrow::Borrow,
     cell::UnsafeCell,
-    ffi::{CStr, c_char},
+    ffi::{CStr, CString, c_char},
     mem,
     ops::{Deref, DerefMut},
     pin::{Pin, pin},
@@ -358,6 +358,14 @@ pub struct CursorMut<'list, 'a> {
 // reference `Pin<&mut CStr>` which safe Rust also cannot move out of.
 // This means you may NEVER EVER hand out a `&mut CStr` EVER.
 impl<'a> RLookupKey<'a> {
+    /// Constructs a new `RLookupKey` using the provided owned `CString` and flags.
+    ///
+    /// The underlying Cow is always owned in this case.
+    pub fn new_owned(name: CString, flags: RLookupKeyFlags) -> Self {
+        let name: CBCow<'_, CStr> = CBCow::Owned(name);
+        Self::with_name(name, flags)
+    }
+
     /// Constructs a new `RLookupKey` using the provided `CStr` and flags.
     ///
     /// If the [`RLookupKeyFlag::NameAlloc`] is given, then the provided `CStr` will be cloned into
@@ -370,6 +378,10 @@ impl<'a> RLookupKey<'a> {
             CBCow::Borrowed(name)
         };
 
+        Self::with_name(name, flags)
+    }
+
+    fn with_name(name: CBCow<'a, CStr>, flags: RLookupKeyFlags) -> Self {
         Self {
             dstidx: 0,
             svidx: 0,
