@@ -2034,23 +2034,16 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   pthread_rwlock_init(&sp->rwlock, &attr);
 }
 
-
-IndexSpec *NewIndexSpec(const HiddenString *name) {
-  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
+static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name) {
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->stopwords = DefaultStopWordList();
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
   sp->keysDict = NULL;
   sp->getValue = NULL;
   sp->getValueCtx = NULL;
-  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
-
   sp->timeout = 0;
   sp->isTimerSet = false;
   sp->timerId = 0;
@@ -2064,8 +2057,17 @@ IndexSpec *NewIndexSpec(const HiddenString *name) {
   memset(&sp->stats, 0, sizeof(sp->stats));
   sp->stats.indexError = IndexError_Init();
 
-  IndexSpec_InitLock(sp);
+  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
+  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
 
+  IndexSpec_InitLock(sp);
+}
+
+IndexSpec *NewIndexSpec(const HiddenString *name) {
+  IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  initializeIndexSpec(sp, name);
+  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
+  sp->stopwords = DefaultStopWordList();
   return sp;
 }
 
@@ -2876,35 +2878,54 @@ void Indexes_ScanAndReindex() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
-                                       QueryError *status) {
+void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
+  // Save the name plus the null terminator
+  HiddenString_SaveToRdb(sp->specName, rdb);
+  RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
+  RedisModule_SaveUnsigned(rdb, sp->numFields);
+  for (int i = 0; i < sp->numFields; i++) {
+    FieldSpec_RdbSave(rdb, &sp->fields[i]);
+  }
+
+  SchemaRule_RdbSave(sp->rule, rdb);
+
+  // If we have custom stopwords, save them
+  if (sp->flags & Index_HasCustomStopwords) {
+    StopWordList_RdbSave(rdb, sp->stopwords);
+  }
+
+  if (sp->flags & Index_HasSmap) {
+    SynonymMap_RdbSave(rdb, sp->smap);
+  }
+
+  RedisModule_SaveUnsigned(rdb, sp->timeout);
+
+  if (sp->aliases) {
+    RedisModule_SaveUnsigned(rdb, array_len(sp->aliases));
+    for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
+      HiddenString_SaveToRdb(sp->aliases[ii], rdb);
+    }
+  } else {
+    RedisModule_SaveUnsigned(rdb, 0);
+  }
+}
+
+IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
   char *rawName = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
   size_t len = strlen(rawName);
   HiddenString* specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
-  // setting isDuplicate to true will make sure index will not be removed from aliases container.
-  const RefManager *oldSpec = dictFetchValue(specDict_g, specName);
-  sp->isDuplicate = oldSpec != NULL;
-  if (sp->isDuplicate) {
-    // spec already exists, however we need to finish consuming the rdb so redis won't issue an error(expecting an eof but seeing remaining data)
-    // right now this can cause nasty side effects, to avoid them we will set isDuplicate to true
-    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
-  }
+  initializeIndexSpec(sp, specName);
 
-  // `indexError` must be initialized before attempting to free the spec
-  sp->stats.indexError = IndexError_Init();
+  // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
 
   IndexSpec_MakeKeyless(sp);
-  sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
-  sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->specName = specName;
-  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
   sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
+  // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
@@ -2946,15 +2967,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     goto cleanup;
   }
 
-
-  sp->terms = NewTrie(NULL, Trie_Sort_Lex);
-  /* For version 3 or up - load the generic trie */
-  //  if (encver >= 3) {
-  //    sp->terms = TrieType_GenericLoad(rdb, 0);
-  //  } else {
-  //    sp->terms = NewTrie(NULL);
-  //  }
-
   if (sp->flags & Index_HasCustomStopwords) {
     sp->stopwords = StopWordList_RdbLoad(rdb, encver);
     if (sp->stopwords == NULL)
@@ -2962,9 +2974,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   } else {
     sp->stopwords = DefaultStopWordList();
   }
-
-  IndexSpec_StartGC(ctx, spec_ref, sp);
-  Cursors_initSpec(sp);
 
   if (sp->flags & Index_HasSmap) {
     sp->smap = SynonymMap_RdbLoad(rdb, encver);
@@ -2987,7 +2996,37 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     }
   }
 
-  sp->scan_in_progress = false;
+  return sp;
+
+cleanup:
+  StrongRef_Release(spec_ref);
+  QueryError_SetError(status, QUERY_EPARSEARGS, "while reading an index");
+  return NULL;
+}
+
+int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
+                                       QueryError *status) {
+  // Load the index spec using the new function
+  IndexSpec *sp = IndexSpec_RdbLoad(rdb, encver, status);
+  if (!sp) {
+    addPendingIndexDrop();
+    return REDISMODULE_ERR;
+  }
+
+  StrongRef spec_ref = sp->own_ref;
+
+  // setting isDuplicate to true will make sure index will not be removed from aliases container.
+  const RefManager *oldSpec = dictFetchValue(specDict_g, sp->specName);
+  sp->isDuplicate = oldSpec != NULL;
+  if (sp->isDuplicate) {
+    // spec already exists, however we need to finish consuming the rdb so redis won't issue an error(expecting an eof but seeing remaining data)
+    // right now this can cause nasty side effects, to avoid them we will set isDuplicate to true
+    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
+  }
+
+  IndexSpec_StartGC(ctx, spec_ref, sp);
+  Cursors_initSpec(sp);
+
   if (sp->isDuplicate) {
     // spec already exists lets just free this one
     // Remove the new spec from the global prefixes dictionary.
@@ -3003,12 +3042,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     }
   }
   return REDISMODULE_OK;
-
-cleanup:
-  addPendingIndexDrop();
-  StrongRef_Release(spec_ref);
-  QueryError_SetError(status, QUERY_EPARSEARGS, "while reading an index");
-  return REDISMODULE_ERR;
 }
 
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -3165,35 +3198,7 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
-    // we save the name plus the null terminator
-    HiddenString_SaveToRdb(sp->specName, rdb);
-    RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
-    RedisModule_SaveUnsigned(rdb, sp->numFields);
-    for (int i = 0; i < sp->numFields; i++) {
-      FieldSpec_RdbSave(rdb, &sp->fields[i]);
-    }
-
-    SchemaRule_RdbSave(sp->rule, rdb);
-
-    // If we have custom stopwords, save them
-    if (sp->flags & Index_HasCustomStopwords) {
-      StopWordList_RdbSave(rdb, sp->stopwords);
-    }
-
-    if (sp->flags & Index_HasSmap) {
-      SynonymMap_RdbSave(rdb, sp->smap);
-    }
-
-    RedisModule_SaveUnsigned(rdb, sp->timeout);
-
-    if (sp->aliases) {
-      RedisModule_SaveUnsigned(rdb, array_len(sp->aliases));
-      for (size_t ii = 0; ii < array_len(sp->aliases); ++ii) {
-        HiddenString_SaveToRdb(sp->aliases[ii], rdb);
-      }
-    } else {
-      RedisModule_SaveUnsigned(rdb, 0);
-    }
+    IndexSpec_RdbSave(rdb, sp);
   }
 
   dictReleaseIterator(iter);
