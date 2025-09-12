@@ -140,7 +140,7 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes);
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, NULL);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -150,7 +150,7 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes);
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, NULL);
 }
 
 
@@ -1332,7 +1332,7 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
 
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, 3);
-  ResultProcessor *hybridMerger = RPHybridMerger_New(hybridScoringCtx, upstreams, 3, NULL, returnCodes);
+  ResultProcessor *hybridMerger = RPHybridMerger_New(hybridScoringCtx, upstreams, 3, NULL, returnCodes, NULL);
 
   // Process results - this should capture the return codes
   SearchResult r = {0};
