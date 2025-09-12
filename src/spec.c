@@ -2917,7 +2917,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   RedisModule_Free(rawName);
 
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
   initializeIndexSpec(sp, specName);
