@@ -185,6 +185,8 @@ uintptr_t TrieMap_NUniqueKeys(struct TrieMap *t);
  */
 uintptr_t TrieMap_NNodes(struct TrieMap *t);
 
+int32_t inline_me(int32_t x);
+
 /**
  * Find nodes that have a given prefix. Results are placed in an array.
  * The `results` buffer is initialized by this function using the Redis allocator
