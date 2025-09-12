@@ -420,16 +420,16 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
 /**
  * Add keys from source lookup into destination lookup.
  * For each key in src, check if it already exists in dest by name.
- * If not exists, create new key in dest with unique dstidx.
+ * If doesn't exists, create new key in dest.
  * Handle existing keys based on flags (skip by default, override with RLOOKUP_F_OVERRIDE).
  *
  * Flag handling:
  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
- * - Final flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ * - Targat flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
  */
-void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags);
+void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags);
 
 /**
  * Write field data from source row to destination row with different schemas.
@@ -437,7 +437,7 @@ void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags);
  * and write it to destination row using RLookup_WriteOwnKey().
  * Assumes all source keys exist in destination (enforce with ASSERT).
  */
-void RLookupRow_WriteFieldsFrom(RLookupRow *srcRow, const RLookup *srcLookup,
+void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
                                RLookupRow *destRow, const RLookup *destLookup);
 
 #ifdef __cplusplus
