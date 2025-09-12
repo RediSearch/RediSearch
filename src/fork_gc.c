@@ -694,22 +694,30 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
         InvertedIndex_Block(idx, info->nblocksOrig - 1);
   }
 
-  InvertedIndexGcDelta delta = {
-    .new_blocklist = idxData->newBlocklist,
-    .new_blocklist_size = idxData->newBlocklistSize,
-    .deleted = (void *)idxData->delBlocks,
-    .deleted_len = idxData->numDelBlocks,
-    .repaired = (void *)idxData->changedBlocks,
-    .repaired_len = info->nblocksRepaired,
-  };
+  // safety: ensure our shims match the wire structs (compile-time)
+  // NOTE: in later phase we get rid of MSG entirely
+  _Static_assert(sizeof(InvertedIndex_RepairedInput) == sizeof(MSG_RepairedBlock), "repaired layout mismatch");
+  _Static_assert(sizeof(InvertedIndex_DeletedInput)  == sizeof(MSG_DeletedBlock), "deleted layout mismatch");
 
-  InvertedIndex_ApplyGcDelta(idx, &delta, info->nblocksOrig, &info->nbytesAdded);
+  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_New();
 
-  // consume block arrays from InvIdxBuffers
-  // (in future, when InvIdxBuffers stops existing this will be cleaner)
-  idxData->changedBlocks = NULL;
-  idxData->delBlocks = NULL;
+  InvertedIndex_GcDelta_SetNewBlocklist(delta, idxData->newBlocklist, idxData->newBlocklistSize);
   idxData->newBlocklist = NULL;
+  idxData->newBlocklistSize = 0;
+
+  InvertedIndex_GcDelta_SetDeleted(delta,
+    (InvertedIndex_DeletedInput *)idxData->delBlocks, idxData->numDelBlocks);
+  idxData->delBlocks = NULL;
+  idxData->numDelBlocks = 0;
+
+  InvertedIndex_GcDelta_SetRepaired(delta,
+    (InvertedIndex_RepairedInput *)idxData->changedBlocks, info->nblocksRepaired);
+  idxData->changedBlocks = NULL;
+  info->nblocksRepaired = 0;
+
+  InvertedIndex_ApplyGcDelta(idx, delta, info->nblocksOrig, &info->nbytesAdded);
+
+  InvertedIndex_GcDelta_Free(delta);
 
   InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - info->ndocsCollected);
 }

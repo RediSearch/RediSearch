@@ -610,16 +610,6 @@ run_rust_valgrind_tests() {
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
   fi
 
-  # Pin a specific working version of nightly to prevent breaking the CI because
-  # regressions in a nightly build.
-  # Make sure to synchronize updates across all modules: Redis and RedisJSON.
-  NIGHTLY_VERSION="nightly-2025-07-30"
-
-  # Add Rust test extensions
-  if [[ -n "$SAN" ]]; then
-    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
-  fi
-
   cd "$RUST_DIR"
 
   if [[ "$OS_NAME" == "macos" ]]; then
@@ -631,7 +621,7 @@ run_rust_valgrind_tests() {
     # Run cargo valgrind with the appropriate filter
     VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp \
         RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
-        cargo $RUST_EXTENSIONS valgrind test \
+        cargo valgrind test \
         --profile=$RUST_PROFILE \
         $RUST_TEST_OPTIONS \
         --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER \

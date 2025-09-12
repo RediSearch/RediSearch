@@ -71,34 +71,20 @@ typedef struct {
   void *arg;
 } IndexRepairParams;
 
-// A compact change set produced by the child and applied by the parent.
-// All ownership of the buffers inside this struct transfers to the index
-// when InvertedIndex_ApplyGcDelta is called.
+// opaque handle
+typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
+
+// input shims (layout-compatible with the MSG_* the child/parent already use)
 typedef struct {
-  // If non NULL the child produced a compacted list of blocks for the
-  // prefix it scanned. The array length is new_blocklist_size.
-  // Ownership of the array moves to the index on apply.
-  IndexBlock *new_blocklist;
-  size_t new_blocklist_size;  // number of elements
+  IndexBlock blk;
+  int64_t oldix;
+  int64_t newix;
+} InvertedIndex_RepairedInput;
 
-  // Buffers of blocks that were deleted entirely. Each entry holds the
-  // original data pointer captured before repair. The index will free them.
-  struct InvertedIndexGcDeleted {
-    void *ptr;
-    uint32_t oldix;
-    uint32_t _pad; // keep structure layout identical to current usage
-  } *deleted;
-  size_t deleted_len;
-
-  // Repaired blocks to install at given positions. Ownership of blk buffer
-  // moves to the index on apply.
-  struct InvertedIndexGcRepaired {
-    IndexBlock blk;
-    int64_t oldix;
-    int64_t newix;
-  } *repaired;
-  size_t repaired_len;
-} InvertedIndexGcDelta;
+typedef struct {
+  void *ptr;
+  uint32_t oldix;
+} InvertedIndex_DeletedInput;
 
 // -------------------------
 
@@ -402,6 +388,18 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
                                 InvertedIndexGcDelta *delta,
                                 size_t nblocks_orig,
                                 uint64_t *nbytes_added_io);
+
+// ---------------- II Delta Builders
+
+InvertedIndexGcDelta *InvertedIndex_GcDelta_New(void);
+// // takes ownership of blocks
+void InvertedIndex_GcDelta_SetNewBlocklist(InvertedIndexGcDelta *d, IndexBlock *blocks, size_t count);
+// takes ownership of arr
+void InvertedIndex_GcDelta_SetDeleted(InvertedIndexGcDelta *d, InvertedIndex_DeletedInput *arr, size_t len);
+// // takes ownership of arr
+void InvertedIndex_GcDelta_SetRepaired(InvertedIndexGcDelta *d, InvertedIndex_RepairedInput *arr, size_t len);
+void InvertedIndex_GcDelta_SetLastBlockIgnored(InvertedIndexGcDelta *d, bool v);
+void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d);
 
 // ---------------------
 
