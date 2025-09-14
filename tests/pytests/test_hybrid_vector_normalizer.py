@@ -77,15 +77,15 @@ def create_test_data(data_type):
         },
         'doc:2': {
             'description': "red running shoes",
-            'embedding': np.array([1.0 + epsilon, 0.0 + epsilon], dtype=data_type.lower()).tobytes()
+            'embedding': np.array([10.0 + epsilon, 0.0 + epsilon], dtype=data_type.lower()).tobytes()
         },
         'doc:3': {
             'description': "running gear",
-            'embedding': np.array([0.0 + epsilon, 1.0 + epsilon], dtype=data_type.lower()).tobytes()
+            'embedding': np.array([0.0 + epsilon, 10.0 + epsilon], dtype=data_type.lower()).tobytes()
         },
         'doc:4': {
             'description': "blue shoes",
-            'embedding': np.array([1.0 + epsilon, 1.0 + epsilon], dtype=data_type.lower()).tobytes()
+            'embedding': np.array([10.0 + epsilon, 10.0 + epsilon], dtype=data_type.lower()).tobytes()
         }
     }
 
@@ -96,7 +96,7 @@ DISTANCE_CALCULATORS = {
     'IP': calculate_ip_distance_normalized
 }
 
-EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2}
+EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2, 'INT8': 1E-2, 'UINT8': 1E-2}
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -104,7 +104,7 @@ def test_hybrid_vector_normalizer():
     """Test that yield_distance_as value equals the expected distance for all distance metrics"""
 
     # Test all supported vector types
-    data_types = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
+    data_types = VECSIM_DATA_TYPES + ['INT8', 'UINT8']
     metrics = ['L2', 'COSINE', 'IP']
     algorithms = ['FLAT', 'HNSW'] # TODO: Add SVS support here after FT.HYBRID is merged to master
 
