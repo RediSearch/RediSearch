@@ -52,6 +52,7 @@ jobs:
                 .github/workflows/benchmark-*.yml
                 **/CMakeLists.txt
                 **/Makefile
+          fetch_additional_submodule_history: true
       - name: Check if rust micro-benchmarks were changed
         id: check-micro-benchmarks
         uses: tj-actions/changed-files@v46.0.5
