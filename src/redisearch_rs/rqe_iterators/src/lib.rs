@@ -9,6 +9,7 @@
 
 pub mod empty;
 pub mod id_list;
+pub mod wildcard;
 
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
