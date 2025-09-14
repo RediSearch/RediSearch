@@ -13,7 +13,6 @@
 #include "query_node.h"
 #include "query_ctx.h"
 #include "field_spec.h"
-#include "rmutil/rm_assert.h"
 
 #define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
