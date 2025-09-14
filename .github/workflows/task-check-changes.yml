@@ -40,6 +40,7 @@ jobs:
                 deps/**
                 **/CMakeLists.txt
                 **/Makefile
+          fetch_additional_submodule_history: true
       - name: Check if benchmarks or code were changed
         id: check-benchmarks
         uses: tj-actions/changed-files@v46.0.5
