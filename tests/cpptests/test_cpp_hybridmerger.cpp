@@ -14,6 +14,7 @@
 #include "config.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"  // For mergeFlags function
+#include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
 #include "redisearch.h"  // For Result_ExpiredDoc flag
 #include <vector>
 #include <string>
@@ -133,6 +134,55 @@ struct MockUpstream : public ResultProcessor {
   }
 };
 
+// Helper function to create dummy RLookup context for tests
+HybridLookupContext* CreateDummyLookupContext(size_t numUpstreams) {
+  HybridLookupContext *lookupCtx = (HybridLookupContext*)rm_calloc(1, sizeof(HybridLookupContext));
+  if (!lookupCtx) return NULL;
+
+  // Initialize source lookups array
+  lookupCtx->sourceLookups = array_new(const RLookup*, numUpstreams);
+
+  // Create dummy RLookup for each upstream
+  for (size_t i = 0; i < numUpstreams; i++) {
+    RLookup *dummyLookup = (RLookup*)rm_calloc(1, sizeof(RLookup));
+    if (dummyLookup) {
+      RLookup_Init(dummyLookup, NULL);
+    }
+    array_append(lookupCtx->sourceLookups, dummyLookup);
+  }
+
+  // Create dummy tail lookup
+  RLookup *tailLookup = (RLookup*)rm_calloc(1, sizeof(RLookup));
+  if (tailLookup) {
+    RLookup_Init(tailLookup, NULL);
+    lookupCtx->tailLookup = tailLookup;
+  }
+
+  return lookupCtx;
+}
+
+// Helper function to cleanup dummy lookup context
+void CleanupDummyLookupContext(HybridLookupContext *lookupCtx) {
+  if (!lookupCtx) return;
+
+  // Cleanup source lookups
+  for (size_t i = 0; i < array_len(lookupCtx->sourceLookups); i++) {
+    if (lookupCtx->sourceLookups[i]) {
+      RLookup_Cleanup(const_cast<RLookup*>(lookupCtx->sourceLookups[i]));
+      rm_free(const_cast<void*>(static_cast<const void*>(lookupCtx->sourceLookups[i])));
+    }
+  }
+  array_free(lookupCtx->sourceLookups);
+
+  // Cleanup tail lookup
+  if (lookupCtx->tailLookup) {
+    RLookup_Cleanup(const_cast<RLookup*>(lookupCtx->tailLookup));
+    rm_free(const_cast<void*>(static_cast<const void*>(lookupCtx->tailLookup)));
+  }
+
+  rm_free(lookupCtx);
+}
+
 // Helper function to create hybrid merger with linear scoring
 ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double *weights) {
   // Create HybridScoringContext using constructor
@@ -140,7 +190,11 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, NULL);
+
+  // Create dummy lookup context
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(numUpstreams);
+
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, lookupCtx);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -150,7 +204,11 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
-  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, NULL);
+
+  // Create dummy lookup context
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(numUpstreams);
+
+  return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, lookupCtx);
 }
 
 
@@ -1332,7 +1390,11 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
 
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, 3);
-  ResultProcessor *hybridMerger = RPHybridMerger_New(hybridScoringCtx, upstreams, 3, NULL, returnCodes, NULL);
+
+  // Create dummy lookup context
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
+
+  ResultProcessor *hybridMerger = RPHybridMerger_New(hybridScoringCtx, upstreams, 3, NULL, returnCodes, lookupCtx);
 
   // Process results - this should capture the return codes
   SearchResult r = {0};

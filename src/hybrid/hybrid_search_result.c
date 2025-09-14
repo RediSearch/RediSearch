@@ -170,17 +170,15 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
       mergeFlags(&primary->flags, &hybridResult->searchResults[i]->flags);
     }
   }
-  // Merge field data into primary result's rowdata if lookup context is provided
-  if (lookupCtx) {
-    // Create temporary row for merging (avoids modifying primary while reading from it)
-    RLookupRow tempRow = {0};  // Stack allocation, zero-initialized
-    merge_rlookuprow(hybridResult, lookupCtx, &tempRow);
+  // Merge field data into primary result's rowdata
+  // Create temporary row for merging (avoids modifying primary while reading from it)
+  RLookupRow tempRow = {0};  // Stack allocation, zero-initialized
+  merge_rlookuprow(hybridResult, lookupCtx, &tempRow);
 
-    // Prepare primary row and move merged data from temporary row
-    RLookupRow_Wipe(&primary->rowdata);  // Clear primary row
-    RLookupRow_Move(lookupCtx->tailLookup, &tempRow, &primary->rowdata);  // Move temp → primary
-    RLookupRow_Cleanup(&tempRow);
-  }
+  // Prepare primary row and move merged data from temporary row
+  RLookupRow_Wipe(&primary->rowdata);  // Clear primary row
+  RLookupRow_Move(lookupCtx->tailLookup, &tempRow, &primary->rowdata);  // Move temp → primary
+  RLookupRow_Cleanup(&tempRow);
   // Transfer ownership: Remove primary result from HybridSearchResult to prevent double-free
   hybridResult->searchResults[targetIndex] = NULL;
   hybridResult->hasResults[targetIndex] = false;
