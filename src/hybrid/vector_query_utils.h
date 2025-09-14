@@ -29,6 +29,7 @@ typedef struct {
   bool isParameter;                // true if vector data is a parameter
   bool hasExplicitK;               // Flag to track if K was explicitly set in KNN query
   char *distanceFieldAlias;        // Alias for the distance field (OWNED) - NULL if not explicitly set
+  uint32_t queryNodeFlags;         // QueryNode flags to be applied when creating the vector node
 } ParsedVectorData;
 
 void ParsedVectorData_Free(ParsedVectorData *pvd);

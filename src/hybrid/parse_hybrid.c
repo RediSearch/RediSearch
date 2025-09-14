@@ -270,6 +270,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Create ParsedVectorData struct at the beginning for cleaner error handling
   ParsedVectorData *pvd = rm_calloc(1, sizeof(ParsedVectorData));
+  pvd->queryNodeFlags = QueryNode_YieldsDistance | QueryNode_HybridVectorSubqueryNode;
 
   // Allocate VectorQuery directly (params arrays will be created lazily by array_ensure_append_1)
   VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
@@ -647,6 +648,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     vectorRequest->parsedVectorData->distanceFieldAlias = NULL;
   } else {
     distanceFieldAlias = VectorQuery_GetDefaultScoreFieldName(vectorRequest->parsedVectorData->fieldName, strlen(vectorRequest->parsedVectorData->fieldName));
+    vectorRequest->parsedVectorData->queryNodeFlags |= QueryNode_HideVectorDistanceField;
   }
   PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(vectorRequest->parsedVectorData->fieldName, distanceFieldAlias);
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
