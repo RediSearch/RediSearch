@@ -574,3 +574,30 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   StrongRef_Release(strong);
   return 1;
 }
+
+VecSimMetric GetVecSimMetricFromVectorField(const FieldSpec *vectorField) {
+  RS_ASSERT(FIELD_IS(vectorField, INDEXFLD_T_VECTOR))
+  VecSimParams vec_params = vectorField->vectorOpts.vecSimParams;
+
+  VecSimAlgo field_algo = vec_params.algo;
+  AlgoParams algo_params = vec_params.algoParams;
+
+  if (field_algo == VecSimAlgo_TIERED) {
+    VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+    if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+      HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
+      return hnsw_params.metric;
+    } else {
+      // TODO: Add SVS support here after FT.HYBRID is merged to master
+      // Unknown primary algorithm in tiered index
+      RS_ABORT("Unknown primary algorithm in tiered index");
+    }
+  } else if (field_algo == VecSimAlgo_BF) {
+    return algo_params.bfParams.metric;
+  } else if (field_algo == VecSimAlgo_HNSWLIB) {
+    return algo_params.hnswParams.metric;
+  } else {
+    // Unknown algorithm type
+    RS_ABORT("Unknown VecSimAlgo in GetVecSimMetricFromVectorField");
+  }
+}

@@ -106,6 +106,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
+  RS_ASSERT(pvd->distanceFieldAlias == NULL);
 
   for (int i=0; i<params; i+=2) {
     if (AC_IsAtEnd(ac)) {
@@ -141,7 +142,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
-      if (pvd->hasExplicitYieldDistanceAs) {
+      if (pvd->distanceFieldAlias != NULL) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
       }
@@ -158,7 +159,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      pvd->hasExplicitYieldDistanceAs = true;
       pvd->distanceFieldAlias = rm_strdup(value);
     } else {
       const char *current;
@@ -187,6 +187,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   }
   bool hasRadius = false;
   bool hasEpsilon = false;
+  RS_ASSERT(pvd->distanceFieldAlias == NULL);
 
   for (int i=0; i<params; i+=2) {
     if (AC_IsAtEnd(ac)) {
@@ -222,7 +223,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
-      if (pvd->hasExplicitYieldDistanceAs) {
+      if (pvd->distanceFieldAlias != NULL) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
         return REDISMODULE_ERR;
       }
@@ -239,7 +240,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      pvd->hasExplicitYieldDistanceAs = true;
       pvd->distanceFieldAlias = rm_strdup(value);
     } else {
       const char *current;
@@ -642,7 +642,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   const char *distanceFieldAlias = NULL;
-  if (vectorRequest->parsedVectorData->hasExplicitYieldDistanceAs) {
+  if (vectorRequest->parsedVectorData->distanceFieldAlias != NULL) {
     distanceFieldAlias = vectorRequest->parsedVectorData->distanceFieldAlias;
     vectorRequest->parsedVectorData->distanceFieldAlias = NULL;
   } else {

@@ -1179,7 +1179,7 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
 
   // Always yield distance for hybrid vector subqueries
   vecNode->opts.flags |= QueryNode_YieldsDistance;
-  if (!pvd->hasExplicitYieldDistanceAs) {
+  if (pvd->distanceFieldAlias == NULL) {
     // If YIELD_DISTANCE_AS was not explicitly set, hide the distance field from the response
     vecNode->opts.flags |= QueryNode_HideVectorDistanceField;
   }
