@@ -1,4 +1,6 @@
 from common import *
+import threading
+import time
 
 class TestDebugCommands(object):
 
@@ -59,6 +61,7 @@ class TestDebugCommands(object):
             'GET_HIDE_USER_DATA_FROM_LOGS',
             'YIELDS_ON_LOAD_COUNTER',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
+            'QUERY_CONTROLLER',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
@@ -1035,3 +1038,194 @@ def test_yield_counter(env):
     # Giving wrong subcommand
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
     .contains('Unknown subcommand')
+
+@skip(cluster=True)
+def test_query_controller(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'NOT_A_COMMAND').error()\
+    .contains("Invalid command for 'QUERY_CONTROLLER'")
+
+@skip(cluster=True)
+def test_query_controller_pause_and_resume(env):
+
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_RP_PAUSED', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM', 'ExtraARG').error()\
+    .contains('wrong number of arguments')
+
+    # Set workers to 1 to make sure the query can be paused
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
+
+    # Create 1 docs
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+    # Wait for index to finish scan
+    waitForIndex(env, 'idx')
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    queries_completed = 0
+
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        t_query = threading.Thread(
+            target=_call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, [query_type, 'idx', '*'], 'Index', 0),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+
+        # If we are here, the query is paused
+        # Verify workers status
+        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], queries_completed)
+        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
+        env.assertEqual(active_queries, 1)
+
+        # Test PRINT_RP_STREAM
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','Scorer','DEBUG_RP','Index'])
+        if query_type == 'FT.AGGREGATE':
+            env.assertEqual(rp_stream, ['DEBUG_RP','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+
+        t_query.join()
+
+        queries_completed += 1
+
+        # Verify the query returned only 1 result
+        env.assertEqual(query_result[0][0], 1)
+
+@skip(cluster=True)
+def test_query_controller_add_before_after(env):
+    # Set workers to 1 to make sure the query can be paused
+
+    # Create 1 docs
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+    # Check error when workers is 0
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Query PAUSE_BEFORE_RP_N is only supported in with WORKERS")
+
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
+
+    # Check error when insert after Index RP
+    env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_AFTER_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Index RP type not found in stream or tried to insert after last RP")
+
+    for before in [True, False]:
+
+        target_func = runDebugQueryCommandPauseBeforeRPAfterN if before else runDebugQueryCommandPauseAfterRPAfterN
+
+        # Check wrong RP type error
+        cmd_str = 'BEFORE' if before else 'AFTER'
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'InvalidRP', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Invalid PAUSE_{cmd_str}_RP_N RP type")
+        # Check RP type that is not in the stream
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Highlighter RP type not found in stream or tried to insert after last RP")
+        # Build threads
+        t_query = threading.Thread(
+            target=target_func,
+            args=(env,['FT.SEARCH', 'idx', '*'], 'Sorter', 0),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        while getIsRPPaused(env) != 1:
+            time.sleep(0.1)
+        rp_stream = env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM')
+        if before:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','DEBUG_RP','Sorter','Scorer','Index'])
+        else:
+            env.assertEqual(rp_stream, ['Threadsafe-Loader','Sorter','DEBUG_RP','Scorer','Index'])
+
+        # Resume the query
+        setPauseRPResume(env)
+        t_query.join()
+
+@skip(cluster=False)
+def test_cluster_query_controller_pause_and_resume(env):
+    # Set workers to 1 on all shards to make sure queries can be paused
+    verify_command_OK_on_all_shards(env, '_FT.CONFIG SET WORKERS 1')
+
+    conn = getConnectionByEnv(env)
+
+    n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    # Wait until index scan completes to prevent contention on the spec lock
+    allShards_waitForIndexFinishScan(env, 'idx')
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    queries_completed = 0
+
+    for query_type in ['FT.SEARCH']:
+        # We need to call the queries in MT so the paused query won't block the test
+        query_result = []
+
+        # Build threads
+        t_query = threading.Thread(
+            target=_call_and_store,
+            args=(runDebugQueryCommandPauseBeforeRPAfterN,
+                (env, [query_type, 'idx', '*'], 'Index', 0),
+                query_result),
+            daemon=True
+        )
+
+        # Start the query and the pause-check in parallel
+        t_query.start()
+
+        # Wait for any shard to be paused
+        while False in allShards_getIsRPPaused(env):
+            time.sleep(0.1)
+
+        # If we are here, at least one query is paused
+        # Verify that we have active queries across the cluster
+        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
+        env.assertEqual(active_queries, 1)
+
+        # Resume all shards
+        allShards_setPauseRPResume(env)
+
+        t_query.join()
+
+        queries_completed += 1
+
+        # Verify the query returned results (should be at least 1 result per shard)
+        env.assertTrue(query_result[0][0] >= 1, message=f"Expected at least 1 result, got {query_result[0][0]}")
