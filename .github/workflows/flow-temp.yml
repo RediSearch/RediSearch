@@ -19,3 +19,4 @@ jobs:
     with:
       rejson-branch: master
       architecture: 'x86_64'
+      fail-fast: false
