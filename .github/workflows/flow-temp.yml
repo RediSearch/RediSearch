@@ -9,7 +9,7 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
 
@@ -18,5 +18,4 @@ jobs:
     secrets: inherit
     with:
       rejson-branch: master
-      platform: "amazonlinux:2"
       architecture: 'x86_64'
