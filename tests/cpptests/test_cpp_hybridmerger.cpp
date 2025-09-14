@@ -172,41 +172,34 @@ void CleanupDummyLookupContext(HybridLookupContext *lookupCtx) {
       rm_free(const_cast<void*>(static_cast<const void*>(lookupCtx->sourceLookups[i])));
     }
   }
-  array_free(lookupCtx->sourceLookups);
+  // lookupCtx->sourceLookups is freed by RPHybridMerger_Free function
 
   // Cleanup tail lookup
   if (lookupCtx->tailLookup) {
     RLookup_Cleanup(const_cast<RLookup*>(lookupCtx->tailLookup));
     rm_free(const_cast<void*>(static_cast<const void*>(lookupCtx->tailLookup)));
   }
-
-  rm_free(lookupCtx);
+  // lookupCtx is freed by RPHybridMerger_Free function
 }
 
 // Helper function to create hybrid merger with linear scoring
-ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double *weights) {
+ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double *weights, HybridLookupContext *lookupCtx) {
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewLinear(weights, numUpstreams);
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
 
-  // Create dummy lookup context
-  HybridLookupContext *lookupCtx = CreateDummyLookupContext(numUpstreams);
-
   return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, lookupCtx);
 }
 
 // Helper function to create hybrid merger with RRF scoring
-ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double constant, size_t window) {
+ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUpstreams, double constant, size_t window, HybridLookupContext *lookupCtx) {
   // Create HybridScoringContext using constructor
   HybridScoringContext *hybridScoringCtx = HybridScoringContext_NewRRF(constant, window, false);
 
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
-
-  // Create dummy lookup context
-  HybridLookupContext *lookupCtx = CreateDummyLookupContext(numUpstreams);
 
   return RPHybridMerger_New(hybridScoringCtx, upstreams, numUpstreams, NULL, dummyReturnCodes, lookupCtx);
 }
@@ -240,7 +233,8 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.3, 0.7};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -266,7 +260,7 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
   ASSERT_EQ(RS_RESULT_EOF, lastResult);
   ASSERT_EQ(3, count); // Should have processed 3 unique documents (full intersection)
   SearchResult_Destroy(&r);
-
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -295,7 +289,8 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.4, 0.6};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -326,6 +321,7 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
   ASSERT_EQ(6, count); // Should have 6 documents total (3 from each upstream)
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -354,7 +350,8 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -381,6 +378,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
   ASSERT_EQ(3, count); // Should have 3 documents (only from upstream2)
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -409,7 +407,8 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -436,6 +435,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
   ASSERT_EQ(3, count); // Should have 3 documents (only from upstream1)
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -463,7 +463,8 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -482,6 +483,7 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
   ASSERT_EQ(0, count); // Should have 0 documents (both upstreams empty)
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -514,7 +516,8 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 2); // constant=60, window=2
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 2, lookupCtx); // constant=60, window=2
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -552,6 +555,7 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
   ASSERT_EQ(4, count); // Should have 4 documents total (2 from each upstream due to window size limit)
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -586,7 +590,8 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 10); // constant=60, window=10
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 10, lookupCtx); // constant=60, window=10
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -626,6 +631,7 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -655,7 +661,8 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -686,6 +693,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
   ASSERT_EQ(6, count); // Should have 6 documents total (3 from upstream1 after 3 depletes, 3 from upstream2 after 1 deplete)
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -714,7 +722,8 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -745,6 +754,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
   ASSERT_EQ(6, count); // Should have 6 documents total (3 from upstream1 after 1 deplete, 3 from upstream2 after 3 depletes)
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -783,7 +793,8 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -817,6 +828,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rc);
 
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -848,7 +860,8 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -869,6 +882,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rc);
 
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -903,7 +917,8 @@ TEST_F(HybridMergerTest, testRRFScoring) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // constant=60, window=4
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4, lookupCtx); // constant=60, window=4
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -944,6 +959,7 @@ TEST_F(HybridMergerTest, testRRFScoring) {
   ASSERT_EQ(3, count); // Should have 3 documents total (full intersection - same docs from both upstreams)
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -975,7 +991,8 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
   array_ensure_append_1(upstreams, rp2);
   array_ensure_append_1(upstreams, rp3);
   double weights[] = {0.2, 0.3, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -1007,6 +1024,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
   ASSERT_EQ(9, count);
 
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -1035,7 +1053,8 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -1055,6 +1074,7 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
 
   ASSERT_EQ(RS_RESULT_EOF, lastResult);
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -1083,7 +1103,8 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 5); // constant=60, window=5
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 5, lookupCtx); // constant=60, window=5
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -1114,6 +1135,7 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
 
   ASSERT_EQ(RS_RESULT_EOF, lastResult);
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -1155,7 +1177,8 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   array_ensure_append_1(upstreams, rp3);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 3, 60, 5); // constant=60, window=5
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 3, 60, 5, lookupCtx); // constant=60, window=5
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -1195,6 +1218,7 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -1227,7 +1251,8 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   array_ensure_append_1(upstreams, rp2);
   array_ensure_append_1(upstreams, rp3);
   double weights[] = {0.33, 0.33, 0.34};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights, lookupCtx);
 
   // Process and verify that the most severe error (RS_RESULT_ERROR) is returned
   SearchResult r = {0};
@@ -1267,7 +1292,8 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
   double weights[] = {0.3, 0.7};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights, lookupCtx);
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -1294,6 +1320,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
   ASSERT_EQ(2, count); // Should have processed 2 documents
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
@@ -1317,7 +1344,8 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
   arrayof(ResultProcessor*) upstreams = NULL;
   array_ensure_append_1(upstreams, rp1);
   array_ensure_append_1(upstreams, rp2);
-  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4); // constant=60, window=4
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 4, lookupCtx); // constant=60, window=4
 
   QITR_PushRP(&qitr, hybridMerger);
 
@@ -1344,6 +1372,7 @@ TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
   ASSERT_EQ(2, count); // Should have processed 2 documents
   SearchResult_Destroy(&r);
 
+  CleanupDummyLookupContext(lookupCtx);
   QITR_FreeChain(&qitr);
 }
 
