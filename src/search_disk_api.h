@@ -16,6 +16,12 @@
 extern "C" {
 #endif
 
+// Forward declarations for async loader API
+struct ResultProcessor;
+struct RedisSearchCtx;
+struct RLookup;
+struct RLookupKey;
+
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
@@ -94,10 +100,35 @@ typedef struct DocTableDiskAPI {
   bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocateKey);
 } DocTableDiskAPI;
 
+typedef struct AsyncLoaderDiskAPI {
+  /**
+   * @brief Factory function for async loader creation
+   *
+   * Creates an async disk loader result processor that can perform
+   * asynchronous document loading operations.
+   *
+   * @param sctx Redis search context
+   * @param lk RLookup instance for field resolution
+   * @param keys Array of RLookupKey pointers to load
+   * @param nkeys Number of keys to load
+   * @param forceLoad Force loading even if cached
+   * @param config Configuration parameters for async loading (can be NULL)
+   * @return ResultProcessor* New async loader instance, or NULL on failure
+   */
+  struct ResultProcessor* (*createAsyncLoader)(struct RedisSearchCtx *sctx,
+                                              struct RLookup *lk,
+                                              const struct RLookupKey **keys,
+                                              size_t nkeys,
+                                              int forceLoad,
+                                              const void *config);
+
+} AsyncLoaderDiskAPI;
+
 typedef struct RedisSearchDiskAPI {
   BasicDiskAPI basic;
   IndexDiskAPI index;
   DocTableDiskAPI docTable;
+  AsyncLoaderDiskAPI asyncLoader;
 } RedisSearchDiskAPI;
 
 #define RedisSearchDiskAPI_LATEST_API_VER 1

@@ -166,7 +166,17 @@ typedef struct {
   // Set how much time after OOM is detected we should wait to enable the resource manager to
   // allocate more memory.
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
+
+  // Enable async disk loading for disk-based indexes
+  bool enableAsyncDiskLoading;
 } RSConfig;
+
+// Async Disk Loader Configuration Constants
+// These are compile-time constants that RedisSearchDisk can reference
+#define ASYNC_LOADER_DEFAULT_BATCH_SIZE 100
+#define ASYNC_LOADER_DEFAULT_TIMEOUT_MS 1000
+#define ASYNC_LOADER_DEFAULT_ADAPTIVE_BATCHING true
+#define ASYNC_LOADER_MAX_CONCURRENT_OPERATIONS 1000
 
 typedef enum {
   RSCONFIGVAR_F_IMMUTABLE = 0x01,
@@ -287,6 +297,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_ASYNC_DISK_LOADING_ENABLE false
 #define DEFAULT_SHARD_WINDOW_RATIO 1.0
 #define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
 #define MAX_SHARD_WINDOW_RATIO 1.0
@@ -338,6 +349,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .enableAsyncDiskLoading = DEFAULT_ASYNC_DISK_LOADING_ENABLE,               \
   }
 
 #define REDIS_ARRAY_LIMIT 7

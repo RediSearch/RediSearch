@@ -1013,7 +1013,30 @@ ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, siz
       return RPKeyNameLoader_New(keys[0]);
     }
   }
+
   r->stateflags |= QEXEC_S_HAS_LOAD;
+
+  // Check for async disk loader capability
+  if (RSGlobalConfig.enableAsyncDiskLoading && r->sctx->spec->diskSpec && SearchDisk_HasAPI()) {
+    RedisSearchDiskAPI *api = SearchDisk_GetAPI();
+    if (api && api->asyncLoader.createAsyncLoader) {
+
+      // Prepare configuration parameters (using compile-time constants for now)
+      // TODO: In the future, this could be dynamic configuration
+      const void *config = NULL; // Use default configuration for now
+
+      // Delegate creation entirely to RedisSearchDisk
+      ResultProcessor *asyncLoader = api->asyncLoader.createAsyncLoader(
+          r->sctx, lk, keys, nkeys, forceLoad, config);
+
+      if (asyncLoader) {
+        return asyncLoader;
+      }
+      // Fall through to existing loaders on failure
+    }
+  }
+
+  // Existing loader selection logic
   if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
     return RPSafeLoader_New(r->sctx, lk, keys, nkeys, forceLoad);
@@ -1087,10 +1110,11 @@ void SetLoadersForMainThread(AREQ *r) {
 
 /*********************************************************************************/
 
-static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
-                                     "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
-                                     "Grouper", "Projector", "Filter",            "Profile",
-                                     "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer"};
+static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Async Disk Loader",
+                                     "Scorer",  "Sorter",    "Counter",           "Pager/Limiter",
+                                     "Highlighter", "Grouper", "Projector",     "Filter",
+                                     "Profile", "Network",   "Metrics Applier",   "Key Name Loader",
+                                     "Score Max Normalizer"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");

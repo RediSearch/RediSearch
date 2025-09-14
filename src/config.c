@@ -27,6 +27,7 @@
 #define STRINGIFY(x) __STRINGIFY(x)
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
+#define DEFAULT_ASYNC_DISK_LOADING_ENABLE false
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
@@ -1919,6 +1920,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-enable-async-disk-loading", DEFAULT_ASYNC_DISK_LOADING_ENABLE,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.enableAsyncDiskLoading)
     )
   )
 

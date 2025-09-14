@@ -5,6 +5,12 @@
 
 #include <stdbool.h>
 
+// Forward declarations
+struct ResultProcessor;
+struct RedisSearchCtx;
+struct RLookup;
+struct RLookupKey;
+
 __attribute__((weak))
 bool SearchDisk_HasAPI();
 
@@ -112,3 +118,23 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
  * @return true if deleted, false if not deleted or on error
  */
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
+
+// Async Loader API wrappers
+
+/**
+ * @brief Create an async disk loader result processor
+ *
+ * @param sctx Redis search context
+ * @param lk RLookup instance for field resolution
+ * @param keys Array of RLookupKey pointers to load
+ * @param nkeys Number of keys to load
+ * @param forceLoad Force loading even if cached
+ * @param config Configuration parameters for async loading (can be NULL)
+ * @return ResultProcessor* New async loader instance, or NULL on failure
+ */
+struct ResultProcessor* SearchDisk_CreateAsyncLoader(struct RedisSearchCtx *sctx,
+                                                    struct RLookup *lk,
+                                                    const struct RLookupKey **keys,
+                                                    size_t nkeys,
+                                                    int forceLoad,
+                                                    const void *config);
