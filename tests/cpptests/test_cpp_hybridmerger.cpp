@@ -1269,6 +1269,7 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   ASSERT_EQ(RS_RESULT_ERROR, result);
 
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   hybridMerger->Free(hybridMerger);
 }
 
@@ -1439,6 +1440,7 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   EXPECT_EQ(RS_RESULT_ERROR, returnCodes[2]);    // upstream3: error
 
   SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
   hybridMerger->Free(hybridMerger);
 }
 
