@@ -2034,8 +2034,11 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   pthread_rwlock_init(&sp->rwlock, &attr);
 }
 
-static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name) {
-  sp->flags = INDEX_DEFAULT_FLAGS;
+static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFlags flags,
+                                int16_t numFields) {
+  sp->flags = flags;
+  sp->numFields = numFields;
+  sp->fields = rm_calloc(sizeof(FieldSpec), numFields);
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
@@ -2065,8 +2068,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name) {
 
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  initializeIndexSpec(sp, name);
-  sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
+  initializeIndexSpec(sp, name, INDEX_DEFAULT_FLAGS, SPEC_MAX_FIELDS);
   sp->stopwords = DefaultStopWordList();
   return sp;
 }
@@ -2919,19 +2921,20 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
-  initializeIndexSpec(sp, specName);
+  
 
   // Note: indexError, fieldIdToIndex, docs, specName, obfuscatedName, terms, and monitor flags are already initialized in initializeIndexSpec
-
-  IndexSpec_MakeKeyless(sp);
-  sp->flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
+  IndexFlags flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup);
   // Note: monitorDocumentExpiration and monitorFieldExpiration are already set in initializeIndexSpec
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
-    sp->flags |= Index_StoreFreqs;
+    flags |= Index_StoreFreqs;
   }
+  int16_t numFields = LoadUnsigned_IOError(rdb, goto cleanup);
 
-  sp->numFields = LoadUnsigned_IOError(rdb, goto cleanup);
-  sp->fields = rm_calloc(sp->numFields, sizeof(FieldSpec));
+  initializeIndexSpec(sp, specName, flags, numFields);
+
+  IndexSpec_MakeKeyless(sp);
+
   // First, initialise fields IndexError before loading them.
   // If some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
   for (int i = 0; i < sp->numFields; i++) {
