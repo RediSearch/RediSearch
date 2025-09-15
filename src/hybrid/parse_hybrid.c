@@ -655,7 +655,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     );
     vectorRequest->parsedVectorData->queryNodeFlags |= QueryNode_HideVectorDistanceField;
   }
-  // Save the key string so it could fetch the distance from the RlookupRow
+  // Store the key string so it could fetch the distance from the RlookupRow
   PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(
     vectorRequest->parsedVectorData->fieldName,
     distanceFieldAlias
