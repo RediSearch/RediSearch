@@ -128,20 +128,15 @@ bool testLockState(IndexSpec *spec) {
 
 // Second function - IndexSpec RDB serialization test
 TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
-    printf("Starting testIndexSpecRdbSerialization\n");
 
     // Create an IndexSpec
     const char *args[] = {"SCHEMA", "title", "TEXT", "WEIGHT", "2.0", "body", "TEXT", "price", "NUMERIC"};
     QueryError err = {QUERY_OK};
 
-    printf("Calling IndexSpec_ParseC\n");
     StrongRef original_spec_ref = IndexSpec_ParseC("test_rdb_idx", args, sizeof(args) / sizeof(const char *), &err);
-    printf("IndexSpec_ParseC returned, checking for errors\n");
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
-    printf("Getting IndexSpec pointer\n");
     IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_spec_ref);
-    printf("IndexSpec pointer: %p\n", spec);
     ASSERT_TRUE(spec != nullptr);
     std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](IndexSpec *spec) {
         StrongRef_Release(spec->own_ref);
@@ -187,7 +182,6 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     EXPECT_EQ(spec->used_dialects, loadedSpec->used_dialects);
     EXPECT_EQ(spec->counter, loadedSpec->counter);
     EXPECT_EQ(spec->activeCursors, loadedSpec->activeCursors);
-    int sameInitialLockState = memcmp((const void*)&spec->rwlock, (const void *)&loadedSpec->rwlock, sizeof(pthread_rwlock_t));
     // verify read locks can be taken
     int lockResult = pthread_rwlock_tryrdlock(&spec->rwlock);
     EXPECT_EQ(0, lockResult);
@@ -216,8 +210,8 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     for (int i = 0; i < loadedSpec->numFields; i++) {
         FieldSpec *field = &spec->fields[i];
         FieldSpec *loadedField = &loadedSpec->fields[i];
-        EXPECT_TRUE(loadedField->types != 0);
+        EXPECT_NE(loadedField->types, 0);
         EXPECT_GE(loadedField->index, 0);
-        EXPECT_TRUE(loadedField->fieldName != nullptr);
+        EXPECT_NE(loadedField->fieldName, nullptr);
     }
 }
