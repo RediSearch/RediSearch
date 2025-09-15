@@ -105,10 +105,10 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
   iter->rdr = NewBufferReader(&iter->buf);
   iter->endPos = offField->lastTokPos;
 
-  iter->lastValue = 0;
-
-  for (iter->curPos = 1; iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr); ++iter->curPos) {
-    iter->lastValue = ReadVarint(&iter->rdr) + iter->lastValue;
+  for (iter->curPos = 0; iter->curPos < offField->firstTokPos && !BufferReader_AtEnd(&iter->rdr); ++iter->curPos) {
+    // simply override, we only care about the initial offset for this field
+    iter->lastValue = ReadVarint(&iter->rdr);
+    RedisModule_Log(NULL, "notice", "lastValue: %u, curPos: %u, firstTokPos: %u, lastTokPos: %u", iter->lastValue, iter->curPos, offField->firstTokPos, offField->lastTokPos);
   }
 
   // If we reached the end of the stream before we reached the first token position, return an error
@@ -116,7 +116,8 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
     return REDISMODULE_ERR;
   }
 
-  // if range is [1, 1] we want curPos to be 0 so RSByteOffsetIterator_Next will return the first value
+  // curPos == firstTokPos
+  // if range is [1, 1] we want curPos to be 0 so RSByteOffsetIterator_Next will return the lastValue
   --iter->curPos;
   return REDISMODULE_OK;
 }
