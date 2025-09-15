@@ -931,10 +931,10 @@ TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
 
 TEST_F(ParseHybridTest, testLinearPartialWeights) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "1", "0.6");
-  testErrorCode(args, QUERY_EPARSEARGS, "Weights must be specified for all subqueries");
+  testErrorCode(args, QUERY_EPARSEARGS, "Weights must be specified for all subqueries: 2 required but 1 was given");
 }
 
 TEST_F(ParseHybridTest, testLinearTooManyWeights) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "3", "0.6", "0.3", "0.1");
-  testErrorCode(args, QUERY_EPARSEARGS, "Too many weights specified");
+  testErrorCode(args, QUERY_EPARSEARGS, "Too many weights specified: 2 required but 3 was given");
 }

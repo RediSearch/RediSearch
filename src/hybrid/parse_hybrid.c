@@ -404,19 +404,19 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
     combineCtx->linearCtx.numWeights = numWeights;
 
     // Try to get number of parameters
-    long long params;
-    if (AC_GetLongLong(ac, &params, 0) != AC_OK ) {
+    long long specifiedWeights;
+    if (AC_GetLongLong(ac, &specifiedWeights, 0) != AC_OK ) {
       QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
       goto error;
-    } else if (params < numWeights) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Weights must be specified for all subqueries");
+    } else if (specifiedWeights < numWeights) {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Weights must be specified for all subqueries", ": %d required but %d was given", numWeights, params);
       goto error;
-    } else if (params > numWeights) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Too many weights specified");
+    } else if (specifiedWeights > numWeights) {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Too many weights specified", ": %d required but %d was given", numWeights, params);
       goto error;
     }
     // Parse the weight values directly
-    for (size_t i = 0; i < numWeights; i++) {
+    for (size_t i = 0; i < specifiedWeights; i++) {
       double weight;
       if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
