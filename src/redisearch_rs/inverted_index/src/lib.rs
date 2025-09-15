@@ -691,7 +691,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> Iterator for IndexReader<'in
     type Item = RSIndexResult<'index>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        match self.next_record() {
+            Ok(Some(record)) => Some(record),
+            Ok(None) => None,
+            Err(_) => None, // In case of error, we stop the iteration
+        }
     }
 }
 
@@ -891,6 +895,65 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskR
     }
 }
 
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader<'index, E, D>> {
+    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
+    /// of the index is reached before finding the document ID, then `None` is returned.
+    pub fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        let candidate = self.inner.seek_record(doc_id)?;
+
+        match candidate {
+            Some(rec) if rec.field_mask & self.mask > 0 => Ok(Some(rec)),
+            Some(_) => Ok(self.next()), // Will need to find the first valid record bigger than doc_id
+            None => Ok(None),
+        }
+    }
+
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    /// Reset the reader to the beginning of the index.
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    /// Return the number of unique documents in the underlying index.
+    pub fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    /// Returns true if the underlying index has duplicate document IDs.
+    pub fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    /// Get the flags of the underlying index
+    pub fn flags(&self) -> IndexFlags {
+        self.inner.flags()
+    }
+
+    /// Check if this reader is reading from the given index
+    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+        self.inner.is_index(index)
+    }
+
+    /// Swap the inverted index of the reader with the supplied index. This is only used by the C
+    /// tests to trigger a revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+        self.inner.swap_index(index);
+    }
+
+    /// Get the internal index of the reader. This is only used by some C tests.
+    pub fn internal_index(&self) -> &InvertedIndex<E> {
+        self.inner.internal_index()
+    }
+}
+
 /// A reader that filters out records that do not match a given numeric filter. It is used to
 /// filter records in an index based on their numeric value, allowing only those that match the
 /// specified filter to be returned.
@@ -925,6 +988,73 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
                 return Some(next);
             }
         }
+    }
+}
+
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterNumericReader<'filter, IndexReader<'index, E, D>>
+{
+    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
+    /// of the index is reached before finding the document ID, then `None` is returned.
+    pub fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        let candidate = self.inner.seek_record(doc_id)?;
+
+        match candidate {
+            Some(rec)
+                if rec
+                    .as_numeric()
+                    .map_or(false, |v| self.filter.value_in_range(v)) =>
+            {
+                Ok(Some(rec))
+            }
+            Some(_) => Ok(self.next()), // Will need to find the first valid record bigger than doc_id
+            None => Ok(None),
+        }
+    }
+
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    /// Reset the reader to the beginning of the index.
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    /// Return the number of unique documents in the underlying index.
+    pub fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    /// Returns true if the underlying index has duplicate document IDs.
+    pub fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    /// Get the flags of the underlying index
+    pub fn flags(&self) -> IndexFlags {
+        self.inner.flags()
+    }
+
+    /// Check if this reader is reading from the given index
+    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+        self.inner.is_index(index)
+    }
+
+    /// Swap the inverted index of the reader with the supplied index. This is only used by the C
+    /// tests to trigger a revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+        self.inner.swap_index(index);
+    }
+
+    /// Get the internal index of the reader. This is only used by some C tests.
+    pub fn internal_index(&self) -> &InvertedIndex<E> {
+        self.inner.internal_index()
     }
 }
 
@@ -965,6 +1095,76 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
                 return Some(next);
             }
         }
+    }
+}
+
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterGeoReader<'filter, IndexReader<'index, E, D>>
+{
+    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
+    /// of the index is reached before finding the document ID, then `None` is returned.
+    pub fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        let candidate = self.inner.seek_record(doc_id)?;
+
+        match candidate {
+            Some(mut rec) => {
+                if rec.as_numeric_mut().map_or(false, |v| {
+                    // SAFETY: we know the filter is not a null pointer since we hold a reference to it
+                    unsafe { isWithinRadius(self.filter, *v, v) }
+                }) {
+                    Ok(Some(rec))
+                } else {
+                    // Will need to find the first valid record bigger than doc_id
+                    Ok(self.next())
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Skip forward to the block containing the given document ID. Returns false if the end of the
+    /// index was reached and true otherwise.
+    pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
+        self.inner.skip_to(doc_id)
+    }
+
+    /// Reset the reader to the beginning of the index.
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    /// Return the number of unique documents in the underlying index.
+    pub fn unique_docs(&self) -> usize {
+        self.inner.unique_docs()
+    }
+
+    /// Returns true if the underlying index has duplicate document IDs.
+    pub fn has_duplicates(&self) -> bool {
+        self.inner.has_duplicates()
+    }
+
+    /// Get the flags of the underlying index
+    pub fn flags(&self) -> IndexFlags {
+        self.inner.flags()
+    }
+
+    /// Check if this reader is reading from the given index
+    pub fn is_index(&self, index: &InvertedIndex<E>) -> bool {
+        self.inner.is_index(index)
+    }
+
+    /// Swap the inverted index of the reader with the supplied index. This is only used by the C
+    /// tests to trigger a revalidation.
+    pub fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
+        self.inner.swap_index(index);
+    }
+
+    /// Get the internal index of the reader. This is only used by some C tests.
+    pub fn internal_index(&self) -> &InvertedIndex<E> {
+        self.inner.internal_index()
     }
 }
 
