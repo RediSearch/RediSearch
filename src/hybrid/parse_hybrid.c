@@ -642,15 +642,24 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     }
   }
 
+  // If YIELD_DISTANCE_AS was specified, use its string (pass ownership from pvd to vnStep),
+  // otherwise, store the distance in a default key.
   const char *distanceFieldAlias = NULL;
   if (vectorRequest->parsedVectorData->distanceFieldAlias != NULL) {
     distanceFieldAlias = vectorRequest->parsedVectorData->distanceFieldAlias;
     vectorRequest->parsedVectorData->distanceFieldAlias = NULL;
   } else {
-    distanceFieldAlias = VectorQuery_GetDefaultScoreFieldName(vectorRequest->parsedVectorData->fieldName, strlen(vectorRequest->parsedVectorData->fieldName));
+    distanceFieldAlias = VectorQuery_GetDefaultScoreFieldName(
+      vectorRequest->parsedVectorData->fieldName,
+      strlen(vectorRequest->parsedVectorData->fieldName)
+    );
     vectorRequest->parsedVectorData->queryNodeFlags |= QueryNode_HideVectorDistanceField;
   }
-  PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(vectorRequest->parsedVectorData->fieldName, distanceFieldAlias);
+  // Save the key string so it could fetch the distance from the RlookupRow
+  PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(
+    vectorRequest->parsedVectorData->fieldName,
+    distanceFieldAlias
+  );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
   // Save the current position to determine remaining arguments for the merge part
