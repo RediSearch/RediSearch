@@ -1861,3 +1861,13 @@ def testConfigIndependence_max_values():
         env.expect('CONFIG', 'SET', configName, 'yes').ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, maxValueConfigDict)
+
+@skip(cluster=True)
+def test_on_oom(env):
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'ignore').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'ignore']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'fail').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'fail']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'return']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')
