@@ -84,6 +84,20 @@ parse_arguments() {
       RUN_PYTEST|run_pytest)
         RUN_PYTEST=1
         ;;
+      EXT=*|ext=*)
+        EXT="${arg#*=}"
+        ;;
+      EXT_HOST=*|ext_host=*)
+        if [[ "${arg#*=}" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+          EXT_HOST="${arg#*=}"
+        else
+          echo "Invalid IP address: ${arg#*=}"
+          exit 1
+        fi
+        ;;
+      EXT_PORT=*|ext_port=*)
+        EXT_PORT="${arg#*=}"
+        ;;
       TEST=*)
         TEST_FILTER="${arg#*=}"
         ;;
@@ -685,6 +699,9 @@ run_python_tests() {
   export REDIS_STANDALONE="${REDIS_STANDALONE:-1}"
   export SA="${SA:-$REDIS_STANDALONE}"
   export COV
+  export EXT=${EXT-"RUN"}
+  export EXT_HOST=${EXT_HOST-"127.0.0.1"}
+  export EXT_PORT=${EXT_PORT-6379}
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
