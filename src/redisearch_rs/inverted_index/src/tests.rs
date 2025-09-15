@@ -879,7 +879,7 @@ fn reading_filter_based_on_numeric_filter() {
         offset: 0,
     };
 
-    let reader = FilterNumericReader::new(filter, iter.into_iter());
+    let reader = FilterNumericReader::new(&filter, iter.into_iter());
     let records = reader.collect::<Vec<_>>();
 
     assert_eq!(
