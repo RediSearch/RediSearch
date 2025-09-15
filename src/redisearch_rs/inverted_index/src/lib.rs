@@ -660,8 +660,8 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
-        self.index.reader()
+    pub fn reader(&self, mask: t_fieldMask) -> FilterMaskReader<IndexReader<'_, E, E::Decoder>> {
+        FilterMaskReader::new(mask, self.index.reader())
     }
 }
 
@@ -685,6 +685,14 @@ pub struct IndexReader<'index, E, D> {
     /// The last document ID that was read from the index. This is used to determine the base
     /// document ID for delta calculations.
     last_doc_id: t_docId,
+}
+
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> Iterator for IndexReader<'index, E, D> {
+    type Item = RSIndexResult<'index>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
@@ -849,47 +857,6 @@ pub enum ReadFilter<'numeric_filter> {
 
     /// Accepts entries matching this numeric filter
     Numeric(&'numeric_filter NumericFilter),
-}
-
-/// A reader that skips duplicate records in the index. It is used to ensure that the same document
-/// ID is not returned multiple times in the results. This is useful when the index contains
-/// multiple entries for the same document ID, such as when the document has multiple values for a
-/// field or when the document is indexed multiple times.
-pub struct SkipDuplicatesReader<I> {
-    /// The last document ID that was read from the index. This is used to determine if the next
-    /// record is a duplicate of the last one.
-    last_doc_id: t_docId,
-
-    /// The inner reader that is used to read the records from the index.
-    inner: I,
-}
-
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> SkipDuplicatesReader<I> {
-    /// Create a new skip duplicates reader over the given inner iterator.
-    pub fn new(inner: I) -> Self {
-        Self {
-            last_doc_id: 0,
-            inner,
-        }
-    }
-}
-
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for SkipDuplicatesReader<I> {
-    type Item = RSIndexResult<'index>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let next = self.inner.next()?;
-
-            if next.doc_id == self.last_doc_id {
-                continue;
-            }
-
-            self.last_doc_id = next.doc_id;
-
-            return Some(next);
-        }
-    }
 }
 
 /// A reader that filters out records that do not match a given field mask. It is used to
