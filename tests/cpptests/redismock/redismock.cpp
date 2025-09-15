@@ -631,7 +631,6 @@ char *RMCK_Strdup(const char *s) {
 /** RDB Mock Operations */
 
 void RMCK_SaveUnsigned(RedisModuleIO *io, uint64_t value) {
-  printf("RMCK_SaveUnsigned called with value: %llu\n", (unsigned long long)value);
   if (!io) return;
   uint8_t *bytes = reinterpret_cast<uint8_t*>(&value);
   for (size_t i = 0; i < sizeof(uint64_t); i++) {
@@ -641,7 +640,6 @@ void RMCK_SaveUnsigned(RedisModuleIO *io, uint64_t value) {
 
 uint64_t RMCK_LoadUnsigned(RedisModuleIO *io) {
   if (!io || io->read_pos + sizeof(uint64_t) > io->buffer.size()) {
-    printf("RMCK_LoadUnsigned error: io=%p, read_pos=%zu, buffer_size=%zu\n",
            io, io ? io->read_pos : 0, io ? io->buffer.size() : 0);
     if (io) io->error_flag = true;
     return 0;
@@ -651,7 +649,6 @@ uint64_t RMCK_LoadUnsigned(RedisModuleIO *io) {
   for (size_t i = 0; i < sizeof(uint64_t); i++) {
     bytes[i] = io->buffer[io->read_pos++];
   }
-  printf("RMCK_LoadUnsigned returning value: %llu\n", (unsigned long long)value);
   return value;
 }
 
