@@ -409,10 +409,10 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
       QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
       goto error;
     } else if (specifiedWeights < numWeights) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Weights must be specified for all subqueries", ": %d required but %d was given", numWeights, params);
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Weights must be specified for all subqueries", ": %d required but %d was given", numWeights, specifiedWeights);
       goto error;
     } else if (specifiedWeights > numWeights) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Too many weights specified", ": %d required but %d was given", numWeights, params);
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Too many weights specified", ": %d required but %d was given", numWeights, specifiedWeights);
       goto error;
     }
     // Parse the weight values directly
