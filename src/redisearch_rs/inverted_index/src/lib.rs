@@ -75,6 +75,7 @@ impl IdDelta for u32 {
 
 /// Filter details to apply to numeric values
 /// cbindgen:rename-all=CamelCase
+#[derive(Debug)]
 #[repr(C)]
 pub struct NumericFilter {
     /// The field specification which this filter is acting on
@@ -838,6 +839,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
 /// returned by the reader.
 /// cbindgen:prefix-with-name=true
 #[repr(u8)]
+#[derive(Debug)]
 pub enum ReadFilter<'numeric_filter> {
     /// No filter, all entries are accepted
     None,
