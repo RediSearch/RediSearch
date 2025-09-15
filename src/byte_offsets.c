@@ -139,3 +139,4 @@ uint32_t RSByteOffsetIterator_Next(RSByteOffsetIterator *iter) {
   }
   return result;
 }
+
