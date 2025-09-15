@@ -60,37 +60,32 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
 /**
  * Initialize unified lookup schema and hybrid lookup context for field merging.
  *
- * @param requests Array of AREQ pointers containing source lookups
- * @param tailLookup The destination lookup to populate with unified schema
- * @return Initialized HybridLookupContext, or NULL on failure
+ * @param requests Array of AREQ pointers containing source lookups (non-null)
+ * @param tailLookup The destination lookup to populate with unified schema (non-null)
+ * @return HybridLookupContext* to an initialized HybridLookupContext
  */
 static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) requests, RLookup *tailLookup) {
+    RS_ASSERT(requests && tailLookup);
     size_t nrequests = array_len(requests);
-
-    // Add keys from all source lookups to create unified schema
-    for (size_t i = 0; i < nrequests; i++) {
-        RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
-        if (srcLookup) {
-            RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS);
-        }
-    }
 
     // Build lookup context for field merging
     HybridLookupContext *lookupCtx = rm_calloc(1, sizeof(HybridLookupContext));
     lookupCtx->tailLookup = tailLookup;
     lookupCtx->sourceLookups = array_newlen(const RLookup*, nrequests);
 
-    // Collect source lookups
+    // Add keys from all source lookups to create unified schema
     for (size_t i = 0; i < nrequests; i++) {
-        lookupCtx->sourceLookups[i] = AGPLN_GetLookup(AREQ_AGGPlan(requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+        RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+        RS_ASSERT(srcLookup);
+        RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS);
+        lookupCtx->sourceLookups[i] = srcLookup;
     }
 
     return lookupCtx;
 }
 
 int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, arrayof(ResultProcessor*) depleters) {
-    // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
-    // and contain only keys from the loading step
+    // Assumes all upstreams have non-null lookups
     // Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));

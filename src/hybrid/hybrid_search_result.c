@@ -112,7 +112,7 @@ double calculateHybridScore(HybridSearchResult *hybridResult, HybridScoringConte
  * Merge field data from multiple source SearchResults into destination RLookupRow.
  * Initializes destination row and writes fields from each source using RLookupRow_WriteFieldsFrom.
  */
-static void merge_rlookuprow(HybridSearchResult *hybridResult,
+static void merge_rlookuprows(HybridSearchResult *hybridResult,
                             HybridLookupContext *lookupCtx,
                             RLookupRow *destination) {
   RS_ASSERT(hybridResult && lookupCtx && destination);
@@ -173,7 +173,7 @@ SearchResult* mergeSearchResults(HybridSearchResult *hybridResult, HybridScoring
   // Merge field data into primary result's rowdata
   // Create temporary row for merging (avoids modifying primary while reading from it)
   RLookupRow tempRow = {0};  // Stack allocation, zero-initialized
-  merge_rlookuprow(hybridResult, lookupCtx, &tempRow);
+  merge_rlookuprows(hybridResult, lookupCtx, &tempRow);
 
   // Prepare primary row and move merged data from temporary row
   RLookupRow_Wipe(&primary->rowdata);  // Clear primary row

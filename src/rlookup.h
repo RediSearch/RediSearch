@@ -418,10 +418,10 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
 
 /**
- * Add keys from source lookup into destination lookup.
+ * Add non-overridden keys from source lookup into destination lookup (overriden keys are skipped).
  * For each key in src, check if it already exists in dest by name.
  * If doesn't exists, create new key in dest.
- * Handle existing keys based on flags (skip by default, override with RLOOKUP_F_OVERRIDE).
+ * Handle existing keys based on flags (skip with RLOOKUP_F_NOFLAGS, override with RLOOKUP_F_OVERRIDE).
  *
  * Flag handling:
  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
