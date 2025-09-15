@@ -89,8 +89,8 @@ def create_test_data(data_type):
         }
     }
 
-# Distance calculation function mapping
-DISTANCE_CALCULATORS = {
+# score calculation function mapping
+SCORE_CALCULATORS = {
     'L2': calculate_l2_distance_normalized,
     'COSINE': calculate_cosine_distance_normalized,
     'IP': calculate_ip_distance_normalized
@@ -101,7 +101,7 @@ EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2,
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vector_normalizer():
-    """Test that yield_distance_as value equals the expected distance for all distance metrics"""
+    """Test that yield_score_as value equals the expected distance for all distance metrics"""
 
     # Test all supported vector types
     data_types = VECSIM_DATA_TYPES + ['INT8', 'UINT8']
@@ -118,16 +118,16 @@ def test_hybrid_vector_normalizer():
 
                 for vector_query in [['KNN', '4', 'K', '10'], ['RANGE', '4', 'RADIUS', '10']]:
                     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
-                                        *vector_query, 'YIELD_DISTANCE_AS', 'vector_distance')
+                                        *vector_query, 'YIELD_SCORE_AS', 'vector_score')
                     results = get_results_from_hybrid_response(response)
 
                     for doc_key in results:
                         doc_result = results[doc_key]
-                        yielded_distance = float(doc_result['vector_distance'])
+                        yielded_score = float(doc_result['vector_score'])
 
-                        calculate_distance_normalized = DISTANCE_CALCULATORS[metric]
-                        expected_distance = calculate_distance_normalized(query_vector, test_data[doc_key]['embedding'], data_type)
-                        env.assertAlmostEqual(yielded_distance, expected_distance, delta=EPSILONS[data_type])
+                        calculate_score = SCORE_CALCULATORS[metric]
+                        expected_score = calculate_score(query_vector, test_data[doc_key]['embedding'], data_type)
+                        env.assertAlmostEqual(yielded_score, expected_score, delta=EPSILONS[data_type])
 
                 # Clean up for next vector type
                 env.expect('FT.DROPINDEX', 'idx', "DD").ok()

@@ -75,44 +75,44 @@ def calculate_l2_distance_normalized(vec1_bytes, vec2_bytes):
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
-def test_hybrid_vector_knn_with_distance():
+def test_hybrid_vector_knn_with_score():
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance')
+                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
     results = get_results_from_hybrid_response(response)
 
-    # Validate the vector_distance field for all returned results
+    # Validate the vector_score field for all returned results
     env.assertEqual(len(results.keys()), len(test_data.keys()))
 
     for doc_key in results:
         doc_result = results[doc_key]
-        returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
+        returned_score = float(doc_result['vector_score'])
+        expected_score = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
 
-        # Validate that the returned distance matches the calculated L2 distance
-        env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
+        # Validate that the returned score matches the calculated L2 normalized distance
+        env.assertAlmostEqual(returned_score, expected_score, delta=1e-6)
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
-def test_hybrid_vector_range_with_distance():
+def test_hybrid_vector_range_with_score():
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
-                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_DISTANCE_AS', 'vector_distance')
+                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score')
     results = get_results_from_hybrid_response(response)
 
-    # Validate the vector_distance field for all returned results
+    # Validate the vector_score field for all returned results
     env.assertEqual(len(results.keys()), len(test_data.keys()))
 
     for doc_key in results:
         doc_result = results[doc_key]
-        returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
+        returned_score = float(doc_result['vector_score'])
+        expected_score = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
 
-        # Validate that the returned distance matches the calculated L2 distance
-        env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
+        # Validate that the returned score matches the calculated L2 normalized distance
+        env.assertAlmostEqual(returned_score, expected_score, delta=1e-6)
