@@ -753,8 +753,6 @@ RedisModuleString *RMCK_LoadString(RedisModuleIO *io) {
 
 int RMCK_IsIOError(RedisModuleIO *io) {
   int result = io ? (io->error_flag ? 1 : 0) : 1;
-  printf("RMCK_IsIOError called: io=%p, error_flag=%s, returning %d\n",
-         io, io ? (io->error_flag ? "true" : "false") : "N/A", result);
   return result;
 }
 
