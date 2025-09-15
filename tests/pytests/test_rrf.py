@@ -31,8 +31,6 @@ def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
     hybrid_res_results_index = recursive_index(hybrid_res_no_tag, 'results')
     hybrid_res_results_index[-1] += 1
 
-
-
     results_no_tag = get_results_from_hybrid_response(hybrid_res_no_tag)
     results_with_tag = get_results_from_hybrid_response(hybrid_res_with_tag)
     shared_keys = results_no_tag.keys() & results_with_tag.keys()
@@ -42,7 +40,7 @@ def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
         env.assertAlmostEqual(score_no_tag, score_no_tag, delta=1E-6)
 
         # Compare with regular search
-        search_res = env.cmd('FT.SEARCH', 'idx', no_tag_search_query, 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
+        search_res = env.cmd('FT.SEARCH', 'idx', no_tag_search_query, 'WITHSCORES')
         search_res_key = search_res[1]
 
         search_score = float(search_res[2])

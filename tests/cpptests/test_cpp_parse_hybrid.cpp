@@ -897,8 +897,8 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
    "COMBINE", "LINEAR", "0.6", "0.4");
 
   parseCommand(args);
-
-  ASSERT_STREQ(result.search->searchopts.scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME);
+  // No explicit scorer should be set; the default scorer will be used
+  ASSERT_EQ(result.search->searchopts.scorerName, nullptr);
 }
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
