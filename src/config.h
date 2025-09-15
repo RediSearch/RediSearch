@@ -29,14 +29,35 @@ static const char *on_timeout_vals[2] = {
   "fail"
 };
 
+typedef enum {
+  OomPolicy_Return,       // Return what we have on OOM
+  OomPolicy_Fail,         // Just fail without returning anything
+  OomPolicy_Ignore,       // Ignore OOM and continue
+  OomPolicy_Invalid       // Not a real value
+} RSOomPolicy;
+
+static const int on_oom_enums[3] = {
+  OomPolicy_Return,
+  OomPolicy_Fail,
+  OomPolicy_Ignore
+};
+static const char *on_oom_vals[3] = {
+  "return",
+  "fail",
+  "ignore"
+};
+
+
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
+const char *OomPolicy_ToString(RSOomPolicy);
 
 /**
  * Returns TimeoutPolicy_Invalid if the string could not be parsed
  */
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
+RSOomPolicy OomPolicy_Parse(const char *s, size_t n);
 
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
@@ -75,6 +96,8 @@ typedef struct {
   bool printProfileClock;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
+  // OOM policy
+  RSOomPolicy oomPolicy;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -338,6 +361,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .requestConfigParams.oomPolicy = OomPolicy_Ignore,                         \
   }
 
 #define REDIS_ARRAY_LIMIT 7
