@@ -230,7 +230,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingExplicitBoth) {
 TEST_F(HybridDefaultsTest, testLinearDefaults) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "0.6", "0.4");
+                      "COMBINE", "LINEAR", "2", "0.6", "0.4");
 
   parseCommand(args);
   // LINEAR should not have window parameter (uses regular limit instead)
@@ -284,7 +284,7 @@ TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
 TEST_F(HybridDefaultsTest, testLinearScoringUnaffectedByKWindowConstraint) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "50", "COMBINE", "LINEAR", "0.7", "0.3");
+                      "KNN", "2", "K", "50", "COMBINE", "LINEAR", "2", "0.7", "0.3");
 
   parseCommand(args);
   // Linear scoring should not apply K ≤ WINDOW constraint, K should remain 50

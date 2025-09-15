@@ -218,7 +218,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestPipelineBuildingBasic) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx2",
                       "SEARCH", "machine",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "0.7", "0.3",
+                      "COMBINE", "LINEAR", "2", "0.7", "0.3",
                       "LOAD", "2", "@title", "@score");
 
   HYBRID_TEST_SETUP("test_idx2", args);
@@ -270,7 +270,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTail) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "0.7", "0.3",
+                      "COMBINE", "LINEAR", "2", "0.7", "0.3",
                       "LOAD", "3", "@title", "@score", "@category",
                       "SORTBY", "1", "@score",
                       "APPLY", "@score * 2", "AS", "boosted_score",
@@ -384,7 +384,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitSortByScore) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_implicit_sort",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "0.7", "0.3",
+                      "COMBINE", "LINEAR", "2", "0.7", "0.3",
                       "LOAD", "2", "@title", "@category",
                       "LIMIT", "0", "20");
 
@@ -402,7 +402,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestLinearScoringWithLimit) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_linear_scoring",
                       "SEARCH", "machine",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "0.6", "0.4",
+                      "COMBINE", "LINEAR", "2", "0.6", "0.4",
                       "LIMIT", "0", "15");
 
   HYBRID_TEST_SETUP("test_linear_scoring", args);
@@ -588,4 +588,42 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
         << "Key '" << upstreamKey->name << "' has different name_len in upstream request " << reqIdx << " vs tail";
     }
   }
+}
+
+TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTextDefaultScorerLinear) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
+                      "SEARCH", "artificial",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "COMBINE", "LINEAR", "2", "0.7", "0.3");
+
+  HYBRID_TEST_SETUP("test_idx_complex", args);
+
+  bool foundMaxScoreNormalizer = false;
+  // Verify that the default text scorer for LINEAR fusion is BM25STD.NORM
+  for (ResultProcessor *rp = hybridReq->requests[SEARCH_INDEX]->pipeline.qctx.endProc; rp; rp = rp->upstream) {
+    if (rp->type == RP_MAX_SCORE_NORMALIZER) {
+      foundMaxScoreNormalizer = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(foundMaxScoreNormalizer) << "Max Score Normalizer should be found in the pipeline";
+}
+
+TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTextDefaultScorerRRF) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
+                      "SEARCH", "artificial",
+                      "VSIM", "@vector_field", TEST_BLOB_DATA,
+                      "COMBINE", "RRF", "2", "CONSTANT", "10");
+
+  HYBRID_TEST_SETUP("test_idx_complex", args);
+
+  bool foundMaxScoreNormalizer = false;
+  // Verify that there is no normalizer in search pipeline where RRF is the fusion method
+  for (ResultProcessor *rp = hybridReq->requests[SEARCH_INDEX]->pipeline.qctx.endProc; rp; rp = rp->upstream) {
+    if (rp->type == RP_MAX_SCORE_NORMALIZER) {
+      foundMaxScoreNormalizer = true;
+      break;
+    }
+  }
+  ASSERT_FALSE(foundMaxScoreNormalizer) << "Max Score Normalizer should not be found in the pipeline";
 }

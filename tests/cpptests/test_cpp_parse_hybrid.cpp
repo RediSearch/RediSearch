@@ -196,7 +196,7 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   // Test with LINEAR combine method
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "LINEAR", "0.7", "0.3", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "LINEAR", "2", "0.7", "0.3", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -291,7 +291,7 @@ TEST_F(ParseHybridTest, testWithCombineRRFWithFloatConstant) {
 TEST_F(ParseHybridTest, testComplexSingleLineCommand) {
   // Example of a complex command in a single line
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "10",
-                            "COMBINE", "LINEAR", "0.65", "0.35", "SORTBY", "1", "@score", "LIMIT", "0", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+                            "COMBINE", "LINEAR", "2", "0.65", "0.35", "SORTBY", "1", "@score", "LIMIT", "0", "20", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -894,7 +894,7 @@ TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
 
 TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "LINEAR", "0.6", "0.4");
+   "COMBINE", "LINEAR", "2", "0.6", "0.4");
 
   parseCommand(args);
   // No explicit scorer should be set; the default scorer will be used
@@ -903,7 +903,7 @@ TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
 
 TEST_F(ParseHybridTest, testExplicitTextScorerForLinear) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "SCORER", "TFIDF", "VSIM", "@vector", TEST_BLOB_DATA,\
-   "COMBINE", "LINEAR", "0.6", "0.4");
+   "COMBINE", "LINEAR", "2", "0.6", "0.4");
 
   parseCommand(args);
 
@@ -927,4 +927,14 @@ TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
   parseCommand(args);
 
   ASSERT_STREQ(result.search->searchopts.scorerName, TFIDF_SCORER_NAME);
+}
+
+TEST_F(ParseHybridTest, testLinearPartialWeights) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "1", "0.6");
+  testErrorCode(args, QUERY_EPARSEARGS, "Weights must be specified for all subqueries");
+}
+
+TEST_F(ParseHybridTest, testLinearTooManyWeights) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "3", "0.6", "0.3", "0.1");
+  testErrorCode(args, QUERY_EPARSEARGS, "Too many weights specified");
 }

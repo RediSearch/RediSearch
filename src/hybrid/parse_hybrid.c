@@ -403,6 +403,18 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
 
+    // Try to get number of parameters
+    long long params;
+    if (AC_GetLongLong(ac, &params, 0) != AC_OK ) {
+      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
+      goto error;
+    } else if (params < numWeights) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Weights must be specified for all subqueries");
+      goto error;
+    } else if (params > numWeights) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Too many weights specified");
+      goto error;
+    }
     // Parse the weight values directly
     for (size_t i = 0; i < numWeights; i++) {
       double weight;
