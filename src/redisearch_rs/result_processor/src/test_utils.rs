@@ -74,6 +74,27 @@ impl ResultProcessor for ResultRP {
     }
 }
 
+/// A mock result processor of a fixed type, that just calls it's upstream's `next`.
+pub struct MockResultProcessor<const TYPE: ffi::ResultProcessorType>;
+
+impl<const RP_TYPE: ffi::ResultProcessorType> MockResultProcessor<RP_TYPE> {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for MockResultProcessor<RP_TYPE> {
+    const TYPE: ffi::ResultProcessorType = RP_TYPE;
+
+    fn next(&mut self, mut cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+        let Some(mut upstream) = cx.upstream() else {
+            return Ok(None);
+        };
+
+        upstream.next(res)
+    }
+}
+
 /// A mock implementation of the "result processor chain" part of the `QueryIterator`
 ///
 /// It acts as an owning collection of linked result processors.

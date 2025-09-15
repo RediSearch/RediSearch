@@ -55,7 +55,7 @@ impl ResultProcessor for Counter {
             // Safety: If the previous (upstream) result processor is a profiling result processor,
             // then we are in profiling mode, and every other result processor is an RPProfile.
             // Thus, the last result processor is also an RPProfile.
-            unsafe { ffi::RPProfile_IncrementCount(end_proc) }
+            unsafe { ffi::RPProfile_IncrementCount(end_proc) };
         }
 
         Ok(None)
@@ -77,14 +77,21 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, default_search_result, from_iter};
-    use std::iter;
+    use crate::test_utils::{Chain, MockResultProcessor, default_search_result, from_iter};
+    use std::{
+        iter,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    static PROFILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     /// Mock implementation of `RPProfile_IncrementCount` for tests
     ///
     // FIXME: replace with `Profile::increment_count` once the profile result processor is ported.
     #[unsafe(no_mangle)]
-    unsafe extern "C" fn RPProfile_IncrementCount(_r: *mut ffi::ResultProcessor) {}
+    unsafe extern "C" fn RPProfile_IncrementCount(_r: *mut ffi::ResultProcessor) {
+        PROFILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    }
 
     #[test]
     fn basically_works() {
@@ -99,19 +106,28 @@ pub(crate) mod test {
         assert_eq!(rp.count, 3);
     }
 
-    // #[test]
-    // fn test_profile_count() {
-    //     // Set up the result processor chain
-    //     let mut chain = Chain::new();
-    //     chain.append(from_iter(iter::repeat_n(default_search_result(), 3)));
-    //     // push profile 1
-    //     chain.append(Counter::new());
-    //     // push profile 2
+    /// Tests that RPProfile_IncrementCount is called the same number of times
+    /// as the counter is incremented.
+    #[test]
+    fn test_profile_count() {
+        const NUM_SEARCH_RESULTS: usize = 3;
+        type MockRPProfile = MockResultProcessor<{ ffi::ResultProcessorType_RP_PROFILE }>;
 
-    //     let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
+        let mut chain = Chain::new();
+        chain.append(from_iter(iter::repeat_n(
+            default_search_result(),
+            NUM_SEARCH_RESULTS,
+        )));
+        chain.append(MockRPProfile::new());
+        chain.append(Counter::new());
+        chain.append(MockRPProfile::new());
 
-    //     assert!(rp.next(cx, &mut default_search_result()).unwrap().is_none());
-    //     assert_eq!(rp.count, 3);
-    //     assert_eq!(PROFILE_COUNTER.load(Ordering::Relaxed), 2);
-    // }
+        let (cx, rp) = chain.last_as_context_and_inner::<MockRPProfile>();
+        rp.next(cx, &mut default_search_result()).unwrap();
+
+        assert_eq!(
+            PROFILE_COUNTER.load(Ordering::Relaxed),
+            NUM_SEARCH_RESULTS * 2
+        );
+    }
 }
