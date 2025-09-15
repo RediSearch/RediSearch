@@ -568,6 +568,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.index.block_ref(index)
     }
+
+    /// Get a reference to the inner inverted index.
+    pub fn inner(&self) -> &InvertedIndex<E> {
+        &self.index
+    }
 }
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
@@ -655,6 +660,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.index.block_ref(index)
+    }
+
+    /// Get a reference to the inner inverted index.
+    pub fn inner(&self) -> &InvertedIndex<E> {
+        &self.index
     }
 }
 
