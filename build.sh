@@ -548,6 +548,9 @@ run_rust_tests() {
 
   echo "Running Rust tests..."
 
+  # Tell Rust build scripts where to find the compiled static libraries
+  export BINDIR
+
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
