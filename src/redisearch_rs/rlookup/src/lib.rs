@@ -16,6 +16,8 @@ mod row;
 // Re-export test utilities for usage in test binaries
 pub mod test_utils;
 
+use std::ffi::CStr;
+
 pub use bindings::IndexSpecCache;
 pub use lookup::{
     RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption, RLookupOptions,
@@ -45,6 +47,25 @@ pub fn rlookup_get_item<'a>(
         sv.get(key.svidx as usize)
     } else {
         None
+    }
+}
+
+pub fn rlookup_write_key_by_name<T: RSValueTrait>(
+    lookup: &mut RLookup,
+    name: &CStr,
+    row: &mut RLookupRow<T>,
+    value: T,
+) {
+    if let Some(cursor) = lookup.keys.find_by_name(name) {
+        let key = cursor.into_current().unwrap();
+        row.write_key(key, value);
+    } else {
+        let pinned_key = lookup.keys.push(RLookupKey::new_owned(
+            name.to_owned(),
+            RLookupKeyFlags::empty(),
+        ));
+        let key = &pinned_key.as_ref();
+        row.write_key(key, value);
     }
 }
 
