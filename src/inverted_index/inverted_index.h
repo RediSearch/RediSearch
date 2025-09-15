@@ -55,16 +55,7 @@ typedef struct IndexBlockReader {
   t_docId curBaseId; // The current value to add to the decoded delta, to get the actual docId.
 } IndexBlockReader;
 
-/**
- * This context is passed to the decoder callback, and can contain either
- * a pointer or an integer. It is intended to relay along any kind of additional
- * configuration information to help the decoder determine whether to filter
- * the entry */
-typedef union {
-  uint32_t mask;
-  t_fieldMask wideMask;
-  const NumericFilter *filter;
-} IndexDecoderCtx;
+//--------- GC related types
 
 typedef struct {
   size_t bytesBeforFix;
@@ -80,6 +71,23 @@ typedef struct {
   void *arg;
 } IndexRepairParams;
 
+// opaque handle
+typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
+
+// input shims (layout-compatible with the MSG_* the child/parent already use)
+typedef struct {
+  IndexBlock blk;
+  int64_t oldix;
+  int64_t newix;
+} InvertedIndex_RepairedInput;
+
+typedef struct {
+  void *ptr;
+  uint32_t oldix;
+} InvertedIndex_DeletedInput;
+
+// -------------------------
+
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
   bool useFieldMask = flags & Index_StoreFieldFlags;
   bool useNumEntries = flags & Index_StoreNumeric;
@@ -92,10 +100,9 @@ static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
 }
 
 // Create a new inverted index object, with the given flag.
-// If initBlock is 1, we create the first block.
-// out parameter memsize must be not NULL, the total of allocated memory
+// The out parameter memsize must be not NULL, the total of allocated memory
 // will be returned in it
-InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize);
+InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize);
 
 /* Add a new block to the index with a given document id as the initial id
   * Returns the new block
@@ -104,7 +111,35 @@ InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize
 */
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize);
 size_t indexBlock_Free(IndexBlock *blk);
-void InvertedIndex_Free(void *idx);
+void InvertedIndex_Free(InvertedIndex *idx);
+
+IndexBlock *InvertedIndex_BlockRef(const InvertedIndex *idx, size_t blockIndex);
+IndexBlock InvertedIndex_Block(InvertedIndex *idx, size_t blockIndex);
+void InvertedIndex_SetBlock(InvertedIndex *idx, size_t blockIndex, IndexBlock block);
+void InvertedIndex_SetBlocks(InvertedIndex *idx, IndexBlock *blocks, size_t size);
+size_t InvertedIndex_BlocksShift(InvertedIndex *idx, size_t shift);
+size_t InvertedIndex_NumBlocks(const InvertedIndex *idx);
+void InvertedIndex_SetNumBlocks(InvertedIndex *idx, size_t numBlocks);
+IndexFlags InvertedIndex_Flags(const InvertedIndex *idx);
+t_docId InvertedIndex_LastId(const InvertedIndex *idx);
+void InvertedIndex_SetLastId(InvertedIndex *idx, t_docId lastId);
+uint32_t InvertedIndex_NumDocs(const InvertedIndex *idx);
+void InvertedIndex_SetNumDocs(InvertedIndex *idx, uint32_t numDocs);
+uint32_t InvertedIndex_GcMarker(const InvertedIndex *idx);
+void InvertedIndex_SetGcMarker(InvertedIndex *idx, uint32_t marker);
+t_fieldMask InvertedIndex_FieldMask(const InvertedIndex *idx);
+uint64_t InvertedIndex_NumEntries(const InvertedIndex *idx);
+void InvertedIndex_SetNumEntries(InvertedIndex *idx, uint64_t numEntries);
+
+/* Retrieve comprehensive summary information about an inverted index */
+IISummary InvertedIndex_Summary(const InvertedIndex *idx);
+
+/* Retrieve basic summary information about an inverted index's blocks. The returned array should
+ * be freed using `InvertedIndex_BlocksSummaryFree` */
+IIBlockSummary *InvertedIndex_BlocksSummary(const InvertedIndex *idx, size_t *count);
+
+/* Free the blocks summary */
+void InvertedIndex_BlocksSummaryFree(IIBlockSummary *summaries);
 
 t_docId IndexBlock_FirstId(const IndexBlock *b);
 t_docId IndexBlock_LastId(const IndexBlock *b);
@@ -146,6 +181,78 @@ typedef struct {
   IndexSeeker seeker;
 } IndexDecoderProcs;
 
+typedef struct IndexReader {
+  const InvertedIndex *idx;
+
+  // the underlying data buffer iterator
+  IndexBlockReader blockReader;
+
+  /* The decoding function for reading the index */
+  IndexDecoderProcs decoders;
+  /* The decoder's filtering context. It may be a number or a pointer. The number is used for
+   * filtering field masks, the pointer for numeric filtering */
+  IndexDecoderCtx decoderCtx;
+
+  uint32_t currentBlock;
+
+  /* This marker lets us know whether the garbage collector has visited this index while the reading
+   * thread was asleep, and reset the state in a deeper way
+   */
+  uint32_t gcMarker;
+} IndexReader;
+
+/* Make a new inverted index reader. It should be freed using `IndexReader_Free`. */
+IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx *ctx);
+
+/* Free an index reader created using `NewIndexReader` */
+void IndexReader_Free(IndexReader *ir);
+
+/* Reset the index reader to the start of the index */
+void IndexReader_Reset(IndexReader *ir);
+
+/* Get the estimated number of documents in the index */
+size_t IndexReader_NumEstimated(const IndexReader *ir);
+
+/* Check if the index reader is reading from the given index */
+bool IndexReader_IsIndex(const IndexReader *ir, const InvertedIndex *idx);
+
+/* Revalidate the index reader in case the index underwent GC while we were asleep.
+ * Returns true if revalidation is needed (i.e., GC happened) by anything using the
+ * reader, false otherwise */
+bool IndexReader_Revalidate(IndexReader *ir);
+
+/* Check if the index reader's decoder has a seeker implementation */
+bool IndexReader_HasSeeker(const IndexReader *ir);
+
+/* Read the next record of the index onto `res`. Returns false when there is nothing
+ * more to read. */
+bool IndexReader_Next(IndexReader *ir, RSIndexResult *res);
+
+/* Skip to the block that may contain the given docId. Returns false if the
+ * docId is beyond the last id of the index */
+bool IndexReader_SkipTo(IndexReader *ir, t_docId docId);
+
+/* Seek to the given docId, or the next one after it. Returns true if a record
+ * was found, false otherwise. If true is returned, `res` is populated with
+ * the record found */
+bool IndexReader_Seek(IndexReader *ir, t_docId docId, RSIndexResult *res);
+
+/* Check if the index holds multi-value entries */
+bool IndexReader_HasMulti(const IndexReader *ir);
+
+/* Get the index flags */
+IndexFlags IndexReader_Flags(const IndexReader *ir);
+
+/* Get the numeric filter used by the index reader's decoder, if any */
+const NumericFilter *IndexReader_NumericFilter(const IndexReader *ir);
+
+/* Swap the inverted index of the reader with the supplied index. This is used by
+ * tests to trigger a revalidation. */
+void IndexReader_SwapIndex(IndexReader *ir, const InvertedIndex *newIdx);
+
+/* Get the inverted index of the reader. This is only needed for some tests. */
+InvertedIndex *IndexReader_II(const IndexReader *ir);
+
 /* Get the decoder for the index based on the index flags. This is used to externally inject the
  * endoder/decoder when reading and writing */
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags);
@@ -185,11 +292,26 @@ size_t encode_fields_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 /* Wrapper around the static encodeFieldsOnlyWide to be able to access it in the Rust benchmarks. */
 size_t encode_fields_only_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
+/* Wrapper around the static encodeFieldsOffsets to be able to access it in the Rust benchmarks. */
+size_t encode_fields_offsets(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static  encodeFieldsOffsetsWide to be able to access it in the Rust benchmarks. */
+size_t encode_fields_offsets_wide(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeOffsetsOnly to be able to access it in the Rust benchmarks. */
+size_t encode_offsets_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeFreqsOffsets to be able to access it in the Rust benchmarks. */
+size_t encode_freqs_offsets(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
 /* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
 /* Wrapper around the static encodeDocIdsOnly to be able to access it in the Rust benchmarks */
 size_t encode_docs_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static encodeRawDocIdsOnly to be able to access it in the Rust benchmarks */
+size_t encode_raw_doc_ids_only(BufferWriter *bw, t_docId delta, RSIndexResult *res);
 
 /* Wrapper around the static readFreqs to be able to access it in the Rust benchmarks */
 bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
@@ -212,24 +334,74 @@ bool read_freq_offsets_flags(IndexBlockReader *blockReader, const IndexDecoderCt
 /* Wrapper around the static readFreqOffsetsFlagsWide to be able to access it in the Rust benchmarks */
 bool read_freq_offsets_flags_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
+/* Wrapper around the static readFlagsOffsets to be able to access it in the Rust benchmarks */
+bool read_fields_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFlagsOffsetsWide to be able to access it in the Rust benchmarks */
+bool read_fields_offsets_wide(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readOffsetsOnly to be able to access it in the Rust benchmarks */
+bool read_offsets_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
+/* Wrapper around the static readFreqsOffsets to be able to access it in the Rust benchmarks */
+bool read_freqs_offsets(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
 /* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 /* Wrapper around the static readDocIdsOnly to be able to access it in the Rust benchmarks */
 bool read_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
+/* Wrapper around the static readRawDocIdsOnly to be able to access it in the Rust benchmarks */
+bool read_raw_doc_ids_only(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
 
-size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
-                                       RSIndexResult *entry);
+size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, RSIndexResult *entry);
 
 /* Get the appropriate encoder for an inverted index given its flags. Returns NULL on invalid flags
  */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags);
 
+unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
+
+// ----- GC related API
+
+/* Repair an index block by removing garbage - records pointing at deleted documents,
+ * and write valid entries in their place.
+ * Returns the number of docs collected, and puts the number of bytes collected in the given
+ * pointer.
+ */
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
+
+/* Apply a GC change set to an inverted index.
+ * nblocks_orig is the number of blocks the child had scanned,
+ * nbytes_added_io is the child reported "bytes added" figure used if a fresh block,
+ * must be created when all scanned blocks were deleted. Updated for blocks that are added.
+ *
+ * delta requires ownership as data of new, deleted and repaired blocks
+ * are moved into the given index, the pointers of delta are updated accordingly.
+ */
+void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
+                                InvertedIndexGcDelta *delta,
+                                size_t nblocks_orig,
+                                uint64_t *nbytes_added_io);
+
+// ---------------- II Delta Builders
+
+InvertedIndexGcDelta *InvertedIndex_GcDelta_New(void);
+// // takes ownership of blocks
+void InvertedIndex_GcDelta_SetNewBlocklist(InvertedIndexGcDelta *d, IndexBlock *blocks, size_t count);
+// takes ownership of arr
+void InvertedIndex_GcDelta_SetDeleted(InvertedIndexGcDelta *d, InvertedIndex_DeletedInput *arr, size_t len);
+// // takes ownership of arr
+void InvertedIndex_GcDelta_SetRepaired(InvertedIndexGcDelta *d, InvertedIndex_RepairedInput *arr, size_t len);
+void InvertedIndex_GcDelta_SetLastBlockIgnored(InvertedIndexGcDelta *d, bool v);
+void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d);
+
+// ---------------------
 
 #ifdef __cplusplus
 }

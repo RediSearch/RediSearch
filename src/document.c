@@ -898,7 +898,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   rc = REDISMODULE_OK;
 
 CleanUp:
-  RLookupRow_Cleanup(&row);
+  RLookupRow_Reset(&row);
   RLookup_Cleanup(&lookup_s);
 done:
   ExprAST_Free(e);

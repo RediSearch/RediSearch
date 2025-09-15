@@ -19,6 +19,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -79,8 +80,8 @@ typedef struct QueryProcessingCtx {
   // Contains our spec
   RedisSearchCtx *sctx;
 
-  struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  struct timespec GILTime;  //milliseconds
+  rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers
@@ -101,7 +102,7 @@ typedef struct QueryProcessingCtx {
   QueryError *err;
 
   bool isProfile;
-  RSTimeoutPolicy timeoutPolicy;
+  RSFailurePolicy timeoutPolicy;
 } QueryProcessingCtx;
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
@@ -274,7 +275,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qiter);
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qiter);

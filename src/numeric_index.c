@@ -86,14 +86,15 @@ static double NumericRange_GetMedian(QueryIterator *iter, size_t num_entries) {
   // Read the first half of the values into a heap
   for (size_t i = 0; i < median_idx; i++) {
     iter->Read(iter);
-    double_heap_add_raw(low_half, iter->current->data.num.value);
+    double_heap_add_raw(low_half, IndexResult_NumValue(iter->current));
   }
   double_heap_heapify(low_half);
 
   // Read the rest of the values, replacing the max value in the heap if the current value is smaller
   while (iter->Read(iter) == ITERATOR_OK) {
-    if (iter->current->data.num.value < double_heap_peek(low_half)) {
-      double_heap_replace(low_half, iter->current->data.num.value);
+    double value = IndexResult_NumValue(iter->current);
+    if (value < double_heap_peek(low_half)) {
+      double_heap_replace(low_half, value);
     }
   }
 
@@ -106,7 +107,7 @@ static double NumericRange_GetMedian(QueryIterator *iter, size_t num_entries) {
 
 static inline NumericRange *NumericRange_New() {
   NumericRange *ret = rm_new(NumericRange);
-  ret->entries = NewInvertedIndex(Index_StoreNumeric, 1, &ret->invertedIndexSize);
+  ret->entries = NewInvertedIndex(Index_StoreNumeric, &ret->invertedIndexSize);
   ret->minVal = INFINITY;
   ret->maxVal = -INFINITY;
   hll_init(&ret->hll, NR_BIT_PRECISION);
@@ -135,15 +136,16 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
   rv->sz += lr->invertedIndexSize + rr->invertedIndexSize;
 
   QueryIterator *iter = NewInvIndIterator_NumericFull(r->entries);
-  double split = NumericRange_GetMedian(iter, r->entries->numEntries);
+  double split = NumericRange_GetMedian(iter, InvertedIndex_NumEntries(r->entries));
   if (split == r->minVal) {
     // make sure the split is not the same as the min value
     split = nextafter(split, INFINITY);
   }
   while (iter->Read(iter) == ITERATOR_OK) {
-    NumericRange *cur = iter->current->data.num.value < split ? lr : rr;
-    updateCardinality(cur, iter->current->data.num.value);
-    rv->sz += NumericRange_Add(cur, iter->current->docId, iter->current->data.num.value);
+    double value = IndexResult_NumValue(iter->current);
+    NumericRange *cur = value < split ? lr : rr;
+    updateCardinality(cur, value);
+    rv->sz += NumericRange_Add(cur, iter->current->docId, value);
     ++rv->numRecords;
   }
   iter->Free(iter);
@@ -166,7 +168,7 @@ static void removeRange(NumericRangeNode *n, NRN_AddRv *rv) {
 
   // free resources
   rv->sz -= temp->invertedIndexSize;
-  rv->numRecords -= temp->entries->numEntries;
+  rv->numRecords -= InvertedIndex_NumEntries(temp->entries);
   InvertedIndex_Free(temp->entries);
   hll_destroy(&temp->hll);
   rm_free(temp);
@@ -233,7 +235,7 @@ static void NumericRangeNode_Add(NumericRangeNode **np, t_docId docId, double va
 
     size_t card = getCardinality(n->range);
     if (card >= getSplitCardinality(depth) ||
-        (n->range->entries->numEntries > NR_MAXRANGE_SIZE && card > 1)) {
+        (InvertedIndex_NumEntries(n->range->entries) > NR_MAXRANGE_SIZE && card > 1)) {
 
       // split this node but don't delete its range
       NumericRangeNode_Split(n, rv);
@@ -255,10 +257,10 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
     // downwards
     if (NumericRange_Contained(n->range, min, max)) {
       if (!nf->offset) {
-        *total += n->range->entries->numDocs;
+        *total += InvertedIndex_NumDocs(n->range->entries);
         Vector_Push(v, n->range);
       } else {
-        *total += n->range->entries->numDocs;
+        *total += InvertedIndex_NumDocs(n->range->entries);
         if (*total > nf->offset) {
           Vector_Push(v, n->range);
         }
@@ -274,7 +276,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
   // for non leaf nodes - we try to descend into their children.
   // we do it in direction of sorting
   if (!NumericRangeNode_IsLeaf(n)) {
-    if (nf->asc) {
+    if (nf->ascending) {
       if(min <= n->value) {
         __recursiveAddRange(v, n->left, nf, total);
       }
@@ -290,7 +292,7 @@ void __recursiveAddRange(Vector *v, NumericRangeNode *n, const NumericFilter *nf
       }
     }
   } else if (NumericRange_Overlaps(n->range, min, max)) {
-    *total += (*total == 0 && nf->offset == 0) ? 1 : n->range->entries->numDocs;
+    *total += (*total == 0 && nf->offset == 0) ? 1 : InvertedIndex_NumDocs(n->range->entries);
     if (*total > nf->offset) {
       Vector_Push(v, n->range);
     }
@@ -371,7 +373,7 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
   NumericRangeNode *n = *node;
   // stop condition - we are at leaf
   if (NumericRangeNode_IsLeaf(n)) {
-    if (n->range->entries->numDocs == 0) {
+    if (InvertedIndex_NumDocs(n->range->entries) == 0) {
       return CHILD_EMPTY;
     } else {
       return CHILD_NOT_EMPTY;
@@ -390,7 +392,7 @@ bool NumericRangeNode_RemoveChild(NumericRangeNode **node, NRN_AddRv *rv) {
     return CHILD_NOT_EMPTY;
   }
 
-  if (n->range && n->range->entries->numDocs != 0) {
+  if (n->range && InvertedIndex_NumDocs(n->range->entries) != 0) {
     // We are on a non-leaf node, with some data in it but some of its children are empty.
     // Ideally we would like to trim the empty children, but today we don't fix missing ranges
     // of inner nodes, so we better keep the node as is.

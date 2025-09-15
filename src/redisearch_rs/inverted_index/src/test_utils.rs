@@ -11,13 +11,13 @@
 
 use ffi::t_fieldMask;
 
-use crate::{RSIndexResult, RSOffsetVector, RSResultType};
+use crate::{RSIndexResult, RSOffsetVector, RSResultData};
 
 /// Wrapper around `inverted_index::RSIndexResult` ensuring the term and offsets
 /// pointers used internally stay valid for the duration of the test or bench.
 #[derive(Debug)]
-pub struct TestTermRecord<'a> {
-    pub record: RSIndexResult<'a>,
+pub struct TestTermRecord<'index> {
+    pub record: RSIndexResult<'index>,
     // both term and offsets need to stay alive during the test
     _term: Box<ffi::RSQueryTerm>,
     _offsets: Vec<i8>,
@@ -40,11 +40,9 @@ impl TestTermRecord<'_> {
         let offsets_ptr = offsets.as_ptr() as *mut _;
         let rs_offsets = RSOffsetVector::with_data(offsets_ptr, offsets.len() as _);
 
-        let record = RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets)
-            .doc_id(doc_id)
-            .field_mask(field_mask)
-            .frequency(freq)
-            .weight(1.0);
+        let record =
+            RSIndexResult::term_with_term_ptr(&mut *term, rs_offsets, doc_id, field_mask, freq)
+                .weight(1.0);
 
         Self {
             record,
@@ -57,19 +55,17 @@ impl TestTermRecord<'_> {
 /// Helper to compare only the fields of a term record that are actually encoded.
 /// Only used in tests.
 #[derive(Debug)]
-pub struct TermRecordCompare<'a>(pub &'a RSIndexResult<'a>);
+pub struct TermRecordCompare<'index>(pub &'index RSIndexResult<'index>);
 
 impl<'a> PartialEq for TermRecordCompare<'a> {
     fn eq(&self, other: &Self) -> bool {
-        assert!(matches!(self.0.result_type, RSResultType::Term));
+        assert!(matches!(self.0.data, RSResultData::Term(_)));
 
         if !(self.0.doc_id == other.0.doc_id
             && self.0.dmd == other.0.dmd
             && self.0.field_mask == other.0.field_mask
             && self.0.freq == other.0.freq
-            && self.0.offsets_sz == other.0.offsets_sz
-            && self.0.result_type == other.0.result_type
-            && self.0.is_copy == other.0.is_copy
+            && self.0.data.kind() == other.0.data.kind()
             && self.0.metrics == other.0.metrics)
         {
             return false;
@@ -83,19 +79,10 @@ impl<'a> PartialEq for TermRecordCompare<'a> {
         let b_term_record = other.0.as_term().unwrap();
 
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let a_offsets = unsafe {
-            std::slice::from_raw_parts(
-                a_term_record.offsets.data as *const i8,
-                a_term_record.offsets.len as usize,
-            )
-        };
+        let a_offsets = a_term_record.offsets();
+
         // SAFETY: `len` is guaranteed to be a valid length for the data pointer.
-        let b_offsets = unsafe {
-            std::slice::from_raw_parts(
-                b_term_record.offsets.data as *const i8,
-                b_term_record.offsets.len as usize,
-            )
-        };
+        let b_offsets = b_term_record.offsets();
 
         if a_offsets != b_offsets {
             return false;
@@ -103,6 +90,6 @@ impl<'a> PartialEq for TermRecordCompare<'a> {
 
         // do not compare `RSTermRecord` as it's not encoded
 
-        true
+        a_term_record.is_copy() == b_term_record.is_copy()
     }
 }

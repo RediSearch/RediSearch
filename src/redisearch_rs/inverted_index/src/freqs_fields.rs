@@ -13,7 +13,7 @@ use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode the delta, frequency and field mask of a record.
 ///
@@ -30,7 +30,7 @@ impl Encoder for FreqsFields {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -45,12 +45,20 @@ impl Encoder for FreqsFields {
     }
 }
 
+impl DecodedBy for FreqsFields {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
 impl Decoder for FreqsFields {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, field_mask] = decoded_values;
 
@@ -78,7 +86,7 @@ impl Encoder for FreqsFieldsWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -89,12 +97,20 @@ impl Encoder for FreqsFieldsWide {
     }
 }
 
+impl DecodedBy for FreqsFieldsWide {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
 impl Decoder for FreqsFieldsWide {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;

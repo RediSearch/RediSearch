@@ -12,11 +12,11 @@
 #include "VecSim/query_results.h"
 #include "wildcard_iterator.h"
 
-#define VECTOR_RESULT(p) (p->type == RSResultType_Metric ? p : AggregateResult_Get(&p->data.agg, 0))
+#define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_Get(IndexResult_AggregateRef(p), 0)))
 
 static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata) {
   const RSIndexResult *e1 = p1, *e2 = p2;
-  double score1 = VECTOR_RESULT(e1)->data.num.value, score2 = VECTOR_RESULT(e2)->data.num.value;
+  double score1 = VECTOR_SCORE(e1), score2 = VECTOR_SCORE(e2);
   if (score1 < score2) {
     return -1;
   } else if (score1 > score2) {
@@ -49,7 +49,7 @@ static IteratorStatus HR_SkipToInBatch(HybridIterator *hr, t_docId docId, RSInde
     }
     // Set the item that we skipped to it in hit.
     result->docId = id;
-    result->data.num.value = VecSimQueryResult_GetScore(res);
+    IndexResult_SetNumValue(result, VecSimQueryResult_GetScore(res));
     return ITERATOR_OK;
   }
   return ITERATOR_EOF;
@@ -63,14 +63,14 @@ static IteratorStatus HR_ReadInBatch(HybridIterator *hr, RSIndexResult *out) {
   VecSimQueryResult *res = VecSimQueryReply_IteratorNext(hr->iter);
   // Set the item that we read in the current RSIndexResult
   out->docId = VecSimQueryResult_GetId(res);
-  out->data.num.value = VecSimQueryResult_GetScore(res);
+  IndexResult_SetNumValue(out, VecSimQueryResult_GetScore(res));
   return ITERATOR_OK;
 }
 
 static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_res, RSIndexResult **vec_res, double *upper_bound) {
 
-  IndexResult_ConcatMetrics(*vec_res, child_res); // Pass child metrics, if there are any
-  ResultMetrics_Add(*vec_res, hr->ownKey, RS_NumVal((*vec_res)->data.num.value));
+  RSYieldableMetric_Concat(&(*vec_res)->metrics, child_res->metrics); // Pass child metrics, if there are any
+  ResultMetrics_Add(*vec_res, hr->ownKey, RS_NumVal(IndexResult_NumValue(*vec_res)));
 
   if (hr->topResults->count < hr->query.k) {
     // Insert to heap, allocate new memory for the next result.
@@ -79,11 +79,12 @@ static void insertResultToHeap_Metric(HybridIterator *hr, RSIndexResult *child_r
   } else {
     // Replace the worst result and reuse its memory.
     *vec_res = mmh_exchange_max(hr->topResults, *vec_res);
-    ResultMetrics_Free(*vec_res); // Reuse
+    ResultMetrics_Free((*vec_res)->metrics); // Reuse
+    (*vec_res)->metrics = NULL;
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
-  *upper_bound = worst->data.num.value;
+  *upper_bound = IndexResult_NumValue(worst);
 }
 
 static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *child_res,
@@ -92,8 +93,8 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   RSIndexResult *res = NewHybridResult();
   AggregateResult_AddChild(res, IndexResult_DeepCopy(vec_res));
   AggregateResult_AddChild(res, IndexResult_DeepCopy(child_res));
-  res->isCopy = true; // Mark as copy, so when we free it, it will also free its children.
-  ResultMetrics_Add(res, hr->ownKey, RS_NumVal(vec_res->data.num.value));
+  res->data.hybrid_metric.tag = RSAggregateResult_Owned; // Mark as copy, so when we free it, it will also free its children.
+  ResultMetrics_Add(res, hr->ownKey, RS_NumVal(IndexResult_NumValue(vec_res)));
 
   if (hr->topResults->count < hr->query.k) {
     mmh_insert(hr->topResults, res);
@@ -102,8 +103,9 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *chil
   }
   // Set new upper bound.
   RSIndexResult *worst = mmh_peek_max(hr->topResults);
-  const RSIndexResult *first = AggregateResult_Get(&worst->data.agg, 0);
-  *upper_bound = first->data.num.value;
+  const RSAggregateResult *agg = IndexResult_AggregateRef(worst);
+  const RSIndexResult *first = AggregateResult_Get(agg, 0);
+  *upper_bound = IndexResult_NumValue(first);
 }
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *child_res,
@@ -127,7 +129,7 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
   while (child_status == ITERATOR_OK && vec_status == ITERATOR_OK) {
     if (cur_vec_res->docId == hr->child->lastDocId) {
       // Found a match - check if it should be added to the results heap.
-      if (hr->topResults->count < hr->query.k || cur_vec_res->data.num.value < *upper_bound) {
+      if (hr->topResults->count < hr->query.k || IndexResult_NumValue(cur_vec_res) < *upper_bound) {
         // Otherwise, set the vector and child results as the children the res
         // and insert result to the heap.
         insertResultToHeap(hr, hr->child->current, &cur_vec_res, upper_bound);
@@ -177,7 +179,7 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
     if (hr->topResults->count < hr->query.k || metric < upper_bound) {
       // Populate the vector result.
       cur_vec_res->docId = hr->child->lastDocId;
-      cur_vec_res->data.num.value = metric;
+      IndexResult_SetNumValue(cur_vec_res, metric);
       insertResultToHeap(hr, hr->child->current, &cur_vec_res, &upper_bound);
     }
   }
@@ -341,7 +343,7 @@ static IteratorStatus HR_ReadKnnUnsortedSingle(HybridIterator *hr) {
   }
 
   hr->base.lastDocId = hr->base.current->docId;
-  ResultMetrics_Add(hr->base.current, hr->ownKey, RS_NumVal(hr->base.current->data.num.value));
+  ResultMetrics_Add(hr->base.current, hr->ownKey, RS_NumVal(IndexResult_NumValue(hr->base.current)));
   return ITERATOR_OK;
 }
 

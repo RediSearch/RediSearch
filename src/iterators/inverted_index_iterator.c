@@ -10,40 +10,11 @@
 #include "inverted_index_iterator.h"
 #include "redis_index.h"
 
-// pointer to the current block while reading the index
-#define CURRENT_BLOCK(it) ((it)->idx->blocks[(it)->currentBlock])
-#define CURRENT_BLOCK_READER_AT_END(it) BufferReader_AtEnd(&(it)->blockReader.buffReader)
-
 void InvIndIterator_Free(QueryIterator *it) {
   if (!it) return;
   IndexResult_Free(it->current);
+  IndexReader_Free(((InvIndIterator *)it)->reader);
   rm_free(it);
-}
-
-static inline void SetCurrentBlockReader(InvIndIterator *it) {
-  it->blockReader = (IndexBlockReader) {
-    NewBufferReader(IndexBlock_Buffer(&CURRENT_BLOCK(it))),
-    IndexBlock_FirstId(&CURRENT_BLOCK(it)),
-  };
-}
-
-static inline void AdvanceBlock(InvIndIterator *it) {
-  it->currentBlock++;
-  SetCurrentBlockReader(it);
-}
-
-// A while-loop helper to advance the iterator to the next block or break if we are at the end.
-static __attribute__((always_inline)) inline bool NotAtEnd(InvIndIterator *it) {
-  if (!CURRENT_BLOCK_READER_AT_END(it)) {
-    return true; // still have entries in the current block
-  }
-  if (it->currentBlock + 1 < it->idx->size) {
-    // we have more blocks to read, so we can advance to the next block
-    AdvanceBlock(it);
-    return true;
-  }
-  // no more blocks to read, so we are at the end
-  return false;
 }
 
 void InvIndIterator_Rewind(QueryIterator *base) {
@@ -51,14 +22,13 @@ void InvIndIterator_Rewind(QueryIterator *base) {
   base->atEOF = false;
   base->lastDocId = 0;
   base->current->docId = 0;
-  it->currentBlock = 0;
-  it->gcMarker = it->idx->gcMarker;
-  SetCurrentBlockReader(it);
+
+  IndexReader_Reset(it->reader);
 }
 
 size_t InvIndIterator_NumEstimated(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
-  return it->idx->numDocs;
+  return IndexReader_NumEstimated(it->reader);
 }
 
 static ValidateStatus NumericCheckAbort(QueryIterator *base) {
@@ -83,9 +53,9 @@ static ValidateStatus TermCheckAbort(QueryIterator *base) {
   if (!it->sctx) {
     return VALIDATE_OK;
   }
-  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, base->current->data.term.term->str,
-      base->current->data.term.term->len, false, NULL);
-  if (!idx || it->idx != idx) {
+  RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
+  InvertedIndex *idx = Redis_OpenInvertedIndex(it->sctx, term->str, term->len, false, NULL);
+  if (!idx || !IndexReader_IsIndex(it->reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
@@ -101,9 +71,9 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
     return VALIDATE_OK;
   }
   size_t sz;
-  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, base->current->data.term.term->str,
-      base->current->data.term.term->len, false, &sz);
-  if (idx == TRIEMAP_NOTFOUND || it->base.idx != idx) {
+  RSQueryTerm *term = IndexResult_QueryTermRef(base->current);
+  InvertedIndex *idx = TagIndex_OpenIndex(it->tagIdx, term->str, term->len, false, &sz);
+  if (idx == TRIEMAP_NOTFOUND || !IndexReader_IsIndex(it->base.reader, idx)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
@@ -117,10 +87,9 @@ static ValidateStatus TagCheckAbort(QueryIterator *base) {
 static ValidateStatus WildcardCheckAbort(QueryIterator *base) {
   // Check if the wildcard iterator is still valid
   InvIndIterator *wi = (InvIndIterator *)base;
-  RS_ASSERT(wi->idx);
   RS_ASSERT(wi->sctx && wi->sctx->spec);
 
-  if (wi->sctx->spec->existingDocs != wi->idx) {
+  if (!IndexReader_IsIndex(wi->reader, wi->sctx->spec->existingDocs)) {
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -129,7 +98,6 @@ static ValidateStatus WildcardCheckAbort(QueryIterator *base) {
 static ValidateStatus MissingCheckAbort(QueryIterator *base) {
   // Check if the missing iterator is still valid
   InvIndIterator *mi = (InvIndIterator *)base;
-  RS_ASSERT(mi->idx);
   RS_ASSERT(mi->sctx && mi->sctx->spec);
   RS_ASSERT(mi->sctx->spec->missingFieldDict);
   RS_ASSERT(mi->sctx->spec->numFields > mi->filterCtx.field.value.index);
@@ -137,7 +105,7 @@ static ValidateStatus MissingCheckAbort(QueryIterator *base) {
   const HiddenString *fieldName = mi->sctx->spec->fields[mi->filterCtx.field.value.index].fieldName;
   const InvertedIndex *missingII = dictFetchValue(mi->sctx->spec->missingFieldDict, fieldName);
 
-  if (mi->idx != missingII) {
+  if (!IndexReader_IsIndex(mi->reader, missingII)) {
     // The inverted index was collected entirely by GC.
     // All the documents that were inside were deleted and new ones were added.
     // We will not continue reading those new results and instead abort reading
@@ -157,12 +125,7 @@ static ValidateStatus InvIndIterator_Revalidate(QueryIterator *base) {
     return ret;
   }
 
-  // the gc marker tells us if there is a chance the keys have undergone GC while we were asleep
-  if (it->gcMarker == it->idx->gcMarker) {
-    // no GC - we just go to the same offset we were at.
-    // Reset the buffer pointer in case it was reallocated
-    it->blockReader.buffReader.buf = IndexBlock_Buffer(&CURRENT_BLOCK(it));
-  } else {
+  if (IndexReader_Revalidate(it->reader)) {
     // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
     // anymore. This means that we need to seek the last docId we were at
 
@@ -194,7 +157,7 @@ static inline bool VerifyFieldMaskExpirationForCurrent(InvIndIterator *it) {
       it->filterCtx.predicate,
       &it->sctx->time.current
     );
-  } else if (it->idx->flags & Index_WideSchema) {
+  } else if (IndexReader_Flags(it->reader) & Index_WideSchema) {
     return DocTable_CheckWideFieldMaskExpirationPredicate(
       &it->sctx->spec->docs,
       it->base.current->docId,
@@ -215,50 +178,6 @@ static inline bool VerifyFieldMaskExpirationForCurrent(InvIndIterator *it) {
   }
 }
 
-#define BLOCK_MATCHES(blk, docId) (IndexBlock_FirstId(&blk) <= docId && docId <= IndexBlock_LastId(&blk))
-
-// Assumes there is a valid block to skip to (matching or past the requested docId)
-static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
-  const InvertedIndex *idx = it->idx;
-  uint32_t top = idx->size - 1;
-  uint32_t bottom = it->currentBlock + 1;
-
-  if (docId <= IndexBlock_LastId(&idx->blocks[bottom])) {
-    // the next block is the one we're looking for, although it might not contain the docId
-    it->currentBlock = bottom;
-    goto new_block;
-  }
-
-  uint32_t i;
-  while (bottom <= top) {
-    i = (bottom + top) / 2;
-    if (BLOCK_MATCHES(idx->blocks[i], docId)) {
-      it->currentBlock = i;
-      goto new_block;
-    }
-
-    t_docId firstId = IndexBlock_FirstId(&idx->blocks[i]);
-    if (docId < firstId) {
-      top = i - 1;
-    } else {
-      bottom = i + 1;
-    }
-  }
-
-  // We didn't find a matching block. According to the assumptions, there must be a block past the
-  // requested docId, and the binary search brought us to it or the one before it.
-  it->currentBlock = i;
-  t_docId lastId = IndexBlock_LastId(&CURRENT_BLOCK(it));
-  if (lastId < docId) {
-    it->currentBlock++; // It's not the current block. Advance
-    RS_ASSERT(IndexBlock_FirstId(&CURRENT_BLOCK(it)) > docId); // Not a match but has to be past it
-  }
-
-new_block:
-  RS_LOG_ASSERT(it->currentBlock < idx->size, "Invalid block index");
-  SetCurrentBlockReader(it);
-}
-
 /************************************* Read Implementations *************************************/
 
 // 1. Default read implementation, without any additional filtering.
@@ -268,16 +187,12 @@ IteratorStatus InvIndIterator_Read_Default(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
-  while (NotAtEnd(it)) {
-    // The decoder also acts as a filter. If the decoder returns false, the
-    // current record should not be processed.
-    // Since we are not at the end of the block (previous check), the decoder is guaranteed
-    // to read a record (advanced by at least one entry).
-    if (it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-      base->lastDocId = record->docId;
-      return ITERATOR_OK;
-    }
+
+  if (IndexReader_Next(it->reader, record)) {
+    base->lastDocId = record->docId;
+    return ITERATOR_OK;
   }
+
   // Exit outer loop => we reached the end of the last block
   base->atEOF = true;
   return ITERATOR_EOF;
@@ -290,15 +205,8 @@ IteratorStatus InvIndIterator_Read_SkipMulti(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
-  while (NotAtEnd(it)) {
-    // The decoder also acts as a filter. If the decoder returns false, the
-    // current record should not be processed.
-    // Since we are not at the end of the block (previous check), the decoder is guaranteed
-    // to read a record (advanced by at least one entry).
-    if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-      continue;
-    }
 
+  while (IndexReader_Next(it->reader, record)) {
     if (base->lastDocId == record->docId) {
       // Avoid returning the same doc
       // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
@@ -309,6 +217,7 @@ IteratorStatus InvIndIterator_Read_SkipMulti(QueryIterator *base) {
     base->lastDocId = record->docId;
     return ITERATOR_OK;
   }
+
   // Exit outer loop => we reached the end of the last block
   base->atEOF = true;
   return ITERATOR_EOF;
@@ -321,15 +230,8 @@ IteratorStatus InvIndIterator_Read_CheckExpiration(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
-  while (NotAtEnd(it)) {
-    // The decoder also acts as a filter. If the decoder returns false, the
-    // current record should not be processed.
-    // Since we are not at the end of the block (previous check), the decoder is guaranteed
-    // to read a record (advanced by at least one entry).
-    if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-      continue;
-    }
 
+  while (IndexReader_Next(it->reader, record)) {
     if (!VerifyFieldMaskExpirationForCurrent(it)) {
       continue;
     }
@@ -337,6 +239,7 @@ IteratorStatus InvIndIterator_Read_CheckExpiration(QueryIterator *base) {
     base->lastDocId = record->docId;
     return ITERATOR_OK;
   }
+
   // Exit outer loop => we reached the end of the last block
   base->atEOF = true;
   return ITERATOR_EOF;
@@ -349,15 +252,8 @@ IteratorStatus InvIndIterator_Read_SkipMulti_CheckExpiration(QueryIterator *base
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
-  while (NotAtEnd(it)) {
-    // The decoder also acts as a filter. If the decoder returns false, the
-    // current record should not be processed.
-    // Since we are not at the end of the block (previous check), the decoder is guaranteed
-    // to read a record (advanced by at least one entry).
-    if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-      continue;
-    }
 
+  while (IndexReader_Next(it->reader, record)) {
     if (base->lastDocId == record->docId) {
       // Avoid returning the same doc
       // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
@@ -372,6 +268,7 @@ IteratorStatus InvIndIterator_Read_SkipMulti_CheckExpiration(QueryIterator *base
     base->lastDocId = record->docId;
     return ITERATOR_OK;
   }
+
   // Exit outer loop => we reached the end of the last block
   base->atEOF = true;
   return ITERATOR_EOF;
@@ -387,16 +284,9 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
     return ITERATOR_EOF;
   }
 
-  if (docId > it->idx->lastId) {
+  if (!IndexReader_SkipTo(it->reader, docId)) {
     base->atEOF = true;
     return ITERATOR_EOF;
-  }
-
-  t_docId lastId = IndexBlock_LastId(&CURRENT_BLOCK(it));
-  if (lastId < docId) {
-    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
-    // lastId, which either contains the requested docId or higher ids. We can skip to it.
-    SkipToBlock(it, docId);
   }
 
   // Even if we need to skip multi-values, we know the target docId is greater than the lastDocId,
@@ -417,16 +307,9 @@ IteratorStatus InvIndIterator_SkipTo_CheckExpiration(QueryIterator *base, t_docI
     return ITERATOR_EOF;
   }
 
-  if (docId > it->idx->lastId) {
+  if (!IndexReader_SkipTo(it->reader, docId)) {
     base->atEOF = true;
     return ITERATOR_EOF;
-  }
-
-  t_docId lastId = IndexBlock_LastId(&CURRENT_BLOCK(it));
-  if (lastId < docId) {
-    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
-    // lastId, which either contains the requested docId or higher ids. We can skip to it.
-    SkipToBlock(it, docId);
   }
 
   // Even if we need to skip multi-values, we know the target docId is greater than the lastDocId,
@@ -447,19 +330,13 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
     return ITERATOR_EOF;
   }
 
-  if (docId > it->idx->lastId) {
+  if (!IndexReader_SkipTo(it->reader, docId)) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId) {
-    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
-    // lastId, which either contains the requested docId or higher ids. We can skip to it.
-    SkipToBlock(it, docId);
-  }
-
   IteratorStatus rc;
-  if (it->decoders.seeker(&it->blockReader, &it->decoderCtx, docId, it->base.current)) {
+  if (IndexReader_Seek(it->reader, docId, base->current)) {
     // The seeker found a doc id that is greater or equal to the requested doc id
     // in the current block
     base->lastDocId = base->current->docId;
@@ -485,19 +362,13 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker_CheckExpiration(QueryIterator *b
     return ITERATOR_EOF;
   }
 
-  if (docId > it->idx->lastId) {
+  if (!IndexReader_SkipTo(it->reader, docId)) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId) {
-    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
-    // lastId, which either contains the requested docId or higher ids. We can skip to it.
-    SkipToBlock(it, docId);
-  }
-
   IteratorStatus rc;
-  if (it->decoders.seeker(&it->blockReader, &it->decoderCtx, docId, it->base.current) &&
+  if (IndexReader_Seek(it->reader, docId, base->current) &&
       VerifyFieldMaskExpirationForCurrent(it)) {
     // The seeker found a doc id that is greater or equal to the requested doc id
     // in the current block, and the doc id is valid
@@ -526,23 +397,17 @@ static inline bool HasExpiration(const InvIndIterator *it) {
 // Returns true if the iterator should skip multi-values from the same document
 static inline bool ShouldSkipMulti(const InvIndIterator *it) {
   return it->skipMulti &&                       // Skip multi-values is requested
-        (it->idx->flags & Index_HasMultiValue); // The index holds multi-values (if not, no need to check)
+        IndexReader_HasMulti(it->reader); // The index holds multi-values (if not, no need to check)
 }
 
 static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
-  it->idx = idx;
-  it->currentBlock = 0;
-  it->gcMarker = idx->gcMarker;
-  it->decoders = InvertedIndex_GetDecoder(idx->flags);
-  it->decoderCtx = *decoderCtx;
+  it->reader = NewIndexReader(idx, decoderCtx);
   it->skipMulti = skipMulti; // Original request, regardless of what implementation is chosen
   it->sctx = sctx;
   it->filterCtx = *filterCtx;
   it->isWildcard = false;
   it->CheckAbort = (ValidateStatus (*)(struct InvIndIterator *))checkAbortFn;
-
-  SetCurrentBlockReader(it);
 
   QueryIterator *base = &it->base;
   base->current = res;
@@ -556,7 +421,7 @@ static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex
 
   // Choose the Read and SkipTo methods for best performance
   skipMulti = ShouldSkipMulti(it);
-  bool hasSeeker = it->decoders.seeker != NULL;
+  bool hasSeeker = IndexReader_HasSeeker(it->reader);
   bool hasExpiration = HasExpiration(it);
 
   // Read function choice:
@@ -625,7 +490,7 @@ QueryIterator *NewInvIndIterator_NumericFull(const InvertedIndex *idx) {
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
-  IndexDecoderCtx decoderCtx = {.filter = NULL};
+  IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
   return NewInvIndIterator_NumericRange(idx, NewNumericResult(), NULL, &fieldCtx, false, NULL, &decoderCtx);
 }
 
@@ -634,7 +499,7 @@ QueryIterator *NewInvIndIterator_TermFull(const InvertedIndex *idx) {
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
-  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -646,7 +511,7 @@ QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagInde
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
-  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *res = NewTokenRecord(NULL, 1);
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
@@ -657,7 +522,7 @@ QueryIterator *NewInvIndIterator_TagFull(const InvertedIndex *idx, const TagInde
 
 QueryIterator *NewInvIndIterator_NumericQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
                                               const NumericFilter *flt, const FieldSpec *fieldSpec, double rangeMin, double rangeMax) {
-  IndexDecoderCtx decoderCtx = {.filter = flt};
+  IndexDecoderCtx decoderCtx = {.numeric_tag = IndexDecoderCtx_Numeric, .numeric = flt};
   QueryIterator *ret = NewInvIndIterator_NumericRange(idx, NewNumericResult(), fieldSpec, fieldCtx, true, sctx, &decoderCtx);
   InvIndIterator *it = (InvIndIterator *)ret;
   it->profileCtx.numeric.rangeMin = rangeMin;
@@ -683,21 +548,20 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs); // FIXME: docs.size starts at 1???
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx)); // FIXME: docs.size starts at 1???
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
-  IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
-    dctx.wideMask = fieldMaskOrIndex.value.mask;
-  else if (fieldMaskOrIndex.isFieldMask)
-    dctx.mask = fieldMaskOrIndex.value.mask;
-  else
-    dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+  IndexDecoderCtx dctx = {.tag = IndexDecoderCtx_FieldMask};
+  if (fieldMaskOrIndex.isFieldMask) {
+    dctx.field_mask = fieldMaskOrIndex.value.mask;
+  } else {
+    dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+  }
 
   return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx, TermCheckAbort);
 }
@@ -711,21 +575,20 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
   };
   if (term && sctx) {
     // compute IDF based on num of docs in the header
-    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs); // FIXME: docs.size starts at 1???
-    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, idx->numDocs);
+    term->idf = CalculateIDF(sctx->spec->docs.size, InvertedIndex_NumDocs(idx)); // FIXME: docs.size starts at 1???
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->stats.numDocuments, InvertedIndex_NumDocs(idx));
   }
 
   RSIndexResult *record = NewTokenRecord(term, weight);
   record->fieldMask = RS_FIELDMASK_ALL;
   record->freq = 1;
 
-  IndexDecoderCtx dctx = {0};
-  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
-    dctx.wideMask = fieldMaskOrIndex.value.mask;
-  else if (fieldMaskOrIndex.isFieldMask)
-    dctx.mask = fieldMaskOrIndex.value.mask;
-  else
-    dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+  IndexDecoderCtx dctx = {.tag = IndexDecoderCtx_FieldMask};
+  if (fieldMaskOrIndex.isFieldMask) {
+    dctx.field_mask = fieldMaskOrIndex.value.mask;
+  } else {
+    dctx.field_mask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+  }
 
   TagInvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->tagIdx = tagIdx;
@@ -737,7 +600,7 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
     .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
     .predicate = FIELD_EXPIRATION_DEFAULT,
   };
-  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL};
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL};
   RSIndexResult *record = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   record->freq = 1;
 
@@ -752,7 +615,7 @@ QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const Re
     .field = {.isFieldMask = false, .value = {.index = fieldIndex}},
     .predicate = FIELD_EXPIRATION_MISSING, // Missing predicate
   };
-  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  IndexDecoderCtx decoderCtx = {.field_mask_tag = IndexDecoderCtx_FieldMask, .field_mask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
   RSIndexResult *record = NewVirtualResult(0.0, RS_FIELDMASK_ALL);
   record->freq = 1;
 

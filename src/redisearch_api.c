@@ -622,9 +622,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, 0, &status);
-  if (!it->internal) {
-    goto end;
-  }
+  RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
   ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
@@ -634,15 +632,11 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   it->minscore = DBL_MAX;
   it->sp = sp;
 
-  // dummy statement for goto
-  ;
 end:
 
-  if (QueryError_HasError(&status) || it->internal == NULL) {
-    if (it) {
-      RediSearch_ResultsIteratorFree(it);
-      it = NULL;
-    }
+  if (QueryError_HasError(&status)) {
+    RediSearch_ResultsIteratorFree(it);
+    it = NULL;
     if (error) {
       *error = rm_strdup(QueryError_GetUserError(&status));
     }
@@ -914,7 +908,7 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
+  return IndexSpec_TotalMemUsage(sp, 0, 0, 0, 0);
 }
 
 // Collect statistics of all the currently existing indexes

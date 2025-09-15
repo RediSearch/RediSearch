@@ -6,6 +6,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+// forward declarations for bitflags type names
+typedef uint32_t RLookupKeyFlags;
+typedef uint32_t RLookupOptions;
+ 
+// forward declarations for types that are only used as a pointer
+typedef struct RLookupRow RLookupRow;
+typedef struct RSValue RSValue;
+
+typedef struct FatPtr {
+  const char* ptr;
+  size_t len;
+} FatPtr;
+
 
 enum RLookupKeyFlag
 #ifdef __cplusplus
@@ -94,3 +107,208 @@ enum RLookupOption
 #ifndef __cplusplus
 typedef uint32_t RLookupOption;
 #endif // __cplusplus
+
+/**
+ * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
+ * or from dynamic values stored in the row during processing.
+ *
+ * The type itself exposes the dynamic values, [`RLookupRow::dyn_values`], as a vector of `Option<T>`, where `T` is the type
+ * of the value and it also provides methods to get the length of the dynamic values and check if they are empty.
+ *
+ * The type `T` is the type of the value stored in the row, which must implement the [`RSValueTrait`].
+ * [`RSValueTrait`] is a temporary trait that will be replaced by a type implementing `RSValue` in Rust, see MOD-10347.
+ *
+ * The C-side allocations of values in [`RLookupRow::dyn_values`] and [`RLookupRow::sorting_vector`] are released on drop.
+ */
+typedef struct RLookupRow RLookupRow;
+
+/**
+ * This type acts like a [std::borrow::Cow] but it has a C-compatible representation.
+ *
+ * This is useful for the types exposed to C via CBindgen.
+ */
+enum CBCow_CStr_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  Borrowed_CStr,
+  Owned_CStr,
+};
+#ifndef __cplusplus
+typedef uint8_t CBCow_CStr_Tag;
+#endif // __cplusplus
+
+typedef union CBCow_CStr {
+  CBCow_CStr_Tag tag;
+  struct {
+    CBCow_CStr_Tag borrowed_tag;
+    const FatPtr *borrowed;
+  };
+  struct {
+    CBCow_CStr_Tag owned_tag;
+    FatPtr owned;
+  };
+} CBCow_CStr;
+
+/**
+ * This type acts like a [std::option::Option] but it has a C-compatible representation.
+ *
+ * This is useful for the types exposed to C via CBindgen.
+ */
+enum CBOption_CBCow_CStr_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  None_CBCow_CStr,
+  Some_CBCow_CStr,
+};
+#ifndef __cplusplus
+typedef uint8_t CBOption_CBCow_CStr_Tag;
+#endif // __cplusplus
+
+typedef union CBOption_CBCow_CStr {
+  CBOption_CBCow_CStr_Tag tag;
+  struct {
+    CBOption_CBCow_CStr_Tag some_tag;
+    union CBCow_CStr some;
+  };
+} CBOption_CBCow_CStr;
+
+/**
+ * RLookup key
+ *
+ * `RLookupKey`s are used to speed up accesses in an `RLookupRow`. Instead of having to do repeated
+ * string comparisons to find the correct value by path/name, an `RLookupKey` is created using the
+ * `RLookup` which then allows `O(1)` lookup within the `RLookupRow`.
+ *
+ *
+ * The old C documentation for this type for posterity and later reference. Note that it is unclear
+ * how much this reflects the actual state of the code.
+ *
+ * ```text
+ * RLookup Key
+ *
+ * A lookup key is a structure which contains an array index at which the
+ * data may be reliably located. This avoids needless string comparisons by
+ * using quick objects rather than "dynamic" string comparison mechanisms.
+ *
+ * The basic workflow is that users of a given key (i.e. "foo") are expected
+ * to first create the key by use of RLookup_GetKey(). This will provide
+ * the consumer with an opaque object that is the slot of "foo". Once the
+ * key is provided, it may then be use to both read and write the key.
+ *
+ * Using a pre-defined key also allows the query to maintain a central registry
+ * of used names. If a user makes a typo in a query, this registry will easily
+ * detect that the name was not used previously.
+ *
+ * Note that the same name can be registered twice, in which case it will simply
+ * increment the reference to the same key.
+ *
+ * There are two arrays which are accessed to check for the key. Their use is
+ * mutually exclusive per-key, though multiple keys may exist which can access
+ * either one or the other array. The first array is the "sorting vector" for
+ * a given document. The F_SVSRC flag is set on keys which are expected to be
+ * found within the sorting vector.
+ *
+ * The second array is a "dynamic" array within a given result's row data.
+ * This is used for data generated on the fly, or for data not stored within
+ * the sorting vector.
+ * ```
+ */
+typedef struct RLookupKey {
+  /**
+   * Index into the dynamic values array within the associated `RLookupRow`.
+   */
+  uint16_t dstidx;
+  /**
+   * If the source for this key is a sorting vector, this is the index
+   * into the `RSSortingVector` within the associated `RLookupRow`.
+   */
+  uint16_t svidx;
+  /**
+   * Various flags dictating the behavior of looking up the value of this key.
+   * Most notably, `Flags::SVSRC` means the source is an `RSSortingVector` and
+   * `Self::svidx` should be used to look up the value.
+   */
+  RLookupKeyFlags flags;
+  /**
+   * The path of this key.
+   *
+   * For fields *not* loaded from a [`FieldSpec`][ffi::FieldSpec], this points to the *same* string
+   * as `Self::path`.
+   */
+  const char *path;
+  /**
+   * The name of this key.
+   */
+  const char *name;
+  /**
+   * The length of this key in bytes, without the null-terminator.
+   * Should be used to avoid repeated `strlen` computations.
+   */
+  uintptr_t name_len;
+  /**
+   * Pointer to next field in the list
+   */
+  struct RLookupKey *next;
+  /**
+   * The actual "owning" strings, we need to hold onto these
+   * so the pointers above stay valid. Note that you
+   * MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
+   * YOU WANT TO POTENTIALLY RISK UB
+   */
+  union CBCow_CStr _name;
+  union CBOption_CBCow_CStr _path;
+} RLookupKey;
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
+/**
+ * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
+ *
+ * Safety:
+ * 1. `key` must be a valid pointer to an [`RLookupKey`].
+ * 2. `row` must be a valid pointer to an [`RLookupRow`].
+ * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
+ */
+void RLookup_WriteKey(const struct RLookupKey *key,
+                      struct RLookupRow *row,
+                      RSValue *value);
+
+/**
+ * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
+ *
+ * Safety:
+ * 1. `key` must be a valid pointer to an [`RLookupKey`].
+ * 2. `row` must be a valid pointer to an [`RLookupRow`].
+ * 3. `value` must be a valid pointer to an [`ffi::RSValue`].
+ */
+void RLookup_WriteOwnKey(const struct RLookupKey *key,
+                         struct RLookupRow *row,
+                         RSValue *value);
+
+/**
+ * Wipes a RLookupRow by decrementing all values and resetting the row.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ */
+void RLookupRow_Wipe(struct RLookupRow *row);
+
+/**
+ * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
+ *
+ * This does not affect the sorting vector.
+ *
+ * Safety:
+ * 1. The pointer must be a valid pointer to an [`RLookupRow`].
+ */
+void RLookupRow_Reset(struct RLookupRow *row);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus

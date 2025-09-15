@@ -324,7 +324,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, ReadAllVirtualResults) {
     ASSERT_EQ(iterator_base->lastDocId, i);
 
     // All hits should be virtual
-    ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
+    ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
     ASSERT_EQ(iterator_base->current->weight, 0);
     ASSERT_EQ(iterator_base->current->freq, 1);
     ASSERT_EQ(iterator_base->current->fieldMask, RS_FIELDMASK_ALL);
@@ -345,7 +345,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, SkipToVirtualHits) {
     ASSERT_EQ(iterator_base->lastDocId, target);
 
     // Should be virtual hit
-    ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
+    ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
     ASSERT_EQ(iterator_base->current->weight, 0);
   }
 }
@@ -365,7 +365,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, RewindBehavior) {
   // After Rewind, should be able to read from the beginning
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
   ASSERT_EQ(iterator_base->current->docId, 1);
-  ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
+  ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
 }
 
 TEST_F(OptionalIteratorWithEmptyChildTest, EOFBehavior) {
@@ -375,7 +375,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, EOFBehavior) {
   ASSERT_EQ(iterator_base->lastDocId, maxDocId);
 
   // Should be virtual hit
-  ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
+  ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
 
   // Next read should return EOF
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
@@ -390,7 +390,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, VirtualResultProperties) {
   // Test that virtual results have correct properties
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
 
-  ASSERT_EQ(iterator_base->current->type, RSResultType_Virtual);
+  ASSERT_EQ(iterator_base->current->data.tag, RSResultData_Virtual);
   ASSERT_EQ(iterator_base->current->docId, 1);
   ASSERT_EQ(iterator_base->current->weight, 0);
   ASSERT_EQ(iterator_base->current->freq, 1);
@@ -575,7 +575,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithNullChild) {
   ASSERT_EQ(it->Read(it), ITERATOR_OK);
   ASSERT_EQ(it->current->docId, 1);
   ASSERT_EQ(it->current->weight, 0);
-  ASSERT_EQ(it->current->type, RSResultType_Virtual);
+  ASSERT_EQ(it->current->data.tag, RSResultData_Virtual);
 
   it->Free(it);
 }
@@ -602,7 +602,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithEmptyChild) {
   ASSERT_EQ(it->Read(it), ITERATOR_OK);
   ASSERT_EQ(it->current->docId, 1);
   ASSERT_EQ(it->current->weight, 0);
-  ASSERT_EQ(it->current->type, RSResultType_Virtual);
+  ASSERT_EQ(it->current->data.tag, RSResultData_Virtual);
 
   it->Free(it);
 }
@@ -630,7 +630,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
   ASSERT_EQ(it->Read(it), ITERATOR_OK);
   ASSERT_EQ(it->current->docId, 1);
   ASSERT_EQ(it->current->weight, childWeight);
-  ASSERT_EQ(it->current->type, RSResultType_Virtual);
+  ASSERT_EQ(it->current->data.tag, RSResultData_Virtual);
 
   it->Free(it);
 }
@@ -643,18 +643,17 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithReaderWildcardChild) {
   // Create a mock QueryEvalCtx
   MockQueryEvalCtx ctx(maxDocId, numDocs);
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
   ASSERT_TRUE(idx != nullptr);
-  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
-  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
       .fieldMask = 1,
       .freq = 1,
-      .type = RSResultType::RSResultType_Term,
+      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
     };
-    InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
+    InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
   QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);

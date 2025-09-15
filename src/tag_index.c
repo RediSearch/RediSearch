@@ -190,7 +190,7 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
     if (create_if_missing) {
-      iv = NewInvertedIndex(Index_DocIdsOnly, 1, sz);
+      iv = NewInvertedIndex(Index_DocIdsOnly, sz);
       TrieMap_Add(idx->values, value, len, iv, NULL);
     }
   }
@@ -202,10 +202,9 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
   size_t sz;
-  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-  RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  return InvertedIndex_WriteEntryGeneric(iv, enc, &rec) + sz;
+  return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */
@@ -239,7 +238,7 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
                                    double weight, t_fieldIndex fieldIndex) {
 
   InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
-  if (iv == TRIEMAP_NOTFOUND || !iv || iv->numDocs == 0) {
+  if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {
     return NULL;
   }
   return TagIndex_GetReader(idx, sctx, iv, value, len, weight, fieldIndex);
@@ -273,21 +272,21 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   char *str;
   tm_len_t slen;
   void *ptr;
-  RedisModule_ReplyWithSetOrArray(ctx, REDISMODULE_POSTPONED_LEN);
+  RedisModule_ReplyWithSet(ctx, REDISMODULE_POSTPONED_LEN);
   long long count = 0;
   while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 
-  RedisModule_ReplySetSetOrArrayLength(ctx, count);
+  RedisModule_ReplySetSetLength(ctx, count);
 
   TrieMapIterator_Free(it);
 }
 
 void TagIndex_Free(void *p) {
   TagIndex *idx = p;
-  TrieMap_Free(idx->values, InvertedIndex_Free);
+  TrieMap_Free(idx->values, (void (*)(void *))InvertedIndex_Free);
   TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
   rm_free(idx);
 }

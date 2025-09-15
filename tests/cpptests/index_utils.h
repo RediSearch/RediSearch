@@ -44,15 +44,10 @@ void freeSpec(RefManager *ism);
  *
  * this function also verifies that the memory counter of each range is equal to its actual memory.
  * if not, if will set @param failed_range to point to the range that failed the check.
- * Then, you can get the range memory by calling NumericRangeGetMemory(failed_range);
+ * Then, you can get the range memory by calling InvertedIndex_MemUsage(failed_range);
  * NOTE: Upon early bail out, the returned value will **not** include the memory used by the failed range.
  */
 size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNode **failed_range);
-
-/**
- * Returns the total memory consumed by the inverted index of a numeric tree node.
- */
-size_t NumericRangeGetMemory(const NumericRangeNode *Node);
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
 
@@ -95,11 +90,10 @@ public:
     spec.docs.size = docs.size();
     spec.stats.numDocuments = docs.size();
     rule.index_all = true; // Enable index_all for wildcard iterator tests
-    spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &spec.stats.invertedSize);
-    IndexEncoder enc = InvertedIndex_GetEncoder(spec.existingDocs->flags);
+    spec.existingDocs = NewInvertedIndex(Index_DocIdsOnly, &spec.stats.invertedSize);
     for (t_docId docId : docs) {
-      RSIndexResult rec = {.docId = docId, .type = RSResultType_Virtual};
-      InvertedIndex_WriteEntryGeneric(spec.existingDocs, enc, &rec);
+      RSIndexResult rec = {.docId = docId, .data = {.tag = RSResultData_Virtual}};
+      InvertedIndex_WriteEntryGeneric(spec.existingDocs, &rec);
     }
   }
 

@@ -7,16 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{
-    io::{Cursor, Seek, Write},
-    mem::ManuallyDrop,
-};
+use std::io::{Cursor, Seek, SeekFrom, Write};
 
 use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultType, RSTermRecord};
+use crate::{DecodedBy, Decoder, Encoder, RSIndexResult, RSOffsetVector, RSResultData};
 
 /// Encode and decode the delta, frequency, field mask and offsets of a term record.
 ///
@@ -37,65 +34,59 @@ pub struct Full;
 ///
 /// record must have `result_type` set to `RSResultType::Term`.
 #[inline(always)]
-fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
+pub fn offsets<'a>(record: &'a RSIndexResult<'_>) -> &'a [u8] {
     // SAFETY: caller ensured the proper result_type.
     let term = record.as_term().unwrap();
-    if term.offsets.data.is_null() {
-        &[]
-    } else {
-        assert_eq!(term.offsets.len, record.offsets_sz);
 
-        // SAFETY: We checked that data is not NULL and `len` is guaranteed to be a valid length for the data pointer.
-        unsafe {
-            std::slice::from_raw_parts(term.offsets.data as *const u8, term.offsets.len as usize)
-        }
-    }
+    term.offsets()
 }
 
 impl Encoder for Full {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let field_mask = record
                 .field_mask
                 .try_into()
                 .expect("Need to use the wide variant of the Full encoder to support field masks bigger than u32");
 
-        let mut bytes_written = qint_encode(
-            &mut writer,
-            [delta, record.freq, field_mask, record.offsets_sz],
-        )?;
-
         let offsets = offsets(record);
+        let offsets_sz = offsets.len() as u32;
+
+        let mut bytes_written =
+            qint_encode(&mut writer, [delta, record.freq, field_mask, offsets_sz])?;
+
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
     }
 }
 
+impl DecodedBy for Full {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
 /// Create a [`RSIndexResult`] from the given parameters and read its offsets from the reader.
 #[inline(always)]
-fn decode_term_record_offsets<'a>(
-    cursor: &mut Cursor<&'a [u8]>,
+pub fn decode_term_record_offsets<'index>(
+    cursor: &mut Cursor<&'index [u8]>,
     base: t_docId,
     delta: u32,
     field_mask: t_fieldMask,
     freq: u32,
     offsets_sz: u32,
-) -> std::io::Result<RSIndexResult<'a>> {
-    let mut record = RSIndexResult::term()
-        .doc_id(base + delta as t_docId)
-        .field_mask(field_mask)
-        .frequency(freq);
-    record.offsets_sz = offsets_sz;
-
+) -> std::io::Result<RSIndexResult<'index>> {
     // borrow the offsets vector from the cursor
     let start = cursor.position() as usize;
     let end = start + offsets_sz as usize;
@@ -108,26 +99,32 @@ fn decode_term_record_offsets<'a>(
                 "offsets vector is too short",
             ));
         }
-        let offsets = &offsets[start..end];
+        // SAFETY: We just checked that `end` is in bound.
+        let offsets = unsafe { offsets.get_unchecked(start..end) };
         offsets.as_ptr() as *mut _
     };
 
     cursor.set_position(end as u64);
 
-    record.data.term = ManuallyDrop::new(RSTermRecord {
-        term: std::ptr::null_mut(),
-        offsets: RSOffsetVector::with_data(data, offsets_sz),
-    });
+    let offsets = RSOffsetVector::with_data(data, offsets_sz);
+
+    let record = RSIndexResult::term_with_term_ptr(
+        std::ptr::null_mut(),
+        offsets,
+        base + delta as t_docId,
+        field_mask,
+        freq,
+    );
 
     Ok(record)
 }
 
 impl Decoder for Full {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
         let [delta, freq, field_mask, offsets_sz] = decoded_values;
 
@@ -140,6 +137,40 @@ impl Decoder for Full {
             offsets_sz,
         )?;
         Ok(record)
+    }
+
+    fn seek<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        let (freq, field_mask, offsets_sz) = loop {
+            let [delta, freq, field_mask, offsets_sz] = match qint_decode::<4, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) => return Err(error),
+            };
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break (freq, field_mask as t_fieldMask, offsets_sz);
+            }
+
+            // Skip offsets
+            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+        };
+
+        let record = decode_term_record_offsets(
+            cursor,
+            base,
+            0,
+            field_mask as t_fieldMask,
+            freq,
+            offsets_sz,
+        )?;
+        Ok(Some(record))
     }
 }
 
@@ -161,34 +192,72 @@ impl Encoder for FullWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        assert!(matches!(record.result_type, RSResultType::Term));
-
-        let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, record.offsets_sz])?;
-        bytes_written += record.field_mask.write_as_varint(&mut writer)?;
+        assert!(matches!(record.data, RSResultData::Term(_)));
 
         let offsets = offsets(record);
+        let offsets_sz = offsets.len() as u32;
+
+        let mut bytes_written = qint_encode(&mut writer, [delta, record.freq, offsets_sz])?;
+        bytes_written += record.field_mask.write_as_varint(&mut writer)?;
+
         bytes_written += writer.write(offsets)?;
 
         Ok(bytes_written)
     }
 }
 
+impl DecodedBy for FullWide {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
 impl Decoder for FullWide {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, offsets_sz] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
         let record = decode_term_record_offsets(cursor, base, delta, field_mask, freq, offsets_sz)?;
         Ok(record)
+    }
+
+    fn seek<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        mut base: t_docId,
+        target: t_docId,
+    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        let (freq, field_mask, offsets_sz) = loop {
+            let [delta, freq, offsets_sz] = match qint_decode::<3, _>(cursor) {
+                Ok((decoded_values, _bytes_consumed)) => decoded_values,
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            let field_mask = t_fieldMask::read_as_varint(cursor)?;
+
+            base += delta as t_docId;
+
+            if base >= target {
+                break (freq, field_mask, offsets_sz);
+            }
+
+            // Skip offsets
+            cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
+        };
+
+        let record = decode_term_record_offsets(cursor, base, 0, field_mask, freq, offsets_sz)?;
+        Ok(Some(record))
     }
 }

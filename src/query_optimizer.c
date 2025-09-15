@@ -238,7 +238,7 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
         }
       }
       numSortbyNode->nn.nf->limit = opt->limit;
-      numSortbyNode->nn.nf->asc = opt->asc;
+      numSortbyNode->nn.nf->ascending = opt->asc;
       opt->sortbyNode = numSortbyNode;
       opt->nf = numSortbyNode->nn.nf;
     } else {

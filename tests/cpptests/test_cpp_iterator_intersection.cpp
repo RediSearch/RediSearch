@@ -194,7 +194,7 @@ public:
     for (auto &term : terms) {
       if (invertedIndexes.find(term) == invertedIndexes.end()) {
         // Create a new inverted index for the term if it doesn't exist
-        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &dummy);
+        invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &dummy);
       }
     }
     t_docId docId = ++num_docs;
@@ -214,8 +214,7 @@ public:
     // Write the forward index entries to the inverted indexes
     for (auto &[term, entry] : entries) {
       InvertedIndex *index = invertedIndexes[term];
-      IndexEncoder enc = InvertedIndex_GetEncoder(index->flags);
-      InvertedIndex_WriteForwardIndexEntry(index, enc, &entry);
+      InvertedIndex_WriteForwardIndexEntry(index, &entry);
       // Free the entry's vector writer
       VVW_Free(entry.vw);
     }
@@ -401,18 +400,17 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
   children[2] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
   // Create a READER Iterator and set the `isWildCard` flag so that it is removed by the reducer
   size_t memsize;
-  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
   ASSERT_TRUE(idx != nullptr);
-  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
-  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
   for (t_docId i = 1; i < 1000; ++i) {
     auto res = (RSIndexResult) {
       .docId = i,
       .fieldMask = 1,
       .freq = 1,
-      .type = RSResultType::RSResultType_Term,
+      .data = {.term_tag = RSResultData_Tag::RSResultData_Term},
     };
-    InvertedIndex_WriteEntryGeneric(idx, encoder, &res);
+    InvertedIndex_WriteEntryGeneric(idx, &res);
   }
   // Create an iterator that reads only entries with field mask 2
   QueryIterator *iterator = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);

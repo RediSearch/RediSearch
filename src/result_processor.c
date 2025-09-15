@@ -16,6 +16,7 @@
 #include "util/timeout.h"
 #include "util/arr.h"
 #include "iterators/empty_iterator.h"
+#include "rs_wall_clock.h"
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -51,7 +52,7 @@ void SearchResult_Clear(SearchResult *r) {
 /* Free the search result object including the object itself */
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
-  RLookupRow_Cleanup(&r->rowdata);
+  RLookupRow_Reset(&r->rowdata);
 }
 
 // Overwrites the contents of 'dst' with those from 'src'.
@@ -60,7 +61,7 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
   if (!src) return;
   RLookupRow oldrow = dst->rowdata;
   *dst = *src;
-  RLookupRow_Cleanup(&oldrow);
+  RLookupRow_Reset(&oldrow);
 }
 
 
@@ -413,7 +414,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == FailurePolicy_Return)) {
     self->timedOut = true;
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
@@ -741,7 +742,7 @@ typedef struct RPSafeLoader {
 
 static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
-  RLookupRow_Cleanup(&result_output->rowdata);
+  RLookupRow_Reset(&result_output->rowdata);
   *result_output = *buffered_result;
 }
 
@@ -875,7 +876,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == FailurePolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
@@ -889,8 +890,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx_UnlockSpec(sctx);
 
   bool isQueryProfile = rp->parent->isProfile;
-  struct timespec rpStartTime, rpEndTime;
-  if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpStartTime);
+  rs_wall_clock rpStartTime;
+  if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
@@ -900,10 +901,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
   if (isQueryProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-    rs_timersub(&rpEndTime, &rpStartTime, &rpEndTime);
-    rs_timeradd(&rpEndTime, &rp->GILTime, &rp->GILTime);
-    rs_timeradd(&rpEndTime, &rp->parent->GILTime, &rp->parent->GILTime);
+    // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->GILTime
+    rp->parent->GILTime += rs_wall_clock_elapsed_ns(&rpStartTime);
   }
 
   // Move to the yielding phase
@@ -1080,16 +1079,17 @@ const char *RPTypeToString(ResultProcessorType type) {
 
 typedef struct {
   ResultProcessor base;
-  clock_t profileTime;
+  rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  self->profileTime += rs_wall_clock_elapsed_ns(&start);
   self->profileCount++;
   return rc;
 }
@@ -1112,7 +1112,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qiter) {
   return &rpp->base;
 }
 
-clock_t RPProfile_GetClock(ResultProcessor *rp) {
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }
@@ -1162,9 +1162,8 @@ static int rpcountNext(ResultProcessor *base, SearchResult *res) {
   return rc;
 }
 
-/* Free impl. for scorer - frees up the scorer privdata if needed */
 static void rpcountFree(ResultProcessor *rp) {
-  RPScorer *self = (RPScorer *)rp;
+  RPCounter *self = (RPCounter *)rp;
   rm_free(self);
 }
 
@@ -1367,7 +1366,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   if (rc == RS_RESULT_EOF) {
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == FailurePolicy_Return)) {
     self->timedOut = true;
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);

@@ -229,9 +229,9 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         let result = if self.wide {
-                            FullWide::default().decode(buffer, 100)
+                            FullWide::default().decode(buffer, 100).unwrap()
                         } else {
-                            Full::default().decode(buffer, 100)
+                            Full::default().decode(buffer, 100).unwrap()
                         };
 
                         let _ = black_box(result);

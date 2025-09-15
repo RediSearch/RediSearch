@@ -103,11 +103,11 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
   tr1->docId = 1;
-  tr1->data.term.offsets = offsetsFromVVW(vw);
+  *IndexResult_TermOffsetsRefMut(tr1) = offsetsFromVVW(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
   tr2->docId = 1;
-  tr2->data.term.offsets = offsetsFromVVW(vw2);
+  *IndexResult_TermOffsetsRefMut(tr2) = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
   AggregateResult_AddChild(res, tr1);
@@ -129,7 +129,7 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
-  tr3->data.term.offsets = offsetsFromVVW(vw3);
+  *IndexResult_TermOffsetsRefMut(tr3) = offsetsFromVVW(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
@@ -161,7 +161,7 @@ class IndexFlagsTest : public testing::TestWithParam<int> {};
 TEST_P(IndexFlagsTest, testRWFlags) {
   IndexFlags indexFlags = (IndexFlags)GetParam();
   size_t index_memsize;
-  InvertedIndex *idx = NewInvertedIndex(indexFlags, 1, &index_memsize);
+  InvertedIndex *idx = NewInvertedIndex(indexFlags, &index_memsize);
   int useFieldMask = indexFlags & Index_StoreFieldFlags;
 
   size_t t_fiedlMask_memsize = sizeof(t_fieldMask);
@@ -200,12 +200,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   // see NewInvertedIndex() and sizeof_InvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
 
-  IndexEncoder enc = InvertedIndex_GetEncoder(indexFlags);
-  IndexEncoder docIdEnc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-
-  ASSERT_TRUE(enc != NULL);
-  ASSERT_TRUE(docIdEnc != NULL);
-
   for (size_t i = 0; i < 200; i++) {
 
     ForwardIndexEntry h;
@@ -219,19 +213,19 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     }
     VVW_Truncate(h.vw);
 
-    InvertedIndex_WriteForwardIndexEntry(idx, enc, &h);
+    InvertedIndex_WriteForwardIndexEntry(idx, &h);
 
     // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
     VVW_Free(h.vw);
   }
 
-  ASSERT_EQ(200, idx->numDocs);
-  if (enc != docIdEnc) {
-    ASSERT_EQ(2, idx->size);
+  ASSERT_EQ(200, InvertedIndex_NumDocs(idx));
+  if ((indexFlags & INDEX_STORAGE_MASK) != Index_DocIdsOnly) {
+    ASSERT_EQ(2, InvertedIndex_NumBlocks(idx));
   } else {
-    ASSERT_EQ(1, idx->size);
+    ASSERT_EQ(1, InvertedIndex_NumBlocks(idx));
   }
-  ASSERT_EQ(200, idx->lastId);
+  ASSERT_EQ(200, InvertedIndex_LastId(idx));
 
   for (int xx = 0; xx < 1; xx++) {
     QueryIterator *ir = NewInvIndIterator_TermFull(idx);
@@ -355,10 +349,10 @@ TEST_F(IndexTest, testUnion) {
       RSIndexResult *copy = IndexResult_DeepCopy(ui->current);
       ASSERT_TRUE(copy != NULL);
       ASSERT_TRUE(copy != ui->current);
-      ASSERT_TRUE(copy->isCopy);
+      ASSERT_EQ(copy->data.term.tag, RSTermRecord_Owned);
 
       ASSERT_EQ(copy->docId, ui->current->docId);
-      ASSERT_EQ(copy->type, ui->current->type);
+      ASSERT_EQ(copy->data.tag, ui->current->data.tag);
 
       IndexResult_Free(copy);
 
@@ -405,14 +399,15 @@ TEST_F(IndexTest, testWeight) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
-    if (AggregateResult_NumChildren(&h->data.agg) == 2) {
-      ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 0.5);
-      ASSERT_EQ(AggregateResult_Get(&h->data.agg, 1)->weight, 1);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    if (AggregateResult_NumChildren(agg) == 2) {
+      ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 0.5);
+      ASSERT_EQ(AggregateResult_Get(agg, 1)->weight, 1);
     } else {
       if (i <= 10) {
-        ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 0.5);
+        ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 0.5);
       } else {
-        ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->weight, 1);
+        ASSERT_EQ(AggregateResult_Get(agg, 0)->weight, 1);
       }
     }
   }
@@ -430,7 +425,7 @@ TEST_F(IndexTest, testNot) {
   InvertedIndex *w2 = createPopulateTermsInvIndex(10, 3);
   QueryIterator **irs = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
   irs[0] = NewInvIndIterator_TermFull(w);
-  irs[1] = NewNotIterator(NewInvIndIterator_TermFull(w2), w2->lastId, 1, {0}, &ctx->qctx);
+  irs[1] = NewNotIterator(NewInvIndIterator_TermFull(w2), InvertedIndex_LastId(w2), 1, {0}, &ctx->qctx);
 
   QueryIterator *ui = NewIntersectionIterator(irs, 2, -1, 0, 1);
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
@@ -450,7 +445,7 @@ TEST_F(IndexTest, testNot) {
 TEST_F(IndexTest, testPureNot) {
   InvertedIndex *w = createPopulateTermsInvIndex(10, 3);
   auto ctx = std::make_unique<MockQueryEvalCtx>();
-  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermFull(w), w->lastId + 5, 1, {0}, &ctx->qctx);
+  QueryIterator *ir = NewNotIterator(NewInvIndIterator_TermFull(w), InvertedIndex_LastId(w) + 5, 1, {0}, &ctx->qctx);
 
   RSIndexResult *h = NULL;
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
@@ -467,7 +462,7 @@ TEST_F(IndexTest, testPureNot) {
 
 TEST_F(IndexTest, testNumericInverted) {
   size_t index_memsize;
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize);
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, &index_memsize);
 
   size_t sz = 0;
   size_t expected_sz = 0;
@@ -524,7 +519,7 @@ TEST_F(IndexTest, testNumericInverted) {
     }
     buff_cap += expected_sz;
   }
-  ASSERT_EQ(75, idx->lastId);
+  ASSERT_EQ(75, InvertedIndex_LastId(idx));
 
   // printf("written %zd bytes\n", IndexBlock_DataLen(&idx->blocks[0]));
 
@@ -535,7 +530,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // printf("%d %f\n", res->docId, res->num.value);
 
     ASSERT_EQ(i++, res->docId);
-    ASSERT_EQ(res->data.num.value, (float)res->docId);
+    ASSERT_EQ(IndexResult_NumValue(res), (float)res->docId);
   }
   InvertedIndex_Free(idx);
   it->Free(it);
@@ -547,7 +542,7 @@ TEST_F(IndexTest, testNumericVaried) {
   // bytes in buffers is as expected.
 
   size_t index_memsize;
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize);
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, &index_memsize);
 
   static const double nums[] = {0,          0.13,          0.001,     -0.1,     1.0,
                                 5.0,        4.323,         65535,     65535.53, 32768.432,
@@ -556,8 +551,9 @@ TEST_F(IndexTest, testNumericVaried) {
 
   for (size_t i = 0; i < numCount; i++) {
     size_t min_data_len;
-    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
-    size_t offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
+    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+    size_t cap = IndexBlock_Cap(lastBlock);
+    size_t offset = IndexBlock_Len(lastBlock);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
 
     if(i == 0 || i == 4 || i == 5) {
@@ -583,7 +579,7 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
     IteratorStatus rv = it->Read(it);
     ASSERT_NE(ITERATOR_EOF, rv);
-    ASSERT_LT(fabs(nums[i] - it->current->data.num.value), 0.01);
+    ASSERT_LT(fabs(nums[i] - IndexResult_NumValue(it->current)), 0.01);
   }
 
   ASSERT_EQ(ITERATOR_EOF, it->Read(it));
@@ -629,12 +625,13 @@ static const encodingInfo infos[] = {
 void testNumericEncodingHelper(bool isMulti) {
   static const size_t numInfos = sizeof(infos) / sizeof(infos[0]);
   size_t index_memsize;
-  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, 1, &index_memsize);
+  InvertedIndex *idx = NewInvertedIndex(Index_StoreNumeric, &index_memsize);
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    size_t cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
-    size_t offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
+    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+    size_t cap = IndexBlock_Cap(lastBlock);
+    size_t offset = IndexBlock_Len(lastBlock);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
     // if there was not enough space to store the entry, sz will be greater than zero
@@ -645,8 +642,9 @@ void testNumericEncodingHelper(bool isMulti) {
     }
 
     if (isMulti) {
-      cap = IndexBlock_Cap(&idx->blocks[idx->size-1]);
-      offset = IndexBlock_Len(&idx->blocks[idx->size-1]);
+      IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
+      cap = IndexBlock_Cap(lastBlock);
+      offset = IndexBlock_Len(lastBlock);
 
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
@@ -670,9 +668,9 @@ void testNumericEncodingHelper(bool isMulti) {
     ASSERT_NE(rc, ITERATOR_EOF);
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
     if (fabs(infos[ii].value) == INFINITY) {
-      ASSERT_EQ(infos[ii].value, it->current->data.num.value);
+      ASSERT_EQ(infos[ii].value, IndexResult_NumValue(it->current));
     } else {
-      ASSERT_LT(fabs(infos[ii].value - it->current->data.num.value), 0.01);
+      ASSERT_LT(fabs(infos[ii].value - IndexResult_NumValue(it->current)), 0.01);
     }
   }
 
@@ -703,7 +701,7 @@ TEST_F(IndexTest, testIntersection) {
   uint32_t topFreq = 0;
   while (ii->Read(ii) != ITERATOR_EOF) {
     RSIndexResult *h = ii->current;
-    ASSERT_EQ(h->type, RSResultType_Intersection);
+    ASSERT_EQ(h->data.tag, RSResultData_Intersection);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
     ASSERT_TRUE(RSIndexResult_HasOffsets(h));
     topFreq = std::max(topFreq, h->freq);
@@ -711,10 +709,10 @@ TEST_F(IndexTest, testIntersection) {
     RSIndexResult *copy = IndexResult_DeepCopy(h);
     ASSERT_TRUE(copy != NULL);
     ASSERT_TRUE(copy != h);
-    ASSERT_TRUE(copy->isCopy == 1);
+    ASSERT_EQ(copy->data.term.tag, RSTermRecord_Owned);
 
     ASSERT_TRUE(copy->docId == h->docId);
-    ASSERT_TRUE(copy->type == RSResultType_Intersection);
+    ASSERT_TRUE(copy->data.tag == RSResultData_Intersection);
     ASSERT_EQ((count * 2 + 2) * 2, h->docId);
     ASSERT_EQ(2, h->freq);
     IndexResult_Free(copy);
@@ -805,7 +803,7 @@ TEST_F(IndexTest, testHybridVector) {
 
   // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
   while (vecIt->Read(vecIt) != ITERATOR_EOF) {
-    ASSERT_EQ(vecIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(vecIt->current->data.tag, RSResultData_Metric);
     ASSERT_EQ(vecIt->current->docId, max_id - count);
     count++;
   }
@@ -832,7 +830,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
   count = 0;
   while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
     // since larger ids has lower distance, in every we get lower id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
@@ -848,7 +846,7 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   for (size_t i = 0; i < k/2; i++) {
     ASSERT_EQ(hybridIt->Read(hybridIt), ITERATOR_OK);
-    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
   }
@@ -860,7 +858,7 @@ TEST_F(IndexTest, testHybridVector) {
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
   while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    ASSERT_EQ(hybridIt->current->type, RSResultType_Metric);
+    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(hybridIt->lastDocId, expected_id);
@@ -880,10 +878,11 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
     RSIndexResult *h = hybridIt->current;
-    ASSERT_EQ(h->type, RSResultType_HybridMetric);
+    ASSERT_EQ(h->data.tag, RSResultData_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
-    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
-    ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
+    ASSERT_EQ(AggregateResult_Get(agg, 0)->data.tag, RSResultData_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -897,10 +896,11 @@ TEST_F(IndexTest, testHybridVector) {
   count = 0;
   while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
     RSIndexResult *h = hybridIt->current;
-    ASSERT_EQ(h->type, RSResultType_HybridMetric);
+    ASSERT_EQ(h->data.tag, RSResultData_HybridMetric);
     ASSERT_TRUE(IndexResult_IsAggregate(h));
-    ASSERT_EQ(AggregateResult_NumChildren(&h->data.agg), 2);
-    ASSERT_EQ(AggregateResult_Get(&h->data.agg, 0)->type, RSResultType_Metric);
+    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
+    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
+    ASSERT_EQ(AggregateResult_Get(agg, 0)->data.tag, RSResultData_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -980,10 +980,10 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   VecSim_Normalize(query, d, t);
   while (vecIt->Read(vecIt) != ITERATOR_EOF) {
     RSIndexResult *h = vecIt->current;
-    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(h->data.tag, RSResultData_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
-    ASSERT_EQ(h->data.num.value, exp_dist);
+    ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
     ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
     count++;
   }
@@ -1002,13 +1002,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
-  ASSERT_EQ(vecIt->current->data.num.value, exp_dist);
+  ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
-  ASSERT_EQ(vecIt->current->data.num.value, exp_dist);
+  ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
 
   // Invalid SkipTo
@@ -1028,7 +1028,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   for (size_t i = 0; i < n_expected_res/2; i++) {
     ASSERT_EQ(vecIt->Read(vecIt), ITERATOR_OK);
     RSIndexResult *h = vecIt->current;
-    ASSERT_EQ(h->type, RSResultType_Metric);
+    ASSERT_EQ(h->data.tag, RSResultData_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     count++;
   }
@@ -1305,7 +1305,7 @@ TEST_F(IndexTest, testIndexFlags) {
 
   uint32_t flags = INDEX_DEFAULT_FLAGS;
   size_t index_memsize;
-  InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
   // created with INDEX_DEFAULT_FLAGS is 102 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
@@ -1313,42 +1313,38 @@ TEST_F(IndexTest, testIndexFlags) {
   // sizeof(IndexBlock)                   48
   // INDEX_BLOCK_INITIAL_CAP               6
   ASSERT_EQ(102, index_memsize);
-  IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
-  ASSERT_TRUE(w->flags == flags);
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(10, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
-  enc = InvertedIndex_GetEncoder(w->flags);
-  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
+  size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(sz2, 0);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((w->flags & Index_WideSchema));
-  enc = InvertedIndex_GetEncoder(w->flags);
+  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, enc, &h));
+  ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, &h));
   InvertedIndex_Free(w);
 
   flags |= Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((w->flags & Index_WideSchema));
-  enc = InvertedIndex_GetEncoder(w->flags);
+  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(19, sz);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
   // Index_StoreFieldFlags == 0 is 86 bytes
   // which is the sum of the following (See NewInvertedIndex()):
@@ -1356,21 +1352,19 @@ TEST_F(IndexTest, testIndexFlags) {
   // sizeof(IndexBlock)                   48
   // INDEX_BLOCK_INITIAL_CAP               6
   ASSERT_EQ(86, index_memsize);
-  ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
-  ASSERT_TRUE(!(w->flags & Index_StoreFieldFlags));
-  enc = InvertedIndex_GetEncoder(w->flags);
-  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
+  ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(0, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), 1, &index_memsize);
+  w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((w->flags & Index_WideSchema));
-  ASSERT_TRUE((w->flags & Index_StoreFieldFlags));
-  enc = InvertedIndex_GetEncoder(w->flags);
+  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
+  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
+  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
   ASSERT_EQ(4, sz);
   InvertedIndex_Free(w);
 
@@ -1472,25 +1466,24 @@ TEST_F(IndexTest, testVarintFieldMask) {
 
 TEST_F(IndexTest, testDeltaSplits) {
   size_t index_memsize = 0;
-  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &index_memsize);
+  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &index_memsize);
   ForwardIndexEntry ent = {0};
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
 
-  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
-  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQ(idx->size, 1);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 200;
-  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQ(idx->size, 1);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  ASSERT_EQ(InvertedIndex_NumBlocks(idx), 1);
 
   ent.docId = 1LLU << 48;
-  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQ(idx->size, 2);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
   ent.docId++;
-  InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
-  ASSERT_EQ(idx->size, 2);
+  InvertedIndex_WriteForwardIndexEntry(idx, &ent);
+  ASSERT_EQ(InvertedIndex_NumBlocks(idx), 2);
 
   QueryIterator *ir = NewInvIndIterator_TermFull(idx);
   ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
@@ -1515,13 +1508,12 @@ TEST_F(IndexTest, testRawDocId) {
   const int previousConfig = RSGlobalConfig.invertedIndexRawDocidEncoding;
   RSGlobalConfig.invertedIndexRawDocidEncoding = true;
   size_t index_memsize = 0;
-  InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1, &index_memsize);
-  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+  InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, &index_memsize);
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    RSIndexResult rec = {.docId = id, .type = RSResultType_Virtual};
-    InvertedIndex_WriteEntryGeneric(idx, enc, &rec);
+    RSIndexResult rec = {.docId = id, .data = {.tag = RSResultData_Virtual}};
+    InvertedIndex_WriteEntryGeneric(idx, &rec);
   }
 
   // Test that we can read them back

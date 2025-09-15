@@ -144,7 +144,7 @@ use std::io::{Cursor, IoSlice, Read, Write};
 
 use ffi::t_docId;
 
-use crate::{Decoder, Encoder, IdDelta, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, IdDelta, RSIndexResult};
 
 /// Trait to convert various types to byte representations for numeric encoding
 trait ToBytes<const N: usize> {
@@ -156,9 +156,6 @@ pub struct Numeric {
     /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
     /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)
     compress_floats: bool,
-
-    /// Keeps track of the number of entries help by the parent inverted index.
-    num_entries: usize,
 }
 
 impl Numeric {
@@ -172,7 +169,6 @@ impl Numeric {
     pub fn new() -> Self {
         Self {
             compress_floats: false,
-            num_entries: 0,
         }
     }
 
@@ -182,11 +178,6 @@ impl Numeric {
         self.compress_floats = true;
 
         self
-    }
-
-    /// Returns the number of entries encoded by this encoder.
-    pub fn num_entries(&self) -> usize {
-        self.num_entries
     }
 }
 
@@ -233,7 +224,7 @@ impl Encoder for Numeric {
     type Delta = NumericDelta;
 
     fn encode<W: Write + std::io::Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -249,7 +240,7 @@ impl Encoder for Numeric {
         let delta = &delta[..end];
         let delta_bytes = delta.len() as _;
 
-        let bytes_written = match Value::from(num_record.0, self.compress_floats) {
+        let bytes_written = match Value::from(num_record, self.compress_floats) {
             Value::TinyInteger(i) => {
                 let header = Header {
                     delta_bytes,
@@ -395,17 +386,24 @@ impl Encoder for Numeric {
             }
         };
 
-        self.num_entries += 1;
         Ok(bytes_written)
     }
 }
 
+impl DecodedBy for Numeric {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self::default()
+    }
+}
+
 impl Decoder for Numeric {
-    fn decode<'a>(
+    fn decode<'index>(
         &self,
-        cursor: &mut Cursor<&'a [u8]>,
+        cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'a>> {
+    ) -> std::io::Result<RSIndexResult<'index>> {
         let mut header = [0; 1];
         cursor.read_exact(&mut header)?;
 

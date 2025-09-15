@@ -853,8 +853,8 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   ASSERT_EQ(n->type, QN_NUMERIC);
   ASSERT_EQ(n->nn.nf->min, 0.4);
   ASSERT_EQ(n->nn.nf->max, 500.0);
-  ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
-  ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
+  ASSERT_EQ(n->nn.nf->minInclusive, 1);
+  ASSERT_EQ(n->nn.nf->maxInclusive, 0);
   IndexSpec_RemoveFromGlobals(ref, false);
 }
 
@@ -912,8 +912,8 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(n->type, QN_NUMERIC);
   ASSERT_EQ(n->nn.nf->min, 0.4);
   ASSERT_EQ(n->nn.nf->max, 500.0);
-  ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
-  ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
+  ASSERT_EQ(n->nn.nf->minInclusive, 1);
+  ASSERT_EQ(n->nn.nf->maxInclusive, 0);
   IndexSpec_RemoveFromGlobals(ref, false);
 }
 

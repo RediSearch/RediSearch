@@ -12,11 +12,11 @@ use crate::bindings::{
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
 use std::{
-    borrow::Cow,
+    borrow::Borrow,
     cell::UnsafeCell,
     ffi::{CStr, c_char},
     mem,
-    ops::DerefMut,
+    ops::{Deref, DerefMut},
     pin::{Pin, pin},
     ptr::{self, NonNull},
     slice,
@@ -72,6 +72,8 @@ pub enum RLookupKeyFlag {
     Numeric = 0x1000,
 }
 
+/// Helper type to represent a set of [`RLookupKeyFlag`]s.
+/// cbindgen:ignore
 pub type RLookupKeyFlags = BitFlags<RLookupKeyFlag>;
 
 // Flags that are allowed to be passed to [`RLookup::get_key_read`], [`RLookup::get_key_write`], or [`RLookup::get_key_load`].
@@ -94,7 +96,135 @@ pub enum RLookupOption {
     /// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
     AllLoaded = 0x02,
 }
+
+/// Helper type to represent a set of [`RLookupOption`]s.
+/// cbindgen:ignore
 pub type RLookupOptions = BitFlags<RLookupOption>;
+
+/// This type acts like a [std::borrow::Cow] but it has a C-compatible representation.
+///
+/// This is useful for the types exposed to C via CBindgen.
+#[repr(u8)]
+pub enum CBCow<'a, B>
+where
+    B: 'a + ToOwned + ?Sized,
+{
+    Borrowed(&'a B),
+    Owned(<B as ToOwned>::Owned),
+}
+
+impl<B: ?Sized> std::fmt::Debug for CBCow<'_, B>
+where
+    B: std::fmt::Debug + ToOwned<Owned: std::fmt::Debug>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            CBCow::Borrowed(ref b) => std::fmt::Debug::fmt(b, f),
+            CBCow::Owned(ref o) => std::fmt::Debug::fmt(o, f),
+        }
+    }
+}
+
+impl<B: ?Sized + ToOwned> Deref for CBCow<'_, B>
+where
+    B::Owned: Borrow<B>,
+{
+    type Target = B;
+
+    fn deref(&self) -> &B {
+        match *self {
+            CBCow::Borrowed(borrowed) => borrowed,
+            CBCow::Owned(ref owned) => owned.borrow(),
+        }
+    }
+}
+
+impl<B: ?Sized> Default for CBCow<'_, B>
+where
+    B: ToOwned<Owned: Default>,
+{
+    /// Creates an owned Cow<'a, B> with the default value for the contained owned value.
+    fn default() -> Self {
+        CBCow::Owned(<B as ToOwned>::Owned::default())
+    }
+}
+
+/// This type acts like a [std::option::Option] but it has a C-compatible representation.
+///
+/// This is useful for the types exposed to C via CBindgen.
+#[repr(u8)]
+#[derive(Debug)]
+pub enum CBOption<T> {
+    None,
+    Some(T),
+}
+
+impl<T> CBOption<T> {
+    pub const fn is_some(&self) -> bool {
+        matches!(*self, CBOption::Some(_))
+    }
+
+    pub const fn is_none(&self) -> bool {
+        matches!(*self, CBOption::None)
+    }
+
+    pub const fn as_ref(&self) -> CBOption<&T> {
+        match *self {
+            CBOption::Some(ref x) => CBOption::Some(x),
+            CBOption::None => CBOption::None,
+        }
+    }
+
+    pub fn map_or<U, F>(self, default: U, f: F) -> U
+    where
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            CBOption::Some(t) => f(t),
+            CBOption::None => default,
+        }
+    }
+
+    #[inline(always)]
+    #[track_caller]
+    pub fn unwrap(self) -> T {
+        match self {
+            CBOption::Some(val) => val,
+            CBOption::None => unwrap_failed(),
+        }
+    }
+}
+
+#[cold]
+#[track_caller]
+const fn unwrap_failed() -> ! {
+    panic!("called `CBOption::unwrap()` on a `None` value")
+}
+
+impl<T> From<Option<T>> for CBOption<T> {
+    fn from(opt: Option<T>) -> Self {
+        match opt {
+            Some(val) => CBOption::Some(val),
+            None => CBOption::None,
+        }
+    }
+}
+
+impl<T> From<CBOption<T>> for Option<T> {
+    fn from(opt: CBOption<T>) -> Self {
+        match opt {
+            CBOption::Some(val) => Some(val),
+            CBOption::None => None,
+        }
+    }
+}
+
+impl<T> Default for CBOption<T> {
+    #[inline]
+    fn default() -> CBOption<T> {
+        CBOption::None
+    }
+}
 
 /// RLookup key
 ///
@@ -172,9 +302,9 @@ pub struct RLookupKey<'a> {
     /// MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
     /// YOU WANT TO POTENTIALLY RISK UB
     #[pin]
-    _name: Cow<'a, CStr>,
+    _name: CBCow<'a, CStr>,
     #[pin]
-    _path: Option<Cow<'a, CStr>>,
+    _path: CBOption<CBCow<'a, CStr>>,
 }
 
 /// An append-only list of [`RLookupKey`]s.
@@ -235,9 +365,9 @@ impl<'a> RLookupKey<'a> {
     /// will simply borrow the provided string.
     pub fn new(name: &'a CStr, flags: RLookupKeyFlags) -> Self {
         let name = if flags.contains(RLookupKeyFlag::NameAlloc) {
-            Cow::Owned(name.to_owned())
+            CBCow::Owned(name.to_owned())
         } else {
-            Cow::Borrowed(name)
+            CBCow::Borrowed(name)
         };
 
         Self {
@@ -248,7 +378,7 @@ impl<'a> RLookupKey<'a> {
             path: name.as_ptr(),
             name_len: name.count_bytes(),
             _name: name,
-            _path: None,
+            _path: CBOption::None,
             next: UnsafeCell::new(None),
         }
     }
@@ -271,13 +401,13 @@ impl<'a> RLookupKey<'a> {
                 .expect("string returned by HiddenString_GetUnsafe is malformed");
 
             // When the name is owned, we also want the path to be owned
-            if matches!(self._name, Cow::Owned(_)) {
-                Cow::Owned(path.to_owned())
+            if matches!(self._name, CBCow::Owned(_)) {
+                CBCow::Owned(path.to_owned())
             } else {
-                Cow::Borrowed(path)
+                CBCow::Borrowed(path)
             }
         };
-        self._path = Some(path);
+        self._path = CBOption::Some(path);
         self.path = self._path.as_ref().unwrap().as_ptr();
 
         let fs_options = FieldSpecOptions::from_bits(fs.options()).unwrap();
@@ -302,19 +432,19 @@ impl<'a> RLookupKey<'a> {
 
     /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
     fn from_parts(
-        name: Cow<'a, CStr>,
-        path: Option<Cow<'a, CStr>>,
+        name: CBCow<'a, CStr>,
+        path: CBOption<CBCow<'a, CStr>>,
         dstidx: u16,
         flags: RLookupKeyFlags,
     ) -> Self {
         debug_assert_eq!(
-            matches!(name, Cow::Owned(_)),
+            matches!(name, CBCow::Owned(_)),
             flags.contains(RLookupKeyFlag::NameAlloc),
             "`RLookupKeyFlag::NameAlloc` was provided, but `name` was not `Cow::Owned`"
         );
-        if let Some(path) = &path {
+        if let CBOption::Some(path) = &path {
             debug_assert_eq!(
-                matches!(path, Cow::Owned(_)),
+                matches!(path, CBCow::Owned(_)),
                 flags.contains(RLookupKeyFlag::NameAlloc),
                 "`RLookupKeyFlag::NameAlloc` was provided, but `path` was not `Cow::Owned`"
             );
@@ -427,7 +557,7 @@ impl<'a> RLookupKey<'a> {
                 ptr::eq(self.name, self._name.as_ptr()),
                 "{ctx}`key.name` did not match `key._name`. ({self:?})",
             );
-            if let Some(path) = self._path.as_ref() {
+            if let CBOption::Some(path) = self._path.as_ref() {
                 assert!(
                     ptr::eq(self.path, path.as_ptr()),
                     "{ctx}`key._path` is present, but `key.path` did not match `key._path`. ({self:?})"
@@ -1063,17 +1193,17 @@ impl<'a> RLookup<'a> {
         } else {
             // Field not found in the schema.
             let mut key = cursor.current().unwrap();
-            let is_borrowed = matches!(key._name, Cow::Borrowed(_));
+            let is_borrowed = matches!(key._name, CBCow::Borrowed(_));
             let mut key = key.as_mut().project();
 
             // We assume `field_name` is the path to load from in the document.
             if is_borrowed {
                 *key.path = field_name.as_ptr();
-                *key._path = Some(Cow::Borrowed(field_name));
+                *key._path = CBOption::Some(CBCow::Borrowed(field_name));
             } else if name != field_name {
-                let field_name: Cow<'_, CStr> = Cow::Owned(field_name.to_owned());
+                let field_name: CBCow<'_, CStr> = CBCow::Owned(field_name.to_owned());
                 *key.path = field_name.as_ptr();
-                *key._path = Some(field_name);
+                *key._path = CBOption::Some(field_name);
             } // else
             // If the caller requested to allocate the name, and the name is the same as the path,
             // it was already set to the same allocation for the name, so we don't need to do anything.
@@ -1115,7 +1245,7 @@ mod tests {
 
         let key = RLookupKey::new(name, make_bitflags!(RLookupKeyFlag::NameAlloc));
         assert_ne!(key.name, name.as_ptr());
-        assert!(matches!(key._name, Cow::Owned(_)));
+        assert!(matches!(key._name, CBCow::Owned(_)));
     }
 
     // Assert that creating a RLookupKey *without* the NameAlloc flag keeps the provided string
@@ -1125,7 +1255,7 @@ mod tests {
 
         let key = RLookupKey::new(name, RLookupKeyFlags::empty());
         assert_eq!(key.name, name.as_ptr());
-        assert!(matches!(key._name, Cow::Borrowed(_)));
+        assert!(matches!(key._name, CBCow::Borrowed(_)));
     }
 
     // Assert that creating a RLookupKey with the NameAlloc flag indeed allocates a new string
@@ -1136,7 +1266,7 @@ mod tests {
         let key = RLookupKey::new(name, make_bitflags!(RLookupKeyFlag::NameAlloc));
         assert_ne!(key.name, name.as_ptr());
         assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
-        assert!(matches!(key._name, Cow::Owned(_)));
+        assert!(matches!(key._name, CBCow::Owned(_)));
     }
 
     // Assert that creating a RLookupKey *without* the NameAlloc flag keeps the provided string
@@ -1147,7 +1277,7 @@ mod tests {
         let key = RLookupKey::new(name, RLookupKeyFlags::empty());
         assert_eq!(key.name, name.as_ptr());
         assert_eq!(key.name_len, 12); // 3 characters, 4 bytes each
-        assert!(matches!(key._name, Cow::Borrowed(_)));
+        assert!(matches!(key._name, CBCow::Borrowed(_)));
     }
 
     #[test]
@@ -1169,7 +1299,7 @@ mod tests {
                 .contains(RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc)
         );
         assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert!(matches!(key._path.as_ref().unwrap(), CBCow::Borrowed(_)));
         assert_eq!(
             unsafe { CStr::from_ptr(key.path) },
             c"this is the field path"
@@ -1209,7 +1339,7 @@ mod tests {
                 | RLookupKeyFlag::ValAvailable
         ));
         assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert!(matches!(key._path.as_ref().unwrap(), CBCow::Borrowed(_)));
         assert_eq!(
             unsafe { CStr::from_ptr(key.path) },
             c"this is the field path"
@@ -1244,7 +1374,7 @@ mod tests {
             RLookupKeyFlag::DocSrc | RLookupKeyFlag::SchemaSrc | RLookupKeyFlag::Numeric
         ));
         assert_ne!(key.path, key.name);
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Borrowed(_)));
+        assert!(matches!(key._path.as_ref().unwrap(), CBCow::Borrowed(_)));
         assert_eq!(
             unsafe { CStr::from_ptr(key.path) },
             c"this is the field path"
@@ -1283,7 +1413,7 @@ mod tests {
             unsafe { CStr::from_ptr(key.path) },
             c"this is the field path"
         );
-        assert!(matches!(key._path.as_ref().unwrap(), Cow::Owned(_)));
+        assert!(matches!(key._path.as_ref().unwrap(), CBCow::Owned(_)));
 
         // cleanup
         unsafe {
@@ -1296,8 +1426,8 @@ mod tests {
 
     #[test]
     fn key_from_parts_only_name() {
-        let name = Cow::Borrowed(c"foo");
-        let key = RLookupKey::from_parts(name, None, 0, RLookupKeyFlags::empty());
+        let name = CBCow::Borrowed(c"foo");
+        let key = RLookupKey::from_parts(name, CBOption::None, 0, RLookupKeyFlags::empty());
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._name.as_ptr());
@@ -1305,9 +1435,9 @@ mod tests {
 
     #[test]
     fn key_from_parts_name_and_path() {
-        let name = Cow::Borrowed(c"foo");
-        let path = Cow::Borrowed(c"bar");
-        let key = RLookupKey::from_parts(name, Some(path), 0, RLookupKeyFlags::empty());
+        let name = CBCow::Borrowed(c"foo");
+        let path = CBCow::Borrowed(c"bar");
+        let key = RLookupKey::from_parts(name, CBOption::Some(path), 0, RLookupKeyFlags::empty());
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
@@ -1318,8 +1448,8 @@ mod tests {
     #[allow(unreachable_code, unused)]
     #[cfg_attr(debug_assertions, should_panic)]
     fn key_from_parts_name_namealloc_fail() {
-        let name = Cow::Owned(c"foo".to_owned());
-        let key = RLookupKey::from_parts(name, None, 0, RLookupKeyFlags::empty());
+        let name = CBCow::Owned(c"foo".to_owned());
+        let key = RLookupKey::from_parts(name, CBOption::None, 0, RLookupKeyFlags::empty());
 
         #[cfg(debug_assertions)]
         unreachable!();
@@ -1333,8 +1463,13 @@ mod tests {
     #[allow(unreachable_code, unused)]
     #[cfg_attr(debug_assertions, should_panic)]
     fn key_from_parts_name_nonamealloc_fail() {
-        let name = Cow::Borrowed(c"foo");
-        let key = RLookupKey::from_parts(name, None, 0, make_bitflags!(RLookupKeyFlag::NameAlloc));
+        let name = CBCow::Borrowed(c"foo");
+        let key = RLookupKey::from_parts(
+            name,
+            CBOption::None,
+            0,
+            make_bitflags!(RLookupKeyFlag::NameAlloc),
+        );
 
         #[cfg(debug_assertions)]
         unreachable!();
@@ -1348,9 +1483,9 @@ mod tests {
     #[allow(unreachable_code, unused)]
     #[cfg_attr(debug_assertions, should_panic)]
     fn key_from_parts_path_namealloc_fail() {
-        let name = Cow::Borrowed(c"foo");
-        let path = Cow::Owned(c"bar".to_owned());
-        let key = RLookupKey::from_parts(name, Some(path), 0, RLookupKeyFlags::empty());
+        let name = CBCow::Borrowed(c"foo");
+        let path = CBCow::Owned(c"bar".to_owned());
+        let key = RLookupKey::from_parts(name, CBOption::Some(path), 0, RLookupKeyFlags::empty());
 
         #[cfg(debug_assertions)]
         unreachable!();
@@ -1364,11 +1499,11 @@ mod tests {
     #[allow(unreachable_code, unused)]
     #[cfg_attr(debug_assertions, should_panic)]
     fn key_from_parts_path_nonamealloc_fail() {
-        let name = Cow::Owned(c"foo".to_owned());
-        let path = Cow::Borrowed(c"bar");
+        let name = CBCow::Owned(c"foo".to_owned());
+        let path = CBCow::Borrowed(c"bar");
         let key = RLookupKey::from_parts(
             name,
-            Some(path),
+            CBOption::Some(path),
             0,
             make_bitflags!(RLookupKeyFlag::NameAlloc),
         );

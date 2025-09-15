@@ -4,5 +4,5 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 
 $MODE dnf update -y
-$MODE dnf install -y wget git which gcc gcc-c++ libstdc++-static make rsync python3 python3-devel unzip clang
+$MODE dnf install -y wget git which gcc gcc-c++ libstdc++-static make rsync unzip clang clang-devel
 $MODE dnf install -y openssl openssl-devel

@@ -46,16 +46,6 @@ static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
   rs_timeradd(&monotoicNow, &duration, &searchTime->timeout);
 }
 
-unsigned long InvertedIndex_MemUsage(const void *value) {
-  const InvertedIndex *idx = value;
-  unsigned long ret = sizeof_InvertedIndex(idx->flags)
-                      + sizeof(IndexBlock) * idx->size;
-  for (size_t i = 0; i < idx->size; i++) {
-    ret += IndexBlock_Cap(&idx->blocks[i]);
-  }
-  return ret;
-}
-
 /**
  * Format redis key for a term.
  */
@@ -173,9 +163,9 @@ static InvertedIndex *openIndexKeysDict(const RedisSearchCtx *ctx, RedisModuleSt
     *outIsNew = true;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->dtor = InvertedIndex_Free;
+  kdv->dtor = (void (*)(void *))InvertedIndex_Free;
   size_t index_size;
-  kdv->p = NewInvertedIndex(ctx->spec->flags, 1, &index_size);
+  kdv->p = NewInvertedIndex(ctx->spec->flags, &index_size);
   ctx->spec->stats.invertedSize += index_size;
   dictAdd(ctx->spec->keysDict, termKey, kdv);
   return kdv->p;
@@ -200,8 +190,8 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSQueryTerm *term, Do
     goto err;
   }
 
-  if (!idx->numDocs ||
-     (Index_StoreFieldMask(ctx->spec) && !(idx->fieldMask & fieldMask))) {
+  if (!InvertedIndex_NumDocs(idx) ||
+     (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
     // empty index! or index does not have results from requested field.
     // pass
     goto err;
@@ -218,6 +208,9 @@ err:
   }
   if (termKey) {
     RedisModule_FreeString(ctx->redisCtx, termKey);
+  }
+  if (term) {
+    Term_Free(term);
   }
   return NULL;
 }

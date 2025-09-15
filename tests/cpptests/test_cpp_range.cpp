@@ -139,8 +139,9 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
       ASSERT_NE(found_mult, -1);
-      if (res->type == RSResultType_Union) {
-        res = (RSIndexResult*)AggregateResult_Get(&res->data.agg, 0);
+      if (res->data.tag == RSResultData_Union) {
+        const RSAggregateResult *agg = IndexResult_AggregateRef(res);
+        res = (RSIndexResult*)AggregateResult_Get(agg, 0);
       }
 
       // printf("rc: %d docId: %d, n %f lookup %f, flt %f..%f\n", rc, res->docId, res->num.value,
@@ -148,14 +149,14 @@ void testRangeIteratorHelper(bool isMulti) {
 
       found_mult = -1;
       for( size_t mult = 0; mult < mult_count; ++mult) {
-        if (res->data.num.value == lookup[res->docId].v[mult]) {
+        if (IndexResult_NumValue(res) == lookup[res->docId].v[mult]) {
           ASSERT_TRUE(NumericFilter_Match(flt, lookup[res->docId].v[mult]));
           found_mult = mult;
         }
       }
       ASSERT_NE(found_mult, -1);
 
-      ASSERT_EQ(res->type, RSResultType_Numeric);
+      ASSERT_EQ(res->data.tag, RSResultData_Numeric);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
       ASSERT_TRUE(!IndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);
@@ -279,7 +280,7 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
 
   auto print_failure = [&]() {
     std::cout << "Expected range memory = " << expected_mem << std::endl;
-    std::cout << "Failed range mem: " << NumericRangeGetMemory(failed_range) << std::endl;
+    std::cout << "Failed range mem: " << InvertedIndex_MemUsage(failed_range->range->entries) << std::endl;
   };
 
   // add docs with random numbers
