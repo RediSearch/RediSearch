@@ -641,3 +641,19 @@ pub unsafe extern "C" fn IndexReader_Reset(ir: *mut IndexReader) {
 
     ir_dispatch!(ir, reset);
 }
+
+/// Get the estimated number of documents in the index reader.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_NumEstimated(ir: *const IndexReader) -> usize {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &*ir };
+
+    ir_dispatch!(ir, unique_docs)
+}

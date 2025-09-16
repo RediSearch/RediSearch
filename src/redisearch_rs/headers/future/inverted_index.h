@@ -246,6 +246,16 @@ void IndexReader_Free(struct IndexReader *ir);
  */
 void IndexReader_Reset(struct IndexReader *ir);
 
+/**
+ * Get the estimated number of documents in the index reader.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+uintptr_t IndexReader_NumEstimated(const struct IndexReader *ir);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
