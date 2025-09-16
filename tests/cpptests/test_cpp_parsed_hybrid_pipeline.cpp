@@ -101,9 +101,11 @@ ResultProcessor* FindHybridMergerInPipeline(ResultProcessor *endProc) {
 IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexName, QueryError *status) {
   RMCK::ArgvList createArgs(ctx, "FT.CREATE", indexName, "ON", "HASH", "SKIPINITIALSCAN",
                             "SCHEMA", "title", "TEXT", "score", "NUMERIC",
-                            "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
+                            "category", "TEXT", "vector_field", "VECTOR", "FLAT", "6");
   return IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), status);
 }
+
+/*
  * 1. Create index spec
  * 2. Parse hybrid command
  * 3. Build pipeline

@@ -422,9 +422,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModule_Reply *reply, a
  * @param internal Whether the request is internal (not exposed to the user)
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
 */
-static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams,
-                                                         RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
-                                                         bool internal) {
+static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *hybridParams,
+                                   RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
+                                   bool internal) {
   // Build the pipeline and execute
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
@@ -462,7 +462,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
 }
 
 // Background execution functions implementation
-static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
+static blockedClientHybridCtx *blockedClientHybridCtx_New(StrongRef hybrid_ref,
                                                    HybridPipelineParams *hybridParams,
                                                    RedisModuleBlockedClient *blockedClient,
                                                    StrongRef spec, bool internal) {
