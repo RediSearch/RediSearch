@@ -9,6 +9,7 @@
 #include <pthread.h>
 
 #include "redisearch.h"
+#include "types_rs.h"
 #include "varint.h"
 #include "rmalloc.h"
 #include "util/mempool.h"
@@ -127,17 +128,12 @@ static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
   }
 
   int i = 0;
-  RSAggregateResultIter *iter = AggregateResult_Iter(agg);
-  RSIndexResult *child = NULL;
+  AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
 
-  while (AggregateResultIter_Next(iter, &child)) {
-    it->iters[i] = RSIndexResult_IterateOffsets(child);
+  for (int i = 0; i < numChildren; i++) {
+    it->iters[i] = RSIndexResult_IterateOffsets(children.ptr[i]);
     it->offsets[i] = it->iters[i].Next(it->iters[i].ctx, &it->terms[i]);
-
-    i++;
   }
-
-  AggregateResultIter_Free(iter);
 
   return (RSOffsetIterator){.Next = _aoi_Next, .Rewind = _aoi_Rewind, .Free = _aoi_Free, .ctx = it};
 }

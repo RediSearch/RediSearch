@@ -144,7 +144,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   return dist ? sqrt(dist) : num - 1;
 }
 
-void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
+void result_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
   if (*len == cap) return;
 
   switch (r->data.tag) {
@@ -152,14 +152,10 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
     case RSResultData_Union:
     {
       const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
-      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
-      RSIndexResult *child = NULL;
-
-      while (AggregateResultIter_Next(iter, &child)) {
-        result_GetMatchedTerms(child, arr, cap, len);
+      AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+      for (int i = 0; i < children.len; i++) {
+        result_GetMatchedTerms(children.ptr[i], arr, cap, len);
       }
-
-      AggregateResultIter_Free(iter);
 
       break;
     }
@@ -312,10 +308,9 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   uint32_t positions[num];
   int n = 0;
 
-  RSAggregateResultIter *iter = AggregateResult_Iter(agg);
-  RSIndexResult *child = NULL;
-
-  while (AggregateResultIter_Next(iter, &child)) {
+  AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
+  for (int i = 0; i < children.len; i++) {
+    const RSIndexResult *child = children.ptr[i];
     // collect only iterators for nodes that can have offsets
     if (RSIndexResult_HasOffsets(child)) {
       iters[n] = RSIndexResult_IterateOffsets(child);
@@ -323,8 +318,6 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
       n++;
     }
   }
-
-  AggregateResultIter_Free(iter);
 
   // No applicable offset children - just return 1
   if (n == 0) {

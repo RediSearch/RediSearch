@@ -28,11 +28,6 @@ typedef struct FieldSpec FieldSpec;
 
 
 /**
- * An iterator over the results in an [`RSAggregateResult`].
- */
-typedef struct RSAggregateResultIter RSAggregateResultIter;
-
-/**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter {
@@ -426,6 +421,18 @@ typedef struct RSIndexResult {
 } RSIndexResult;
 
 /**
+ * A view over the records stored inside an [`RSAggregateResult`].
+ *
+ * It is designed to minimize the overhead of iterating over the records on
+ * the C side, by providing a direct pointer to the records and avoiding unnecessary
+ * C->Rust FFI calls.
+ */
+typedef struct AggregateRecordsSlice {
+  const struct RSIndexResult *const *ptr;
+  uintptr_t len;
+} AggregateRecordsSlice;
+
+/**
  * Summary information about the key metrics of a block in an inverted index
  */
 typedef struct IIBlockSummary {
@@ -779,33 +786,7 @@ void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-struct RSAggregateResultIter *AggregateResult_Iter(const union RSAggregateResult *agg);
-
-/**
- * Get the next item in the aggregate result iterator and put it into the provided `value`
- * pointer. This function will return `true` if there is a next item, or `false` if the iterator
- * is exhausted.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
- * - `value` must point to a valid pointer where the next item will be stored.
- * - All the memory addresses of the `RSAggregateResult` should still be valid and not have
- *   been deallocated.
- */
-bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndexResult **value);
-
-/**
- * Free the aggregate result iterator. This function will deallocate the memory used by the iterator.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `iter` must point to a valid `RSAggregateResultIter`.
- * - The iterator must have been created using [`AggregateResult_Iter`].
- */
-void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
+struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const union RSAggregateResult *agg);
 
 /**
  * Retrieve the offsets array from [`RSOffsetVector`].

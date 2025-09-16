@@ -12,8 +12,8 @@
 use std::{ffi::c_char, ptr};
 
 use inverted_index::{
-    NumericFilter, RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector,
-    RSQueryTerm, RSTermRecord, t_fieldMask,
+    NumericFilter, RSAggregateResult, RSIndexResult, RSOffsetVector, RSQueryTerm, RSTermRecord,
+    t_fieldMask,
 };
 
 pub use inverted_index::{
@@ -517,70 +517,35 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResult_Iter(
+pub unsafe extern "C" fn AggregateResult_GetRecordsSlice(
     agg: *const RSAggregateResult<'static>,
-) -> *mut RSAggregateResultIter<'static> {
+) -> AggregateRecordsSlice {
     debug_assert!(!agg.is_null(), "agg must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
     // an `RSAggregateResult`.
     let agg = unsafe { &*agg };
-    let iter = agg.iter();
-    let iter_boxed = Box::new(iter);
-
-    Box::into_raw(iter_boxed)
-}
-
-/// Get the next item in the aggregate result iterator and put it into the provided `value`
-/// pointer. This function will return `true` if there is a next item, or `false` if the iterator
-/// is exhausted.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
-/// - `value` must point to a valid pointer where the next item will be stored.
-/// - All the memory addresses of the `RSAggregateResult` should still be valid and not have
-///   been deallocated.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResultIter_Next(
-    iter: *mut RSAggregateResultIter<'static>,
-    value: *mut *mut RSIndexResult,
-) -> bool {
-    debug_assert!(!iter.is_null(), "iter must not be null");
-    debug_assert!(!value.is_null(), "value must not be null");
-
-    // SAFETY: Caller is to ensure that the pointer `iter` is a valid, non-null pointer to
-    // an `RSAggregateResultIter`.
-    let iter = unsafe { &mut *iter };
-
-    if let Some(next) = iter.next() {
-        // SAFETY: Caller is to ensure that the pointer `value` is a valid, non-null pointer
-        unsafe {
-            *value = next as *const _ as *mut _;
-        }
-        true
-    } else {
-        false
+    match agg {
+        RSAggregateResult::Borrowed { records, .. } => AggregateRecordsSlice {
+            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            len: records.len(),
+        },
+        RSAggregateResult::Owned { records, .. } => AggregateRecordsSlice {
+            ptr: records.as_slice().as_ptr() as *const *const RSIndexResult,
+            len: records.len(),
+        },
     }
 }
 
-/// Free the aggregate result iterator. This function will deallocate the memory used by the iterator.
+#[repr(C)]
+/// A view over the records stored inside an [`RSAggregateResult`].
 ///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `iter` must point to a valid `RSAggregateResultIter`.
-/// - The iterator must have been created using [`AggregateResult_Iter`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn AggregateResultIter_Free(iter: *mut RSAggregateResultIter<'static>) {
-    // Don't free if the pointer is `NULL` - just like the C free function
-    if iter.is_null() {
-        return;
-    }
-
-    // SAFETY: Caller is to ensure `iter` was allocated using `AggregateResult_Iter`
-    let _boxed_iter = unsafe { Box::from_raw(iter) };
+/// It is designed to minimize the overhead of iterating over the records on
+/// the C side, by providing a direct pointer to the records and avoiding unnecessary
+/// C->Rust FFI calls.
+pub struct AggregateRecordsSlice {
+    pub ptr: *const *const RSIndexResult<'static>,
+    pub len: usize,
 }
 
 /// Retrieve the offsets array from [`RSOffsetVector`].
