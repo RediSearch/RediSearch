@@ -447,7 +447,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   
   if (!isCursor) { 
     HybridRequest_Execute(hreq, ctx, sctx);
-  } else if (internal) {
+  } else if (!internal) {
     if (HybridRequest_StartSingleCursor(hybrid_ref, ctx, true) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
