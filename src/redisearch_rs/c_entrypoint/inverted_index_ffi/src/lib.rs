@@ -17,7 +17,8 @@ use ffi::{
 };
 
 use inverted_index::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, IndexBlock, RSIndexResult,
+    EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
+    FilterNumericReader, IndexBlock, RSIndexResult, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -478,4 +479,125 @@ pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> t_doc
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*ii };
     ii_dispatch!(ii, last_doc_id).unwrap_or(0)
+}
+
+/// An opaque inverted index reader structure. The actual implementation is determined at runtime
+/// based on the index type and filter provided when creating the reader. This allows us to have a
+/// single interface for all index reader types while still being able to optimize the storage
+/// and performance for each index reader type.
+pub enum IndexReader<'index, 'filter> {
+    Full(FilterMaskReader<inverted_index::IndexReader<'index, Full, Full>>),
+    FullWide(FilterMaskReader<inverted_index::IndexReader<'index, FullWide, FullWide>>),
+    FreqsFields(FilterMaskReader<inverted_index::IndexReader<'index, FreqsFields, FreqsFields>>),
+    FreqsFieldsWide(
+        FilterMaskReader<inverted_index::IndexReader<'index, FreqsFieldsWide, FreqsFieldsWide>>,
+    ),
+    FreqsOnly(inverted_index::IndexReader<'index, FreqsOnly, FreqsOnly>),
+    FieldsOnly(FilterMaskReader<inverted_index::IndexReader<'index, FieldsOnly, FieldsOnly>>),
+    FieldsOnlyWide(
+        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOnlyWide, FieldsOnlyWide>>,
+    ),
+    FieldsOffsets(
+        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOffsets, FieldsOffsets>>,
+    ),
+    FieldsOffsetsWide(
+        FilterMaskReader<inverted_index::IndexReader<'index, FieldsOffsetsWide, FieldsOffsetsWide>>,
+    ),
+    OffsetsOnly(inverted_index::IndexReader<'index, OffsetsOnly, OffsetsOnly>),
+    FreqsOffsets(inverted_index::IndexReader<'index, FreqsOffsets, FreqsOffsets>),
+    DocumentIdOnly(inverted_index::IndexReader<'index, DocIdsOnly, DocIdsOnly>),
+    RawDocumentIdOnly(inverted_index::IndexReader<'index, RawDocIdsOnly, RawDocIdsOnly>),
+    Numeric(inverted_index::IndexReader<'index, Numeric, Numeric>),
+    NumericFiltered(
+        FilterNumericReader<'filter, inverted_index::IndexReader<'index, Numeric, Numeric>>,
+    ),
+    NumericGeoFiltered(
+        FilterGeoReader<'filter, inverted_index::IndexReader<'index, Numeric, Numeric>>,
+    ),
+}
+
+/// Create a new inverted index reader for the given inverted index and filter. The returned pointer
+/// must be freed using [`IndexReader_Free`] when no longer needed.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+///
+/// # Panics
+/// This function will panic if the provided filter is not compatible with the `InvertedIndex` type.
+#[allow(improper_ctypes_definitions)] // `ctx` might contain `t_fieldMask` which is a `u128` type
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewIndexReader(
+    ii: *const InvertedIndex,
+    ctx: ReadFilter,
+) -> *mut IndexReader {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+
+    let reader = match (ii, ctx) {
+        (InvertedIndex::Full(ii), ReadFilter::FieldMask(mask)) => {
+            IndexReader::Full(ii.reader(mask))
+        }
+        (InvertedIndex::FullWide(ii), ReadFilter::FieldMask(mask)) => {
+            IndexReader::FullWide(ii.reader(mask))
+        }
+        (InvertedIndex::FreqsFields(ii), ReadFilter::FieldMask(mask)) => {
+            IndexReader::FreqsFields(ii.reader(mask))
+        }
+        (InvertedIndex::FreqsFieldsWide(ii), ReadFilter::FieldMask(mask)) => {
+            IndexReader::FreqsFieldsWide(ii.reader(mask))
+        }
+        (InvertedIndex::FreqsOnly(ii), ReadFilter::None) => IndexReader::FreqsOnly(ii.reader()),
+        (InvertedIndex::FieldsOnly(ii), ReadFilter::FieldMask(mask)) => {
+            IndexReader::FieldsOnly(ii.reader(mask))
+        }
+        (InvertedIndex::FieldsOnlyWide(ii), ReadFilter::FieldMask(mask)) => {
+            IndexReader::FieldsOnlyWide(ii.reader(mask))
+        }
+        (InvertedIndex::FieldsOffsets(ii), ReadFilter::FieldMask(mask)) => {
+            IndexReader::FieldsOffsets(ii.reader(mask))
+        }
+        (InvertedIndex::FieldsOffsetsWide(ii), ReadFilter::FieldMask(mask)) => {
+            IndexReader::FieldsOffsetsWide(ii.reader(mask))
+        }
+        (InvertedIndex::OffsetsOnly(ii), ReadFilter::None) => IndexReader::OffsetsOnly(ii.reader()),
+        (InvertedIndex::FreqsOffsets(ii), ReadFilter::None) => {
+            IndexReader::FreqsOffsets(ii.reader())
+        }
+        (InvertedIndex::DocumentIdOnly(ii), ReadFilter::None) => {
+            IndexReader::DocumentIdOnly(ii.reader())
+        }
+        (InvertedIndex::RawDocumentIdOnly(ii), ReadFilter::None) => {
+            IndexReader::RawDocumentIdOnly(ii.reader())
+        }
+        (InvertedIndex::Numeric(ii), ReadFilter::None) => IndexReader::Numeric(ii.reader()),
+        (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) if filter.is_numeric_filter() => {
+            IndexReader::NumericFiltered(FilterNumericReader::new(filter, ii.reader()))
+        }
+        (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) => {
+            IndexReader::NumericGeoFiltered(FilterGeoReader::new(filter, ii.reader()))
+        }
+        (_, filter) => panic!("Unsupported filter for inverted index: {filter:?}"),
+    };
+
+    let reader_boxed = Box::new(reader);
+    Box::into_raw(reader_boxed)
+}
+
+/// Free the memory associated with an index reader instance created using [`NewIndexReader`].
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance created using
+///   [`NewIndexReader`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_Free(ir: *mut IndexReader) {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let _ = unsafe { Box::from_raw(ir) };
 }

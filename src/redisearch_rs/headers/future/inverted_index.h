@@ -20,6 +20,14 @@
 typedef struct IndexBlock IndexBlock;
 
 /**
+ * An opaque inverted index reader structure. The actual implementation is determined at runtime
+ * based on the index type and filter provided when creating the reader. This allows us to have a
+ * single interface for all index reader types while still being able to optimize the storage
+ * and performance for each index reader type.
+ */
+typedef struct IndexReader IndexReader;
+
+/**
  * An opaque inverted index structure. The actual implementation is determined at runtime based on
  * the index flags provided when creating the index. This allows us to have a single interface for
  * all index types while still being able to optimize the storage and performance for each index
@@ -202,6 +210,31 @@ const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii,
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
 t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
+
+/**
+ * Create a new inverted index reader for the given inverted index and filter. The returned pointer
+ * must be freed using [`IndexReader_Free`] when no longer needed.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ *
+ * # Panics
+ * This function will panic if the provided filter is not compatible with the `InvertedIndex` type.
+ */
+struct IndexReader *NewIndexReader(const struct InvertedIndex *ii, IndexDecoderCtx ctx);
+
+/**
+ * Free the memory associated with an index reader instance created using [`NewIndexReader`].
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance created using
+ *   [`NewIndexReader`].
+ */
+void IndexReader_Free(struct IndexReader *ir);
 
 #ifdef __cplusplus
 }  // extern "C"
