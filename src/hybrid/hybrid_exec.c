@@ -349,6 +349,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, a
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+        QueryError_SetError(status, QUERY_EGENERIC, "Expected depleter at the end of the pipeline");
          break;
       }
       Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
@@ -444,15 +445,19 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     return REDISMODULE_ERR;
   }
   
-  if (isCursor) { 
+  if (!isCursor) { 
+    HybridRequest_Execute(hreq, ctx, sctx);
+  } else if (internal) {
+    if (HybridRequest_StartSingleCursor(hybrid_ref, ctx, true) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  } else {
     RS_ASSERT(depleters);
     if (HybridRequest_StartCursors(hybrid_ref, ctx, depleters, status) != REDISMODULE_OK) {
       // If we failed starting the cursors we need to free the depleters array
       array_free(depleters);
       return REDISMODULE_ERR;
     }
-  } else {
-    HybridRequest_Execute(hreq, ctx, sctx);
   }
 
   freeHybridParams(hybridParams);

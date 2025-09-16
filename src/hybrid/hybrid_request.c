@@ -45,8 +45,7 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
 
         // Obtain the query processing context for the current AREQ
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-
-        // Set the result limit for the current AREQ
+        // Set the result limit for the current AREQ - hack for now, should use window value
         if (IsHybridVectorSubquery(areq)){
           qctx->resultLimit = areq->maxAggregateResults;
         } else if (IsHybridSearchSubquery(areq)) {
