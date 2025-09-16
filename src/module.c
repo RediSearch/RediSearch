@@ -16,7 +16,6 @@
 #include "commands.h"
 #include "document.h"
 #include "tag_index.h"
-#include "index.h"
 #include "triemap.h"
 #include "query.h"
 #include "redis_index.h"
@@ -28,6 +27,7 @@
 #include "util/logging.h"
 #include "util/workers.h"
 #include "util/references.h"
+#include "util/mempool.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -68,6 +68,7 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
 #include "search_disk.h"
+#include "rs_wall_clock.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -113,10 +114,19 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
     return true;
   }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+
+  if (!user_name) {
+    // In Redis, the "master" client (such as replication or internal server
+    // operations) may not have an associated user, and
+    // RedisModule_GetCurrentUserName will return NULL in such cases.
+    // We thus allow full access to the super-user.
+    return true;
+  }
+
   RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
 
   if (!user) {
-    RedisModule_Log(ctx, "verbose", "No user found");
+    RedisModule_Log(ctx, "warning", "No user found for current client");
     RedisModule_FreeString(ctx, user_name);
     return false;
   }
@@ -464,7 +474,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
-    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
   }
 
@@ -739,7 +749,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CurrentThread_SetIndexSpec(ref);
 
   if (!sp->smap) {
-    return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
+    return RedisModule_ReplyWithMap(ctx, 0);
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -748,7 +758,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
-  RedisModule_ReplyWithMapOrArray(ctx, size * 2, true);
+  RedisModule_ReplyWithMap(ctx, size);
 
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
@@ -1071,8 +1081,8 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
 Version supportedVersion = {
-    .majorVersion = 7,
-    .minorVersion = 1,
+    .majorVersion = 8,
+    .minorVersion = 0,
     .patchVersion = 0,
 };
 
@@ -1736,7 +1746,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
-    req->profileClock = clock();
+    rs_wall_clock_init(&req->profileClock);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       req->profileLimited = 1;
       req->profileArgs++;
@@ -1876,7 +1886,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
-  req->initClock = clock();
+  rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -2724,21 +2734,21 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 struct PrintCoordProfile_ctx {
-  clock_t totalTime;
-  clock_t postProcessTime;
+  rs_wall_clock *totalTime;
+  rs_wall_clock_ns_t postProcessTime;
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - pCtx->totalTime) / CLOCKS_PER_MILLISEC);
-  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - pCtx->postProcessTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(pCtx->totalTime)));
+  RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - pCtx->postProcessTime));
   RedisModule_Reply_MapEnd(reply);
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProcessTime) {
-  bool has_map = RedisModule_HasMap(reply);
+                               rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
+  bool has_map = RedisModule_IsRESP3(reply);
   RedisModule_Reply_Map(reply); // root
     // Have a named map for the results for RESP3
     if (has_map) {
@@ -2775,18 +2785,17 @@ static bool should_return_error(MRReply *reply) {
   // TODO: Replace third condition with a var instead of hard-coded string
   const char *errStr = MRReply_String(reply, NULL);
   return (!errStr
-          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
+          || RSGlobalConfig.requestConfigParams.timeoutPolicy == FailurePolicy_Fail
           || strcmp(errStr, "Timeout limit was reached"));
 }
 
 static bool should_return_timeout_error(searchRequestCtx *req) {
-  return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
+  return RSGlobalConfig.requestConfigParams.timeoutPolicy == FailurePolicy_Fail
          && req->timeout != 0
-         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
+         && (rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock))) > req->timeout;
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProcessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
@@ -2888,10 +2897,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(reply, &rCtx);
   } else {
-    profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
+    profileSearchReply(reply, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   }
-
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
 
 cleanup:
   RedisModule_EndReply(reply);

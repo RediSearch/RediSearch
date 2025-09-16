@@ -196,8 +196,6 @@ static inline RSValue *RSValue_Dereference(const RSValue *v) {
  * the value needs to be detached */
 RSValue *RS_StringVal(char *str, uint32_t len);
 
-RSValue *RS_StringValFmt(const char *fmt, ...);
-
 /* Same as RS_StringVal but with explicit string type */
 RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t);
 
@@ -227,8 +225,6 @@ RSValue *RS_StealRedisStringVal(RedisModuleString *s);
 
 void RSValue_MakeRStringOwner(RSValue *v);
 
-const char *RSValue_TypeName(RSValueType t);
-
 // Returns true if the value contains a string
 static inline int RSValue_IsString(const RSValue *value) {
   return value && (value->t == RSValue_String || value->t == RSValue_RedisString ||
@@ -257,8 +253,6 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l);
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
 not. If possible, we put the actual value into the double pointer */
 int RSValue_ToNumber(const RSValue *v, double *d);
-
-#define RSVALUE_NULL_HASH 1337
 
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
 /* Return a 64 hash value of an RSValue. If this is not an incremental hashing, pass 0 as hval */
@@ -405,15 +399,6 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
 // Formats the parsed expression object into a string, obfuscating the values if needed based on the obfuscate boolean
 // The returned string must be freed by the caller using sdsfree
 sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate);
-
-int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
-
-/**
- * Maximum number of static/cached numeric values. Integral numbers in this range
- * can benefit by having 'static' values assigned to them, eliminating the need
- * for dynamic allocation
- */
-#define RSVALUE_MAX_STATIC_NUMVALS 256
 
 /**
  * This macro decrements the refcount of dst (as a pointer), and increments the

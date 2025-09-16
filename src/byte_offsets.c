@@ -15,7 +15,7 @@ RSByteOffsets *NewByteOffsets() {
 }
 
 void RSByteOffsets_Free(RSByteOffsets *offsets) {
-  rm_free(offsets->offsets.data);
+  RSOffsetVector_FreeData(&offsets->offsets);
   rm_free(offsets->fields);
   rm_free(offsets);
 }
@@ -34,8 +34,8 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
 
 void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets) {
   size_t len;
-  offsets->offsets.data = VVW_TakeByteData(w->vw, &len);
-  offsets->offsets.len = len;
+  char *data = (char *) VVW_TakeByteData(w->vw, &len);
+  RSOffsetVector_SetData(&offsets->offsets, data, len);
 }
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
@@ -49,8 +49,11 @@ void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
     Buffer_WriteU32(&w, offsets->fields[ii].lastTokPos);
   }
 
-  Buffer_WriteU32(&w, offsets->offsets.len);
-  Buffer_Write(&w, offsets->offsets.data, offsets->offsets.len);
+  Buffer_WriteU32(&w, RSOffsetVector_Len(&offsets->offsets));
+
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&offsets->offsets, &offsets_len);
+  Buffer_Write(&w, offsets_data, offsets_len);
 }
 
 RSByteOffsets *LoadByteOffsets(Buffer *buf) {
@@ -69,12 +72,12 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
   }
 
   uint32_t offsetsLen = Buffer_ReadU32(&r);
-  offsets->offsets.len = offsetsLen;
   if (offsetsLen) {
-    offsets->offsets.data = rm_malloc(offsetsLen);
-    Buffer_Read(&r, offsets->offsets.data, offsetsLen);
+    char *data = rm_malloc(offsetsLen);
+    Buffer_Read(&r, data, offsetsLen);
+    RSOffsetVector_SetData(&offsets->offsets, data, offsetsLen);
   } else {
-    offsets->offsets.data = NULL;
+    RSOffsetVector_SetData(&offsets->offsets, NULL, 0);
   }
 
   return offsets;
@@ -93,9 +96,12 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
     return REDISMODULE_ERR;
   }
 
+  uint32_t offsets_len;
+  const char *offsets_data = RSOffsetVector_GetData(&offsets->offsets, &offsets_len);
+
   iter->buf.cap = 0;
-  iter->buf.data = offsets->offsets.data;
-  iter->buf.offset = offsets->offsets.len;
+  iter->buf.data = (char *) offsets_data;
+  iter->buf.offset = offsets_len;
   iter->rdr = NewBufferReader(&iter->buf);
   iter->curPos = 1;
   iter->endPos = offField->lastTokPos;

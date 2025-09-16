@@ -24,8 +24,14 @@ extern "C" {
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id);
 void Term_Free(RSQueryTerm *t);
 
-/* Add the metrics of a child to a parent index result. */
-void IndexResult_ConcatMetrics(RSIndexResult *parent, RSIndexResult *child);
+/* Add the metrics of a child to a parent. */
+void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child);
+
+/* Free the metrics */
+void ResultMetrics_Free(RSYieldableMetric *metrics);
+
+/* Make a complete clone of the metrics array and increment the reference count of each value  */
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src);
 
 static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue *val) {
   RSYieldableMetric new_element = {.key = key, .value = val};
@@ -37,46 +43,16 @@ static inline void ResultMetrics_Reset(RSIndexResult *r) {
   array_clear(r->metrics);
 }
 
-static inline void ResultMetrics_Free(RSIndexResult *r) {
-  array_free_ex(r->metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
-  r->metrics = NULL;
-}
-
-/* Prepare an Index Result to be reused. Add here any relevant cleanup function */
-static inline void IndexResult_Clear(RSIndexResult *r) {
-  ResultMetrics_Free(r);
-}
-
 /* Reset the aggregate result's child vector */
 static inline void IndexResult_ResetAggregate(RSIndexResult *r) {
 
   r->docId = 0;
-  AggregateResult_Reset(&r->data.agg);
-  IndexResult_Clear(r);
+  r->freq = 0;
+  r->fieldMask = 0;
+  IndexResult_AggregateReset(r);
+  ResultMetrics_Free(r->metrics);
+  r->metrics = NULL;
 }
-/* Allocate a new intersection result with a given capacity*/
-RSIndexResult *NewIntersectResult(size_t cap, double weight);
-
-/* Allocate a new union result with a given capacity*/
-RSIndexResult *NewUnionResult(size_t cap, double weight);
-
-RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask);
-
-RSIndexResult *NewNumericResult();
-
-RSIndexResult *NewMetricResult();
-
-RSIndexResult *NewHybridResult();
-
-/* Allocate a new token record result for a given term */
-RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
-
-/* Create a deep copy of the results that is totally thread safe. This is very slow so use it with
- * caution */
-RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *res);
-
-/* Free an index result's internal allocations, does not free the result itself */
-void IndexResult_Free(RSIndexResult *r);
 
 /* Get the minimal delta between the terms in the result */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r);

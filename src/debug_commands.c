@@ -10,7 +10,6 @@
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
-#include "index.h"
 #include "redis_index.h"
 #include "tag_index.h"
 #include "numeric_index.h"
@@ -29,6 +28,7 @@
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
+#include "iterators/inverted_index_iterator.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -74,17 +74,15 @@ void validateDebugMode(DebugCTX *debugCtx) {
 #define END_POSTPONED_LEN_ARRAY(array_name) \
   RedisModule_ReplySetArrayLength(ctx, len_##array_name)
 
-static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
-  IndexIterator *iter = NewReadIterator(reader);
-  RSIndexResult *r;
+static void ReplyIteratorResultsIDs(QueryIterator *iterator, RedisModuleCtx *ctx) {
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
-    RedisModule_ReplyWithLongLong(ctx, r->docId);
+  while (iterator->Read(iterator) == ITERATOR_OK) {
+    RedisModule_ReplyWithLongLong(ctx, iterator->lastDocId);
     ++resultSize;
   }
   RedisModule_ReplySetArrayLength(ctx, resultSize);
-  ReadIterator_Free(iter);
+  iterator->Free(iterator);
 }
 
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
@@ -132,19 +130,18 @@ DEBUG_COMMAND(DumpTerms) {
   return REDISMODULE_OK;
 }
 
-static double InvertedIndexGetEfficiency(InvertedIndex *invidx) {
-  return ((double)invidx->numEntries)/(invidx->size);
-}
 
 static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *invidx) {
+  IISummary summary = InvertedIndex_Summary(invidx);
   size_t invIdxBulkLen = 0;
-  REPLY_WITH_LONG_LONG("numDocs", invidx->numDocs, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numEntries", invidx->numEntries, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("lastId", invidx->lastId, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("flags", invidx->flags, invIdxBulkLen);
-  REPLY_WITH_LONG_LONG("numberOfBlocks", invidx->size, invIdxBulkLen);
-  if (invidx->flags & Index_StoreNumeric) {
-    REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/numberOfBlocks)", InvertedIndexGetEfficiency(invidx), invIdxBulkLen);
+
+  REPLY_WITH_LONG_LONG("numDocs", summary.number_of_docs, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numEntries", summary.number_of_entries, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("lastId", summary.last_doc_id, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("flags", summary.flags, invIdxBulkLen);
+  REPLY_WITH_LONG_LONG("numberOfBlocks", summary.number_of_blocks, invIdxBulkLen);
+  if (summary.has_efficiency) {
+    REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/numberOfBlocks)", summary.block_efficiency, invIdxBulkLen);
   }
   return invIdxBulkLen;
 }
@@ -170,17 +167,22 @@ DEBUG_COMMAND(InvertedIndexSummary) {
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
-  for (uint32_t i = 0; i < invidx->size; ++i) {
+  size_t blockCount = 0;
+  IIBlockSummary *blocksSummary = InvertedIndex_BlocksSummary(invidx, &blockCount);
+
+  for (size_t i = 0; i < blockCount; i++) {
+    IIBlockSummary *blockSummary = blocksSummary + i;
     size_t blockBulkLen = 0;
-    IndexBlock *block = invidx->blocks + i;
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
-    REPLY_WITH_LONG_LONG("firstId", block->firstId, blockBulkLen);
-    REPLY_WITH_LONG_LONG("lastId", block->lastId, blockBulkLen);
-    REPLY_WITH_LONG_LONG("numEntries", block->numEntries, blockBulkLen);
+    REPLY_WITH_LONG_LONG("firstId", blockSummary->first_doc_id, blockBulkLen);
+    REPLY_WITH_LONG_LONG("lastId", blockSummary->last_doc_id, blockBulkLen);
+    REPLY_WITH_LONG_LONG("numEntries", blockSummary->number_of_entries, blockBulkLen);
 
     RedisModule_ReplySetArrayLength(ctx, blockBulkLen);
   }
+
+  InvertedIndex_BlocksSummaryFree(blocksSummary);
 
   invIdxBulkLen += 2;
 
@@ -206,8 +208,8 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Can not find the inverted index");
     goto end;
   }
-  IndexReader *reader = NewTermIndexReader(invidx);
-  ReplyReaderResults(reader, sctx->redisCtx);
+  QueryIterator *iter = NewInvIndIterator_TermFull(invidx);
+  ReplyIteratorResultsIDs(iter, sctx->redisCtx);
 
 end:
   SearchCtx_Free(sctx);
@@ -296,8 +298,8 @@ DEBUG_COMMAND(DumpNumericIndex) {
         END_POSTPONED_LEN_ARRAY(numericHeader);
       }
       FieldFilterContext fieldCtx = {.field.isFieldMask = false, .field.value.index = RS_INVALID_FIELD_INDEX, .predicate = FIELD_EXPIRATION_DEFAULT};
-      IndexReader *reader = NewNumericReader(NULL, range->entries, NULL, range->minVal, range->maxVal, true, &fieldCtx);
-      ReplyReaderResults(reader, sctx->redisCtx);
+      QueryIterator *iter = NewInvIndIterator_NumericQuery(range->entries, sctx, &fieldCtx, NULL, NULL, range->minVal, range->maxVal);
+      ReplyIteratorResultsIDs(iter, sctx->redisCtx);
       ++ARRAY_LEN_VAR(numericInvertedIndex); // end (1)Header 2)entries (header is optional)
     }
   }
@@ -356,24 +358,24 @@ DEBUG_COMMAND(DumpPrefixTrie) {
 }
 
 InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *idx) {
-  InvertedIndexStats indexStats = {.blocks_efficiency = InvertedIndexGetEfficiency(idx)};
+  IISummary summary = InvertedIndex_Summary(idx);
+  InvertedIndexStats indexStats = {.blocks_efficiency = summary.block_efficiency};
   START_POSTPONED_LEN_ARRAY(invertedIndexDump);
 
-  REPLY_WITH_LONG_LONG("numDocs", idx->numDocs, ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("numEntries", idx->numEntries, ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("lastId", idx->lastId, ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_LONG_LONG("size", idx->size, ARRAY_LEN_VAR(invertedIndexDump));
-  REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", indexStats.blocks_efficiency, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("numDocs", summary.number_of_docs, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("numEntries", summary.number_of_entries, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("lastId", summary.last_doc_id, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_LONG_LONG("size", summary.number_of_blocks, ARRAY_LEN_VAR(invertedIndexDump));
+  REPLY_WITH_DOUBLE("blocks_efficiency (numEntries/size)", summary.block_efficiency, ARRAY_LEN_VAR(invertedIndexDump));
 
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
-  RSIndexResult *res = NULL;
-  IndexReader *ir = NewMinimalNumericReader(idx, false);
-  while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    REPLY_WITH_DOUBLE("value", res->data.num.value, ARRAY_LEN_VAR(invertedIndexValues));
-    REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
+  QueryIterator *iter = NewInvIndIterator_NumericFull(idx);
+  while (iter->Read(iter) == ITERATOR_OK) {
+    REPLY_WITH_DOUBLE("value", IndexResult_NumValue(iter->current), ARRAY_LEN_VAR(invertedIndexValues));
+    REPLY_WITH_LONG_LONG("docId", iter->current->docId, ARRAY_LEN_VAR(invertedIndexValues));
   }
-  IR_Free(ir);
+  iter->Free(iter);
   END_POSTPONED_LEN_ARRAY(invertedIndexValues);
   ARRAY_LEN_VAR(invertedIndexDump)++;
 
@@ -557,8 +559,8 @@ DEBUG_COMMAND(DumpTagIndex) {
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
-    IndexReader *reader = NewTermIndexReader(iv);
-    ReplyReaderResults(reader, sctx->redisCtx);
+    QueryIterator *iterator = NewInvIndIterator_TagFull(iv, tagIndex);
+    ReplyIteratorResultsIDs(iterator, sctx->redisCtx);
     ++resultSize;
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
@@ -1117,15 +1119,15 @@ DEBUG_COMMAND(InfoTagIndex) {
     RedisModule_ReplyWithStringBuffer(ctx, tag, len);
 
     RedisModule_ReplyWithLiteral(ctx, "num_entries");
-    RedisModule_ReplyWithLongLong(ctx, iv->numDocs);
+    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumDocs(iv));
 
     RedisModule_ReplyWithLiteral(ctx, "num_blocks");
-    RedisModule_ReplyWithLongLong(ctx, iv->size);
+    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumBlocks(iv));
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
-      IndexReader *reader = NewTermIndexReader(iv);
-      ReplyReaderResults(reader, sctx->redisCtx);
+      QueryIterator *reader = NewInvIndIterator_TagFull(iv, idx);
+      ReplyIteratorResultsIDs(reader, sctx->redisCtx);
     }
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);
@@ -1793,6 +1795,9 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
 // Global counter for tracking yield calls during loading
 static size_t g_yieldCallCounter = 0;
 
+// Global variable for sleep time before yielding (in microseconds)
+static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+
 // Function to increment the yield counter (to be called from IndexerBulkAdd)
 void IncrementYieldCounter(void) {
   g_yieldCallCounter++;
@@ -1803,6 +1808,11 @@ void ResetYieldCounter(void) {
   g_yieldCallCounter = 0;
 }
 
+// Get the current sleep time before yielding (in microseconds)
+unsigned int GetIndexerSleepBeforeYieldMicros(void) {
+  return g_indexerSleepBeforeYieldMicros;
+}
+
 /**
  * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
  * Get or reset the counter for yields during loading operations
@@ -1811,11 +1821,11 @@ DEBUG_COMMAND(YieldCounter) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  
+
   if (argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
-  
+
   // Check if we need to reset the counter
   if (argc == 3) {
     size_t len;
@@ -1827,9 +1837,36 @@ DEBUG_COMMAND(YieldCounter) {
       return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
     }
   }
-  
+
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+}
+
+/**
+ * FT.DEBUG INDEXER_SLEEP_BEFORE_YIELD [<microseconds>]
+ * Get or set the sleep time in microseconds before yielding during indexing while loading
+ */
+DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+
+  if (argc > 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Set new sleep time
+  if (argc == 3) {
+    long long sleepMicros;
+    if (RedisModule_StringToLongLong(argv[2], &sleepMicros) != REDISMODULE_OK || sleepMicros < 0) {
+      return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
+    }
+
+    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  return RedisModule_WrongArity(ctx);
 }
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
@@ -1868,6 +1905,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */

@@ -28,6 +28,7 @@
 #include <pthread.h>
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rs_wall_clock.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -154,7 +155,7 @@ typedef struct {
   size_t offsetVecsSize;
   size_t offsetVecRecords;
   size_t termsSize;
-  size_t totalIndexTime;
+  rs_wall_clock_ns_t totalIndexTime;
   IndexError indexError;
   size_t totalDocsLen;
   uint32_t activeQueries;
@@ -557,10 +558,6 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index);
 int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsCursor *ac, bool initialScan,
                         QueryError *status);
 
-// Translate the field mask to an array of field indices based on the "on" bits
-// Out capacity should be enough to hold 128 fields
-uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out);
-
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)
  */
@@ -687,9 +684,14 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
- * Uses the sizes of the doc-table, tag and text overhead if they are not `0`.
+ * Uses the sizes of the doc-table, tag and text overhead if they are not `0`
+ * (otherwise compute them in-place). Vector overhead is expected to be passed in as an argument
+ * and will not be computed in-place
+ * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
+ * currently it is a best effort that account only for part of the actual memory.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
+  size_t text_overhead, size_t vector_overhead);
 
 /**
 * obfuscate argument is used to determine how we will format the index name

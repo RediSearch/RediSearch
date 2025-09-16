@@ -12,7 +12,6 @@
 #include "inverted_index.h"
 #include "geo_index.h"
 #include "vector_index.h"
-#include "index.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "config.h"
@@ -29,9 +28,8 @@ extern void IncrementYieldCounter(void);
 
 #include <unistd.h>
 
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, IndexEncoder encoder,
-                            ForwardIndexEntry *entry) {
-  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, encoder, entry);
+static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
+  size_t sz = InvertedIndex_WriteForwardIndexEntry(idx, entry);
 
   // Update index statistics:
 
@@ -99,7 +97,6 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it);
-  IndexEncoder encoder = InvertedIndex_GetEncoder(aCtx->specFlags);
 
   while (entry != NULL) {
     bool isNew;
@@ -115,11 +112,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       if (invidx) {
         entry->docId = aCtx->doc->docId;
         RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-        IndexerYieldWhileLoading(ctx->redisCtx);
         writeIndexEntry(spec, invidx, encoder, entry);
-        if (Index_StoreFieldMask(spec)) {
-          invidx->fieldMask |= entry->fieldMask;
-        }
       }
     }
 
@@ -250,8 +243,6 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
-
-      IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -315,15 +306,14 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
     InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->fieldName);
     if (iiMissingDocs == NULL) {
       size_t index_size;
-      iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
+      iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
         aCtx->spec->stats.invertedSize += index_size;
       dictAdd(spec->missingFieldDict, (void*)fs->fieldName, iiMissingDocs);
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
-    IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-    RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, enc, docId, &rec);
+    RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+    aCtx->spec->stats.invertedSize +=InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
   }
   dictReleaseIterator(iter);
   dictRelease(df_fields_dict);
@@ -337,14 +327,13 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   if (!sctx->spec->existingDocs) {
     // Create the inverted index if it doesn't exist
     size_t index_size;
-    aCtx->spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, 1, &index_size);
+    aCtx->spec->existingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
     aCtx->spec->stats.invertedSize += index_size;
   }
 
   t_docId docId = aCtx->doc->docId;
-  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
-  RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, enc, docId, &rec);
+  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
+  aCtx->spec->stats.invertedSize += InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
 }
 
 /**
@@ -417,14 +406,21 @@ bool g_isLoading = false;
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
+ * @param numOps Tue number of operations to count in the counter before considering RSGlobalConfig.indexerYieldEveryOpsWhileLoading. These are related to the number of fields in the document
+ * @param flags The flags to pass to RedisModule_Yield
  */
-static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
   static size_t opCounter = 0;
 
-  // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
-    opCounter = 0;
+  // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
+  opCounter += numOps;
+  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+    opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
     IncrementYieldCounter(); // Track that we called yield
-    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+    unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
+    if (sleepMicros > 0) {
+      usleep(sleepMicros);
+    }
+    RedisModule_Yield(ctx, flags, NULL);
   }
 }

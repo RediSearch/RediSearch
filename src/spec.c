@@ -42,6 +42,9 @@
 #include "util/hash/hash.h"
 #include "reply_macros.h"
 #include "notifications.h"
+#include "info/field_spec_info.h"
+#include "rs_wall_clock.h"
+#include "util/redis_mem_info.h"
 #include "search_disk.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
@@ -158,10 +161,11 @@ static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
   if(RSGlobalConfig.indexingMemoryLimit == 0) {
     return false;
   }
-  // Get the memory limit and memory usage
-  setMemoryInfo(ctx);
-  // Check if used memory crossed the threshold
-  return (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit) ;
+
+  float used_memory_ratio = RedisMemory_GetUsedMemoryRatioUnified(ctx);
+  float memory_limit_ratio = (float)RSGlobalConfig.indexingMemoryLimit / 100;
+
+  return (used_memory_ratio > memory_limit_ratio) ;
 }
 /*
  * Initialize the spec's fields that are related to the cursors.
@@ -474,7 +478,8 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead) {
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
+  size_t text_overhead, size_t vector_overhead) {
   size_t res = 0;
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
@@ -485,6 +490,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += sp->stats.invertedSize;
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
+  res += vector_overhead;
   return res;
 }
 
@@ -1180,11 +1186,6 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     result = parseVectorField_hnsw(fs, params, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
-    // TODO: remove when multi is supported
-    if (multi) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Multi-value index is currently not supported for SVS-VAMANA algorithm", AC_Strerror(rc));
-      return 0;
-    }
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
 
@@ -1195,7 +1196,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
     params->primaryIndexParams->algoParams.svsParams.graph_max_degree = SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE;
     params->primaryIndexParams->algoParams.svsParams.construction_window_size = SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE;
-    params->primaryIndexParams->algoParams.svsParams.multi = false;  // TODO: change to =multi when we support it.
+    params->primaryIndexParams->algoParams.svsParams.multi = multi;
     params->primaryIndexParams->algoParams.svsParams.num_threads = workersThreadPool_NumThreads();
     params->primaryIndexParams->algoParams.svsParams.leanvec_dim = SVS_VAMANA_DEFAULT_LEANVEC_DIM;
     params->primaryIndexParams->logCtx = logCtx;
@@ -1520,32 +1521,6 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   }
 
   return rc;
-}
-
-static inline uint64_t HighPart(t_fieldMask mask) { return mask >> 64; }
-static inline uint64_t LowPart(t_fieldMask mask) { return (uint64_t)mask; }
-
-static inline uint16_t TranslateMask(uint64_t maskPart, t_fieldIndex *translationTable, t_fieldIndex *out, uint16_t n, uint8_t offset) {
-  for (int lsbPos = ffsll(maskPart); lsbPos && (offset + lsbPos - 1) < array_len(translationTable); lsbPos = ffsll(maskPart)) {
-    const t_fieldId ftId = offset + lsbPos - 1;
-    RS_LOG_ASSERT(ftId < array_len(translationTable), "ftId out of bounds");
-    out[n++] = translationTable[ftId];
-    maskPart &= ~(1 << (lsbPos - 1));
-  }
-  return n;
-}
-
-uint16_t IndexSpec_TranslateMaskToFieldIndices(const IndexSpec *sp, t_fieldMask mask, t_fieldIndex *out) {
-  uint16_t count = 0;
-  const uint8_t LOW_OFFSET = 0;
-  if (sizeof(mask) == sizeof(uint64_t)) {
-    count = TranslateMask(mask, sp->fieldIdToIndex, out, count, LOW_OFFSET);
-  } else {
-    const uint8_t HIGH_OFFSET = 64;
-    count = TranslateMask(LowPart(mask), sp->fieldIdToIndex, out, count, LOW_OFFSET);
-    count = TranslateMask(HighPart(mask), sp->fieldIdToIndex, out, count, HIGH_OFFSET);
-  }
-  return count;
 }
 
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
@@ -2082,6 +2057,21 @@ void IndexSpec_InitializeSynonym(IndexSpec *sp) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+static void IndexSpec_InitLock(IndexSpec *sp) {
+  int res = 0;
+  pthread_rwlockattr_t attr;
+  res = pthread_rwlockattr_init(&attr);
+  RS_ASSERT(res == 0);
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
+  int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
+  res = pthread_rwlockattr_setkind_np(&attr, pref);
+  RS_ASSERT(res == 0);
+#endif
+
+  pthread_rwlock_init(&sp->rwlock, &attr);
+}
+
+
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   sp->fields = rm_calloc(sizeof(FieldSpec), SPEC_MAX_FIELDS);
@@ -2111,17 +2101,7 @@ IndexSpec *NewIndexSpec(const HiddenString *name) {
   memset(&sp->stats, 0, sizeof(sp->stats));
   sp->stats.indexError = IndexError_Init();
 
-  int res = 0;
-  pthread_rwlockattr_t attr;
-  res = pthread_rwlockattr_init(&attr);
-  RS_ASSERT(res == 0);
-#if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
-  int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
-  res = pthread_rwlockattr_setkind_np(&attr, pref);
-  RS_ASSERT(res == 0);
-#endif
-
-  pthread_rwlock_init(&sp->rwlock, &attr);
+  IndexSpec_InitLock(sp);
 
   return sp;
 }
@@ -2941,6 +2921,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   RedisModule_Free(rawName);
 
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
   // setting isDuplicate to true will make sure index will not be removed from aliases container.
@@ -3008,7 +2989,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     RS_ASSERT(disk_db);
     sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
   }
-  
+
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   /* For version 3 or up - load the generic trie */
   //  if (encver >= 3) {
@@ -3081,6 +3062,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
+  IndexSpec_InitLock(sp);
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
 
@@ -3186,7 +3168,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
-
   // Subscribe to keyspace notifications
   Initialize_KeyspaceNotifications();
 
@@ -3384,7 +3365,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  clock_t startDocTime = clock();
+  rs_wall_clock startDocTime;
+  rs_wall_clock_init(&startDocTime);
 
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
@@ -3415,6 +3397,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  unsigned int numOps = doc.numFields != 0 ? doc.numFields: 1;
+  IndexerYieldWhileLoading(ctx, numOps, REDISMODULE_YIELD_FLAG_CLIENTS);
   RedisSearchCtx_LockSpecWrite(&sctx);
   IndexSpec_IncrActiveWrites(spec);
 
@@ -3424,7 +3408,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   Document_Free(&doc);
 
-  spec->stats.totalIndexTime += clock() - startDocTime;
+  spec->stats.totalIndexTime += rs_wall_clock_elapsed_ns(&startDocTime);
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
   return REDISMODULE_OK;

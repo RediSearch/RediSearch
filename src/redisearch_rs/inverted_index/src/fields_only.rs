@@ -7,13 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{Read, Seek, Write};
+use std::io::{Cursor, Seek, Write};
 
 use ffi::{t_docId, t_fieldMask};
 use qint::{qint_decode, qint_encode};
 use varint::VarintEncode;
 
-use crate::{Decoder, Encoder, RSIndexResult};
+use crate::{DecodedBy, Decoder, Encoder, RSIndexResult};
 
 /// Encode and decode the delta and field mask of a record.
 ///
@@ -30,7 +30,7 @@ impl Encoder for FieldsOnly {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -44,15 +44,26 @@ impl Encoder for FieldsOnly {
     }
 }
 
+impl DecodedBy for FieldsOnly {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
 impl Decoder for FieldsOnly {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
-        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(reader)?;
+    fn decode<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+    ) -> std::io::Result<RSIndexResult<'index>> {
+        let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, field_mask] = decoded_values;
 
         let record = RSIndexResult::term()
             .doc_id(base + delta as t_docId)
-            .field_mask(field_mask as t_fieldMask)
-            .frequency(1);
+            .field_mask(field_mask as t_fieldMask);
         Ok(record)
     }
 }
@@ -72,7 +83,7 @@ impl Encoder for FieldsOnlyWide {
     type Delta = u32;
 
     fn encode<W: Write + Seek>(
-        &mut self,
+        &self,
         mut writer: W,
         delta: Self::Delta,
         record: &RSIndexResult,
@@ -83,15 +94,26 @@ impl Encoder for FieldsOnlyWide {
     }
 }
 
+impl DecodedBy for FieldsOnlyWide {
+    type Decoder = Self;
+
+    fn decoder() -> Self::Decoder {
+        Self
+    }
+}
+
 impl Decoder for FieldsOnlyWide {
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<RSIndexResult> {
-        let delta = u32::read_as_varint(reader)?;
-        let field_mask = u128::read_as_varint(reader)?;
+    fn decode<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+    ) -> std::io::Result<RSIndexResult<'index>> {
+        let delta = u32::read_as_varint(cursor)?;
+        let field_mask = u128::read_as_varint(cursor)?;
 
         let record = RSIndexResult::term()
             .doc_id(base + delta as t_docId)
-            .field_mask(field_mask)
-            .frequency(1);
+            .field_mask(field_mask);
         Ok(record)
     }
 }

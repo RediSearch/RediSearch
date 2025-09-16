@@ -276,7 +276,7 @@ typedef struct {
 } RSVirtualRecord;
 
 
-#define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
+#define RS_RESULT_NUMERIC (RSResultData_Numeric | RSResultData_Metric)
 
 // Forward declaration of needed structs
 struct RLookupKey;

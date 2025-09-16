@@ -198,15 +198,6 @@ inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
   return v;
 }
 
-RSValue *RS_StringValFmt(const char *fmt, ...) {
-  char *buf;
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf(&buf, fmt, ap);
-  va_end(ap);
-  return RS_StringVal(buf, strlen(buf));
-}
-
 /* Wrap a redis string value */
 RSValue *RS_RedisStringVal(RedisModuleString *str) {
   RSValue *v = RS_NewValue(RSValue_RedisString);
@@ -735,7 +726,7 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
       return REDISMODULE_OK;
 
     case RSValue_Map:
-      // If Map value is used, assume Map api exists (RedisModule_HasMap)
+      // If Map value is used, assume Map api exists (RedisModule_IsRESP3)
       RedisModule_Reply_Map(reply);
       for (uint32_t i = 0; i < v->mapval.len; i++) {
           RSValue_SendReply(reply, v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], flags);
@@ -828,101 +819,5 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
     case RSValue_Duo:
       return RSValue_DumpSds(RS_DUOVAL_VAL(*v), s, obfuscate);
       break;
-  }
-}
-
-/*
- *  - s: will be parsed as a string
- *  - l: Will be parsed as a long integer
- *  - d: Will be parsed as a double
- *  - !: will be skipped
- *  - ?: means everything after is optional
- */
-
-int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {
-
-  va_list ap;
-  va_start(ap, fmt);
-  const char *p = fmt;
-  size_t i = 0;
-  int optional = 0;
-  while (i < argc && *p) {
-    switch (*p) {
-      case 's': {
-        char **ptr = va_arg(ap, char **);
-        if (!RSValue_IsString(args[i])) {
-          goto err;
-        }
-        *ptr = (char *)RSValue_StringPtrLen(args[i], NULL);
-        break;
-      }
-      case 'l': {
-        long long *lp = va_arg(ap, long long *);
-        double d;
-        if (!RSValue_ToNumber(args[i], &d)) {
-          goto err;
-        }
-        *lp = (long long)d;
-        break;
-      }
-      case 'd': {
-        double *dp = va_arg(ap, double *);
-        if (!RSValue_ToNumber(args[i], dp)) {
-          goto err;
-        }
-        break;
-      }
-      case '!':
-        // do nothing...
-        break;
-      case '?':
-        optional = 1;
-        // reduce i because it will be incremented soon
-        i -= 1;
-        break;
-      default:
-        goto err;
-    }
-    ++i;
-    ++p;
-  }
-  // if we have stuff left to read in the format but we haven't gotten to the optional part -fail
-  if (*p && !optional && i < argc) {
-    goto err;
-  }
-  // if we don't have anything left to read from the format but we haven't gotten to the array's
-  // end, fail
-  if (*p == 0 && i < argc) {
-    goto err;
-  }
-
-  va_end(ap);
-  return 1;
-err:
-  va_end(ap);
-  return 0;
-}
-
-const char *RSValue_TypeName(RSValueType t) {
-  switch (t) {
-    case RSValue_Array:
-      return "array";
-    case RSValue_Map:
-      return "map";
-    case RSValue_Number:
-      return "number";
-    case RSValue_String:
-      return "string";
-    case RSValue_Null:
-      return "(null)";
-    case RSValue_OwnRstring:
-    case RSValue_RedisString:
-      return "redis-string";
-    case RSValue_Reference:
-      return "reference";
-    case RSValue_Duo:
-      return "duo";
-    default:
-      return "!!UNKNOWN TYPE!!";
   }
 }

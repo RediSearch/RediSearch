@@ -269,20 +269,19 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
 }
 
 /** Write a forward-index entry to the index */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
-                                            ForwardIndexEntry *ent) {
-  RSIndexResult rec = {.type = RSResultType_Term,
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
+  RSIndexResult rec = {.data.term_tag = RSResultData_Term,
                        .docId = ent->docId,
-                       .offsetsSz = VVW_GetByteLength(ent->vw),
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask};
 
-  rec.data.term.term = NULL;
+  RSQueryTerm *term = IndexResult_QueryTermRef(&rec);
+  term = NULL;
+  RSOffsetVector *offsets = IndexResult_TermOffsetsRefMut(&rec);
   if (ent->vw) {
-    rec.data.term.offsets.data = (char *) VVW_GetByteData(ent->vw);
-    rec.data.term.offsets.len = VVW_GetByteLength(ent->vw);
+    RSOffsetVector_SetData(offsets, (char *) VVW_GetByteData(ent->vw), VVW_GetByteLength(ent->vw));
   }
-  return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
+  return InvertedIndex_WriteEntryGeneric(idx, &rec);
 }
 
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {

@@ -22,13 +22,15 @@ FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
+SVS_PRE_COMPILED_LIB=${SVS_PRE_COMPILED_LIB:-0} # Use SVS pre-compiled library
 
 # Test configuration (0=disabled, 1=enabled)
-BUILD_TESTS=0    # Build test binaries
-RUN_UNIT_TESTS=0 # Run C/C++ unit tests
-RUN_RUST_TESTS=0 # Run Rust tests
-RUN_PYTEST=0     # Run Python tests
-RUN_ALL_TESTS=0  # Run all test types
+BUILD_TESTS=0          # Build test binaries
+RUN_UNIT_TESTS=0       # Run C/C++ unit tests
+RUN_RUST_TESTS=0       # Run Rust tests
+RUN_RUST_VALGRIND=0    # Run Valgrind Rust tests
+RUN_PYTEST=0           # Run Python tests
+RUN_ALL_TESTS=0        # Run all test types
 RUN_MICRO_BENCHMARKS=0 # Run micro-benchmarks
 
 # Rust configuration
@@ -37,6 +39,9 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
                  # the operations to be performed
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
+
+# Rust code is built first, so exclude crates that link C code, since the static libraries they depend on haven't been built yet.
+RUST_EXCLUDE_CRATES="--exclude inverted_index_bencher --exclude rqe_iterators_bencher"
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -65,6 +70,9 @@ parse_arguments() {
         ;;
       RUN_RUST_TESTS|run_rust_tests)
         RUN_RUST_TESTS=1
+        ;;
+      RUN_RUST_VALGRIND|run_rust_valgrind)
+        RUN_RUST_VALGRIND=1
         ;;
       RUN_MICRO_BENCHMARKS|run_micro_benchmarks|RUN_MICROBENCHMARKS|run_microbenchmarks)
         RUN_MICRO_BENCHMARKS=1
@@ -108,6 +116,9 @@ parse_arguments() {
       REDIS_STANDALONE=*)
         REDIS_STANDALONE="${arg#*=}"
         ;;
+      SVS_PRE_COMPILED_LIB=*)
+        SVS_PRE_COMPILED_LIB="${arg#*=}"
+        ;;
       *)
         # Pass all other arguments directly to CMake
         CMAKE_ARGS="$CMAKE_ARGS -D${arg}"
@@ -122,7 +133,7 @@ parse_arguments() {
 #-----------------------------------------------------------------------------
 setup_test_configuration() {
   # If any tests will be run, ensure BUILD_TESTS is enabled
-  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
+  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_RUST_VALGRIND" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
     if [[ "$BUILD_TESTS" != "1" ]]; then
       echo "Test execution requested, enabling test build automatically"
       BUILD_TESTS="1"
@@ -308,6 +319,10 @@ prepare_cmake_arguments() {
   if [[ "$OS_NAME" == "macos" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
   fi
+
+  if [[ "$SVS_PRE_COMPILED_LIB" == "0" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -359,13 +374,15 @@ run_cmake() {
 build_redisearch_rs() {
   echo "Building redisearch_rs..."
   REDISEARCH_RS_DIR="$ROOT/src/redisearch_rs"
+  REDISEARCH_RS_TARGET_DIR="$ROOT/bin/redisearch_rs"
   REDISEARCH_RS_BINDIR="$BINDIR/redisearch_rs"
 
-  # Export environment variables for CMake to use
-  export RUST_PROFILE="$RUST_PROFILE"
-  export RUST_DYN_CRT="$RUST_DYN_CRT"
-  export RUSTFLAGS="${RUSTFLAGS:--D warnings}"
-
+  # Determine Rust artifact directory based on the chosen profile
+  if [[ "$RUST_PROFILE" == "dev" ]]; then
+    RUST_ARTIFACT_SUBDIR="debug"
+  else
+    RUST_ARTIFACT_SUBDIR="$RUST_PROFILE"
+  fi
   # Set up RUSTFLAGS for dynamic C runtime if needed
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     # Disable statically linking the C runtime.
@@ -374,28 +391,17 @@ build_redisearch_rs() {
     # See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
   fi
+  # Build using cargo
+  mkdir -p "$REDISEARCH_RS_TARGET_DIR"
+  pushd .
+  cd "$REDISEARCH_RS_DIR"
+  # Rust code is built first, so exclude crates linking on C code as the internal lib is not built yet.
+  # Keep the exclude list synced with the clippy and rustdoc exclude lists in Makefile.
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --workspace $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C --profile="$RUST_PROFILE"
 
-  # Use CMake to build the Rust components
-  # Create a temporary build directory for just the Rust components
-  RUST_BUILD_DIR="$BINDIR/redisearch_rs_build"
-  mkdir -p "$RUST_BUILD_DIR"
-
-  pushd "$RUST_BUILD_DIR"
-  # Configure and build using CMake
-  # Map FLAVOR to CMAKE_BUILD_TYPE
-  if [[ "$FLAVOR" == "debug" ]]; then
-    CMAKE_BUILD_TYPE="Debug"
-  else
-    CMAKE_BUILD_TYPE="RelWithDebInfo"
-  fi
-
-  # Determine COORD_TYPE if not set
-  if [[ -z "$COORD_TYPE" ]]; then
-    COORD_TYPE="oss"
-  fi
-
-  cmake "$REDISEARCH_RS_DIR" -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" -DCOORD_TYPE="$COORD_TYPE"
-  make redisearch_rs
+  # Copy artifacts to the target directory
+  mkdir -p "$REDISEARCH_RS_BINDIR"
+  cp "$REDISEARCH_RS_TARGET_DIR/$RUST_ARTIFACT_SUBDIR"/*.a "$REDISEARCH_RS_BINDIR"
   popd
 }
 
@@ -544,34 +550,36 @@ run_rust_tests() {
 
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
-  
+
   # Set up RUSTFLAGS for warnings
   if [[ "$RUST_DENY_WARNS" == "1" ]]; then
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
   fi
 
+  # Pin a specific working version of nightly to prevent breaking the CI because
+  # regressions in a nightly build.
+  # Make sure to synchronize updates across all modules: Redis and RedisJSON.
+  NIGHTLY_VERSION="nightly-2025-07-30"
+
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
-    RUST_EXTENSIONS="+nightly llvm-cov"
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
     RUST_TEST_OPTIONS="
       --doctests
       --codecov
-      --workspace
-      --exclude=inverted_index_bencher
-      --exclude=trie_bencher
-      --exclude=varint_bencher
+      $RUST_EXCLUDE_CRATES
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" || "$RUN_MIRI" == "1" ]]; then # using `elif` as we shouldn't run with both
-    RUST_EXTENSIONS="+nightly miri"
+    RUST_EXTENSIONS="+$NIGHTLY_VERSION miri"
   fi
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -579,6 +587,53 @@ run_rust_tests() {
     echo "All Rust tests passed!"
   else
     echo "Some Rust tests failed. Check the test logs above for details."
+    HAS_FAILURES=1
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Function: run_rust_valgrind_tests
+# Run Rust Valgrind tests (to detect memory leaks)
+#-----------------------------------------------------------------------------
+run_rust_valgrind_tests() {
+  if [[ "$RUN_RUST_VALGRIND" != "1" ]]; then
+    return 0
+  fi
+
+  echo "Running Rust tests..."
+
+  # Set Rust test environment
+  RUST_DIR="$ROOT/src/redisearch_rs"
+
+  # Set up RUSTFLAGS for warnings
+  if [[ "$RUST_DENY_WARNS" == "1" ]]; then
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-D warnings"
+  fi
+
+  cd "$RUST_DIR"
+
+  if [[ "$OS_NAME" == "macos" ]]; then
+    # no valgrind on apple silicon... so...
+    echo "The valgrind test target is only supported on Linux"
+    HAS_FAILURES=1
+    return 0
+  else
+    # Run cargo valgrind with the appropriate filter
+    VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp \
+        RUSTFLAGS="${RUSTFLAGS:--D warnings}" \
+        cargo valgrind test \
+        --profile=$RUST_PROFILE \
+        $RUST_TEST_OPTIONS \
+        --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER \
+        -- --nocapture
+  fi
+
+  # Check test results
+  RUST_TEST_RESULT=$?
+  if [[ $RUST_TEST_RESULT -eq 0 ]]; then
+    echo "Rust Valgrind test passed!"
+  else
+    echo "Some Rust valgrind tests failed. Check the test logs above for details."
     HAS_FAILURES=1
   fi
 }
@@ -754,6 +809,9 @@ build_project
 
 # Run tests if requested
 run_tests
+
+# Run Rust valgrind tests if requested
+run_rust_valgrind_tests
 
 # Run micro-benchmarks if requested
 run_micro_benchmarks

@@ -15,22 +15,13 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
+#include "iterators/empty_iterator.h"
+#include "rs_wall_clock.h"
 #include "search_disk.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
-
-void QITR_Cleanup(QueryIterator *qitr) {
-  ResultProcessor *p = qitr->rootProc;
-  while (p) {
-    ResultProcessor *next = p->upstream;
-    if (p->Free) {
-      p->Free(p);
-    }
-    p = next;
-  }
-}
 
 // Allocates a new SearchResult, and populates it with `r`'s data (takes
 // ownership as well)
@@ -63,7 +54,7 @@ void SearchResult_Clear(SearchResult *r) {
 /* Free the search result object including the object itself */
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
-  RLookupRow_Cleanup(&r->rowdata);
+  RLookupRow_Reset(&r->rowdata);
 }
 
 // Overwrites the contents of 'dst' with those from 'src'.
@@ -72,7 +63,7 @@ static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
   if (!src) return;
   RLookupRow oldrow = dst->rowdata;
   *dst = *src;
-  RLookupRow_Cleanup(&oldrow);
+  RLookupRow_Reset(&oldrow);
 }
 
 
@@ -93,26 +84,33 @@ static int UnlockSpec_and_ReturnRPResult(ResultProcessor *base, int result_statu
 }
 typedef struct {
   ResultProcessor base;
-  IndexIterator *iiter;
+  QueryIterator *iterator;
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
-} RPIndexIterator;
+} RPQueryIterator;
 
 /* Next implementation */
-static int rpidxNext(ResultProcessor *base, SearchResult *res) {
-  RPIndexIterator *self = (RPIndexIterator *)base;
-  IndexIterator *it = self->iiter;
+static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
+  RPQueryIterator *self = (RPQueryIterator *)base;
+  QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = RP_SCTX(base);
+  DocTable* docs = &RP_SPEC(base)->docs;
+  const RSDocumentMetadata *dmd;
+
   if (sctx->flags == RS_CTX_UNSET) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
     RedisSearchCtx_LockSpecRead(RP_SCTX(base));
-    //it->ReOpen(it->ctx);
-    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
+    ValidateStatus rc = it->Revalidate(it);
+    if (rc == VALIDATE_ABORTED) {
+      // The iterator is no longer valid, we should not use it.
+      self->iterator->Free(self->iterator);
+      it = self->iterator = NewEmptyIterator(); // Replace with a new empty iterator
+    } else if (rc == VALIDATE_MOVED && !it->atEOF) {
+      // The iterator is still valid, but the current result has changed, or we are at EOF.
+      // If we are at EOF, we can enter the loop and let it handle it. (reading again should be safe)
+      goto validate_current;
+    }
   }
-
-  RSIndexResult *r;
-  const RSDocumentMetadata *dmd;
-  int rc;
 
   // Read from the root filter until we have a valid result
   while (1) {
@@ -120,20 +118,18 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     }
-    rc = it->Read(it->ctx, &r);
+    IteratorStatus rc = it->Read(it);
     switch (rc) {
-    case INDEXREAD_EOF:
+    case ITERATOR_EOF:
       // This means we are done!
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_EOF);
-    case INDEXREAD_TIMEOUT:
+    case ITERATOR_TIMEOUT:
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
-    case INDEXREAD_NOTFOUND:
-      continue;
-    default: // INDEXREAD_OK
-      if (!r)
-        continue;
+    default:
+      RS_ASSERT(rc == ITERATOR_OK);
     }
 
+validate_current:
     IndexSpec* spec = RP_SPEC(base);
     if (spec->diskSpec) {
       RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
@@ -146,11 +142,11 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
       }
       dmd = diskDmd;
     } else {
-      DocTable* docs = &spec->docs;
-      if (r->dmd) {
-        dmd = r->dmd;
+
+      if (it->current->dmd) {
+        dmd = it->current->dmd;
       } else {
-        dmd = DocTable_Borrow(docs, r->docId);
+        dmd = DocTable_Borrow(docs, it->lastDocId);
       }
       if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd, &sctx->time.current)) {
         DMD_Return(dmd);
@@ -176,36 +172,39 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   }
 
   // set the result data
-  res->docId = r->docId;
-  res->indexResult = r;
+  res->docId = it->lastDocId;
+  res->indexResult = it->current;
   res->score = 0;
   res->dmd = dmd;
   RLookupRow_SetSortingVector(&res->rowdata, dmd->sortVector);
   return RS_RESULT_OK;
 }
 
-static void rpidxFree(ResultProcessor *iter) {
+static void rpQueryItFree(ResultProcessor *iter) {
+  RPQueryIterator *self = (RPQueryIterator *)iter;
+  self->iterator->Free(self->iterator);
   rm_free(iter);
 }
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *root) {
-  RPIndexIterator *ret = rm_calloc(1, sizeof(*ret));
-  ret->iiter = root;
-  ret->base.Next = rpidxNext;
-  ret->base.Free = rpidxFree;
+ResultProcessor *RPQueryIterator_New(QueryIterator *root) {
+  RS_ASSERT(root != NULL);
+  RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
+  ret->iterator = root;
+  ret->base.Next = rpQueryItNext;
+  ret->base.Free = rpQueryItFree;
   ret->base.type = RP_INDEX;
   return &ret->base;
 }
 
-IndexIterator *QITR_GetRootFilter(QueryIterator *it) {
+QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
   /* On coordinator, the root result processor will be a network result processor and we should ignore it */
   if (it->rootProc->type == RP_INDEX) {
-      return ((RPIndexIterator *)it->rootProc)->iiter;
+    return ((RPQueryIterator *)it->rootProc)->iterator;
   }
   return NULL;
 }
 
-void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
+void QITR_PushRP(QueryProcessingCtx *it, ResultProcessor *rp) {
   rp->parent = it;
   if (!it->rootProc) {
     it->endProc = it->rootProc = rp;
@@ -216,7 +215,7 @@ void QITR_PushRP(QueryIterator *it, ResultProcessor *rp) {
   it->endProc = rp;
 }
 
-void QITR_FreeChain(QueryIterator *qitr) {
+void QITR_FreeChain(QueryProcessingCtx *qitr) {
   ResultProcessor *rp = qitr->endProc;
   while (rp) {
     ResultProcessor *next = rp->upstream;
@@ -430,7 +429,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == FailurePolicy_Return)) {
     self->timedOut = true;
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
@@ -766,7 +765,7 @@ typedef struct RPSafeLoader {
 
 static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
   // Free the RLookup row before overriding it.
-  RLookupRow_Cleanup(&result_output->rowdata);
+  RLookupRow_Reset(&result_output->rowdata);
   *result_output = *buffered_result;
 }
 
@@ -900,7 +899,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == FailurePolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
@@ -914,8 +913,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisSearchCtx_UnlockSpec(sctx);
 
   bool isQueryProfile = rp->parent->isProfile;
-  struct timespec rpStartTime, rpEndTime;
-  if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpStartTime);
+  rs_wall_clock rpStartTime;
+  if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
@@ -925,10 +924,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
   if (isQueryProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-    rs_timersub(&rpEndTime, &rpStartTime, &rpEndTime);
-    rs_timeradd(&rpEndTime, &rp->GILTime, &rp->GILTime);
-    rs_timeradd(&rpEndTime, &rp->parent->GILTime, &rp->parent->GILTime);
+    // GIL time is time passed since rpStartTime combined with the time we already accumulated in the rp->GILTime
+    rp->parent->GILTime += rs_wall_clock_elapsed_ns(&rpStartTime);
   }
 
   // Move to the yielding phase
@@ -1105,16 +1102,17 @@ const char *RPTypeToString(ResultProcessorType type) {
 
 typedef struct {
   ResultProcessor base;
-  clock_t profileTime;
+  rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   RPProfile *self = (RPProfile *)base;
 
-  clock_t rpStartTime = clock();
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
   int rc = base->upstream->Next(base->upstream, r);
-  self->profileTime += clock() - rpStartTime;
+  self->profileTime += rs_wall_clock_elapsed_ns(&start);
   self->profileCount++;
   return rc;
 }
@@ -1124,7 +1122,7 @@ static void rpProfileFree(ResultProcessor *base) {
   rm_free(rp);
 }
 
-ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qiter) {
   RPProfile *rpp = rm_calloc(1, sizeof(*rpp));
 
   rpp->profileCount = 0;
@@ -1137,7 +1135,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter) {
   return &rpp->base;
 }
 
-clock_t RPProfile_GetClock(ResultProcessor *rp) {
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   return self->profileTime;
 }
@@ -1147,7 +1145,7 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
   return self->profileCount;
 }
 
-void Profile_AddRPs(QueryIterator *qiter) {
+void Profile_AddRPs(QueryProcessingCtx *qiter) {
   ResultProcessor *cur = qiter->endProc = RPProfile_New(qiter->endProc, qiter);
   while (cur && cur->upstream && cur->upstream->upstream) {
     cur = cur->upstream;
@@ -1187,9 +1185,8 @@ static int rpcountNext(ResultProcessor *base, SearchResult *res) {
   return rc;
 }
 
-/* Free impl. for scorer - frees up the scorer privdata if needed */
 static void rpcountFree(ResultProcessor *rp) {
-  RPScorer *self = (RPScorer *)rp;
+  RPCounter *self = (RPCounter *)rp;
   rm_free(self);
 }
 
@@ -1253,14 +1250,14 @@ static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout) {
     clock_gettime(CLOCK_MONOTONIC_RAW, &now);
     rp_timeout->parent->sctx->time.timeout = now;
 
-    // search upstream for rpidxNext to set timeout limiter
+    // search upstream for rpQueryItNext to set timeout limiter
     ResultProcessor *cur = rp_timeout->upstream;
     while (cur && cur->type != RP_INDEX) {
         cur = cur->upstream;
     }
 
     if (cur) { // This is a shard pipeline
-      RPIndexIterator *rp_index = (RPIndexIterator *)cur;
+      RPQueryIterator *rp_index = (RPQueryIterator *)cur;
       rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
     }
 }
@@ -1392,7 +1389,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   if (rc == RS_RESULT_EOF) {
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == FailurePolicy_Return)) {
     self->timedOut = true;
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
