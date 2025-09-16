@@ -613,15 +613,16 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
   t_docId maxDocId = 100;
   size_t numDocs = 50;
   double childWeight = 3.0;
+  double weight = 2.0;
 
   // Create a mock QueryEvalCtx
   MockQueryEvalCtx ctx(maxDocId, numDocs);
 
   // Create wildcard child iterator
-  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, numDocs, 2.0);
+  QueryIterator *wildcardChild = NewWildcardIterator_NonOptimized(maxDocId, numDocs, childWeight);
 
   // Create optional iterator with wildcard child - should return the child directly
-  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, childWeight);
+  QueryIterator *it = NewOptionalIterator(wildcardChild, &ctx.qctx, weight);
 
   // Verify it's the same iterator (optimization returns child directly)
   ASSERT_TRUE(it->type == WILDCARD_ITERATOR);
@@ -630,7 +631,7 @@ TEST_F(OptionalIteratorReducerTest, TestOptionalWithWildcardChild) {
   // Read first document and check properties - should have child's weight
   ASSERT_EQ(it->Read(it), ITERATOR_OK);
   ASSERT_EQ(it->current->docId, 1);
-  ASSERT_EQ(it->current->weight, childWeight);
+  ASSERT_EQ(it->current->weight, childWeight * weight);
   ASSERT_EQ(it->current->data.tag, RSResultData_Virtual);
 
   it->Free(it);
