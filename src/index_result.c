@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_result.h"
+#include "redisearch_rs/headers/types_rs.h"
 #include "varint.h"
 #include "types_rs.h"
 #include "rmalloc.h"
@@ -66,9 +67,10 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     {
       const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(res);
 
+      const uint8_t mask = AggregateResult_KindMask(agg);
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return AggregateResult_KindMask(agg) != RSResultData_Virtual && AggregateResult_KindMask(agg) != RS_RESULT_NUMERIC;
+      return mask != RSResultData_Virtual && mask != RS_RESULT_NUMERIC;
     }
     // a virtual result doesn't have offsets!
     case RSResultData_Virtual:
@@ -102,15 +104,15 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   int i = 0;
   while (i < num) {
     // if either
-    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_Get(agg, i))) {
+    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_GetUnchecked(agg, i))) {
       i++;
       continue;
     }
     if (i == num) break;
-    v1 = RSIndexResult_IterateOffsets(AggregateResult_Get(agg, i));
+    v1 = RSIndexResult_IterateOffsets(AggregateResult_GetUnchecked(agg, i));
     i++;
 
-    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_Get(agg, i))) {
+    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_GetUnchecked(agg, i))) {
       i++;
       continue;
     }
@@ -118,7 +120,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
       v1.Free(v1.ctx);
       break;
     }
-    v2 = RSIndexResult_IterateOffsets(AggregateResult_Get(agg, i));
+    v2 = RSIndexResult_IterateOffsets(AggregateResult_GetUnchecked(agg, i));
 
     uint32_t p1 = v1.Next(v1.ctx, NULL);
     uint32_t p2 = v2.Next(v2.ctx, NULL);
@@ -139,7 +141,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   }
 
   // we return 1 if distance could not be calculate, to avoid division by zero
-  return dist ? sqrt(dist) : AggregateResult_NumChildren(agg) - 1;
+  return dist ? sqrt(dist) : num - 1;
 }
 
 void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {

@@ -180,7 +180,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
       size_t numChildren = AggregateResult_NumChildren(agg);
 
       if (numChildren == 1) {
-        return RSIndexResult_IterateOffsets(AggregateResult_Get(agg, 0));
+        return RSIndexResult_IterateOffsets(AggregateResult_GetUnchecked(agg, 0));
       }
       return _aggregateResult_iterate(agg);
       break;

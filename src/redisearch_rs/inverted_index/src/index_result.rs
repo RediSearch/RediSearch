@@ -415,14 +415,41 @@ impl<'index> RSAggregateResult<'index> {
         }
     }
 
-    /// Get the child at the given index, if it exists
-    ///
-    /// # Safety
-    /// The caller must ensure that the memory at the given index is still valid
+    /// Get the child at the given index, if it exists.
     pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index>> {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.get(index).copied(),
             RSAggregateResult::Owned { records, .. } => records.get(index).map(AsRef::as_ref),
+        }
+    }
+
+    /// Get the child at the given index, if it exists.
+    ///
+    /// # Safety
+    ///
+    /// 1. The index must be within the bounds of the children vector.
+    pub unsafe fn get_unchecked(&self, index: usize) -> &RSIndexResult<'index> {
+        match self {
+            RSAggregateResult::Borrowed { records, .. } => {
+                debug_assert!(
+                    index < records.len(),
+                    "Safety violation: trying to access an aggregate result child at an out-of-bounds index, {index}. Length: {}",
+                    records.len()
+                );
+                // SAFETY:
+                // - Thanks to precondition 1., we know that the index is within bounds.
+                unsafe { records.get_unchecked(index) }
+            }
+            RSAggregateResult::Owned { records, .. } => {
+                debug_assert!(
+                    index < records.len(),
+                    "Safety violation: trying to access an aggregate result child at an out-of-bounds index, {index}. Length: {}",
+                    records.len()
+                );
+                // SAFETY:
+                // - Thanks to precondition 1., we know that the index is within bounds.
+                unsafe { records.get_unchecked(index) }
+            }
         }
     }
 

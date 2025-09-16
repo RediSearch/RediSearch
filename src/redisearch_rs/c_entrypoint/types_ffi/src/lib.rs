@@ -361,7 +361,6 @@ pub unsafe extern "C" fn IndexResult_AggregateReset(result: *mut RSIndexResult) 
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
-/// - The memory address at `index` should still be valid and not have been deallocated.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn AggregateResult_Get<'result, 'index>(
     agg: *const RSAggregateResult<'index>,
@@ -374,6 +373,29 @@ pub unsafe extern "C" fn AggregateResult_Get<'result, 'index>(
     let agg = unsafe { &*agg };
 
     agg.get(index)
+}
+
+/// Get the result at the specified index in the aggregate result, without checking bounds.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+/// 2. `index` must be lower than the length of the aggregate result children vector.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AggregateResult_GetUnchecked<'result, 'index>(
+    agg: *const RSAggregateResult<'index>,
+    index: usize,
+) -> &'result RSIndexResult<'index> {
+    debug_assert!(!agg.is_null(), "agg must not be null");
+
+    // SAFETY: Caller is to ensure that the pointer `agg` is a valid, non-null pointer to
+    // an `RSAggregateResult`.
+    let agg = unsafe { &*agg };
+
+    // SAFETY:
+    // 1. Guaranteed by the caller thanks to safety precondition 1.
+    unsafe { agg.get_unchecked(index) }
 }
 
 /// Get the element count of the aggregate result.

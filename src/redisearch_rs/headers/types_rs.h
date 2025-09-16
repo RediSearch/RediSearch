@@ -692,10 +692,21 @@ void IndexResult_AggregateReset(struct RSIndexResult *result);
  *
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- * - The memory address at `index` should still be valid and not have been deallocated.
  */
 const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *agg,
                                                 uintptr_t index);
+
+/**
+ * Get the result at the specified index in the aggregate result, without checking bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * 2. `index` must be lower than the length of the aggregate result children vector.
+ */
+const struct RSIndexResult *AggregateResult_GetUnchecked(const union RSAggregateResult *agg,
+                                                         uintptr_t index);
 
 /**
  * Get the element count of the aggregate result.
