@@ -70,9 +70,14 @@ def test_hybrid_apply_filter_rrf():
     env = Env()
     setup_basic_index(env)
     query_vector = test_data['doc:4']['embedding']
+    search_query = "blue | shoes"
+    # RRF (Reciprocal Rank Fusion) calculation with default constant k=60:
+    # threshold = 2 * (1/(k + rank_search) + 1/(k + rank_vector))
+    # For doc:4: rank_search = 1 (highest relevance to search query "blue | shoes")
+    # For doc:4: rank_vector = 1 (closest vector match to query_vector)
     threshold = 2*(1/61 + 1/61)
     epsilon = 0.001
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', test_data['doc:4']['description'], 'VSIM' ,'@embedding', query_vector,\
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', query_vector,\
          'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', f'@doubled_score>{threshold - epsilon}')
     results = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:4"})
