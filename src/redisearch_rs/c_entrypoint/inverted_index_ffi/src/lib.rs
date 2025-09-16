@@ -775,3 +775,39 @@ pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docI
 
     ir_dispatch!(ir, skip_to, doc_id)
 }
+
+/// Seek the index reader to the entry with the given document ID. If such an entry exists, it will be
+/// written to the output parameter `res` and the function will return true. If there is no entry
+/// with the given document ID, but there are entries with higher document IDs, the next higher
+/// entry will be written to `res` and the function will return true. If there are no more entries
+/// with document IDs greater than or equal to the given document ID, the function will return false.
+///
+/// # Safety
+/// The following invariants must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+/// - `res` must be a valid pointer to an `RSIndexResult` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_Seek<'index, 'filter>(
+    ir: *mut IndexReader<'index, 'filter>,
+    doc_id: t_docId,
+    res: *mut RSIndexResult<'index>,
+) -> bool {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+    debug_assert!(!res.is_null(), "res must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &mut *ir };
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let res = unsafe { &mut *res };
+
+    match ir_dispatch!(ir, seek_record, doc_id) {
+        Ok(Some(new_res)) => {
+            *res = new_res;
+
+            true
+        }
+        Ok(None) => false,
+        Err(_) => false,
+    }
+}

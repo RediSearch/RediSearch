@@ -303,6 +303,22 @@ bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
  */
 bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
 
+/**
+ * Seek the index reader to the entry with the given document ID. If such an entry exists, it will be
+ * written to the output parameter `res` and the function will return true. If there is no entry
+ * with the given document ID, but there are entries with higher document IDs, the next higher
+ * entry will be written to `res` and the function will return true. If there are no more entries
+ * with document IDs greater than or equal to the given document ID, the function will return false.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `res` must be a valid pointer to an `RSIndexResult` instance.
+ */
+bool IndexReader_Seek(struct IndexReader *ir,
+                      t_docId doc_id,
+                      RSIndexResult *res);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
