@@ -877,3 +877,74 @@ pub unsafe extern "C" fn IndexReader_NumericFilter(ir: *const IndexReader) -> *c
         | IndexReader::RawDocumentIdOnly(_) => std::ptr::null(),
     }
 }
+
+/// Swap the inverted index of the reader with the given inverted index. This is only used by some
+/// C tests to trigger revalidation on the reader.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_SwapIndex(ir: *mut IndexReader, ii: *const InvertedIndex) {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+    debug_assert!(!ii.is_null(), "ii must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &mut *ir };
+
+    // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
+    let ii = unsafe { &*ii };
+
+    match (ir, ii) {
+        (IndexReader::Full(ir), InvertedIndex::Full(ii)) => ir.swap_index(&mut ii.inner()),
+        (IndexReader::FullWide(ir), InvertedIndex::FullWide(ii)) => ir.swap_index(&mut ii.inner()),
+        (IndexReader::FreqsFields(ir), InvertedIndex::FreqsFields(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        (IndexReader::FreqsFieldsWide(ir), InvertedIndex::FreqsFieldsWide(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        (IndexReader::FreqsOnly(ir), InvertedIndex::FreqsOnly(ii)) => {
+            let mut ii = ii;
+            ir.swap_index(&mut ii)
+        }
+        (IndexReader::FieldsOnly(ir), InvertedIndex::FieldsOnly(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        (IndexReader::FieldsOnlyWide(ir), InvertedIndex::FieldsOnlyWide(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        (IndexReader::FieldsOffsets(ir), InvertedIndex::FieldsOffsets(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        (IndexReader::FieldsOffsetsWide(ir), InvertedIndex::FieldsOffsetsWide(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        (IndexReader::OffsetsOnly(ir), InvertedIndex::OffsetsOnly(ii)) => {
+            let mut ii = ii;
+            ir.swap_index(&mut ii)
+        }
+        (IndexReader::FreqsOffsets(ir), InvertedIndex::FreqsOffsets(ii)) => {
+            let mut ii = ii;
+            ir.swap_index(&mut ii)
+        }
+        (IndexReader::DocumentIdOnly(ir), InvertedIndex::DocumentIdOnly(ii)) => {
+            let mut ii = ii;
+            ir.swap_index(&mut ii)
+        }
+        (IndexReader::RawDocumentIdOnly(ir), InvertedIndex::RawDocumentIdOnly(ii)) => {
+            let mut ii = ii;
+            ir.swap_index(&mut ii)
+        }
+        (IndexReader::Numeric(ir), InvertedIndex::Numeric(ii)) => ir.swap_index(&mut ii.inner()),
+        (IndexReader::NumericFiltered(ir), InvertedIndex::Numeric(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        (IndexReader::NumericGeoFiltered(ir), InvertedIndex::Numeric(ii)) => {
+            ir.swap_index(&mut ii.inner())
+        }
+        _ => {}
+    }
+}

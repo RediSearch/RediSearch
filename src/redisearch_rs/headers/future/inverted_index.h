@@ -350,6 +350,18 @@ IndexFlags IndexReader_Flags(const struct IndexReader *ir);
  */
 const NumericFilter *IndexReader_NumericFilter(const struct IndexReader *ir);
 
+/**
+ * Swap the inverted index of the reader with the given inverted index. This is only used by some
+ * C tests to trigger revalidation on the reader.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ */
+void IndexReader_SwapIndex(struct IndexReader *ir, const struct InvertedIndex *ii);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
