@@ -74,14 +74,6 @@ impl RSValueTrait for MockRSValue {
     fn is_ptr_type() -> bool {
         false
     }
-
-    fn increment(&mut self) {
-        // Mock implementation - no-op
-    }
-
-    fn decrement(&mut self) {
-        // Mock implementation - no-op
-    }
 }
 
 pub fn create_sorting_vector(values: Vec<MockRSValue>) -> RSSortingVector<MockRSValue> {

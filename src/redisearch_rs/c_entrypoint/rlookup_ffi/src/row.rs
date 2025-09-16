@@ -11,7 +11,7 @@ use std::ptr::NonNull;
 
 use rlookup::RLookupKey;
 
-use value::{RSValueFFI, RSValueTrait};
+use value::RSValueFFI;
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
@@ -31,8 +31,9 @@ unsafe extern "C" fn RLookup_WriteKey<'a>(
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow
     let row = unsafe { row.expect("row must not be null").as_mut() };
 
-    let mut value = RSValueFFI(value.expect("value must not be null"));
-    value.increment();
+    let value = RSValueFFI(value.expect("value must not be null"));
+    // Safety: The caller has ensured that this is a valid RSValue pointer
+    unsafe { ffi::RSValue_IncrRef(value.0.as_ptr()) };
     row.write_key(key, value);
 }
 
