@@ -267,6 +267,16 @@ uintptr_t IndexReader_NumEstimated(const struct IndexReader *ir);
  */
 bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedIndex *ii);
 
+/**
+ * Check if the index reader supports seeking to a specific document ID. This is true for all
+ * index reader types.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+bool IndexReader_HasSeeker(const struct IndexReader *_ir);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
