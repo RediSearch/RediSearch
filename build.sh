@@ -23,6 +23,7 @@ VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
 SVS_PRE_COMPILED_LIB=${SVS_PRE_COMPILED_LIB:-0} # Use SVS pre-compiled library
+LTO=0            # Enable Rust/C LTO. Requires clang and lld (Linux only)
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0          # Build test binaries
@@ -118,6 +119,9 @@ parse_arguments() {
         ;;
       SVS_PRE_COMPILED_LIB=*)
         SVS_PRE_COMPILED_LIB="${arg#*=}"
+        ;;
+      LTO|lto)
+        LTO=1
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -280,6 +284,12 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
+  if [[ "$LTO" == "1" ]]; then
+    # Enable Rust/C LTO by using clang and lld
+    echo "Enabling C/Rust LTO"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld -DCMAKE_SHARED_LINKER_FLAGS='-fuse-ld=lld' -DCMAKE_MODULE_LINKER_FLAGS='-fuse-ld=lld' -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+  fi
+
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
   fi
@@ -383,6 +393,12 @@ build_redisearch_rs() {
   else
     RUST_ARTIFACT_SUBDIR="$RUST_PROFILE"
   fi
+
+  if [[ "$LTO" == "1" ]]; then
+    # Include LLVM bitcode information for cross-language LTO
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-Clinker-plugin-lto -C linker=clang -C link-arg=-fuse-ld=lld"
+  fi
+
   # Set up RUSTFLAGS for dynamic C runtime if needed
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     # Disable statically linking the C runtime.
