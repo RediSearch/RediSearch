@@ -627,7 +627,10 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
   }
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
-  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, DEFAULT_SCORER_NAME);
+  const char *defaultScorer = (RSGlobalConfig.requestConfigParams.defaultScorer &&
+                               strlen(RSGlobalConfig.requestConfigParams.defaultScorer) > 0) ?
+                               RSGlobalConfig.requestConfigParams.defaultScorer : DEFAULT_SCORER_NAME;
+  ExtScoringFunctionCtx* scoreCtx = Extensions_GetScoringFunction(&it->scargs, defaultScorer);
   RS_LOG_ASSERT(scoreCtx, "GetScoringFunction failed");
   it->scorer = scoreCtx->sf;
   it->scorerFree = scoreCtx->ff;

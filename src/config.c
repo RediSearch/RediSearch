@@ -18,6 +18,8 @@
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
+#include "ext/default.h"
+#include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
@@ -49,6 +51,7 @@ configPair_t __configPairs[] = {
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
+  {"DEFAULT_SCORER",                  "search-default-scorer"},
   {"EXTLOAD",                         "search-ext-load"},
   {"FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
@@ -564,7 +567,7 @@ CONFIG_SETTER(setMtMode) {
   } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
     mt_mode_config = MT_MODE_FULL;
   } else {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid MT mode");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -636,6 +639,38 @@ CONFIG_GETTER(getFrisoINI) {
   }
 }
 
+// DEFAULT_SCORER
+CONFIG_SETTER(setDefaultScorer) {
+  const char *scorerName = NULL;
+  int acrc = AC_GetString(ac, &scorerName, NULL, 0);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+
+  // Validate that the scorer name exists
+  ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
+  if (!scoreCtx) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid SCORER name");
+    return REDISMODULE_ERR;
+  }
+
+  // Scorer is valid, proceed with setting the configuration
+  if (config->requestConfigParams.defaultScorer) {
+    rm_free((void *)config->requestConfigParams.defaultScorer);
+    config->requestConfigParams.defaultScorer = NULL;
+  }
+  config->requestConfigParams.defaultScorer = rm_strdup(scorerName);
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getDefaultScorer) {
+  if (config->requestConfigParams.defaultScorer && strlen(config->requestConfigParams.defaultScorer) > 0) {
+    return sdsnew(config->requestConfigParams.defaultScorer);
+  } else {
+    return sdsnew(DEFAULT_SCORER_NAME);
+  }
+}
+
 // friso-ini
 RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   char *str = *(char **)privdata;
@@ -647,6 +682,46 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   }
   config_friso_ini = RedisModule_CreateString(NULL, str, strlen(str));
   return config_friso_ini;
+}
+
+// default-scorer
+RedisModuleString * get_default_scorer(const char *name, void *privdata) {
+  char *str = *(char **)privdata;
+  if (str == NULL) {
+    str = DEFAULT_SCORER_NAME;
+  }
+  if (config_default_scorer) {
+    RedisModule_FreeString(NULL, config_default_scorer);
+  }
+  config_default_scorer = RedisModule_CreateString(NULL, str, strlen(str));
+  return config_default_scorer;
+}
+
+int set_default_scorer(const char *name, RedisModuleString *val, void *privdata,
+                      RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+
+  // If the scorer name is the default one, return early
+  char **ptr = (char **)privdata;
+  if (*ptr == NULL) {
+    return REDISMODULE_OK;
+  }
+
+  size_t len;
+  const char *scorerName = RedisModule_StringPtrLen(val, &len);
+
+  // Validate that the scorer name exists
+  ExtScoringFunctionCtx *scoreCtx = Extensions_GetScoringFunction(NULL, scorerName);
+  if (!scoreCtx) {
+    return REDISMODULE_ERR;
+  }
+
+  // Scorer is valid, proceed with setting the configuration
+  if (*ptr) {
+    rm_free(*ptr);
+  }
+  *ptr = rm_strndup(scorerName, len);
+  return REDISMODULE_OK;
 }
 
 // ON_TIMEOUT
@@ -1178,6 +1253,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setFrisoINI,
          .getValue = getFrisoINI,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "DEFAULT_SCORER",
+         .helpText = "Default scoring function to use when no scorer is specified",
+         .setValue = setDefaultScorer,
+         .getValue = getDefaultScorer},
         {.name = "ON_TIMEOUT",
          .helpText = "Action to perform when search timeout is exceeded (choose RETURN or FAIL)",
          .setValue = setOnTimeout,
@@ -1833,6 +1912,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_friso_ini, set_immutable_string_config, NULL,
       (void *)&(RSGlobalConfig.frisoIni)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterStringConfig(
+      ctx, "search-default-scorer", DEFAULT_SCORER_NAME,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_default_scorer, set_default_scorer, NULL,
+      (void *)&(RSGlobalConfig.requestConfigParams.defaultScorer)
     )
   )
 
