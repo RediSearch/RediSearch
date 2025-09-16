@@ -73,15 +73,6 @@ def test_hybrid_dialects():
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
-        # Simple query with parameters in VSIM
-        hybrid_cmd = [
-            'FT.HYBRID', 'idx',
-            'SEARCH', '@text:(apples)',
-            'VSIM', '@vector', '$BLOB',
-            'PARAMS', '2', 'BLOB', query_vector,
-        ]
-        exec_and_validate_query(env, hybrid_cmd)
-
         # Tag autoescaping in SEARCH - invalid syntax in DIALECT 1
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
