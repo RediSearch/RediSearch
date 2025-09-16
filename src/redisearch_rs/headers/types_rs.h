@@ -658,6 +658,22 @@ struct RSOffsetVector *IndexResult_TermOffsetsRefMut(struct RSIndexResult *resul
 const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
 
 /**
+ * Get the aggregate result reference without performing a runtime check
+ * on the enum discriminant.
+ *
+ * Use this method if and only if you've already checked the enum
+ * discriminant in C code and you don't want to incur the (small)
+ * performance penalty of an additional redundant check.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * - `result`'s data payload must be of the aggregate kind
+ */
+const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RSIndexResult *result);
+
+/**
  * Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
  * This function does not deallocate the children pointers, but rather resets the internal state of the
  * aggregate result. The owner of the children pointers is responsible for managing their lifetime.

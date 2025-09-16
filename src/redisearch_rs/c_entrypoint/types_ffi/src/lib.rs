@@ -307,6 +307,33 @@ pub unsafe extern "C" fn IndexResult_AggregateRef<'result, 'index>(
     result.as_aggregate()
 }
 
+/// Get the aggregate result reference without performing a runtime check
+/// on the enum discriminant.
+///
+/// Use this method if and only if you've already checked the enum
+/// discriminant in C code and you don't want to incur the (small)
+/// performance penalty of an additional redundant check.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+/// 2. `result`'s data payload must be of the aggregate kind
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexResult_AggregateRefUnchecked<'result, 'index>(
+    result: *const RSIndexResult<'index>,
+) -> Option<&'result RSAggregateResult<'index>> {
+    debug_assert!(!result.is_null(), "result must not be null");
+
+    // SAFETY: The cast is valid thanks to safety precondition 1.
+    let result = unsafe { &*result };
+
+    // SAFETY:
+    // - The caller guarantees we can skip the discriminant check
+    //   thanks to safety precondition 2.
+    unsafe { result.as_aggregate_unchecked() }
+}
+
 /// Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
 /// This function does not deallocate the children pointers, but rather resets the internal state of the
 /// aggregate result. The owner of the children pointers is responsible for managing their lifetime.

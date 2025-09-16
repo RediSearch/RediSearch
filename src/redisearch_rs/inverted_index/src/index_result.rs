@@ -574,6 +574,21 @@ pub enum RSResultKind {
     HybridMetric = 64,
 }
 
+impl std::fmt::Display for RSResultKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let k = match self {
+            RSResultKind::Union => "Union",
+            RSResultKind::Intersection => "Intersection",
+            RSResultKind::Term => "Term",
+            RSResultKind::Virtual => "Virtual",
+            RSResultKind::Numeric => "Numeric",
+            RSResultKind::Metric => "Metric",
+            RSResultKind::HybridMetric => "HybridMetric",
+        };
+        write!(f, "{k}")
+    }
+}
+
 /// Holds the actual data of an ['IndexResult']
 ///
 /// These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
@@ -825,6 +840,34 @@ impl<'index> RSIndexResult<'index> {
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_)
             | RSResultData::HybridMetric(_) => None,
+        }
+    }
+
+    /// Get the aggregate result associated with this record
+    /// **without checking the discriminant**.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_aggregate` must return `true` for `self`.
+    pub unsafe fn as_aggregate_unchecked(&self) -> Option<&RSAggregateResult<'index>> {
+        debug_assert!(
+            self.is_aggregate(),
+            "Invariant violation: `as_aggregate_unchecked` was invoked on an `IndexResult` \
+            instance that didn't actually contain an aggregate! It was a {}",
+            self.data.kind()
+        );
+        match &self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => Some(agg),
+            RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => {
+                // SAFETY:
+                // - Thanks to safety precondition 1., we'll never reach this statement.
+                unsafe { std::hint::unreachable_unchecked() }
+            }
         }
     }
 

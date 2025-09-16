@@ -176,7 +176,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     default:
     {
       // if we only have one sub result, just iterate that...
-      const RSAggregateResult *agg = IndexResult_AggregateRef(res);
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(res);
       size_t numChildren = AggregateResult_NumChildren(agg);
 
       if (numChildren == 1) {

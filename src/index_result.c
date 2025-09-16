@@ -64,7 +64,7 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     case RSResultData_Intersection:
     case RSResultData_Union:
     {
-      const RSAggregateResult *agg = IndexResult_AggregateRef(res);
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(res);
 
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
@@ -88,12 +88,15 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   const RSAggregateResult *agg = IndexResult_AggregateRef(r);
-  if (!agg || AggregateResult_NumChildren(agg) <= 1) {
+  if (!agg) {
     return 1;
   }
 
   int dist = 0;
   size_t num = AggregateResult_NumChildren(agg);
+  if (num <= 1) {
+    return 1;
+  }
 
   RSOffsetIterator v1, v2;
   int i = 0;
@@ -146,7 +149,7 @@ void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, si
     case RSResultData_Intersection:
     case RSResultData_Union:
     {
-      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       RSAggregateResultIter *iter = AggregateResult_Iter(agg);
       RSIndexResult *child = NULL;
 
@@ -294,10 +297,13 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
   const RSAggregateResult *agg = IndexResult_AggregateRef(ir);
   // check if calculation is even relevant here...
-  if (!agg || AggregateResult_NumChildren(agg) <= 1) {
+  if (!agg) {
     return 1;
   }
   size_t num = AggregateResult_NumChildren(agg);
+  if (num <= 1) {
+      return 1;
+  }
 
   // Fill a list of iterators and the last read positions
   RSOffsetIterator iters[num];
