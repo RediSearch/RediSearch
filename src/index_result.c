@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_result.h"
-#include "redisearch_rs/headers/types_rs.h"
+#include "types_rs.h"
 #include "varint.h"
 #include "types_rs.h"
 #include "rmalloc.h"
