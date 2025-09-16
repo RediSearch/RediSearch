@@ -58,7 +58,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
 
                 if (strcasecmp(paramName, "CONSTANT") == 0) {
                     double constant;
-                    if (AC_GetDouble(&params, &constant, 0) != AC_OK || k <= 0) {
+                    if (AC_GetDouble(&params, &constant, 0) != AC_OK || constant <= 0) {
                         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
                         return;
                     }

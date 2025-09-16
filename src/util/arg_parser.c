@@ -295,9 +295,9 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
         }
 
         case ARG_TYPE_SUBARGS: {
-            if (def->options.subargs.max_args == 1) {
+            if (def->options.subargs.max_args == 1 || def->options.subargs.min_args == def->options.subargs.max_args) {
                 // Single argument slice
-                rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, 1);
+                rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, def->options.subargs.max_args);
             } else {
                 // Variable arguments
                 rv = AC_GetVarArgs(parser->cursor, (ArgsCursor*)def->target);
