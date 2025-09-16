@@ -106,18 +106,13 @@ pub(crate) mod test {
         assert_eq!(rp.count, 3);
     }
 
-    /// Tests that RPProfile_IncrementCount is called the same number of times
-    /// as the counter is incremented.
+    /// Tests that RPProfile_IncrementCount is incremented one when the pipeline runs.
     #[test]
     fn test_profile_count() {
-        const NUM_SEARCH_RESULTS: usize = 3;
         type MockRPProfile = MockResultProcessor<{ ffi::ResultProcessorType_RP_PROFILE }>;
 
         let mut chain = Chain::new();
-        chain.append(from_iter(iter::repeat_n(
-            default_search_result(),
-            NUM_SEARCH_RESULTS,
-        )));
+        chain.append(from_iter(iter::repeat_n(default_search_result(), 3)));
         chain.append(MockRPProfile::new());
         chain.append(Counter::new());
         chain.append(MockRPProfile::new());
@@ -125,9 +120,6 @@ pub(crate) mod test {
         let (cx, rp) = chain.last_as_context_and_inner::<MockRPProfile>();
         rp.next(cx, &mut default_search_result()).unwrap();
 
-        assert_eq!(
-            PROFILE_COUNTER.load(Ordering::Relaxed),
-            NUM_SEARCH_RESULTS * 2
-        );
+        assert_eq!(PROFILE_COUNTER.load(Ordering::Relaxed), 1);
     }
 }

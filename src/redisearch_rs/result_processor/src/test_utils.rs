@@ -100,12 +100,35 @@ impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for MockResultProc
 /// It acts as an owning collection of linked result processors.
 pub struct Chain {
     result_processors: Vec<NonNull<crate::Header>>,
+    query_processing_context: NonNull<ffi::QueryProcessingCtx>,
 }
 
 impl Chain {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
+        let query_processing_context = ffi::QueryProcessingCtx {
+            rootProc: ptr::null_mut(),
+            endProc: ptr::null_mut(),
+            sctx: ptr::null_mut(),
+            initTime: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            GILTime: 0,
+            minScore: 0.0,
+            totalResults: 0,
+            resultLimit: 0,
+            err: ptr::null_mut(),
+            isProfile: false,
+            timeoutPolicy: 0,
+        };
+
+        // Safety: we're creating the pointer here, so we know it is not null.
+        let query_processing_context_ptr =
+            unsafe { NonNull::new_unchecked(Box::into_raw(Box::new(query_processing_context))) };
+
         Self {
             result_processors: Vec::new(),
+            query_processing_context: query_processing_context_ptr,
         }
     }
 
@@ -119,13 +142,25 @@ impl Chain {
 
         if let Some(upstream) = self.result_processors.last() {
             result_processor.header.upstream = upstream.as_ptr();
+            result_processor.header.parent = self.query_processing_context.as_ptr();
         }
 
-        // Safety: We treat this pointer as pinned and never hand out mutable references that would allow
+        // Safety: We treat self pointer as pinned and never hand out mutable references that would allow
         // moving out of the type.
-        let ptr = unsafe { ResultProcessorWrapper::into_ptr(Box::pin(result_processor)).cast() };
+        let header_ptr: NonNull<crate::Header> =
+            unsafe { ResultProcessorWrapper::into_ptr(Box::pin(result_processor)).cast() };
 
-        self.result_processors.push(ptr);
+        // Safety: ResultProcessorWrapper's layout is compatible with ffi::ResultProcessor.
+        let result_processor_ptr: *mut ffi::ResultProcessor = unsafe { header_ptr.cast().as_mut() };
+
+        // Safety: this pointer was created in Self::new, and is convertible to a reference.
+        let query_processing_context = unsafe { self.query_processing_context.as_mut() };
+        if query_processing_context.rootProc.is_null() {
+            query_processing_context.rootProc = result_processor_ptr;
+        }
+        query_processing_context.endProc = result_processor_ptr;
+
+        self.result_processors.push(header_ptr);
     }
 
     /// Append a new result processor at the end of the chain. It will have its `upstream`
