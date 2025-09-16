@@ -22,7 +22,7 @@ FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
-SVS_PRE_COMPILED_LIB=${SVS_PRE_COMPILED_LIB:-0} # Use SVS pre-compiled library
+BUILD_INTEL_SVS_OPT=${BUILD_INTEL_SVS_OPT:-0} # Use SVS pre-compiled library
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -109,8 +109,8 @@ parse_arguments() {
       REDIS_STANDALONE=*)
         REDIS_STANDALONE="${arg#*=}"
         ;;
-      SVS_PRE_COMPILED_LIB=*)
-        SVS_PRE_COMPILED_LIB="${arg#*=}"
+      BUILD_INTEL_SVS_OPT=*)
+        BUILD_INTEL_SVS_OPT="${arg#*=}"
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -313,8 +313,10 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
   fi
 
-  if [[ "$SVS_PRE_COMPILED_LIB" == "0" ]]; then
+  if [[ "$BUILD_INTEL_SVS_OPT" == "0" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_INTEL_SVS_OPT=ON"
   fi
 }
 

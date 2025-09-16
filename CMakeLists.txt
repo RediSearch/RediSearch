@@ -153,6 +153,10 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+if(BUILD_INTEL_SVS_OPT)
+    add_compile_definitions("BUILD_INTEL_SVS_OPT=1")
+endif()
+
 if(MAX_WORKER_THREADS)
     set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
