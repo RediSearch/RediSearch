@@ -150,7 +150,6 @@ void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
     if (ctx->cursorConfig->maxIdle == 0 || ctx->cursorConfig->maxIdle > RSGlobalConfig.cursorMaxIdle) {
         ctx->cursorConfig->maxIdle = RSGlobalConfig.cursorMaxIdle;
     }
-    REQFLAGS_AddFlags(ctx->reqflags, QEXEC_F_IS_CURSOR);
 }
 
 // PARAMS callback - improved with error handling macro and early validation

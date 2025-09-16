@@ -33,8 +33,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                          ARG_OPT_END);
 
     // WITHCURSOR [COUNT count] [MAXIDLE maxidle] - enables cursor-based pagination
-    ArgParser_AddSubArgsV(parser, "WITHCURSOR", "Enable cursor-based pagination",
-                         NULL, 0, -1,
+    ArgParser_AddBitflagV(parser, "WITHCURSOR", "Enable cursor-based pagination",
+                         ctx->reqflags, sizeof(*ctx->reqflags), QEXEC_F_IS_CURSOR,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleWithCursor, ctx,
                          ARG_OPT_END);
@@ -56,11 +56,11 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                       ARG_OPT_OPTIONAL, ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
-    ArgParser_AddSubArgsV(parser, "DIALECT", "Query dialect version",
-                         NULL, 1, 1,
-                         ARG_OPT_OPTIONAL,
-                         ARG_OPT_CALLBACK, handleDialect, ctx,
-                         ARG_OPT_END);
+    ArgParser_AddIntV(parser, "DIALECT", "Query dialect version",
+                      NULL, 1, 1,
+                      ARG_OPT_OPTIONAL,
+                      ARG_OPT_CALLBACK, handleDialect, ctx,
+                      ARG_OPT_END);
 
     // FORMAT format - output format
     ArgParser_AddSubArgsV(parser, "FORMAT", "Output format",
