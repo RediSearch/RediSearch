@@ -397,7 +397,7 @@ build_redisearch_rs() {
   cd "$REDISEARCH_RS_DIR"
   # Rust code is built first, so exclude crates linking on C code as the internal lib is not built yet.
   # Keep the exclude list synced with the clippy and rustdoc exclude lists in Makefile.
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --workspace $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C --profile="$RUST_PROFILE"
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --workspace $RUST_EXCLUDE_CRATES --profile="$RUST_PROFILE"
 
   # Copy artifacts to the target directory
   mkdir -p "$REDISEARCH_RS_BINDIR"

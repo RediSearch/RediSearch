@@ -112,7 +112,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       if (invidx) {
         entry->docId = aCtx->doc->docId;
         RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-        writeIndexEntry(spec, invidx, encoder, entry);
+        writeIndexEntry(spec, invidx, entry);
       }
     }
 

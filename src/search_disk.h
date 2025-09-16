@@ -1,7 +1,7 @@
 #pragma once
 
 #include "search_disk_api.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 
 #include <stdbool.h>
 
@@ -67,7 +67,7 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
  * @param weight Weight for the term (used in scoring)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-IndexIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, double weight);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, double weight);
 
 /**
  * @brief Create an IndexIterator for all the existing documents
@@ -78,7 +78,7 @@ IndexIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
  * @param index Pointer to the index
  * @return Pointer to the IndexIterator, or NULL on error
  */
-IndexIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index);
+QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index);
 
 // DocTable API wrappers
 

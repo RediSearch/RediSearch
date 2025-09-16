@@ -10,7 +10,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,7 +55,7 @@ typedef struct IndexDiskAPI {
    * @param term Term within the index to iterate
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  IndexIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, t_fieldMask fieldMask);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, t_fieldMask fieldMask);
 
   /**
    * @brief Returns the number of documents in the index
@@ -63,7 +63,7 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the index
    * @return Number of documents in the index
    */
-  IndexIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index);
+  QueryIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -104,4 +104,3 @@ typedef struct RedisSearchDiskAPI {
 #ifdef __cplusplus
 }
 #endif
-

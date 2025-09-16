@@ -521,14 +521,9 @@ QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
     RS_LOG_ASSERT(q->sctx->spec->diskSpec, "Disk spec should be open");
     return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, term->str, EFFECTIVE_FIELDMASK(q, qn));
   } else {
-    IndexReader *ir = Redis_OpenReader(q->sctx, term, q->docTable,
-                                      EFFECTIVE_FIELDMASK(q, qn), q->conc, qn->opts.weight);
-    if (ir == NULL) {
-      Term_Free(term);
-      return NULL;
-    }
+    RSQueryTerm *term = NewQueryTerm(&qn->tn, q->tokenId++);
 
-    return NewReadIterator(ir);
+    return Redis_OpenReader(q->sctx, term, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
   }
 }
 

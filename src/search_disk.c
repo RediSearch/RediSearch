@@ -55,12 +55,12 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
     return disk->index.indexDocument(index, term, docId, fieldMask);
 }
 
-IndexIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, double weight) {
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, double weight) {
     RS_ASSERT(disk && index && term);
     return disk->index.newTermIterator(index, term, weight);
 }
 
-IndexIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index) {
+QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk && index);
     return disk->index.newWildcardIterator(index);
 }

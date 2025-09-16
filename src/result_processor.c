@@ -135,7 +135,7 @@ validate_current:
       RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
       diskDmd->ref_count = 1;
       // Start from checking the deleted-ids (in memory), then perform IO
-      const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, r->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, r->docId, diskDmd);
+      const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd);
       if (!foundDocument) {
         DMD_Return(diskDmd);
         continue;
