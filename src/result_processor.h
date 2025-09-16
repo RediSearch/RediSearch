@@ -21,6 +21,7 @@
 #include "score_explain.h"
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_lookup_context.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,9 +64,9 @@ typedef enum {
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
   RP_HYBRID_MERGER,
+  RP_DEPLETER,
   RP_TIMEOUT,               // DEBUG ONLY
   RP_CRASH,                 // DEBUG ONLY
-  RP_DEPLETER,
   RP_MAX,                   // Always last, marks the end of the enum
 } ResultProcessorType;
 
@@ -358,7 +359,8 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
                                      const RLookupKey *scoreKey,
-                                     RPStatus *subqueriesReturnCodes);
+                                     RPStatus *subqueriesReturnCodes,
+                                     HybridLookupContext *lookupCtx);
 
  /*
   * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

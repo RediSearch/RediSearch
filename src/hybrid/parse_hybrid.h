@@ -27,9 +27,19 @@ extern "C" {
 
 #define HYBRID_DEFAULT_KNN_K 10
 
+typedef struct ParseHybridCommandCtx {
+    AREQ *search;
+    AREQ *vector;
+    AGGPlan *tailPlan;
+    HybridPipelineParams* hybridParams;
+    RequestConfig* reqConfig;
+    CursorConfig* cursorConfig;
+} ParseHybridCommandCtx;
+
 // Function for parsing hybrid command arguments - exposed for testing
-HybridRequest* parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                   RedisSearchCtx *sctx, const char* indexname,
+                                  ParseHybridCommandCtx *parsedCmdCtx,
                                   QueryError *status);
 
 #ifdef __cplusplus

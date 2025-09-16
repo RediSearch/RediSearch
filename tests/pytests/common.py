@@ -944,30 +944,37 @@ def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
         if k in d2:
             env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)
 
-def get_results_from_hybrid_response(response) -> Dict[str, float]:
-    """Assuming score and key in response, extract only them to the tuple
+def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
+    """Extract all fields from hybrid response results
 
     Args:
         response: Hybrid search response containing results
 
     Returns:
-        Dict mapping key -> score from the results list
+        Dict mapping key -> dict of all fields from the results list
+        Example: {'doc:1': {'__score': '0.5', 'vector_distance': '0.3'}}
     """
-    # return dict mapping key -> score from the results list
+    # return dict mapping key -> all fields from the results list
     res_results_index = recursive_index(response, 'results')
     res_results_index[-1] += 1
 
     results = {}
     for result in access_nested_list(response, res_results_index):
-        key_index = recursive_index(result, '__key')
-        key_index[-1] += 1
-        score_index = recursive_index(result, '__score')
-        score_index[-1] += 1
+        # Each result has structure: ['attributes', [flat_key_value_list]]
+        if (len(result) >= 2 and
+            result[0] == 'attributes' and
+            result[1] and
+            isinstance(result[1], list)):
 
-        key = access_nested_list(result, key_index)
-        score = float(access_nested_list(result, score_index))
+            # Convert flat key-value list to dict using zip with slicing
+            attr_list = result[1]
+            attrs = dict(zip(attr_list[::2], attr_list[1::2]))
 
-        results[key] = score
+            # Extract key - let caller do any casting needed
+            if '__key' in attrs:
+                key = attrs['__key']
+                results[key] = attrs
+
     return results
 
 def populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345, offset=0):
