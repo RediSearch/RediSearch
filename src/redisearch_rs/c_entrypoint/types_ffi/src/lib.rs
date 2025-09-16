@@ -510,8 +510,7 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
     }
 }
 
-/// Create an iterator over the aggregate result. This iterator should be freed
-/// using [`AggregateResultIter_Free`].
+/// Get a view of the records stored inside the aggregate result.
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
