@@ -31,6 +31,7 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
+    ctx->specifiedArgs |= SPECIFIED_ARG_LIMIT;
 
     // Replicate exact original logic: lines 260-262
     if (AC_NumRemaining(ac) < 2) {
@@ -71,6 +72,7 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
+    ctx->specifiedArgs |= SPECIFIED_ARG_SORTBY;
 
     // Replicate exact original logic: lines 299-301
     if (AC_NumRemaining(ac) < 1) {
@@ -126,8 +128,9 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
 // WITHCURSOR callback - parses cursor settings directly
 void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
+    ArgsCursor *ac = parser->cursor;
     QueryError *status = ctx->status;
+    ctx->specifiedArgs |= SPECIFIED_ARG_WITHCURSOR;
 
     // Parse cursor settings inline (merged from parseCursorSettings)
     ACArgSpec specs[] = {{.name = "MAXIDLE",
@@ -155,26 +158,18 @@ void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
 // PARAMS callback - improved with error handling macro and early validation
 void handleParams(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
+    ArgsCursor *paramsArgs = (ArgsCursor*)value;
     QueryError *status = ctx->status;
-    dict **destParams = &(ctx->searchopts->params);
+    ctx->specifiedArgs |= SPECIFIED_ARG_PARAMS;
 
     // Early validation checks
-    if (*destParams) {
+    if (ctx->searchopts->params) {
         QueryError_SetError(status, QUERY_EADDARGS, "Multiple PARAMS are not allowed. Parameters can be defined only once");
-        return;
-    }
-
-    // Parse parameter arguments
-    ArgsCursor paramsArgs = {0};
-    int rv = AC_GetVarArgs(ac, &paramsArgs);
-    if (rv != AC_OK) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for PARAMS: %s", AC_Strerror(rv));
         return;
     }
     
     // Validate argument count (must be even for key-value pairs)
-    if (paramsArgs.argc == 0 || paramsArgs.argc % 2) {
+    if (paramsArgs->argc == 0 || paramsArgs->argc % 2) {
         QueryError_SetError(status, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
         return;
     }
@@ -187,10 +182,10 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
     }
     
     size_t value_len;
-    int n = AC_NumArgs(&paramsArgs);
+    int n = AC_NumArgs(paramsArgs);
     for (int i = 0; i < n; i += 2) {
-        const char *param = AC_GetStringNC(&paramsArgs, NULL);
-        const char *value = AC_GetStringNC(&paramsArgs, &value_len);
+        const char *param = AC_GetStringNC(paramsArgs, NULL);
+        const char *value = AC_GetStringNC(paramsArgs, &value_len);
         
         if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
             Param_DictFree(params);  // Cleanup on error
@@ -198,41 +193,27 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
         }
     }
     
-    *destParams = params;
-}
-
-// DIALECT callback - implements EXACT original logic from lines 341-349
-void handleDialect(ArgParser *parser, const void *value, void *user_data) {
-    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->searchopts->params = params;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
 
     // Replicate exact original logic: lines 342-349
-    long long dialect;
     if (AC_GetLongLong(ac, &dialect, AC_F_GE1) != AC_OK) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT requires a positive integer");
         return;
     }
     ctx->reqConfig->requestConfigParams.dialectVersion = dialect;
     ctx->dialectSpecified = true;
+    ctx->specifiedArgs |= SPECIFIED_ARG_DIALECT;
 }
 
 // FORMAT callback - implements EXACT original logic from lines 359-366
 void handleFormat(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
+    const char *format = *(char**)value;
     QueryError *status = ctx->status;
-
-    const char *fmt = AC_GetStringNC(ac, NULL);
-    if (!fmt) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "FORMAT requires a format argument");
-        return;
-    }
-
-    if (strcasecmp(fmt, "STRING") == 0) {
+    ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
+    if (strcasecmp(format, "STRING") == 0) {
         *ctx->reqFlags |= QEXEC_F_SEND_NOFIELDS;
-    } else {
-        QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown format", " `%s`", fmt);
-        return;
     }
 }

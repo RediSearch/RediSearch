@@ -13,11 +13,11 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
     ArgParser *parser = ArgParser_New(ac, "HybridOptionalArgs");
     if (!parser) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser");
-        return -1;
+        return REDISMODULE_ERR;
     }
 
     // Add all supported arguments with their callbacks
-    
+    ArgsCursor subArgs = {0};
     // LIMIT offset count - handles result limiting
     ArgParser_AddSubArgsV(parser, "LIMIT", "Limit results",
                          NULL, 2, 2,
@@ -27,7 +27,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
 
     // SORTBY field [ASC|DESC] [field [ASC|DESC] ...] - handles result sorting
     ArgParser_AddSubArgsV(parser, "SORTBY", "Sort results by fields",
-                         NULL, 1, -1,
+                         &subArgs, 1, -1,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleSortBy, ctx,
                          ARG_OPT_END);
@@ -41,7 +41,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
 
     // PARAMS param value [param value ...] - query parameterization
     ArgParser_AddSubArgsV(parser, "PARAMS", "Query parameters",
-                         NULL, 1, -1,
+                         &subArgs, 1, -1,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleParams, ctx,
                          ARG_OPT_END);
@@ -57,15 +57,19 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
 
     // DIALECT dialect - query dialect version
     ArgParser_AddIntV(parser, "DIALECT", "Query dialect version",
-                      NULL, 1, 1,
-                      ARG_OPT_OPTIONAL,
+                      &ctx->reqConfig->dialectVersion, 1, 1,
+                      ARG_OPT_RANGE, (long long)MIN_DIALECT_VERSION, (long long)MAX_DIALECT_VERSION,
                       ARG_OPT_CALLBACK, handleDialect, ctx,
+                      ARG_OPT_OPTIONAL,
                       ARG_OPT_END);
 
     // FORMAT format - output format
-    ArgParser_AddSubArgsV(parser, "FORMAT", "Output format",
-                         NULL, 1, 1,
+    const char *formatTarget = NULL;
+    static const char *allowedFormats[] = {"STRING", NULL};
+    ArgParser_AddStringV(parser, "FORMAT", "Output format",
+                         &formatTarget, 1, 1,
                          ARG_OPT_OPTIONAL,
+                         ARG_OPT_ALLOWED_VALUES, allowedFormats,
                          ARG_OPT_CALLBACK, handleFormat, ctx,
                          ARG_OPT_END);
 
@@ -79,11 +83,16 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                           ctx->reqflags, sizeof(*ctx->reqflags), QEXEC_F_SEND_SCOREEXPLAIN,
                           ARG_OPT_OPTIONAL, ARG_OPT_END);
 
+    // Local variable to store the selected method for the lifetime of this function
+    const char *methodTarget = NULL;
+    static const char *allowedCombineMethods[] = {"RRF", "LINEAR", NULL};
     // COMBINE [RRF [K k] [WINDOW window]] | [LINEAR weight1 weight2 ...] - hybrid fusion method
-    ArgParser_AddSubArgsV(parser, "COMBINE", "Fusion method for hybrid search",
-                         NULL, 1, -1,
+    ArgParser_AddStringV(parser, "COMBINE", "Fusion method for hybrid search",
+                         &methodTarget, 1, -1,
                          ARG_OPT_OPTIONAL,
+                         ARG_OPT_ALLOWED_VALUES, allowedCombineMethods,
                          ARG_OPT_CALLBACK, handleCombine, ctx,
+                         ARG_OPT_POSITION, 1,
                          ARG_OPT_END);
 
     // TODO: Add YIELD_SCORE_AS support for score aliasing
@@ -94,23 +103,28 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
     // Check for errors from callbacks
     if (QueryError_HasError(status)) {
         ArgParser_Free(parser);
-        return -1; // ARG_ERROR
+        return REDISMODULE_ERR; // ARG_ERROR
+    }
+    if (!parseResult.success) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
+        ArgParser_Free(parser);
+        return REDISMODULE_ERR; // ARG_ERROR
     }
 
     ArgParser_Free(parser);
 
     // Copy temporary timeout value to actual config
     if (tempTimeout > 0) {
-        ctx->reqConfig->requestConfigParams.queryTimeoutMS = tempTimeout;
+        ctx->reqConfig->queryTimeoutMS = tempTimeout;
     }
 
     // Handle dialect-specific validation (replicated from original)
-    if (ctx->dialectSpecified && ctx->reqConfig->requestConfigParams.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST &&
+    if (ctx->specifiedArgs & SPECIFIED_ARG_DIALECT && ctx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST &&
         (*(ctx->reqflags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not supported in this dialect version");
         return -1;
     }
 
-    return parseResult.success ? 1 : -1;
+    return parseResult.success ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
