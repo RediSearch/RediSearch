@@ -71,7 +71,7 @@ static inline double VectorNorm_Cosine(double cosine_distance) {
  * @param metric VecSimMetric enum value
  * @return VectorNormFunction pointer to the appropriate normalization function
  */
-static inline VectorNormFunction GetVectorNormalizationFunction(VecSimMetric metric) {
+static inline VectorNormFunction getVectorNormalizationFunction(VecSimMetric metric) {
   switch (metric) {
     case VecSimMetric_L2:
       return VectorNorm_L2;

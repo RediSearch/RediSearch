@@ -32,7 +32,7 @@ extern "C" {
 typedef struct MetricRequest{
   const char *metric_name;
   RLookupKey **key_ptr;
-  bool isInternal;
+  bool isInternal; // Indicates if this metric should be excluded from the response
 } MetricRequest;
 
 // Flags indicating which syntax features are enabled for this query

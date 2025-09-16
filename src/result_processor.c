@@ -1465,10 +1465,14 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
   }
 
   // Apply normalization to the score
-  double originalScore = 0.0; // Default value
-  RSValue_ToNumber(RLookup_GetItem(self->scoreKey, &r->rowdata), &originalScore);
-  // originalScore will be 0.0 if conversion failed, or the actual value if successful
-  double normalizedScore = self->normFunc(originalScore);
+  double normalizedScore = 0.0;
+  double originalScore = 0.0;
+  RSValue *scoreValue = RLookup_GetItem(self->scoreKey, &r->rowdata);
+  if (scoreValue) {
+    if (RSValue_ToNumber(scoreValue, &originalScore)) {
+      normalizedScore = self->normFunc(originalScore);
+    }
+  }
   r->score = normalizedScore;
 
   // Update score field if scoreKey is provided

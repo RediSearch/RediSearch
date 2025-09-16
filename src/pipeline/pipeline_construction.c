@@ -552,13 +552,14 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         }
 
         // Extract distance metric from vector field
-        VecSimMetric metric = GetVecSimMetricFromVectorField(vectorField);
+        VecSimMetric metric = getVecSimMetricFromVectorField(vectorField);
 
         // Get appropriate normalization function
-        VectorNormFunction normFunc = GetVectorNormalizationFunction(metric);
+        VectorNormFunction normFunc = getVectorNormalizationFunction(metric);
 
         // Get score key for writing normalized scores
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+        RS_ASSERT(curLookup);
         const RLookupKey *scoreKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
         // Create vector normalizer result processor
         rp = RPVectorNormalizer_New(normFunc, scoreKey);

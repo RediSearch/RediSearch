@@ -133,7 +133,7 @@ const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 
-VecSimMetric GetVecSimMetricFromVectorField(const FieldSpec *vectorField);
+VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField);
 
 void VecSimParams_Cleanup(VecSimParams *params);
 
