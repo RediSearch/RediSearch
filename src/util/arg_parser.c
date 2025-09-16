@@ -22,39 +22,6 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def);
 static void set_error(ArgParser *parser, const char *message, const char *arg_name);
 static void apply_defaults(ArgParser *parser);
 
-// Context and wrapper for bitwise flag arguments
-typedef struct {
-    void *target;
-    size_t size;
-    unsigned long long mask;
-    ArgCallback user_cb;
-    void *user_ud;
-} BitFlagCtx;
-
-static void bitflag_wrapper_cb(ArgParser *p, const void *v, void *ud) {
-    BitFlagCtx *ctx = (BitFlagCtx*)ud;
-    if (ctx && ctx->target) {
-        switch (ctx->size) {
-            case sizeof(uint32_t):
-                *(uint32_t*)ctx->target |= (uint32_t)ctx->mask;
-                break;
-            case sizeof(uint64_t):
-                *(uint64_t*)ctx->target |= (uint64_t)ctx->mask;
-                break;
-            default:
-                if (ctx->size == sizeof(unsigned short)) {
-                    *(unsigned short*)ctx->target |= (unsigned short)ctx->mask;
-                } else if (ctx->size == sizeof(unsigned char)) {
-                    *(unsigned char*)ctx->target |= (unsigned char)ctx->mask;
-                }
-                break;
-        }
-    }
-    if (ctx && ctx->user_cb) {
-        ctx->user_cb(p, v, ctx->user_ud);
-    }
-}
-
 ArgParser *ArgParser_New(ArgsCursor *cursor, const char *command_name) {
     ArgParser *parser = rm_calloc(1, sizeof(ArgParser));
     if (!parser) return NULL;
@@ -222,6 +189,28 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
                 *(bool*)def->target = true;
             }
             break;
+        case ARG_TYPE_BITFLAG: {
+            if (def->options.bitflag.target) {
+                switch (def->options.bitflag.size) {
+                    case sizeof(uint32_t):
+                        *(uint32_t*)def->options.bitflag.target |= (uint32_t)def->options.bitflag.mask;
+                        break;
+                    case sizeof(uint64_t):
+                        *(uint64_t*)def->options.bitflag.target |= (uint64_t)def->options.bitflag.mask;
+                        break;
+                    case sizeof(unsigned short):
+                        *(unsigned short*)def->options.bitflag.target |= (unsigned short)def->options.bitflag.mask;
+                    break;
+                    case sizeof(unsigned char):
+                        *(unsigned char*)def->options.bitflag.target |= (unsigned char)def->options.bitflag.mask;
+                    break;
+                    default:
+                        set_error(parser, "Unsupported target size for bitwise flag", def->name);
+                        break;
+                }
+            }
+            break;
+        }
 
         case ARG_TYPE_STRING: {
             const char *str_val;
@@ -685,62 +674,17 @@ ArgParser *ArgParser_AddBitflagV(ArgParser *parser, const char *name, const char
     // Store mask and target info in definition's user_data via callback
     // We wrap the user's callback (if any) to perform the OR before invoking it
     // Add as a boolean presence flag (no direct target assignment)
-    ArgDefinition *def = add_definition(parser, name, description, ARG_TYPE_FLAG, NULL);
+    ArgDefinition *def = add_definition(parser, name, description, ARG_TYPE_BITFLAG, NULL);
     if (!def) return parser;
 
-    BitFlagCtx *bf = rm_malloc(sizeof(*bf));
-    if (!bf) return parser;
-    bf->target = target; bf->size = target_size; bf->mask = mask; bf->user_cb = NULL; bf->user_ud = NULL;
+    def->options.bitflag.target = target;
+    def->options.bitflag.size = target_size;
+    def->options.bitflag.mask = mask;
 
-    // Capture variadic options to detect a user-supplied callback and user_data
-    va_list args; va_start(args, mask);
-    // Temporarily intercept options to extract ARG_OPT_CALLBACK if provided
-    // We'll re-run apply_variadic options afterwards to set other options
-    ArgOption opt; ArgOption first_non_cb_opt = ARG_OPT_END; void *saved_user_ud = NULL; ArgCallback saved_user_cb = NULL;
-    while ((opt = va_arg(args, ArgOption)) != ARG_OPT_END) {
-        if (opt == ARG_OPT_CALLBACK) {
-            saved_user_cb = va_arg(args, ArgCallback);
-            saved_user_ud = va_arg(args, void*);
-            continue;
-        }
-        if (first_non_cb_opt == ARG_OPT_END) first_non_cb_opt = opt;
-        // Skip payloads of other options conservatively
-        switch (opt) {
-            case ARG_OPT_REQUIRED:
-            case ARG_OPT_OPTIONAL:
-            case ARG_OPT_REPEATABLE:
-                break;
-            case ARG_OPT_VALIDATOR:
-                (void)va_arg(args, ArgValidator); break;
-            case ARG_OPT_RANGE:
-                (void)va_arg(args, long long); (void)va_arg(args, long long); break;
-            case ARG_OPT_ALLOWED_VALUES:
-                (void)va_arg(args, const char**); break;
-            case ARG_OPT_DEFAULT_STR:
-                (void)va_arg(args, const char*); break;
-            case ARG_OPT_DEFAULT_INT:
-                (void)va_arg(args, long long); break;
-            case ARG_OPT_DEFAULT_DOUBLE:
-                (void)va_arg(args, double); break;
-            case ARG_OPT_DEFAULT_FLAG:
-                (void)va_arg(args, int); break;
-            default:
-                break;
-        }
-    }
-    va_end(args);
-
-    // Set wrapped callback that performs the OR then forwards to user callback
-    def->callback = bitflag_wrapper_cb;
-    bf->user_cb = saved_user_cb;
-    bf->user_ud = saved_user_ud;
-    def->user_data = bf;
-
-    // Now apply original variadic options again (they'll set repeatable/required/etc.)
+    va_list args;
     va_start(args, mask);
     apply_variadic_options(parser, args);
     va_end(args);
-
     return parser;
 }
 

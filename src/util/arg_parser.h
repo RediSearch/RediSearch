@@ -37,6 +37,7 @@ typedef void (*ArgCallback)(ArgParser *parser, const void *value, void *user_dat
 // Argument types supported by the parser
 typedef enum {
     ARG_TYPE_FLAG,          // Boolean flag (presence = true)
+    ARG_TYPE_BITFLAG,       // Bitwise flag (ORs mask into target)
     ARG_TYPE_STRING,        // String argument
     ARG_TYPE_INT,           // Integer argument
     ARG_TYPE_UINT,          // Unsigned integer
@@ -78,6 +79,14 @@ typedef struct {
         struct {
             const char **allowed_values;  // For strings: allowed values (NULL-terminated)
         } string;
+
+        struct {
+            void *target;
+            size_t size;
+            unsigned long long mask;
+            ArgCallback user_cb;
+            void *user_ud;
+        } bitflag;
     } options;
 
     // Validation and callbacks
