@@ -22,6 +22,7 @@ pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
     RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
 };
+use redis_module::logging::log_warning;
 
 pub mod debug;
 pub mod doc_ids_only;
@@ -704,7 +705,11 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> Iterator for IndexReader<'in
         match self.next_record() {
             Ok(Some(record)) => Some(record),
             Ok(None) => None,
-            Err(_) => None, // In case of error, we stop the iteration
+            Err(error) => {
+                log_warning(format!("Decoding from inverted index failed: {error}"));
+
+                None // In case of error, we stop the iteration
+            }
         }
     }
 }
