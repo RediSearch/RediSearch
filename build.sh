@@ -40,8 +40,9 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 
-# Rust code is built first, so exclude crates that link C code, since the static libraries they depend on haven't been built yet.
-RUST_EXCLUDE_CRATES="--exclude inverted_index_bencher --exclude rqe_iterators_bencher"
+# Rust code is built first, so exclude benchmarking crates that link C code,
+# since the static libraries they depend on haven't been built yet.
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher"
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -397,7 +398,7 @@ build_redisearch_rs() {
   cd "$REDISEARCH_RS_DIR"
   # Rust code is built first, so exclude crates linking on C code as the internal lib is not built yet.
   # Keep the exclude list synced with the clippy and rustdoc exclude lists in Makefile.
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --workspace $RUST_EXCLUDE_CRATES --profile="$RUST_PROFILE"
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --workspace $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C --profile="$RUST_PROFILE"
 
   # Copy artifacts to the target directory
   mkdir -p "$REDISEARCH_RS_BINDIR"
@@ -548,6 +549,9 @@ run_rust_tests() {
 
   echo "Running Rust tests..."
 
+  # Tell Rust build scripts where to find the compiled static libraries
+  export BINDIR
+
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
@@ -566,10 +570,14 @@ run_rust_tests() {
     # We use the `nightly` compiler in order to include doc tests in the coverage computation.
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
     RUST_EXTENSIONS="+$NIGHTLY_VERSION llvm-cov"
+    # We exclude Rust benchmarking crates that link to C code when computing coverage.
+    # On one side, we aren't interested in coverage of those utilities.
+    # On top of that, it causes linking issues since, when computing coverage, it seems to
+    # require C symbols to be defined even if they aren't invoked at runtime.
     RUST_TEST_OPTIONS="
       --doctests
+      $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
       --codecov
-      $RUST_EXCLUDE_CRATES
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
@@ -579,7 +587,7 @@ run_rust_tests() {
 
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER -- --nocapture
+  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS --workspace $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
@@ -624,7 +632,7 @@ run_rust_valgrind_tests() {
         cargo valgrind test \
         --profile=$RUST_PROFILE \
         $RUST_TEST_OPTIONS \
-        --workspace $RUST_EXCLUDE_CRATES $TEST_FILTER \
+        --workspace $TEST_FILTER \
         -- --nocapture
   fi
 
