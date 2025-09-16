@@ -1669,50 +1669,15 @@ II_Gc_ReadBuffer(II_GCReader *rd, void **buff, size_t *len) {
 
 // ---------------- GC Scan Logic
 
-typedef struct {
-  // Number of blocks prior to repair
-  uint32_t nblocksOrig;
-  // Number of blocks repaired
-  uint32_t nblocksRepaired;
-  // Number of bytes cleaned in inverted index
-  uint64_t nbytesCollected;
-  // Number of bytes added to inverted index
-  uint64_t nbytesAdded;
-  // Number of document records removed
-  uint64_t ndocsCollected;
-  // Number of numeric records removed
-  uint64_t nentriesCollected;
-
-  /** Specific information about the _last_ index block */
-  size_t lastblkDocsRemoved;
-  size_t lastblkBytesCollected;
-  size_t lastblkNumEntries;
-  size_t lastblkEntriesRemoved;
-} MSG_IndexInfo;
-
-/** Structure sent describing an index block */
-typedef struct {
-  IndexBlock blk;
-  int64_t oldix;  // Old position of the block
-  int64_t newix;  // New position of the block
-  // the actual content of the block follows...
-} MSG_RepairedBlock;
-
-typedef struct {
-  void *ptr;       // Address of the buffer to free
-  uint32_t oldix;  // Old index of deleted block
-  uint32_t _pad;   // Uninitialized reads, otherwise
-} MSG_DeletedBlock;
-
 /* GC Scan blocks to repair and write that info to the II_GCWriter.
  */
 bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
                                      II_GCCallback *cb, IndexRepairParams *params) {
     size_t numBlocks = InvertedIndex_NumBlocks(idx);
-    MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);
-    MSG_DeletedBlock *deleted = array_new(MSG_DeletedBlock, 10);
+    InvertedIndex_RepairedInput *fixed = array_new(InvertedIndex_RepairedInput, 10);
+    InvertedIndex_DeletedInput *deleted = array_new(InvertedIndex_DeletedInput, 10);
     IndexBlock *blocklist = array_new(IndexBlock, numBlocks);
-    MSG_IndexInfo ixmsg = {.nblocksOrig = numBlocks};
+    II_GCScanStats ixmsg = {.nblocksOrig = numBlocks};
     bool rv = false;
     IndexRepairParams params_s = {0};
     if (!params) {
@@ -1753,12 +1718,12 @@ bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, Inv
     uint16_t numEntries = IndexBlock_NumEntries(blk);
     if (numEntries == 0) {
         // this block should be removed
-        MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
-        *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
+        InvertedIndex_DeletedInput *delmsg = array_ensure_tail(&deleted, InvertedIndex_DeletedInput);
+        *delmsg = (InvertedIndex_DeletedInput){.ptr = bufptr, .oldix = i};
         curr_bytesCollected += sizeof(IndexBlock);
     } else {
         array_append(blocklist, *blk);
-        MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
+        InvertedIndex_RepairedInput *fixmsg = array_ensure_tail(&fixed, InvertedIndex_RepairedInput);
         fixmsg->newix = array_len(blocklist) - 1;
         fixmsg->oldix = i;
         fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
@@ -1802,7 +1767,7 @@ bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, Inv
 
     for (size_t i = 0; i < array_len(fixed); ++i) {
         // write fix block
-        const MSG_RepairedBlock *msg = fixed + i;
+        const InvertedIndex_RepairedInput *msg = fixed + i;
         const IndexBlock *blk = blocklist + msg->newix;
         II_Gc_WriteFixed(wr, msg, sizeof(*msg));
         // TODO: check why we need to send the data if its part of the blk struct.

@@ -433,6 +433,27 @@ typedef struct {
 bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
                                      II_GCCallback *cb, IndexRepairParams *params);
 
+typedef struct {
+  // Number of blocks prior to repair
+  uint32_t nblocksOrig;
+  // Number of blocks repaired
+  uint32_t nblocksRepaired;
+  // Number of bytes cleaned in inverted index
+  uint64_t nbytesCollected;
+  // Number of bytes added to inverted index
+  uint64_t nbytesAdded;
+  // Number of document records removed
+  uint64_t ndocsCollected;
+  // Number of numeric records removed
+  uint64_t nentriesCollected;
+
+  /** Specific information about the _last_ index block */
+  size_t lastblkDocsRemoved;
+  size_t lastblkBytesCollected;
+  size_t lastblkNumEntries;
+  size_t lastblkEntriesRemoved;
+} II_GCScanStats;
+
 // ---------------------
 
 #ifdef __cplusplus
