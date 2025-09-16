@@ -426,10 +426,7 @@ impl<'index> RSAggregateResult<'index> {
         }
     }
 
-    /// Reset the aggregate result, clearing all children and resetting the kind mask.
-    ///
-    /// Note, this does not deallocate the children pointers, it just resets the count and kind
-    /// mask. The owner of the children pointers is responsible for deallocating them when needed.
+    /// Reset the aggregate result, clearing the children vector and resetting the kind mask.
     pub fn reset(&mut self) {
         match self {
             RSAggregateResult::Borrowed {
