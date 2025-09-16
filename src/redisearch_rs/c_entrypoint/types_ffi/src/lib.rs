@@ -334,9 +334,8 @@ pub unsafe extern "C" fn IndexResult_AggregateRefUnchecked<'result, 'index>(
     unsafe { result.as_aggregate_unchecked() }
 }
 
-/// Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
-/// This function does not deallocate the children pointers, but rather resets the internal state of the
-/// aggregate result. The owner of the children pointers is responsible for managing their lifetime.
+/// Reset the result if it is an aggregate result. This will clear the children vector
+/// and reset the kind mask.
 ///
 /// # Safety
 ///

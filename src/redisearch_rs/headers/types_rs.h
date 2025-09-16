@@ -668,15 +668,14 @@ const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResu
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
- * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
- * - `result`'s data payload must be of the aggregate kind
+ * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * 2. `result`'s data payload must be of the aggregate kind
  */
 const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RSIndexResult *result);
 
 /**
- * Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
- * This function does not deallocate the children pointers, but rather resets the internal state of the
- * aggregate result. The owner of the children pointers is responsible for managing their lifetime.
+ * Reset the result if it is an aggregate result. This will clear the children vector
+ * and reset the kind mask.
  *
  * # Safety
  *
