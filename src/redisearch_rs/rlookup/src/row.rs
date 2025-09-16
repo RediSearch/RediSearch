@@ -88,28 +88,26 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
-    pub fn write_key(&mut self, key: &RLookupKey, val: T) {
+    pub fn write_key(&mut self, key: &RLookupKey, val: T) -> Option<T> {
         let idx = key.dstidx;
         if self.dyn_values.len() <= idx as usize {
             self.set_dyn_capacity((idx + 1) as usize);
         }
 
-        let in_place = &mut self.dyn_values[idx as usize];
-        if let Some(existing_value) = in_place {
-            existing_value.decrement();
-            self.num_dyn_values -= 1;
+        let prev = self.dyn_values[idx as usize].replace(val);
+
+        if prev.is_none() {
+            self.num_dyn_values += 1;
         }
 
-        *in_place = Some(val);
-        self.num_dyn_values += 1;
+        prev
     }
 
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
     /// This does not free all the memory consumed by the row, but simply resets
-    /// the row data (preserving any caches) so that it may be refilled.    
+    /// the row data (preserving any caches) so that it may be refilled.
     pub fn wipe(&mut self) {
         for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
-            value.as_mut().unwrap().decrement();
             *value = None;
             self.num_dyn_values -= 1;
         }
@@ -119,14 +117,7 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
     ///
     /// It does not affect the sorting vector.
     pub fn reset_dyn_values(&mut self) {
-        self.wipe();
+        self.num_dyn_values = 0;
         self.dyn_values = vec![];
-    }
-}
-
-impl<'a, T: RSValueTrait> Drop for RLookupRow<'a, T> {
-    fn drop(&mut self) {
-        // Wipe the row, decrementing any instances of `T`
-        self.wipe();
     }
 }

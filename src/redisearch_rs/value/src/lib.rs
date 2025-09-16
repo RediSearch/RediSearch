@@ -56,12 +56,6 @@ where
     /// returns true if the RSValue is stored as a pointer on the heap (the C implementation)
     fn is_ptr_type() -> bool;
 
-    /// Increments the reference count of the RSValue instance.
-    fn increment(&mut self);
-
-    /// Decrements the reference count of the RSValue instance.
-    fn decrement(&mut self);
-
     /// returns the approximate memory size of the RSValue instance.
     fn mem_size() -> usize {
         std::mem::size_of::<Self>()
@@ -89,7 +83,8 @@ impl Clone for RSValueFFI {
 // Drop is used to decrement the reference count of the underlying C struct when the RSValueFFI is dropped.
 impl Drop for RSValueFFI {
     fn drop(&mut self) {
-        self.decrement();
+        // Safety: We assume a valid ptr is given by the C side, and we are decrementing the reference count.
+        unsafe { ffi::RSValue_Decref(self.0.as_ptr()) };
     }
 }
 
@@ -190,15 +185,5 @@ impl RSValueTrait for RSValueFFI {
     fn mem_size() -> usize {
         // The size of the RSValue struct in C is fixed, so we can use the size of the FFI struct.
         std::mem::size_of::<ffi::RSValue>()
-    }
-
-    fn increment(&mut self) {
-        // Safety: We assume a valid ptr is given by the C side, and we are incrementing the reference count.
-        unsafe { ffi::RSValue_IncrRef(self.0.as_ptr()) };
-    }
-
-    fn decrement(&mut self) {
-        // Safety: We assume a valid ptr is given by the C side, and we are decrementing the reference count.
-        unsafe { ffi::RSValue_Decref(self.0.as_ptr()) };
     }
 }
