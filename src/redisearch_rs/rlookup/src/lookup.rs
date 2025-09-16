@@ -302,9 +302,9 @@ pub struct RLookupKey<'a> {
     /// MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
     /// YOU WANT TO POTENTIALLY RISK UB
     #[pin]
-    _name: CBCow<'a, CStr>,
+    pub(super) _name: CBCow<'a, CStr>,
     #[pin]
-    _path: CBOption<CBCow<'a, CStr>>,
+    pub(super) _path: CBOption<CBCow<'a, CStr>>,
 }
 
 /// An append-only list of [`RLookupKey`]s.
@@ -313,7 +313,7 @@ pub struct RLookupKey<'a> {
 #[derive(Debug)]
 #[repr(C)]
 pub struct RLookup<'a> {
-    keys: KeyList<'a>,
+    pub(crate) keys: KeyList<'a>,
 
     // Flags/options
     options: RLookupOptions,
@@ -325,7 +325,7 @@ pub struct RLookup<'a> {
 
 #[derive(Debug)]
 #[repr(C)]
-struct KeyList<'a> {
+pub(crate) struct KeyList<'a> {
     // The head and tail nodes of this linked-list.
     // FIXME [MOD-10314] make this more type-safe when we no longer have direct field access from C
     head: Option<NonNull<RLookupKey<'a>>>,
@@ -620,7 +620,7 @@ impl<'a> KeyList<'a> {
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
     ///
     /// The key will be owned by the list and freed when dropping the list.
-    fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
+    pub(crate) fn push(&mut self, mut key: RLookupKey<'a>) -> Pin<&mut RLookupKey<'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push before");
 
@@ -693,7 +693,7 @@ impl<'a> KeyList<'a> {
     /// Find a [`RLookupKey`] in this `KeyList` by its [`name`][RLookupKey::name]
     /// and return a [`Cursor`] pointing to the key if found.
     // FIXME [MOD-10315] replace with more efficient search
-    fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
+    pub(crate) fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::find_by_name");
 
