@@ -3593,25 +3593,18 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
   }
 
-  // Only initialize the coordinator/cluster functionality if we're actually in cluster mode
-  if (isClusterEnabled) {
-    size_t num_connections_per_shard;
-    if (clusterConfig.connPerShard) {
-      num_connections_per_shard = clusterConfig.connPerShard;
-    } else {
-      // default
-      num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
-    }
-
-    size_t num_io_threads = clusterConfig.coordinatorIOThreads;
-    size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
-
-    MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
+  size_t num_connections_per_shard;
+  if (clusterConfig.connPerShard) {
+    num_connections_per_shard = clusterConfig.connPerShard;
   } else {
-    RedisModule_Log(ctx, "notice", "Standalone mode: skipping coordinator initialization");
-    // Temporary hack to get single-shard logic without sending first `search-CLUSTERSET` command
-    NumShards = 1;
+    // default
+    num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
   }
+
+  size_t num_io_threads = clusterConfig.coordinatorIOThreads;
+  size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
+
+  MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;
 }
@@ -3744,7 +3737,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
-  RedisModule_Log(ctx, "warning", "Cluster enabled: %s", isClusterEnabled ? "true" : "false");
   const Version unstableRedis = {7, 9, 227};
   const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
 
