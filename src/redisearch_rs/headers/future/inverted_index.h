@@ -256,6 +256,17 @@ void IndexReader_Reset(struct IndexReader *ir);
  */
 uintptr_t IndexReader_NumEstimated(const struct IndexReader *ir);
 
+/**
+ * Check if the index reader can read from the given inverted index. This is true if the index
+ * reader was created for the same type of index as the given inverted index.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ */
+bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedIndex *ii);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
