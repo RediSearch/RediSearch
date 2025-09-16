@@ -294,7 +294,7 @@ set(FINAL_OBJECTS
 # Build the shared library
 # Build as static library for integration with disk storage
 # Allow overriding library type via option
-option(REDISEARCH_BUILD_SHARED "Build RediSearch as shared library" OFF)
+
 
 # Default behavior: SHARED when main project, STATIC when subdirectory
 if(NOT DEFINED REDISEARCH_BUILD_SHARED)
@@ -304,6 +304,8 @@ if(NOT DEFINED REDISEARCH_BUILD_SHARED)
         set(REDISEARCH_BUILD_SHARED OFF)
     endif()
 endif()
+
+option(REDISEARCH_BUILD_SHARED "Build RediSearch as shared library" OFF)
 
 # Create library with determined type
 if(REDISEARCH_BUILD_SHARED)
