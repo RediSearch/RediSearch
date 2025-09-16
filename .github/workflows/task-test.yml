@@ -77,7 +77,7 @@ jobs:
           echo CC=clang >> $GITHUB_ENV
           echo CXX=clang++ >> $GITHUB_ENV
           rm /usr/bin/ld
-          link -s /usr/bin/ld.lld /usr/bin/ld
+          ln -s /usr/bin/ld.lld /usr/bin/ld
       - name: Get Installation Mode
         id: mode
         run: |
