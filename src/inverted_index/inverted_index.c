@@ -1607,4 +1607,215 @@ void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d) {
   rm_free(d);
 }
 
+// --------------------- II High Level GC API
+
+// ---- Write Utilities (utilities which are ported over from fork_gc.c)
+
+// Buff shouldn't be NULL.
+static int II_Gc_WriteFixed(II_GCWriter *wr, const void *buff, size_t len) {
+  return wr->write(wr->ctx, buff, len);
+}
+
+#define II_GC_WRITE_VAR(wr, v) II_Gc_WriteFixed(wr, &v, sizeof v)
+
+static void II_Gc_WriteBuffer(II_GCWriter *wr, const void *buff, size_t len) {
+  II_GC_WRITE_VAR(wr, len);
+  if (len > 0) {
+    II_Gc_WriteFixed(wr, buff, len);
+  }
+}
+
+/**
+ * Write instead of a string to indicate that no more buffers are to be read
+ */
+static void II_Gc_WriteTerminator(II_GCWriter *wr) {
+  size_t smax = SIZE_MAX;
+  II_GC_WRITE_VAR(wr, smax);
+}
+
+// ---- Read Utilities (utilities which are ported over from fork_gc.c)
+
+static int II_Gc_ReadFixed(II_GCReader *rd, const void *buff, size_t len) {
+  return rd->read(rd->ctx, buff, len);
+}
+
+static void *RECV_BUFFER_EMPTY = (void *)0x0deadbeef;
+
+static int __attribute__((warn_unused_result))
+II_Gc_ReadBuffer(II_GCReader *rd, void **buff, size_t *len) {
+  int result = II_Gc_ReadFixed(rd, len, sizeof *len);
+  if (result != 0) {
+      return result;
+  }
+
+  if (*len == SIZE_MAX) {
+    *buff = RECV_BUFFER_EMPTY;
+    return 0;
+  }
+  if (*len == 0) {
+    *buff = NULL;
+    return 0;
+  }
+
+  *buff = rm_malloc(*len + 1);
+  ((char *)(*buff))[*len] = 0;
+  result = II_Gc_ReadFixed(rd, *buff, *len);
+  if (result != 0) {
+    rm_free(buff);
+    return result;
+  }
+
+  return 0;
+}
+
+// ---------------- GC Scan Logic
+
+typedef struct {
+  // Number of blocks prior to repair
+  uint32_t nblocksOrig;
+  // Number of blocks repaired
+  uint32_t nblocksRepaired;
+  // Number of bytes cleaned in inverted index
+  uint64_t nbytesCollected;
+  // Number of bytes added to inverted index
+  uint64_t nbytesAdded;
+  // Number of document records removed
+  uint64_t ndocsCollected;
+  // Number of numeric records removed
+  uint64_t nentriesCollected;
+
+  /** Specific information about the _last_ index block */
+  size_t lastblkDocsRemoved;
+  size_t lastblkBytesCollected;
+  size_t lastblkNumEntries;
+  size_t lastblkEntriesRemoved;
+} MSG_IndexInfo;
+
+/** Structure sent describing an index block */
+typedef struct {
+  IndexBlock blk;
+  int64_t oldix;  // Old position of the block
+  int64_t newix;  // New position of the block
+  // the actual content of the block follows...
+} MSG_RepairedBlock;
+
+typedef struct {
+  void *ptr;       // Address of the buffer to free
+  uint32_t oldix;  // Old index of deleted block
+  uint32_t _pad;   // Uninitialized reads, otherwise
+} MSG_DeletedBlock;
+
+/* GC Scan blocks to repair and write that info to the II_GCWriter.
+ */
+static bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
+                                     II_GCCallback *cb, IndexRepairParams *params) {
+    size_t numBlocks = InvertedIndex_NumBlocks(idx);
+    MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);
+    MSG_DeletedBlock *deleted = array_new(MSG_DeletedBlock, 10);
+    IndexBlock *blocklist = array_new(IndexBlock, numBlocks);
+    MSG_IndexInfo ixmsg = {.nblocksOrig = numBlocks};
+    bool rv = false;
+    IndexRepairParams params_s = {0};
+    if (!params) {
+        params = &params_s;
+    }
+
+    for (size_t i = 0; i < numBlocks; ++i) {
+    params->bytesCollected = 0;
+    params->bytesBeforFix = 0;
+    params->bytesAfterFix = 0;
+    params->entriesCollected = 0;
+    IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
+    t_docId firstId = IndexBlock_FirstId(blk);
+    t_docId lastId = IndexBlock_LastId(blk);
+
+    if (lastId - firstId > UINT32_MAX) {
+        // Skip over blocks which have a wide variation. In the future we might
+        // want to split a block into two (or more) on high-delta boundaries.
+        // todo: is it ok??
+        // The above TODO was written 5 years ago. We currently don't split blocks,
+        // and it is also not clear why we care about high variations.
+        array_append(blocklist, *blk);
+        continue;
+    }
+
+    // Capture the pointer address before the block is cleared; otherwise
+    // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
+    void *bufptr = IndexBlock_Data(blk);
+    size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, InvertedIndex_Flags(idx), params);
+    if (nrepaired == 0) {
+        // unmodified block
+        array_append(blocklist, *blk);
+        continue;
+    }
+
+    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
+
+    uint16_t numEntries = IndexBlock_NumEntries(blk);
+    if (numEntries == 0) {
+        // this block should be removed
+        MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
+        *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
+        curr_bytesCollected += sizeof(IndexBlock);
+    } else {
+        array_append(blocklist, *blk);
+        MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
+        fixmsg->newix = array_len(blocklist) - 1;
+        fixmsg->oldix = i;
+        fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
+        ixmsg.nblocksRepaired++;
+    }
+    ixmsg.nbytesCollected += curr_bytesCollected;
+    ixmsg.ndocsCollected += nrepaired;
+    ixmsg.nentriesCollected += params->entriesCollected;
+    // Save last block statistics because the main process might want to ignore the changes if
+    // the block was modified while the fork was running.
+    if (i == numBlocks - 1) {
+        ixmsg.lastblkBytesCollected = curr_bytesCollected;
+        ixmsg.lastblkDocsRemoved = nrepaired;
+        ixmsg.lastblkEntriesRemoved = params->entriesCollected;
+        // Save the original number of entries of the last block so we can compare
+        // this value to the number of entries exist in the main process, to conclude if any new entries
+        // were added during the fork process was running. If there were, the main process will discard the last block
+        // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
+        // or it will get to its maximum capacity and will no longer be the last block.
+        ixmsg.lastblkNumEntries = IndexBlock_NumEntries(blk) + params->entriesCollected;
+    }
+    }
+
+    if (array_len(fixed) == 0 && array_len(deleted) == 0) {
+        // No blocks were removed or repaired
+        goto done;
+    }
+
+    cb->call(cb->ctx);
+    II_Gc_WriteFixed(wr, &ixmsg, sizeof ixmsg);
+    if (array_len(blocklist) == numBlocks) {
+        // no empty block, there is no need to send the blocks array. Don't send
+        // any new blocks.
+        size_t len = 0;
+        II_GC_WRITE_VAR(wr, len);
+    } else {
+        II_Gc_WriteBuffer(wr, blocklist, array_len(blocklist) * sizeof(*blocklist));
+    }
+    // TODO: can we move it inside the if?
+    II_Gc_WriteBuffer(wr, deleted, array_len(deleted) * sizeof(*deleted));
+
+    for (size_t i = 0; i < array_len(fixed); ++i) {
+        // write fix block
+        const MSG_RepairedBlock *msg = fixed + i;
+        const IndexBlock *blk = blocklist + msg->newix;
+        II_Gc_WriteFixed(wr, msg, sizeof(*msg));
+        // TODO: check why we need to send the data if its part of the blk struct.
+        II_Gc_WriteBuffer(wr, IndexBlock_Data(blk), IndexBlock_Len(blk));
+    }
+    rv = true;
+
+done:
+    array_free(fixed);
+    array_free(blocklist);
+    array_free(deleted);
+    return rv;
+}
+
 // ---------------------

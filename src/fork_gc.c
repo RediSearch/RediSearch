@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "fork_gc.h"
+#include "inverted_index/inverted_index.h"
 #include "triemap.h"
 #include "util/arr.h"
 #include "search_ctx.h"
@@ -142,6 +143,20 @@ FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
   return REDISMODULE_OK;
 }
 
+// glue to use process pipe as writer for II GC delta info
+static int pipe_write_cb(void *ctx, const void *buf, size_t len) {
+  ForkGC *gc = ctx;
+
+  RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");
+  ssize_t size = write(gc->pipe_write_fd, buf, len);
+  if (size != len) {
+    perror("broken pipe, exiting GC fork: write() failed");
+    // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
+    RedisModule_Log(gc->ctx, "warning", "GC fork: broken pipe, exiting");
+    RedisModule_ExitFromChild(1);
+  }
+}
+
 typedef struct {
   // Number of blocks prior to repair
   uint32_t nblocksOrig;
@@ -177,132 +192,128 @@ typedef struct {
   uint32_t _pad;   // Uninitialized reads, otherwise
 } MSG_DeletedBlock;
 
-/**
- * headerCallback and hdrarg are invoked before the inverted index is sent, only
- * if the inverted index was repaired.
- * This function sends the main process an info message with general info on the inverted index garbage collection.
- * In addition, for each fixed block it sends a repair message. For deleted blocks it send delete message.
- * If the index size (number of blocks) wasn't modified (no deleted blocks) we don't send a new block list.
- * In this case, the main process will get the modifications from the fix messages, that contains also a copy of the
- * repaired block.
- * RepairCallback and its argument are passed directly to IndexBlock_Repair; see
- * that function for more details.
- */
-static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
-                                  void (*headerCallback)(ForkGC *, void *), void *hdrarg,
-                                  IndexRepairParams *params) {
-  size_t numBlocks = InvertedIndex_NumBlocks(idx);
-  MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);
-  MSG_DeletedBlock *deleted = array_new(MSG_DeletedBlock, 10);
-  IndexBlock *blocklist = array_new(IndexBlock, numBlocks);
-  MSG_IndexInfo ixmsg = {.nblocksOrig = numBlocks};
-  bool rv = false;
-  IndexRepairParams params_s = {0};
-  if (!params) {
-    params = &params_s;
-  }
+// used in code such as ScanRepair
+typedef struct {
+    ForkGC *gc;
+    void *hdrarg;
+} CTX_II_GC_Callback;
 
-  for (size_t i = 0; i < numBlocks; ++i) {
-    params->bytesCollected = 0;
-    params->bytesBeforFix = 0;
-    params->bytesAfterFix = 0;
-    params->entriesCollected = 0;
-    IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
-    t_docId firstId = IndexBlock_FirstId(blk);
-    t_docId lastId = IndexBlock_LastId(blk);
+// static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedIndex *idx,
+//                                   void (*headerCallback)(ForkGC *, void *), void *hdrarg,
+//                                   IndexRepairParams *params) {
+//   size_t numBlocks = InvertedIndex_NumBlocks(idx);
+//   MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);
+//   MSG_DeletedBlock *deleted = array_new(MSG_DeletedBlock, 10);
+//   IndexBlock *blocklist = array_new(IndexBlock, numBlocks);
+//   MSG_IndexInfo ixmsg = {.nblocksOrig = numBlocks};
+//   bool rv = false;
+//   IndexRepairParams params_s = {0};
+//   if (!params) {
+//     params = &params_s;
+//   }
 
-    if (lastId - firstId > UINT32_MAX) {
-      // Skip over blocks which have a wide variation. In the future we might
-      // want to split a block into two (or more) on high-delta boundaries.
-      // todo: is it ok??
-      // The above TODO was written 5 years ago. We currently don't split blocks,
-      // and it is also not clear why we care about high variations.
-      array_append(blocklist, *blk);
-      continue;
-    }
+//   for (size_t i = 0; i < numBlocks; ++i) {
+//     params->bytesCollected = 0;
+//     params->bytesBeforFix = 0;
+//     params->bytesAfterFix = 0;
+//     params->entriesCollected = 0;
+//     IndexBlock *blk = InvertedIndex_BlockRef(idx, i);
+//     t_docId firstId = IndexBlock_FirstId(blk);
+//     t_docId lastId = IndexBlock_LastId(blk);
 
-    // Capture the pointer address before the block is cleared; otherwise
-    // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
-    void *bufptr = IndexBlock_Data(blk);
-    size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, InvertedIndex_Flags(idx), params);
-    if (nrepaired == 0) {
-      // unmodified block
-      array_append(blocklist, *blk);
-      continue;
-    }
+//     if (lastId - firstId > UINT32_MAX) {
+//       // Skip over blocks which have a wide variation. In the future we might
+//       // want to split a block into two (or more) on high-delta boundaries.
+//       // todo: is it ok??
+//       // The above TODO was written 5 years ago. We currently don't split blocks,
+//       // and it is also not clear why we care about high variations.
+//       array_append(blocklist, *blk);
+//       continue;
+//     }
 
-    uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
+//     // Capture the pointer address before the block is cleared; otherwise
+//     // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
+//     void *bufptr = IndexBlock_Data(blk);
+//     size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, InvertedIndex_Flags(idx), params);
+//     if (nrepaired == 0) {
+//       // unmodified block
+//       array_append(blocklist, *blk);
+//       continue;
+//     }
 
-    uint16_t numEntries = IndexBlock_NumEntries(blk);
-    if (numEntries == 0) {
-      // this block should be removed
-      MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
-      *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
-      curr_bytesCollected += sizeof(IndexBlock);
-    } else {
-      array_append(blocklist, *blk);
-      MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
-      fixmsg->newix = array_len(blocklist) - 1;
-      fixmsg->oldix = i;
-      fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
-      ixmsg.nblocksRepaired++;
-    }
-    ixmsg.nbytesCollected += curr_bytesCollected;
-    ixmsg.ndocsCollected += nrepaired;
-    ixmsg.nentriesCollected += params->entriesCollected;
-    // Save last block statistics because the main process might want to ignore the changes if
-    // the block was modified while the fork was running.
-    if (i == numBlocks - 1) {
-      ixmsg.lastblkBytesCollected = curr_bytesCollected;
-      ixmsg.lastblkDocsRemoved = nrepaired;
-      ixmsg.lastblkEntriesRemoved = params->entriesCollected;
-      // Save the original number of entries of the last block so we can compare
-      // this value to the number of entries exist in the main process, to conclude if any new entries
-      // were added during the fork process was running. If there were, the main process will discard the last block
-      // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
-      // or it will get to its maximum capacity and will no longer be the last block.
-      ixmsg.lastblkNumEntries = IndexBlock_NumEntries(blk) + params->entriesCollected;
-    }
-  }
+//     uint64_t curr_bytesCollected = params->bytesBeforFix - params->bytesAfterFix;
 
-  if (array_len(fixed) == 0 && array_len(deleted) == 0) {
-    // No blocks were removed or repaired
-    goto done;
-  }
+//     uint16_t numEntries = IndexBlock_NumEntries(blk);
+//     if (numEntries == 0) {
+//       // this block should be removed
+//       MSG_DeletedBlock *delmsg = array_ensure_tail(&deleted, MSG_DeletedBlock);
+//       *delmsg = (MSG_DeletedBlock){.ptr = bufptr, .oldix = i};
+//       curr_bytesCollected += sizeof(IndexBlock);
+//     } else {
+//       array_append(blocklist, *blk);
+//       MSG_RepairedBlock *fixmsg = array_ensure_tail(&fixed, MSG_RepairedBlock);
+//       fixmsg->newix = array_len(blocklist) - 1;
+//       fixmsg->oldix = i;
+//       fixmsg->blk = *blk; // TODO: consider sending the blocklist even if there weren't any deleted blocks instead of this redundant copy.
+//       ixmsg.nblocksRepaired++;
+//     }
+//     ixmsg.nbytesCollected += curr_bytesCollected;
+//     ixmsg.ndocsCollected += nrepaired;
+//     ixmsg.nentriesCollected += params->entriesCollected;
+//     // Save last block statistics because the main process might want to ignore the changes if
+//     // the block was modified while the fork was running.
+//     if (i == numBlocks - 1) {
+//       ixmsg.lastblkBytesCollected = curr_bytesCollected;
+//       ixmsg.lastblkDocsRemoved = nrepaired;
+//       ixmsg.lastblkEntriesRemoved = params->entriesCollected;
+//       // Save the original number of entries of the last block so we can compare
+//       // this value to the number of entries exist in the main process, to conclude if any new entries
+//       // were added during the fork process was running. If there were, the main process will discard the last block
+//       // fixes. We rely on the assumption that a block is small enough and it will be either handled in the next iteration,
+//       // or it will get to its maximum capacity and will no longer be the last block.
+//       ixmsg.lastblkNumEntries = IndexBlock_NumEntries(blk) + params->entriesCollected;
+//     }
+//   }
 
-  headerCallback(gc, hdrarg);
-  FGC_sendFixed(gc, &ixmsg, sizeof ixmsg);
-  if (array_len(blocklist) == numBlocks) {
-    // no empty block, there is no need to send the blocks array. Don't send
-    // any new blocks.
-    size_t len = 0;
-    FGC_SEND_VAR(gc, len);
-  } else {
-    FGC_sendBuffer(gc, blocklist, array_len(blocklist) * sizeof(*blocklist));
-  }
-  // TODO: can we move it inside the if?
-  FGC_sendBuffer(gc, deleted, array_len(deleted) * sizeof(*deleted));
+//   if (array_len(fixed) == 0 && array_len(deleted) == 0) {
+//     // No blocks were removed or repaired
+//     goto done;
+//   }
 
-  for (size_t i = 0; i < array_len(fixed); ++i) {
-    // write fix block
-    const MSG_RepairedBlock *msg = fixed + i;
-    const IndexBlock *blk = blocklist + msg->newix;
-    FGC_sendFixed(gc, msg, sizeof(*msg));
-    // TODO: check why we need to send the data if its part of the blk struct.
-    FGC_sendBuffer(gc, IndexBlock_Data(blk), IndexBlock_Len(blk));
-  }
-  rv = true;
+//   headerCallback(gc, hdrarg);
+//   FGC_sendFixed(gc, &ixmsg, sizeof ixmsg);
+//   if (array_len(blocklist) == numBlocks) {
+//     // no empty block, there is no need to send the blocks array. Don't send
+//     // any new blocks.
+//     size_t len = 0;
+//     FGC_SEND_VAR(gc, len);
+//   } else {
+//     FGC_sendBuffer(gc, blocklist, array_len(blocklist) * sizeof(*blocklist));
+//   }
+//   // TODO: can we move it inside the if?
+//   FGC_sendBuffer(gc, deleted, array_len(deleted) * sizeof(*deleted));
 
-done:
-  array_free(fixed);
-  array_free(blocklist);
-  array_free(deleted);
-  return rv;
-}
+//   for (size_t i = 0; i < array_len(fixed); ++i) {
+//     // write fix block
+//     const MSG_RepairedBlock *msg = fixed + i;
+//     const IndexBlock *blk = blocklist + msg->newix;
+//     FGC_sendFixed(gc, msg, sizeof(*msg));
+//     // TODO: check why we need to send the data if its part of the blk struct.
+//     FGC_sendBuffer(gc, IndexBlock_Data(blk), IndexBlock_Len(blk));
+//   }
+//   rv = true;
 
-static void sendHeaderString(ForkGC *gc, void *arg) {
-  struct iovec *iov = arg;
-  FGC_sendBuffer(gc, iov->iov_base, iov->iov_len);
+// done:
+//   array_free(fixed);
+//   array_free(blocklist);
+//   array_free(deleted);
+//   return rv;
+// }
+
+static void sendHeaderString(void* ptrCtx) {
+  CTX_II_GC_Callback* ctx = ptrCtx;
+  struct iovec *iov = ctx->hdrarg;
+  FGC_sendBuffer(ctx->gc, iov->iov_base, iov->iov_len);
 }
 
 static void FGC_reportProgress(ForkGC *gc) {
@@ -326,7 +337,17 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
     InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), DONT_CREATE_INDEX, NULL);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
-      FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+
+      CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &iov };
+      II_GCCallback cb = { .ctx = &cbCtx, .call = sendHeaderString };
+
+      II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+      InvertedIndex_GcDelta_ScanRepair(
+          &wr, sctx, idx,
+          &cb, NULL
+      );
+
       FGC_reportProgress(gc);
     }
     rm_free(term);
@@ -367,16 +388,18 @@ typedef struct {
   int sentFieldName;
 } tagNumHeader;
 
-static void sendNumericTagHeader(ForkGC *fgc, void *arg) {
-  tagNumHeader *info = arg;
+static void sendNumericTagHeader(void *opaqueCtx) {
+    CTX_II_GC_Callback* ctx = opaqueCtx;
+
+  tagNumHeader *info = ctx->hdrarg;
   if (!info->sentFieldName) {
     info->sentFieldName = 1;
-    FGC_sendBuffer(fgc, info->field, strlen(info->field));
-    FGC_sendFixed(fgc, &info->uniqueId, sizeof info->uniqueId);
+    FGC_sendBuffer(ctx->gc, info->field, strlen(info->field));
+    FGC_sendFixed(ctx->gc, &info->uniqueId, sizeof info->uniqueId);
   }
-  FGC_SEND_VAR(fgc, info->curPtr);
+  FGC_SEND_VAR(ctx->gc, info->curPtr);
   if (info->type == RSFLDTYPE_TAG) {
-    FGC_sendBuffer(fgc, info->tagValue, info->tagLen);
+    FGC_sendBuffer(ctx->gc, info->tagValue, info->tagLen);
   }
 }
 
@@ -432,7 +455,16 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
       InvertedIndex *idx = currNode->range->entries;
       header.curPtr = currNode;
-      bool repaired = FGC_childRepairInvidx(gc, sctx, idx, sendNumericTagHeader, &header, &params);
+
+      CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &header };
+      II_GCCallback cb = { .ctx = &cbCtx, .call = sendNumericTagHeader };
+
+      II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+      bool repaired = InvertedIndex_GcDelta_ScanRepair(
+          &wr, sctx, idx,
+          &cb, &params
+      );
 
       if (repaired) {
         // Instead of sending the majority cardinality and the last block's cardinality, we now
@@ -487,8 +519,19 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
         header.curPtr = value;
         header.tagValue = ptr;
         header.tagLen = len;
+
         // send repaired data
-        FGC_childRepairInvidx(gc, sctx, value, sendNumericTagHeader, &header, NULL);
+
+        CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &header };
+        II_GCCallback cb = { .ctx = &cbCtx, .call = sendNumericTagHeader };
+
+        II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+        InvertedIndex_GcDelta_ScanRepair(
+            &wr, sctx, value,
+            &cb, NULL
+        );
+
         FGC_reportProgress(gc);
       }
 
@@ -517,7 +560,17 @@ static void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
       size_t length;
       const char* fieldName = HiddenString_GetUnsafe(hiddenFieldName, &length);
       struct iovec iov = {.iov_base = (void *)fieldName, length};
-      FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+
+      CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &iov };
+      II_GCCallback cb = { .ctx = &cbCtx, .call = sendHeaderString };
+
+      II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+      InvertedIndex_GcDelta_ScanRepair(
+          &wr, sctx, idx,
+          &cb, NULL
+      );
+
       FGC_reportProgress(gc);
     }
   }
@@ -533,7 +586,16 @@ static void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
   InvertedIndex *idx = spec->existingDocs;
   if (idx) {
     struct iovec iov = {.iov_base = (void *)"", 0};
-    FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+
+    CTX_II_GC_Callback cbCtx = { .gc = gc, .hdrarg = &iov };
+    II_GCCallback cb = { .ctx = &cbCtx, .call = sendHeaderString };
+
+    II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
+
+    InvertedIndex_GcDelta_ScanRepair(
+        &wr, sctx, idx,
+        &cb, NULL
+    );
   }
 
   // we are done with existing docs inverted index

@@ -374,7 +374,7 @@ unsigned long InvertedIndex_MemUsage(const InvertedIndex *value);
  * Returns the number of docs collected, and puts the number of bytes collected in the given
  * pointer.
  */
-size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
+size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params); // TODO[glendc]: do we really need to expose the details of something like IndexRepairParams
 
 /* Apply a GC change set to an inverted index.
  * nblocks_orig is the number of blocks the child had scanned,
@@ -392,14 +392,47 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
 // ---------------- II Delta Builders
 
 InvertedIndexGcDelta *InvertedIndex_GcDelta_New(void);
-// // takes ownership of blocks
+// takes ownership of blocks
 void InvertedIndex_GcDelta_SetNewBlocklist(InvertedIndexGcDelta *d, IndexBlock *blocks, size_t count);
 // takes ownership of arr
 void InvertedIndex_GcDelta_SetDeleted(InvertedIndexGcDelta *d, InvertedIndex_DeletedInput *arr, size_t len);
-// // takes ownership of arr
+// takes ownership of arr
 void InvertedIndex_GcDelta_SetRepaired(InvertedIndexGcDelta *d, InvertedIndex_RepairedInput *arr, size_t len);
 void InvertedIndex_GcDelta_SetLastBlockIgnored(InvertedIndexGcDelta *d, bool v);
 void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d);
+
+// --------------------- II High Level GC API
+
+typedef struct {
+  void *ctx;
+  // write exactly len or return nonzero
+  int (*write)(void *ctx, const void *buf, size_t len);
+} II_GCWriter;
+
+typedef struct {
+  void *ctx;
+  // read exactly len or return nonzero
+  int (*read)(void *ctx, void *buf, size_t len);
+} II_GCReader;
+
+typedef struct {
+  void *ctx;
+  void (*call)(void *ctx);
+} II_GCCallback;
+
+// ------------------------ GC Scan
+
+/**
+ * II_GCCallback is invoked before the inverted index is written, only
+ * if the inverted index was repaired.
+ * This function writes to the receiver an info message with general info on the inverted index garbage collection.
+ * In addition, for each fixed block it writes a repair message. For deleted blocks it writes a delete message.
+ * If the index size (number of blocks) wasn't modified (no deleted blocks) we don't write a new block list.
+ * In this case, the receiver will get the modifications from the fix messages, that contains also a copy of the
+ * repaired block.
+ */
+static bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
+                                     II_GCCallback *cb, IndexRepairParams *params);
 
 // ---------------------
 
