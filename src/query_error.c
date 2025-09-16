@@ -34,7 +34,8 @@ void QueryError_CloneFrom(QueryError *dest, const QueryError *src) {
     return;
   }
   dest->code = src->code;
-  dest->detail = rm_strdup(src->detail);
+  const char *error = src->detail ? src->detail : QueryError_Strerror(src->code);
+  dest->detail = rm_strdup(error);
   dest->message = src->message;
 }
 
