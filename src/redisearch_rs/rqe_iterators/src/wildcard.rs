@@ -13,41 +13,72 @@ use inverted_index::RSIndexResult;
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
-/// An iterator that yields all ids within a given range.
+/// An iterator that yields all ids within a given range, from 0 to max id in an index.
 #[derive(Default)]
 pub struct Wildcard {
+    // Supposed to be the max id in the index
     top_id: t_docId,
+
     current_id: t_docId,
-    num_docs: usize,
+
     /// A reusable result object to avoid allocations on each `read` call.
     result: RSIndexResult<'static>,
 }
 
+impl Wildcard {
+    pub fn new(top_id: t_docId) -> Self {
+        Wildcard {
+            top_id,
+            current_id: 0,
+            result: RSIndexResult::virt()
+        }
+    }
+}
+
 impl RQEIterator for Wildcard {
     fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
-        self.result.doc_id = self.current_id;
+        if self.at_eof() {
+            return Ok(None);
+        }
+
         self.current_id += 1;
-        Ok(Some(&(self.result)))
+        self.result.doc_id = self.current_id;
+        Ok(Some(&self.result))
     }
 
     fn skip_to(
         &mut self,
         _doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
-        Ok(None)
+        if self.at_eof() {
+            return Ok(None)
+        }
+        
+        if _doc_id > self.top_id {
+            // skip beyond range - set to EOF
+            self.current_id = self.top_id;
+            return Ok(None)
+        }
+        
+        self.current_id = _doc_id;
+        self.result.doc_id = _doc_id;
+        Ok(Some(SkipToOutcome::Found(&self.result)))
     }
 
-    fn rewind(&mut self) {}
+    fn rewind(&mut self) {
+        self.current_id = 0;
+    }
 
+    // This should always return total results from the iterator, even after some yields.
     fn num_estimated(&self) -> usize {
-        (self.top_id - self.current_id) as usize
+        self.top_id as usize
     }
 
     fn last_doc_id(&self) -> t_docId {
-        self.top_id
+        self.current_id
     }
 
     fn at_eof(&self) -> bool {
-        self.current_id < self.top_id
+        self.current_id >= self.top_id
     }
 }
