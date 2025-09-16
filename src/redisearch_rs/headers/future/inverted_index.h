@@ -319,6 +319,16 @@ bool IndexReader_Seek(struct IndexReader *ir,
                       t_docId doc_id,
                       RSIndexResult *res);
 
+/**
+ * Check if the index reader can return multiple entries for the same document ID.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+bool IndexReader_HasMulti(const struct IndexReader *ir);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

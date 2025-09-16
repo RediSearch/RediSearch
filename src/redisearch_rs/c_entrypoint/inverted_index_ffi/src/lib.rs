@@ -811,3 +811,19 @@ pub unsafe extern "C" fn IndexReader_Seek<'index, 'filter>(
         Err(_) => false,
     }
 }
+
+/// Check if the index reader can return multiple entries for the same document ID.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_HasMulti(ir: *const IndexReader) -> bool {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &*ir };
+
+    ir_dispatch!(ir, has_duplicates)
+}
