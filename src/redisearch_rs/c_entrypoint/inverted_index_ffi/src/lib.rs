@@ -723,3 +723,36 @@ pub unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool 
     // The Rust `Decoder` implementation has a default seeker for all decoders
     true
 }
+
+/// Advance the index reader to the next entry in the index. If there is a next entry, it will be
+/// written to the output parameter `res` and the function will return true. If there are no more
+/// entries, the function will return false.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+/// - `res` must be a valid pointer to an `RSIndexResult` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_Next<'index, 'filter>(
+    ir: *mut IndexReader<'index, 'filter>,
+    res: *mut RSIndexResult<'index>,
+) -> bool {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+    debug_assert!(!res.is_null(), "res must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &mut *ir };
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let res = unsafe { &mut *res };
+
+    match ir_dispatch!(ir, next) {
+        Some(new_res) => {
+            *res = new_res;
+
+            true
+        }
+        None => false,
+    }
+}

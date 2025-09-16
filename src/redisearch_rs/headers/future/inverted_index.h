@@ -277,6 +277,19 @@ bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedInde
  */
 bool IndexReader_HasSeeker(const struct IndexReader *_ir);
 
+/**
+ * Advance the index reader to the next entry in the index. If there is a next entry, it will be
+ * written to the output parameter `res` and the function will return true. If there are no more
+ * entries, the function will return false.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `res` must be a valid pointer to an `RSIndexResult` instance.
+ */
+bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
