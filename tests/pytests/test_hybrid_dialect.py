@@ -112,7 +112,7 @@ def test_hybrid_dialects():
             'FT.HYBRID', 'idx',
             'SEARCH', '@text:(apples)',
             'VSIM', '@vector', query_vector,
-            'COMBINE', 'RRF', '2', 'K', '30',
+            'COMBINE', 'RRF', '2', 'CONSTANT', '30',
             'FILTER', '@__key == "doc:1" || @__key == "doc:2"',
         ]
         exec_and_validate_query(env, hybrid_cmd)
