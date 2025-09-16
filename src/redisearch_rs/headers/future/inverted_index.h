@@ -290,6 +290,19 @@ bool IndexReader_HasSeeker(const struct IndexReader *_ir);
  */
 bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
 
+/**
+ * Skip the internal block of the inverted index reader to the block that may contain the given
+ * document ID. If such a block exists, the function returns true and the next call to
+ * `IndexReader_Seek` will return the entry for the given document ID or the next higher document
+ * ID. If the document ID is beyond the last document in the index, the function returns false.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

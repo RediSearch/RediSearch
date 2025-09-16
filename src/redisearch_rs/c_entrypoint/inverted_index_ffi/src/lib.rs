@@ -756,3 +756,22 @@ pub unsafe extern "C" fn IndexReader_Next<'index, 'filter>(
         None => false,
     }
 }
+
+/// Skip the internal block of the inverted index reader to the block that may contain the given
+/// document ID. If such a block exists, the function returns true and the next call to
+/// `IndexReader_Seek` will return the entry for the given document ID or the next higher document
+/// ID. If the document ID is beyond the last document in the index, the function returns false.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docId) -> bool {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &mut *ir };
+
+    ir_dispatch!(ir, skip_to, doc_id)
+}
