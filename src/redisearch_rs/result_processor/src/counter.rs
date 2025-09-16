@@ -44,8 +44,8 @@ impl ResultProcessor for Counter {
         //
         // Because the Counter result processor returns Ok(None), this is equivalent to returning
         // ffi::RPStatus_RS_RESULT_EOF (see ResultProcessorWrapper::result_processor_next). This
-        // apparently (in a way enricozb cannot figure out) prevents from the very last RPProfile
-        // from appropriately counting, so this patches that by manually incrementing the counter.
+        // apparently (in a way enricozb cannot figure out) prevents the very last RPProfile from
+        // appropriately counting, so this patches that by manually incrementing the counter.
         if upstream.ty() == ffi::ResultProcessorType_RP_PROFILE {
             let end_proc = cx
                 .parent_mut()
