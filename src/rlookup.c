@@ -988,8 +988,8 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
   return rv;
 }
 
-void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags) {
-  RS_ASSERT(dest != NULL && src != NULL);
+void RLookup_AddKeysFrom(const RLookup *src, RLookup *dest, uint32_t flags) {
+  RS_ASSERT(dest && src);
   RS_ASSERT(dest != src);  // Prevent self-addition
 
   // Iterate through all keys in source lookup
@@ -1004,17 +1004,13 @@ void RLookup_AddKeysFrom(RLookup *dest, const RLookup *src, uint32_t flags) {
     // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
     uint32_t combined_flags = flags | (src_key->flags & ~RLOOKUP_TRANSIENT_FLAGS);
     RLookupKey *dest_key = RLookup_GetKey_Write(dest, src_key->name, combined_flags);
-    if (dest_key) {
-      // Copy properties from source (flags are already handled by RLookup_GetKey_Write)
-      dest_key->svidx = src_key->svidx;
-    }
   }
 }
 
-void RLookupRow_WriteFieldsFrom(RLookupRow *srcRow, const RLookup *srcLookup,
+void RLookupRow_WriteFieldsFrom(const RLookupRow *srcRow, const RLookup *srcLookup,
                                RLookupRow *destRow, const RLookup *destLookup) {
-  RS_ASSERT(srcRow != NULL && srcLookup != NULL);
-  RS_ASSERT(destRow != NULL && destLookup != NULL);
+  RS_ASSERT(srcRow && srcLookup);
+  RS_ASSERT(destRow && destLookup);
 
   // Iterate through all source keys
   for (const RLookupKey *src_key = srcLookup->head; src_key; src_key = src_key->next) {

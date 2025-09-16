@@ -164,7 +164,7 @@ TEST_F(RLookupTest, testAddKeysFromBasic) {
   ASSERT_EQ(0, dest.rowlen);
 
   // Add keys from source to destination
-  RLookup_AddKeysFrom(&dest, &source, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Verify all keys from source exist in destination
   ASSERT_EQ(3, dest.rowlen);
@@ -191,7 +191,7 @@ TEST_F(RLookupTest, testAddKeysFromEmptySource) {
   ASSERT_EQ(2, original_rowlen);
 
   // Add keys from empty source
-  RLookup_AddKeysFrom(&dest, &source, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Verify destination remains unchanged
   ASSERT_EQ(original_rowlen, dest.rowlen);
@@ -222,7 +222,7 @@ TEST_F(RLookupTest, testAddKeysFromConflictsFirstWins) {
   uint32_t original_field4_idx = destKeys.keys[1]->dstidx;  // field4
 
   // Add keys from source (default behavior - first wins)
-  RLookup_AddKeysFrom(&dest, &source, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Verify destination has all unique keys: "field2" (original), "field4" (original), "field1" (new), "field3" (new)
   ASSERT_EQ(4, dest.rowlen);
@@ -258,7 +258,7 @@ TEST_F(RLookupTest, testAddKeysFromConflictsOverride) {
   RLookupKey *original_field4_key = destKeys.keys[1];  // field4 (should remain unchanged)
 
   // Add keys with OVERRIDE flag
-  RLookup_AddKeysFrom(&dest, &source, RLOOKUP_F_OVERRIDE);
+  RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_OVERRIDE);
 
   // Verify destination has all keys
   ASSERT_EQ(4, dest.rowlen);
@@ -295,9 +295,9 @@ TEST_F(RLookupTest, testAddKeysFromMultipleAdditions) {
   TestKeySet src3Keys = init_keys(&src3, {"field3", "field4", "field5"});  // field3,4 overlap
 
   // Add sources sequentially (first wins for conflicts)
-  RLookup_AddKeysFrom(&dest, &src1, RLOOKUP_F_NOFLAGS);  // field1, field2, field3
-  RLookup_AddKeysFrom(&dest, &src2, RLOOKUP_F_NOFLAGS);  // field4 (field2, field3 already exist)
-  RLookup_AddKeysFrom(&dest, &src3, RLOOKUP_F_NOFLAGS);  // field5 (field3, field4 already exist)
+  RLookup_AddKeysFrom(&src1, &dest, RLOOKUP_F_NOFLAGS);  // field1, field2, field3
+  RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);  // field4 (field2, field3 already exist)
+  RLookup_AddKeysFrom(&src3, &dest, RLOOKUP_F_NOFLAGS);  // field5 (field3, field4 already exist)
 
   // Verify final result: all unique keys present (first wins for conflicts)
   ASSERT_EQ(5, dest.rowlen);  // field1, field2, field3, field4, field5
@@ -324,7 +324,7 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
 
   // Setup: create source keys and add to destination
   TestKeySet srcKeys = init_keys(&source, {"field1", "field2"});
-  RLookup_AddKeysFrom(&dest, &source, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create test data and write to source row
   RLookupRow srcRow = {0}, destRow = {0};
@@ -370,12 +370,10 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   RLookup_Init(&dest, NULL);
 
   // Create keys in source
-  RLookupKey *src_key1 = RLookup_GetKey_Write(&source, "field1", RLOOKUP_F_NOFLAGS);
-  RLookupKey *src_key2 = RLookup_GetKey_Write(&source, "field2", RLOOKUP_F_NOFLAGS);
-  ASSERT_TRUE(src_key1 && src_key2);
+  TestKeySet srcKeys = init_keys(&source, {"field1", "field2"});
 
   // Add source keys to destination
-  RLookup_AddKeysFrom(&dest, &source, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create empty rows
   RLookupRow srcRow = {0}, destRow = {0};
@@ -384,14 +382,7 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
 
   // Verify destination remains empty
-  RLookupKey *dest_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
-  RLookupKey *dest_key2 = RLookup_GetKey_Read(&dest, "field2", RLOOKUP_F_NOFLAGS);
-  ASSERT_TRUE(dest_key1 && dest_key2);
-
-  RSValue *dest_val1 = RLookup_GetItem(dest_key1, &destRow);
-  RSValue *dest_val2 = RLookup_GetItem(dest_key2, &destRow);
-  ASSERT_EQ(NULL, dest_val1);
-  ASSERT_EQ(NULL, dest_val2);
+  verify_fields_empty(&dest, &destRow, {"field1", "field2"});
 
   // Cleanup
   RLookupRow_Cleanup(&srcRow);
@@ -407,16 +398,13 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   RLookup_Init(&dest, NULL);
 
   // Create source keys in specific order
-  RLookupKey *src_key1 = RLookup_GetKey_Write(&source, "field1", RLOOKUP_F_NOFLAGS);
-  RLookupKey *src_key2 = RLookup_GetKey_Write(&source, "field2", RLOOKUP_F_NOFLAGS);
-  RLookupKey *src_key3 = RLookup_GetKey_Write(&source, "field3", RLOOKUP_F_NOFLAGS);
-  ASSERT_TRUE(src_key1 && src_key2 && src_key3);
+  TestKeySet srcKeys = init_keys(&source, {"field1", "field2", "field3"});
 
   // Create some dest keys first to ensure different indices
   RLookup_GetKey_Write(&dest, "other_field", RLOOKUP_F_NOFLAGS);
 
   // Add source keys to destination (they'll have different dstidx values)
-  RLookup_AddKeysFrom(&dest, &source, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&source, &dest, RLOOKUP_F_NOFLAGS);
 
   // Verify keys exist but may have different indices
   RLookupKey *dest_key1 = RLookup_GetKey_Read(&dest, "field1", RLOOKUP_F_NOFLAGS);
@@ -428,41 +416,26 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
   RLookupRow srcRow = {0}, destRow = {0};
 
   // Create test values with distinct data
-  RSValue *values[] = {RS_Int64Val(111), RS_Int64Val(222), RS_Int64Val(333)};
-  RSValue *value1 = values[0], *value2 = values[1], *value3 = values[2];
-  RLookupKey *src_keys[] = {src_key1, src_key2, src_key3};
+  std::vector<RSValue*> values = create_test_values({111, 222, 333});
 
   // Write values to source row
-  for (int i = 0; i < 3; i++) {
-    RLookup_WriteKey(src_keys[i], &srcRow, values[i]);
-  }
+  write_values_to_row(srcKeys, &srcRow, values);
 
   // Write fields
   RLookupRow_WriteFieldsFrom(&srcRow, &source, &destRow, &dest);
 
   // Verify data is readable by field names despite potentially different indices
-  RLookupKey *dest_keys[] = {dest_key1, dest_key2, dest_key3};
-  RSValue *dest_vals[3];
-  double expected_nums[] = {111.0, 222.0, 333.0};
+  verify_values_by_names(&dest, &destRow, {"field1", "field2", "field3"}, {111.0, 222.0, 333.0});
 
+  // Verify shared ownership (same pointers) - need to check individual values
+  std::vector<RLookupKey*> dest_keys = {dest_key1, dest_key2, dest_key3};
   for (int i = 0; i < 3; i++) {
-    dest_vals[i] = RLookup_GetItem(dest_keys[i], &destRow);
-    ASSERT_TRUE(dest_vals[i]) << "dest_vals[" << i << "] should exist";
-
-    // Verify correct values
-    double num_val;
-    int result = RSValue_ToNumber(dest_vals[i], &num_val);
-    ASSERT_EQ(1, result) << "Failed to convert dest_vals[" << i << "]";
-    ASSERT_EQ(expected_nums[i], num_val) << "Wrong value for dest_vals[" << i << "]";
-
-    // Verify shared ownership (same pointers)
-    ASSERT_EQ(values[i], dest_vals[i]) << "dest_vals[" << i << "] should point to values[" << i << "]";
+    RSValue *dest_val = RLookup_GetItem(dest_keys[i], &destRow);
+    ASSERT_EQ(values[i], dest_val) << "dest_vals[" << i << "] should point to values[" << i << "]";
   }
 
   // Cleanup
-  for (int i = 0; i < 3; i++) {
-    RSValue_Decref(values[i]);
-  }
+  cleanup_values(values);
   RLookupRow_Cleanup(&srcRow);
   RLookupRow_Cleanup(&destRow);
   RLookup_Cleanup(&source);
@@ -470,8 +443,8 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
 }
 
 
-// Tests hybrid search with distinct field sets from each source
-TEST_F(RLookupTest, testMultipleUpstreamNoOverlap) {
+// Tests RLookupRow_WriteFieldsFrom with distinct field sets from each source
+TEST_F(RLookupTest, testMultipleSourcesNoOverlap) {
   RLookup src1 = {0}, src2 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
@@ -482,8 +455,8 @@ TEST_F(RLookupTest, testMultipleUpstreamNoOverlap) {
   TestKeySet src2Keys = init_keys(&src2, {"field3", "field4"});
 
   // Add keys from both sources to destination
-  RLookup_AddKeysFrom(&dest, &src1, RLOOKUP_F_NOFLAGS);
-  RLookup_AddKeysFrom(&dest, &src2, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src1, &dest, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create test data and populate source rows
   RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
@@ -511,8 +484,8 @@ TEST_F(RLookupTest, testMultipleUpstreamNoOverlap) {
   RLookup_Cleanup(&dest);
 }
 
-// Tests hybrid search with overlapping field names (last write wins)
-TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
+// Tests RLookupRow_WriteFieldsFrom with overlapping field names (last write wins)
+TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
   RLookup src1 = {0}, src2 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
@@ -528,18 +501,18 @@ TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
   ASSERT_TRUE(s1_key1 && s1_key2 && s1_key3 && s2_key2 && s2_key4 && s2_key5);
 
   // Add keys (first source wins for key creation, but last write wins for data)
-  RLookup_AddKeysFrom(&dest, &src1, RLOOKUP_F_NOFLAGS);
-  RLookup_AddKeysFrom(&dest, &src2, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src1, &dest, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create rows with conflicting data for "field2"
   RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
 
   // Create src1 values: field1=1, field2=100, field3=3
-  RSValue *s1_vals[] = {RS_Int64Val(1), RS_Int64Val(100), RS_Int64Val(3)};
+  std::vector<RSValue*> s1_vals = create_test_values({1, 100, 3});
   RSValue *s1_val1 = s1_vals[0], *s1_val2 = s1_vals[1], *s1_val3 = s1_vals[2];
 
   // Create src2 values: field2=999 (conflict), field4=4, field5=5
-  RSValue *s2_vals[] = {RS_Int64Val(999), RS_Int64Val(4), RS_Int64Val(5)};
+  std::vector<RSValue*> s2_vals = create_test_values({999, 4, 5});
   RSValue *s2_val2 = s2_vals[0], *s2_val4 = s2_vals[1], *s2_val5 = s2_vals[2];
 
   // Initially all values have refcount = 1 (just created, no rows reference them yet)
@@ -595,16 +568,14 @@ TEST_F(RLookupTest, testMultipleUpstreamPartialOverlap) {
   ASSERT_TRUE(dest_field1 && dest_field4);
 
   // Cleanup
-  for (int i = 0; i < 3; i++) {
-    RSValue_Decref(s1_vals[i]);
-    RSValue_Decref(s2_vals[i]);
-  }
+  cleanup_values(s1_vals);
+  cleanup_values(s2_vals);
   RLookupRow_Cleanup(&src1Row); RLookupRow_Cleanup(&src2Row); RLookupRow_Cleanup(&destRow);
   RLookup_Cleanup(&src1); RLookup_Cleanup(&src2); RLookup_Cleanup(&dest);
 }
 
-// Tests hybrid search with identical field sets (last write wins)
-TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
+// Tests RLookupRow_WriteFieldsFrom with identical field sets (last write wins)
+TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   RLookup src1 = {0}, src2 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
@@ -620,17 +591,17 @@ TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
   ASSERT_TRUE(s1_key1 && s1_key2 && s1_key3 && s2_key1 && s2_key2 && s2_key3);
 
   // Add keys from both sources
-  RLookup_AddKeysFrom(&dest, &src1, RLOOKUP_F_NOFLAGS);
-  RLookup_AddKeysFrom(&dest, &src2, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src1, &dest, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create rows with different data for same field names
   RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
 
-  // Create test values using arrays for less repetition
-  RSValue *s1_vals[] = {RS_Int64Val(100), RS_Int64Val(200), RS_Int64Val(300)};
-  RSValue *s2_vals[] = {RS_Int64Val(999), RS_Int64Val(888), RS_Int64Val(777)};  // Will overwrite src1
-  RLookupKey *s1_keys[] = {s1_key1, s1_key2, s1_key3};
-  RLookupKey *s2_keys[] = {s2_key1, s2_key2, s2_key3};
+  // Create test values using vectors for consistency
+  std::vector<RSValue*> s1_vals = create_test_values({100, 200, 300});
+  std::vector<RSValue*> s2_vals = create_test_values({999, 888, 777});  // Will overwrite src1
+  std::vector<RLookupKey*> s1_keys = {s1_key1, s1_key2, s1_key3};
+  std::vector<RLookupKey*> s2_keys = {s2_key1, s2_key2, s2_key3};
 
   // Write values to rows using loops
   for (int i = 0; i < 3; i++) {
@@ -676,8 +647,8 @@ TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
   ASSERT_TRUE(dest_val1 && dest_val2 && dest_val3);
 
   // Verify pointers are from src2 (shared ownership, same pointers)
-  RSValue *dest_vals[] = {dest_val1, dest_val2, dest_val3};
-  double expected_nums[] = {999.0, 888.0, 777.0};
+  std::vector<RSValue*> dest_vals = {dest_val1, dest_val2, dest_val3};
+  std::vector<double> expected_nums = {999.0, 888.0, 777.0};
 
   for (int i = 0; i < 3; i++) {
     ASSERT_EQ(s2_vals[i], dest_vals[i]) << "dest_val" << (i+1) << " should point to s2_vals[" << i << "]";
@@ -688,16 +659,14 @@ TEST_F(RLookupTest, testMultipleUpstreamFullOverlap) {
   }
 
   // Cleanup
-  for (int i = 0; i < 3; i++) {
-    RSValue_Decref(s1_vals[i]);
-    RSValue_Decref(s2_vals[i]);
-  }
+  cleanup_values(s1_vals);
+  cleanup_values(s2_vals);
   RLookupRow_Cleanup(&src1Row); RLookupRow_Cleanup(&src2Row); RLookupRow_Cleanup(&destRow);
   RLookup_Cleanup(&src1); RLookup_Cleanup(&src2); RLookup_Cleanup(&dest);
 }
 
 // Tests hybrid search where one source has no data
-TEST_F(RLookupTest, testMultipleUpstreamOneEmpty) {
+TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
   RLookup src1 = {0}, src2 = {0}, dest = {0};
   RLookup_Init(&src1, NULL);
   RLookup_Init(&src2, NULL);
@@ -708,8 +677,8 @@ TEST_F(RLookupTest, testMultipleUpstreamOneEmpty) {
   TestKeySet src2Keys = init_keys(&src2, {"field3", "field4"});
 
   // Add keys from both sources
-  RLookup_AddKeysFrom(&dest, &src1, RLOOKUP_F_NOFLAGS);
-  RLookup_AddKeysFrom(&dest, &src2, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src1, &dest, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_NOFLAGS);
 
   // Create test data - only populate src1 (src2 remains empty)
   RLookupRow src1Row = {0}, src2Row = {0}, destRow = {0};
@@ -751,7 +720,7 @@ TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
   ASSERT_TRUE(src1_key->flags & RLOOKUP_F_HIDDEN) << "src1 key should have F_HIDDEN flag";
 
   // Add src1 keys first - test flag preservation
-  RLookup_AddKeysFrom(&dest, &src1, RLOOKUP_F_NOFLAGS);
+  RLookup_AddKeysFrom(&src1, &dest, RLOOKUP_F_NOFLAGS);
 
   RLookupKey *dest_key_after_src1 = RLookup_GetKey_Read(&dest, "test_field", RLOOKUP_F_NOFLAGS);
   ASSERT_TRUE(dest_key_after_src1);
@@ -766,7 +735,7 @@ TEST_F(RLookupTest, testAddKeysFromHiddenFlagHandling) {
   RLookupKey *original_dest_key = dest_key_after_src1;
 
   // Add src2 keys with OVERRIDE flag - test flag override behavior
-  RLookup_AddKeysFrom(&dest, &src2, RLOOKUP_F_OVERRIDE);
+  RLookup_AddKeysFrom(&src2, &dest, RLOOKUP_F_OVERRIDE);
 
   // Verify the key was overridden
   RLookupKey *dest_key_after_src2 = RLookup_GetKey_Read(&dest, "test_field", RLOOKUP_F_NOFLAGS);
