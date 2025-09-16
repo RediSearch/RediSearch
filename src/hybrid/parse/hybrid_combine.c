@@ -41,7 +41,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
         for (size_t i = 0; i < numWeights; i++) {
             double weight;
             if (AC_GetDouble(&weights, &weight, 0) != AC_OK || weight < 0) {
-                QueryError_SetError(status, QUERY_ESYNTAX, "Invalid weight value in LINEAR");
+                QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid weight value in LINEAR", " at weight #%zu", i);
                 rm_free(combineCtx->linearCtx.linearWeights);
                 combineCtx->linearCtx.linearWeights = NULL;
                 return;
@@ -56,13 +56,13 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
             while (!AC_IsAtEnd(&params)) {
                 const char *paramName = AC_GetStringNC(&params, NULL);
 
-                if (strcasecmp(paramName, "K") == 0) {
-                    double k;
-                    if (AC_GetDouble(&params, &k, 0) != AC_OK || k <= 0) {
-                        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value in RRF");
+                if (strcasecmp(paramName, "CONSTANT") == 0) {
+                    double constant;
+                    if (AC_GetDouble(&params, &constant, 0) != AC_OK || k <= 0) {
+                        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
                         return;
                     }
-                    combineCtx->rrfCtx.k = k;
+                    combineCtx->rrfCtx.constant = constant;
                 } else if (strcasecmp(paramName, "WINDOW") == 0) {
                     long long window;
                     if (AC_GetLongLong(&params, &window, 0) != AC_OK || window <= 0) {
