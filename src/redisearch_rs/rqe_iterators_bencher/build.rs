@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate C bindings - fail build if this doesn't work
     let root = git_root().expect("Could not find git root");
-    let headers = ["iterator_api.h", "empty_iterator.h", "idlist_iterator.h"]
+    let headers = ["iterator_api.h", "empty_iterator.h", "idlist_iterator.h", "wildcard_iterator.h"]
         .iter()
         .map(|h| root.join("src").join("iterators").join(h))
         .collect::<Vec<_>>();

@@ -16,6 +16,7 @@ mod bindings {
     #![allow(dead_code)]
 
     use inverted_index::t_docId;
+    use ffi::{t_fieldMask, NumericFilter};
 
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
@@ -48,6 +49,11 @@ impl QueryIterator {
             std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
         }
         Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
+    }
+
+    #[inline(always)]
+    pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
+        Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
     }
 
     #[inline(always)]

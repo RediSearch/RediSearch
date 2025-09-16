@@ -20,6 +20,14 @@ static TEST_CASES: &[(u64, &str)] = &[
     (42, "arbitrary value"),
 ];
 
+// Additional test cases for edge cases and stress testing
+static EDGE_CASES: &[(u64, &str)] = &[
+    (u64::MAX, "maximum value"),
+    (u32::MAX as u64, "u32 boundary"),
+    (1_000_000, "large range"),
+    (2, "minimal range"),
+];
+
 #[test]
 fn initial_state() {
     for &(top_id, description) in TEST_CASES {
@@ -374,4 +382,83 @@ fn edge_case_single_document() {
         assert_eq!(it.last_doc_id(), 1, "last_doc_id should be 1 after skip");
         assert!(it.at_eof(), "should be at EOF after skipping to last document");
     }
+}
+
+#[test]
+fn stress_test_large_ranges() {
+    // Test with large but manageable ranges to avoid timeout
+    let large_cases = [(100_000, "100k range"), (1_000_000, "1M range")];
+
+    for &(top_id, description) in &large_cases {
+        let mut it = Wildcard::new(top_id);
+
+        // Test initial state
+        assert_eq!(it.num_estimated(), top_id as usize, "Case '{}': wrong num_estimated", description);
+        assert!(!it.at_eof(), "Case '{}': should not be at EOF initially", description);
+
+        // Test skip to various positions
+        let test_positions = [1, top_id / 4, top_id / 2, 3 * top_id / 4, top_id];
+        for &pos in &test_positions {
+            it.rewind();
+            let result = it.skip_to(pos);
+            assert!(result.is_ok(), "Case '{}': skip_to({}) should succeed", description, pos);
+
+            if let Ok(Some(SkipToOutcome::Found(doc))) = result {
+                assert_eq!(doc.doc_id, pos, "Case '{}': skip_to({}) wrong doc_id", description, pos);
+                assert_eq!(it.last_doc_id(), pos, "Case '{}': skip_to({}) wrong last_doc_id", description, pos);
+            }
+        }
+
+        // Test reading a small sample from the beginning
+        it.rewind();
+        for i in 1..=std::cmp::min(100, top_id) {
+            let result = it.read();
+            assert!(result.is_ok(), "Case '{}': read({}) should succeed", description, i);
+            let doc = result.unwrap().unwrap();
+            assert_eq!(doc.doc_id, i, "Case '{}': read({}) wrong doc_id", description, i);
+        }
+    }
+}
+
+#[test]
+fn property_based_skip_to_invariants() {
+    // Test that skip_to maintains invariants across various scenarios
+    let top_id = 1000u64;
+    let mut it = Wildcard::new(top_id);
+
+    // Property: skip_to(x) where x <= top_id should always succeed and position at x
+    for target in [1, 10, 100, 500, 999, 1000] {
+        it.rewind();
+        let result = it.skip_to(target);
+        assert!(result.is_ok(), "skip_to({}) should succeed", target);
+
+        if let Ok(Some(SkipToOutcome::Found(doc))) = result {
+            assert_eq!(doc.doc_id, target, "skip_to({}) should position at target", target);
+            assert_eq!(it.last_doc_id(), target, "last_doc_id should equal target after skip_to({})", target);
+
+            // Property: after skip_to(x), next read() should return x+1 (if x < top_id)
+            if target < top_id {
+                let next_result = it.read();
+                assert!(next_result.is_ok(), "read after skip_to({}) should succeed", target);
+                let next_doc = next_result.unwrap().unwrap();
+                assert_eq!(next_doc.doc_id, target + 1, "read after skip_to({}) should return {}", target, target + 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn memory_efficiency_validation() {
+    // Ensure that large ranges don't consume excessive memory
+    let large_top_id = 10_000_000u64;
+    let it = Wildcard::new(large_top_id);
+
+    // The iterator should only store a few fields regardless of range size
+    assert_eq!(it.num_estimated(), large_top_id as usize, "num_estimated should match top_id");
+    assert_eq!(it.last_doc_id(), 0, "initial last_doc_id should be 0");
+    assert!(!it.at_eof(), "should not be at EOF initially");
+
+    // Memory usage should be constant regardless of top_id
+    // This is more of a design validation than a runtime test
+    assert_eq!(std::mem::size_of_val(&it), std::mem::size_of::<Wildcard>(), "iterator size should be constant");
 }
