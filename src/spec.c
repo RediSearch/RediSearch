@@ -1523,6 +1523,10 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   return rc;
 }
 
+inline static bool isSpecOnDisk(const IndexSpec *sp) {
+  return isFlex && !(sp->flags & Index_StoreInRAM);
+}
+
 /* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
     SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
   */
@@ -1553,7 +1557,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
       {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
       {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
       // A temporary flag to force indexes to be stored in RAM - for benchmarking purposes.
-      {AC_MKBITFLAG(SPEC_RAM_STR, &spec->flags, Index_StoreInRAM)},
+      //{AC_MKBITFLAG(SPEC_RAM_STR, &spec->flags, Index_StoreInRAM)},
 
       // For compatibility
       {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
@@ -1618,7 +1622,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
   }
 
   // Store on disk if we're on Flex and we don't force RAM
-  if (isFlex && !(spec->flags & Index_StoreInRAM)) {
+  if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
     spec->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(spec->specName, NULL), spec->rule->type);
     RS_LOG_ASSERT(spec->diskSpec, "Failed to open disk spec")
