@@ -26,8 +26,8 @@ def setup_hybrid_tag_scoring_index(env):
 def run_test_scenario(env, no_tag_search_query, with_tag_search_query):
     """Test hybrid tag scoring for a specific query scenario"""
     # Hybrid searches
-    hybrid_res_no_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', no_tag_search_query, 'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '2', '1.0', '0.0')
-    hybrid_res_with_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', with_tag_search_query, 'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '2', '1.0', '0.0')
+    hybrid_res_no_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', no_tag_search_query, 'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '4', 'ALPHA', '1.0', 'BETA', '0.0')
+    hybrid_res_with_tag = env.cmd('FT.HYBRID', 'idx', 'SEARCH', with_tag_search_query, 'VSIM', '@vector', 'BEUGBwgJCg==', 'COMBINE', 'LINEAR', '4', 'ALPHA', '1.0', 'BETA', '0.0')
     hybrid_res_results_index = recursive_index(hybrid_res_no_tag, 'results')
     hybrid_res_results_index[-1] += 1
 

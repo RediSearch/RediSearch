@@ -31,6 +31,9 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 
+// Macro to check if we're at the end of arguments and set appropriate error for missing parameter
+#define CheckEnd(x) if (AC_IsAtEnd(ac)) { QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing parameter value for ", x); return REDISMODULE_ERR; }
+
 
 static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
   return (VecSimRawParam){
@@ -109,16 +112,14 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   bool hasYieldDistanceAs = false;
 
   for (int i=0; i<params; i+=2) {
-    if (AC_IsAtEnd(ac)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing parameter");
-      return REDISMODULE_ERR;
-    }
+    CheckEnd("parameter");
 
     if (AC_AdvanceIfMatch(ac, "K")) {
       if (hasK) { // codespell:ignore
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate K parameter");
         return REDISMODULE_ERR;
       }
+      CheckEnd("K");
       long long kValue;
       if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
@@ -133,6 +134,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate EF_RUNTIME parameter");
         return REDISMODULE_ERR;
       }
+      CheckEnd("EF_RUNTIME");
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
@@ -196,16 +198,14 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
   bool hasYieldDistanceAs = false;
 
   for (int i=0; i<params; i+=2) {
-    if (AC_IsAtEnd(ac)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing parameter");
-      return REDISMODULE_ERR;
-    }
+    CheckEnd("parameter");
 
     if (AC_AdvanceIfMatch(ac, "RADIUS")) {
       if (hasRadius) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate RADIUS parameter");
         return REDISMODULE_ERR;
       }
+      CheckEnd("RADIUS");
       double radiusValue;
       if (AC_GetDouble(ac, &radiusValue, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid RADIUS value");
@@ -219,6 +219,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate EPSILON parameter");
         return REDISMODULE_ERR;
       }
+      CheckEnd("EPSILON");
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
@@ -262,6 +263,73 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
     QueryError_SetError(status, QUERY_EPARSEARGS, "Missing RADIUS parameter");
     return REDISMODULE_ERR;
   }
+  return REDISMODULE_OK;
+}
+
+static int parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
+  // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
+  //        ^
+  long long params;
+  CheckEnd("parameter count");
+  if (AC_GetLongLong(ac, &params, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter count");
+    return REDISMODULE_ERR;
+  }
+  else if (params < 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Parameter count requires a non negative integer", ": but %d was given", params);
+    return REDISMODULE_ERR;
+  } else if (params == 0 || params % 2 != 0) {
+    QueryError_SetError(status, QUERY_EBADVAL, "Invalid parameter count");
+    return REDISMODULE_ERR;
+  }
+
+  bool hasAlpha = false;
+  bool hasBeta = false;
+
+  for (int i=0; i<params; i+=2) {
+    CheckEnd("parameter");
+
+    if (AC_AdvanceIfMatch(ac, "ALPHA")) {
+      if (hasAlpha) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate ALPHA parameter");
+        return REDISMODULE_ERR;
+      }
+      CheckEnd("ALPHA");
+      double alphaValue;
+      if (AC_GetDouble(ac, &alphaValue, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid ALPHA value");
+        return REDISMODULE_ERR;
+      }
+      linearCtx->linearWeights[0] = alphaValue;
+      hasAlpha = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "BETA")) {
+      if (hasBeta) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate BETA parameter");
+        return REDISMODULE_ERR;
+      }
+      CheckEnd("BETA");
+      double betaValue;
+      if (AC_GetDouble(ac, &betaValue, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid BETA value");
+        return REDISMODULE_ERR;
+      }
+      linearCtx->linearWeights[1] = betaValue;
+      hasBeta = true;
+
+    } else {
+      const char *current;
+      AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in LINEAR", current);
+      return REDISMODULE_ERR;
+    }
+  }
+
+  if (!(hasAlpha && hasBeta)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Weights must be specified for all subqueries", ": %d required but %d was given", 2, (hasAlpha ? 1 : 0) + (hasBeta ? 1 : 0));
+    return REDISMODULE_ERR;
+  }
+
   return REDISMODULE_OK;
 }
 static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
@@ -403,30 +471,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
 
-    // Try to get number of parameters
-    long long specifiedWeights;
-    if (AC_GetLongLong(ac, &specifiedWeights, 0) != AC_OK ) {
-      QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
-      goto error;
-    } else if (specifiedWeights < 0) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Parameter count requires a non negative integer", ": but %d was given", specifiedWeights);
-      goto error;
-    } else if (specifiedWeights < numWeights) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Weights must be specified for all subqueries", ": %d required but %d was given", numWeights, specifiedWeights);
-      goto error;
-    } else if (specifiedWeights > numWeights) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Too many weights specified", ": %d required but %d was given", numWeights, specifiedWeights);
-      goto error;
-    }
-    // Parse the weight values directly
-    for (size_t i = 0; i < specifiedWeights; i++) {
-      double weight;
-      if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
-        goto error;
-      }
-      combineCtx->linearCtx.linearWeights[i] = weight;
-    }
+    parseLinearClause(ac, &combineCtx->linearCtx, status);
   } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
     // For RRF, we need constant and window parameters
     ArgsCursor params = {0};

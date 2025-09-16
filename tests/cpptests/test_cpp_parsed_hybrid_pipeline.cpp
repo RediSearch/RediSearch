@@ -218,7 +218,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestPipelineBuildingBasic) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx2",
                       "SEARCH", "machine",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "2", "0.7", "0.3",
+                      "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
                       "LOAD", "2", "@title", "@score");
 
   HYBRID_TEST_SETUP("test_idx2", args);
@@ -270,7 +270,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestBuildPipelineTail) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_idx_complex",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "2", "0.7", "0.3",
+                      "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
                       "LOAD", "3", "@title", "@score", "@category",
                       "SORTBY", "1", "@score",
                       "APPLY", "@score * 2", "AS", "boosted_score",
@@ -384,7 +384,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitSortByScore) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_implicit_sort",
                       "SEARCH", "artificial",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "2", "0.7", "0.3",
+                      "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
                       "LOAD", "2", "@title", "@category",
                       "LIMIT", "0", "20");
 
@@ -402,7 +402,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestLinearScoringWithLimit) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", "test_linear_scoring",
                       "SEARCH", "machine",
                       "VSIM", "@vector_field", TEST_BLOB_DATA,
-                      "COMBINE", "LINEAR", "2", "0.6", "0.4",
+                      "COMBINE", "LINEAR", "4", "ALPHA", "0.6", "BETA", "0.4",
                       "LIMIT", "0", "15");
 
   HYBRID_TEST_SETUP("test_linear_scoring", args);
