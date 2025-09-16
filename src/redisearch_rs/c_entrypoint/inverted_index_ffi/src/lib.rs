@@ -827,3 +827,19 @@ pub unsafe extern "C" fn IndexReader_HasMulti(ir: *const IndexReader) -> bool {
 
     ir_dispatch!(ir, has_duplicates)
 }
+
+/// Get the flags used to create the inverted index of the reader.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_Flags(ir: *const IndexReader) -> IndexFlags {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &*ir };
+
+    ir_dispatch!(ir, flags)
+}

@@ -329,6 +329,16 @@ bool IndexReader_Seek(struct IndexReader *ir,
  */
 bool IndexReader_HasMulti(const struct IndexReader *ir);
 
+/**
+ * Get the flags used to create the inverted index of the reader.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+IndexFlags IndexReader_Flags(const struct IndexReader *ir);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
