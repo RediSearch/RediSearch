@@ -18,7 +18,7 @@ use ffi::{
 
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
-    FilterNumericReader, IndexBlock, RSIndexResult, ReadFilter,
+    FilterNumericReader, IndexBlock, NumericFilter, RSIndexResult, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -842,4 +842,38 @@ pub unsafe extern "C" fn IndexReader_Flags(ir: *const IndexReader) -> IndexFlags
     let ir = unsafe { &*ir };
 
     ir_dispatch!(ir, flags)
+}
+
+/// Get a pointer to the numeric filter used by the index reader. If the index reader does not use
+/// a numeric filter, the function will return NULL.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_NumericFilter(ir: *const IndexReader) -> *const NumericFilter {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &*ir };
+
+    match ir {
+        IndexReader::NumericFiltered(ir) => ir.filter(),
+        IndexReader::NumericGeoFiltered(ir) => ir.filter(),
+        IndexReader::Numeric(_)
+        | IndexReader::Full(_)
+        | IndexReader::FullWide(_)
+        | IndexReader::FreqsFields(_)
+        | IndexReader::FreqsFieldsWide(_)
+        | IndexReader::FreqsOnly(_)
+        | IndexReader::FieldsOnly(_)
+        | IndexReader::FieldsOnlyWide(_)
+        | IndexReader::FieldsOffsets(_)
+        | IndexReader::FieldsOffsetsWide(_)
+        | IndexReader::OffsetsOnly(_)
+        | IndexReader::FreqsOffsets(_)
+        | IndexReader::DocumentIdOnly(_)
+        | IndexReader::RawDocumentIdOnly(_) => std::ptr::null(),
+    }
 }

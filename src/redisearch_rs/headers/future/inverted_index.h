@@ -339,6 +339,17 @@ bool IndexReader_HasMulti(const struct IndexReader *ir);
  */
 IndexFlags IndexReader_Flags(const struct IndexReader *ir);
 
+/**
+ * Get a pointer to the numeric filter used by the index reader. If the index reader does not use
+ * a numeric filter, the function will return NULL.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+const NumericFilter *IndexReader_NumericFilter(const struct IndexReader *ir);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

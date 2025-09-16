@@ -20,7 +20,7 @@ parse_deps = true
 include = ["inverted_index"]
 
 [export]
-exclude = ["RSIndexResult", "BlockSummary", "Summary", "ReadFilter"]
+exclude = ["RSIndexResult", "BlockSummary", "Summary", "ReadFilter", "NumericFilter"]
 
 [export.rename]
 "BlockSummary" = "IIBlockSummary"
