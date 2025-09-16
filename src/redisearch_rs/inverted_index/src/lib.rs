@@ -982,6 +982,11 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterNumericRe
     pub fn new(filter: &'filter NumericFilter, inner: I) -> Self {
         Self { filter, inner }
     }
+
+    /// Get the numeric filter used by this reader.
+    pub fn filter(&self) -> &NumericFilter {
+        self.filter
+    }
 }
 
 impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
@@ -1016,7 +1021,7 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
             Some(rec)
                 if rec
                     .as_numeric()
-                    .map_or(false, |v| self.filter.value_in_range(v)) =>
+                    .is_some_and(|v| self.filter.value_in_range(v)) =>
             {
                 Ok(Some(rec))
             }
@@ -1074,17 +1079,44 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 ///
 /// This should only be wrapped around readers that return numeric records.
 pub struct FilterGeoReader<'filter, I> {
+    /// Numeric filter with a geo filter set to which a record needs to match to be valid.
+    /// This is only needed because the reader needs to be able to return the original numeric
+    /// filter.
+    filter: &'filter NumericFilter,
+
     /// Geo filter which a record needs to match to be valid
-    filter: &'filter GeoFilter,
+    geo_filter: &'filter GeoFilter,
 
     /// The inner reader that will be used to read the records from the index.
     inner: I,
 }
 
 impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterGeoReader<'filter, I> {
-    /// Create a new filter geo reader with the given geo filter and inner iterator
-    pub fn new(filter: &'filter GeoFilter, inner: I) -> Self {
-        Self { filter, inner }
+    /// Create a new filter geo reader with the given numeric filter and inner iterator
+    ///
+    /// # Safety
+    /// The caller should ensure the `geo_filter` pointer in the numeric filter is set and a valid
+    /// pointer to a `GeoFilter` struct for the lifetime of this reader.
+    pub fn new(filter: &'filter NumericFilter, inner: I) -> Self {
+        debug_assert!(
+            !filter.geo_filter.is_null(),
+            "FilterGeoReader needs the geo filter to be set on the numeric filter"
+        );
+
+        // SAFETY: we just asserted the filter is set and the caller is to ensure it is a valid
+        // `GeoFilter` instance
+        let geo_filter = unsafe { &*(filter.geo_filter as *const GeoFilter) };
+
+        Self {
+            filter,
+            geo_filter,
+            inner,
+        }
+    }
+
+    /// Get the numeric filter used by this reader.
+    pub fn filter(&self) -> &NumericFilter {
+        self.filter
     }
 }
 
@@ -1099,7 +1131,7 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
             let value = next.as_numeric_mut()?;
 
             // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let in_radius = unsafe { isWithinRadius(self.filter, *value, value) };
+            let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
 
             if in_radius {
                 return Some(next);
@@ -1121,9 +1153,9 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 
         match candidate {
             Some(mut rec) => {
-                if rec.as_numeric_mut().map_or(false, |v| {
+                if rec.as_numeric_mut().is_some_and(|v| {
                     // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-                    unsafe { isWithinRadius(self.filter, *v, v) }
+                    unsafe { isWithinRadius(self.geo_filter, *v, v) }
                 }) {
                     Ok(Some(rec))
                 } else {

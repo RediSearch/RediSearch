@@ -891,13 +891,25 @@ fn reading_filter_based_on_geo_filter() {
         RSIndexResult::numeric(25.0).doc_id(12),
     ];
 
-    let filter = GeoFilter {
+    let geo_filter = GeoFilter {
         fieldSpec: ptr::null(),
         lat: 0.0,
         lon: 0.0,
         radius: 20.0,
         unitType: GeoDistance_GEO_DISTANCE_M,
         numericFilters: ptr::null_mut(),
+    };
+
+    let filter = NumericFilter {
+        min: 0.0,
+        max: 0.0,
+        min_inclusive: false,
+        max_inclusive: false,
+        field_spec: ptr::null(),
+        geo_filter: &geo_filter as *const _ as *const _,
+        ascending: true,
+        limit: 0,
+        offset: 0,
     };
 
     let reader = FilterGeoReader::new(&filter, iter.into_iter());
