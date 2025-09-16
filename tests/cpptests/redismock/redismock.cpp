@@ -640,7 +640,6 @@ void RMCK_SaveUnsigned(RedisModuleIO *io, uint64_t value) {
 
 uint64_t RMCK_LoadUnsigned(RedisModuleIO *io) {
   if (!io || io->read_pos + sizeof(uint64_t) > io->buffer.size()) {
-           io, io ? io->read_pos : 0, io ? io->buffer.size() : 0);
     if (io) io->error_flag = true;
     return 0;
   }
