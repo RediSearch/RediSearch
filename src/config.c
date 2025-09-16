@@ -1555,14 +1555,9 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {
-  switch (policy) {
-    case TimeoutPolicy_Return:
-      return on_timeout_vals[TimeoutPolicy_Return];
-    case TimeoutPolicy_Fail:
-      return on_timeout_vals[TimeoutPolicy_Fail];
-    default:
-      return "invalid";
-  }
+  // Assert policy is valid
+  RS_ASSERT(policy < TimeoutPolicy_Invalid);
+  return on_timeout_vals[policy];
 }
 
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
@@ -1576,16 +1571,9 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
 }
 
 const char *OomPolicy_ToString(RSOomPolicy policy) {
-  switch (policy) {
-    case OomPolicy_Return:
-      return on_oom_vals[OomPolicy_Return];
-    case OomPolicy_Fail:
-      return on_oom_vals[OomPolicy_Fail];
-    case OomPolicy_Ignore:
-      return on_oom_vals[OomPolicy_Ignore];
-    default:
-      return "invalid";
-  }
+  // Assert policy is valid
+  RS_ASSERT(policy < OomPolicy_Invalid);
+  return on_oom_vals[policy];
 }
 
 RSOomPolicy OomPolicy_Parse(const char *s, size_t n) {
