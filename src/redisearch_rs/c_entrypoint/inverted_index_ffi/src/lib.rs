@@ -516,6 +516,30 @@ pub enum IndexReader<'index, 'filter> {
     ),
 }
 
+// Macro to make calling the methods on the inner index reader easier
+macro_rules! ir_dispatch {
+    ($self:expr, $method:ident $(, $args:expr)*) => {
+        match $self {
+            IndexReader::Full(ii) => ii.$method($($args),*),
+            IndexReader::FullWide(ii) => ii.$method($($args),*),
+            IndexReader::FreqsFields(ii) => ii.$method($($args),*),
+            IndexReader::FreqsFieldsWide(ii) => ii.$method($($args),*),
+            IndexReader::FreqsOnly(ii) => ii.$method($($args),*),
+            IndexReader::FieldsOnly(ii) => ii.$method($($args),*),
+            IndexReader::FieldsOnlyWide(ii) => ii.$method($($args),*),
+            IndexReader::FieldsOffsets(ii) => ii.$method($($args),*),
+            IndexReader::FieldsOffsetsWide(ii) => ii.$method($($args),*),
+            IndexReader::OffsetsOnly(ii) => ii.$method($($args),*),
+            IndexReader::FreqsOffsets(ii) => ii.$method($($args),*),
+            IndexReader::DocumentIdOnly(ii) => ii.$method($($args),*),
+            IndexReader::RawDocumentIdOnly(ii) => ii.$method($($args),*),
+            IndexReader::Numeric(ii) => ii.$method($($args),*),
+            IndexReader::NumericFiltered(ii) => ii.$method($($args),*),
+            IndexReader::NumericGeoFiltered(ii) => ii.$method($($args),*),
+        }
+    };
+}
+
 /// Create a new inverted index reader for the given inverted index and filter. The returned pointer
 /// must be freed using [`IndexReader_Free`] when no longer needed.
 ///
@@ -600,4 +624,20 @@ pub unsafe extern "C" fn IndexReader_Free(ir: *mut IndexReader) {
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let _ = unsafe { Box::from_raw(ir) };
+}
+
+/// Reset the index reader to the beginning of the index.
+///
+/// # Safety
+///
+/// The following invariant must be upheld when calling this function:
+/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexReader_Reset(ir: *mut IndexReader) {
+    debug_assert!(!ir.is_null(), "ir must not be null");
+
+    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    let ir = unsafe { &mut *ir };
+
+    ir_dispatch!(ir, reset);
 }
