@@ -705,6 +705,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ *vectorRequest = parsedCmdCtx->vector;
   AREQ *searchRequest = parsedCmdCtx->search;
+  
   searchRequest->reqflags |= QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY;
   vectorRequest->reqflags |= QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY;
 

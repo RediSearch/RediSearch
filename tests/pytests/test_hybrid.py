@@ -627,3 +627,4 @@ class testHybridSearch:
     #     }
     #     run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
+

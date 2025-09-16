@@ -509,9 +509,6 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
   }
 }
 
-#define SEARCH_INDEX 0
-#define VECTOR_INDEX 1
-
 static inline void DefaultCleanup(StrongRef hybrid_ref) {
   StrongRef_Release(hybrid_ref);
   CurrentThread_ClearIndexSpec();

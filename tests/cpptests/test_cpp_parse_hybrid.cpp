@@ -115,11 +115,14 @@ class ParseHybridTest : public ::testing::Test {
     return rc;
   }
 
+  // Helper function to test error cases with less boilerplate
   void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail);
+
 };
 
 
 #define assertLinearScoringCtx(Weight0, Weight1) { \
+  ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
   ASSERT_EQ(result.hybridParams->scoringCtx->linearCtx.numWeights, HYBRID_REQUEST_NUM_SUBQUERIES); \
   ASSERT_TRUE(result.hybridParams->scoringCtx->linearCtx.linearWeights != NULL); \
   ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->linearCtx.linearWeights[0], Weight0); \
@@ -131,6 +134,7 @@ class ParseHybridTest : public ::testing::Test {
   ASSERT_DOUBLE_EQ(result.hybridParams->scoringCtx->rrfCtx.constant, Constant); \
   ASSERT_EQ(result.hybridParams->scoringCtx->rrfCtx.window, Window); \
 }
+
 
 TEST_F(ParseHybridTest, testBasicValidInput) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
