@@ -768,6 +768,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
+ "redis-module",
  "varint",
 ]
 
