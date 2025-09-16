@@ -144,7 +144,7 @@ FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
 }
 
 // glue to use process pipe as writer for II GC delta info
-static int pipe_write_cb(void *ctx, const void *buf, size_t len) {
+static void pipe_write_cb(void *ctx, const void *buf, size_t len) {
   ForkGC *gc = ctx;
 
   RS_LOG_ASSERT(len > 0, "buffer length cannot be 0");

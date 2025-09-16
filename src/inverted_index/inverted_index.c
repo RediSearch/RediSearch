@@ -1611,9 +1611,8 @@ void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d) {
 
 // ---- Write Utilities (utilities which are ported over from fork_gc.c)
 
-// Buff shouldn't be NULL.
-static int II_Gc_WriteFixed(II_GCWriter *wr, const void *buff, size_t len) {
-  return wr->write(wr->ctx, buff, len);
+static void II_Gc_WriteFixed(II_GCWriter *wr, const void *buff, size_t len) {
+  wr->write(wr->ctx, buff, len);
 }
 
 #define II_GC_WRITE_VAR(wr, v) II_Gc_WriteFixed(wr, &v, sizeof v)
@@ -1707,7 +1706,7 @@ typedef struct {
 
 /* GC Scan blocks to repair and write that info to the II_GCWriter.
  */
-static bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
+bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
                                      II_GCCallback *cb, IndexRepairParams *params) {
     size_t numBlocks = InvertedIndex_NumBlocks(idx);
     MSG_RepairedBlock *fixed = array_new(MSG_RepairedBlock, 10);

@@ -405,8 +405,7 @@ void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d);
 
 typedef struct {
   void *ctx;
-  // write exactly len or return nonzero
-  int (*write)(void *ctx, const void *buf, size_t len);
+  void (*write)(void *ctx, const void *buf, size_t len);
 } II_GCWriter;
 
 typedef struct {
@@ -431,7 +430,7 @@ typedef struct {
  * In this case, the receiver will get the modifications from the fix messages, that contains also a copy of the
  * repaired block.
  */
-static bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
+bool InvertedIndex_GcDelta_ScanRepair(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedIndex *idx,
                                      II_GCCallback *cb, IndexRepairParams *params);
 
 // ---------------------
