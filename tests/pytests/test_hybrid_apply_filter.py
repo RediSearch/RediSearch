@@ -47,7 +47,7 @@ def setup_basic_index(env):
     """Setup basic index with test data"""
     dim = 2
     conn = env.getClusterConnectionIfNeeded()
-    env.expect('FT.CREATE idx SCHEMA description TEXT embedding VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok
+    env.expect('FT.CREATE idx SCHEMA description TEXT embedding VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
 
     # Load test data
     for doc_id, doc_data in test_data.items():
