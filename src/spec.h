@@ -72,7 +72,6 @@ struct IndexesScanner;
 #define SPEC_INDEXEMPTY_STR "INDEXEMPTY"
 #define SPEC_INDEXMISSING_STR "INDEXMISSING"
 #define SPEC_INDEXALL_STR "INDEXALL"
-#define SPEC_RAM_STR "RAM"
 
 #define SPEC_GEOMETRY_FLAT_STR "FLAT"
 #define SPEC_GEOMETRY_SPHERE_STR "SPHERICAL"
@@ -189,8 +188,6 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
-
-  Index_StoreInRAM = 0x100000, // Index is stored on RAM (force it)
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
