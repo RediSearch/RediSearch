@@ -143,7 +143,7 @@ impl Chain {
             result_processor.header.parent = query_processing_context_ptr;
         }
 
-        // Safety: We treat self pointer as pinned and never hand out mutable references that would allow
+        // Safety: We treat this pointer as pinned and never hand out mutable references that would allow
         // moving out of the type.
         let header_ptr: NonNull<crate::Header> =
             unsafe { ResultProcessorWrapper::into_ptr(Box::pin(result_processor)).cast() };
