@@ -187,10 +187,18 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   return 1;
 }
 
+char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {
+  // Generate default scoreField name using vector field name
+  char *scoreFieldName = NULL;
+  int n_written = rm_asprintf(&scoreFieldName, "__%.*s_score", (int)fieldNameLen, fieldName);
+  RS_ASSERT(n_written != -1);
+  return scoreFieldName;
+}
+
 void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen) {
   // Set default scoreField using vector field name
-  int n_written = rm_asprintf(&vq->scoreField, "__%.*s_score", (int)fieldNameLen, fieldName);
-  RS_ASSERT(n_written != -1);
+  char *defaultName = VectorQuery_GetDefaultScoreFieldName(fieldName, fieldNameLen);
+  vq->scoreField = defaultName;
 }
 
 void VectorQuery_Free(VectorQuery *vq) {
@@ -565,4 +573,35 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
   RedisSearchCtx_UnlockSpec(&sctx);
   StrongRef_Release(strong);
   return 1;
+}
+
+VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField) {
+  RS_ASSERT(FIELD_IS(vectorField, INDEXFLD_T_VECTOR))
+  VecSimParams vec_params = vectorField->vectorOpts.vecSimParams;
+
+  VecSimAlgo field_algo = vec_params.algo;
+  AlgoParams algo_params = vec_params.algoParams;
+
+  switch (field_algo) {
+    case VecSimAlgo_TIERED: {
+      VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
+      if (primary_params->algo == VecSimAlgo_HNSWLIB) {
+        HNSWParams hnsw_params = primary_params->algoParams.hnswParams;
+        return hnsw_params.metric;
+      } else {
+        // TODO: Add SVS support here after FT.HYBRID is merged to master
+        // Unknown primary algorithm in tiered index
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Unknown primary algorithm in tiered index: %s",
+                 VecSimAlgorithm_ToString(primary_params->algo));
+        RS_ABORT(error_msg);
+      }
+      break;
+    }
+    case VecSimAlgo_BF:
+      return algo_params.bfParams.metric;
+    default:
+      // Unknown algorithm type
+      RS_ABORT("Unknown algorithm in vector index");
+  }
 }

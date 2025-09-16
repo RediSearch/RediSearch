@@ -1,6 +1,8 @@
 #include "pipeline/pipeline_construction.h"
 #include "ext/default.h"
 #include "query_optimizer.h"
+#include "vector_normalization.h"
+#include "vector_index.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -115,7 +117,10 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
       QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }
-    RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, RLOOKUP_F_NOFLAGS);
+    // Set HIDDEN flag for internal metrics
+    uint32_t flags = requests[i].isInternal ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+
+    RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, flags);
     if (!key) {
       QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
       return NULL;
@@ -533,6 +538,35 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         }
         break;
       }
+
+      case PLN_T_VECTOR_NORMALIZER: {
+        PLN_VectorNormalizerStep *vnStep = (PLN_VectorNormalizerStep *)stp;
+
+        // Resolve vector field to get distance metric
+        const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(params->common.sctx->spec,
+                                                                     vnStep->vectorFieldName,
+                                                                     strlen(vnStep->vectorFieldName));
+        if (!vectorField || !FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+          QueryError_SetError(status, QUERY_ESYNTAX, "Invalid vector field for normalization");
+          goto error;
+        }
+
+        // Extract distance metric from vector field
+        VecSimMetric metric = getVecSimMetricFromVectorField(vectorField);
+
+        // Get appropriate normalization function
+        VectorNormFunction normFunc = getVectorNormalizationFunction(metric);
+
+        // Get score key for writing normalized scores
+        RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
+        RS_ASSERT(curLookup);
+        const RLookupKey *scoreKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
+        // Create vector normalizer result processor
+        rp = RPVectorNormalizer_New(normFunc, scoreKey);
+        PUSH_RP();
+        break;
+      }
+
       case PLN_T_ROOT:
         // Placeholder step for initial lookup
         break;

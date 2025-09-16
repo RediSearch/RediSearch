@@ -1177,11 +1177,8 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   pvd->query = NULL;
   //QueryNode now owns the VectorQuery
 
-  // Always yield distance for hybrid vector subqueries
-  vecNode->opts.flags |= QueryNode_YieldsDistance;
-
-  // Mark this as the main vector node in hybrid vector subquery
-  vecNode->opts.flags |= QueryNode_HybridVectorSubqueryNode;
+  // Apply the flags that were set during parsing
+  vecNode->opts.flags |= pvd->queryNodeFlags;
 
   if (pvd->isParameter) {
     // PARAMETER CASE: Set up parameter for evalnode to resolve later

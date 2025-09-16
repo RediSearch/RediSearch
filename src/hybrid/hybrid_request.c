@@ -2,7 +2,9 @@
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
+#include "rlookup.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_lookup_context.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
@@ -43,6 +45,13 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
 
         // Obtain the query processing context for the current AREQ
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+
+        // Set the result limit for the current AREQ
+        if (IsHybridVectorSubquery(areq)){
+          qctx->resultLimit = areq->maxAggregateResults;
+        } else if (IsHybridSearchSubquery(areq)) {
+          qctx->resultLimit = areq->maxSearchResults;
+        }
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
         RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params

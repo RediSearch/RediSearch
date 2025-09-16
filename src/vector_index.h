@@ -12,6 +12,7 @@
 #include "index_iterator.h"
 #include "query_node.h"
 #include "query_ctx.h"
+#include "field_spec.h"
 
 #define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
@@ -122,6 +123,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
+char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen);
 void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
@@ -130,6 +132,8 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+
+VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField);
 
 void VecSimParams_Cleanup(VecSimParams *params);
 
