@@ -52,11 +52,11 @@ impl RSValueTrait for MockRSValue {
     }
 
     fn get_ref(&self) -> Option<&Self> {
-        Some(self)
+        None
     }
 
     fn get_ref_mut(&mut self) -> Option<&mut Self> {
-        Some(self)
+        None
     }
 
     fn as_str(&self) -> Option<&str> {
