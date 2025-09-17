@@ -1063,7 +1063,8 @@ def test_query_controller_pause_and_resume(env):
     env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME').error()\
     .contains('Query is not paused')
 
-    # Set workers to 1 to make sure the query can be paused
+    # Set workers to 2 to make sure the query can be paused
+    # 1 worker is for testing we can't debug multiple queries
     env.expect('FT.CONFIG', 'SET', 'WORKERS', 2).ok()
 
 
