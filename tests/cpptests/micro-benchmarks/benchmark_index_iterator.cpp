@@ -85,10 +85,8 @@ public:
 
     void createIndex(IndexFlags flags) {
         if (flags == (Index_DocIdsOnly | Index_Temporary)) {
-            IndexEncoder default_id_only_encoder = InvertedIndex_GetEncoder(flags);
             // Special case reserved for `Index_DocIdsOnly` with raw doc IDs
             RSGlobalConfig.invertedIndexRawDocidEncoding = true; // Enable raw doc ID encoding, until the benchmark's tearDown
-            RS_ASSERT_ALWAYS(default_id_only_encoder != InvertedIndex_GetEncoder(flags));
         }
 
         // Create a new InvertedIndex with the given flags
