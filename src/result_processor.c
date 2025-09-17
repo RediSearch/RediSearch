@@ -1495,7 +1495,6 @@ typedef struct {
   ResultProcessor base;
   uint32_t count;
   uint32_t remaining;
-  bool paused;
 } RPPauseAfterCount;
 
 
@@ -1526,11 +1525,9 @@ bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultP
 static void RPPauseAfterCount_Pause(RPPauseAfterCount *self) {
 
   globalDebugCtx.query.pause = true;
-  self->paused = true;
   while (globalDebugCtx.query.pause) { // volatile variable
     usleep(1000);
   }
-  self->paused = false;
 }
 
 static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
