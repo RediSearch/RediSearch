@@ -37,6 +37,10 @@ function(setup_cc_options)
         set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O3" PARENT_SCOPE)
         set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3" PARENT_SCOPE)
     endif()
+
+    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+    endif()
 endfunction()
 
 # Define shared object setup function
@@ -76,7 +80,7 @@ option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 
 
 #----------------------------------------------------------------------------------------------
-project(redisearch C CXX)
+project(redisearch)
 
 # Configure output paths based on build configuration
 set(MODULE_NAME "search" CACHE STRING "Module name" FORCE)
