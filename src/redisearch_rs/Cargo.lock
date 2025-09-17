@@ -183,6 +183,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
 
 [[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "bytes"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -550,23 +556,9 @@ dependencies = [
 
 [[package]]
 name = "fnv"
-version = "0.0.1"
-dependencies = [
- "proptest",
-]
-
-[[package]]
-name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
-
-[[package]]
-name = "fnv_ffi"
-version = "0.0.1"
-dependencies = [
- "fnv 0.0.1",
-]
 
 [[package]]
 name = "fs-err"
@@ -575,6 +567,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88d7be93788013f265201256d58f04936a8079ad5dc898743aa20525f503b683"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "fxhash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
+name = "fxhash_ffi"
+version = "0.0.1"
+dependencies = [
+ "fxhash",
 ]
 
 [[package]]
@@ -653,7 +661,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4a85d31aea989eead29a3aaf9e1115a180df8282431156e533de47660892565"
 dependencies = [
  "bytes",
- "fnv 1.0.7",
+ "fnv",
  "itoa",
 ]
 
@@ -1389,7 +1397,7 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
- "fnv_ffi",
+ "fxhash_ffi",
  "redis-module",
  "triemap_ffi",
  "types_ffi",

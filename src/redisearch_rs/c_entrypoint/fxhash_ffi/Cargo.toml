@@ -1,5 +1,5 @@
 [package]
-name = "fnv_ffi"
+name = "fxhash_ffi"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -9,4 +9,4 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-fnv = { workspace = true }
+fxhash = { workspace = true }
