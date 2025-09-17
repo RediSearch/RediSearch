@@ -923,6 +923,11 @@ TEST_F(ParseHybridTest, testLinearNegativeArgumentCount) {
   testErrorCode(args, QUERY_ESYNTAX, "Argument count requires a non negative integer: but -2 was given");
 }
 
+TEST_F(ParseHybridTest, testLinearMissingArgumentCount) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR");
+  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument count");
+}
+
 // Missing parameter value tests
 TEST_F(ParseHybridTest, testKNNMissingKValue) {
   // Test KNN with missing K value

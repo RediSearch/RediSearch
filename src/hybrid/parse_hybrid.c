@@ -289,7 +289,10 @@ static int parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Que
   // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
   //        ^
   long long argument_count;
-  if (CheckEnd(ac, "argument count", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument count");
+    return REDISMODULE_ERR;
+  }
   if (AC_GetLongLong(ac, &argument_count, 0) != AC_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count");
     return REDISMODULE_ERR;
