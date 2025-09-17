@@ -223,6 +223,8 @@ impl NumericDelta {
 impl Encoder for Numeric {
     type Delta = NumericDelta;
 
+    const ALLOW_DUPLICATES: bool = true;
+
     fn encode<W: Write + std::io::Seek>(
         &self,
         mut writer: W,
