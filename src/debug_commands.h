@@ -53,6 +53,15 @@ typedef struct DebugCTX {
 // Exception for QueryDebugCtx
 void validateDebugMode(DebugCTX *debugCtx);
 
+// QueryDebugCtx API function declarations
+bool QueryDebugCtx_IsPaused(void);
+void QueryDebugCtx_SetPause(bool pause);
+bool QueryDebugCtx_GetPauseOnOOM(void);
+void QueryDebugCtx_SetPauseOnOOM(bool pauseOnOOM);
+ResultProcessor* QueryDebugCtx_GetDebugRP(void);
+void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
+bool QueryDebugCtx_HasDebugRP(void);
+
 // Yield counter functions
 void IncrementYieldCounter(void);
 

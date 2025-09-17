@@ -32,6 +32,35 @@
 
 DebugCTX globalDebugCtx = {0};
 
+// QueryDebugCtx API implementations
+bool QueryDebugCtx_IsPaused(void) {
+  return globalDebugCtx.query.pause;
+}
+
+void QueryDebugCtx_SetPause(bool pause) {
+  globalDebugCtx.query.pause = pause;
+}
+
+bool QueryDebugCtx_GetPauseOnOOM(void) {
+  return globalDebugCtx.query.pauseOnOOM;
+}
+
+void QueryDebugCtx_SetPauseOnOOM(bool pauseOnOOM) {
+  globalDebugCtx.query.pauseOnOOM = pauseOnOOM;
+}
+
+ResultProcessor* QueryDebugCtx_GetDebugRP(void) {
+  return globalDebugCtx.query.debugRP;
+}
+
+void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP) {
+  globalDebugCtx.query.debugRP = debugRP;
+}
+
+bool QueryDebugCtx_HasDebugRP(void) {
+  return globalDebugCtx.query.debugRP != NULL;
+}
+
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
   // Should be called after each debug command that changes the debugCtx
@@ -1880,11 +1909,11 @@ DEBUG_COMMAND(setPauseRPResume) {
     return RedisModule_WrongArity(ctx);
   }
 
-  if (!globalDebugCtx.query.pause) {
+  if (!QueryDebugCtx_IsPaused()) {
     return RedisModule_ReplyWithError(ctx, "Query is not paused");
   }
 
-  globalDebugCtx.query.pause = false;
+  QueryDebugCtx_SetPause(false);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1900,7 +1929,7 @@ DEBUG_COMMAND(getIsRPPaused) {
     return RedisModule_WrongArity(ctx);
   }
 
-  return RedisModule_ReplyWithLongLong(ctx, globalDebugCtx.query.pause);
+  return RedisModule_ReplyWithLongLong(ctx, QueryDebugCtx_IsPaused());
 }
 
 /**
@@ -1914,11 +1943,11 @@ DEBUG_COMMAND(printRPStream) {
     return RedisModule_WrongArity(ctx);
   }
 
-  if (!globalDebugCtx.query.debugRP) {
+  if (!QueryDebugCtx_HasDebugRP()) {
     return RedisModule_ReplyWithNull(ctx);
   }
 
-  ResultProcessor* root = globalDebugCtx.query.debugRP->parent->endProc;
+  ResultProcessor* root = QueryDebugCtx_GetDebugRP()->parent->endProc;
   ResultProcessor *cur = root;
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);

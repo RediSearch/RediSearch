@@ -1524,8 +1524,8 @@ bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultP
 
 static void RPPauseAfterCount_Pause(RPPauseAfterCount *self) {
 
-  globalDebugCtx.query.pause = true;
-  while (globalDebugCtx.query.pause) { // volatile variable
+  QueryDebugCtx_SetPause(true);
+  while (QueryDebugCtx_IsPaused()) { // volatile variable
     usleep(1000);
   }
 }
@@ -1543,16 +1543,16 @@ static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
 }
 
 static void RPPauseAfterCount_Free(ResultProcessor *base) {
-  RS_LOG_ASSERT(globalDebugCtx.query.debugRP == base, "Freed debug RP tried to change DebugCTX debugRP but it's not the current debug RP");
+  RS_LOG_ASSERT(QueryDebugCtx_GetDebugRP() == base, "Freed debug RP tried to change DebugCTX debugRP but it's not the current debug RP");
   rm_free(base);
-  globalDebugCtx.query.debugRP = NULL;
+  QueryDebugCtx_SetDebugRP(NULL);
 }
 
 ResultProcessor *RPPauseAfterCount_New(size_t count) {
 
   // Validate no other debug RP is set
   // If so, don't set it and return NULL
-  if (globalDebugCtx.query.debugRP) {
+  if (QueryDebugCtx_HasDebugRP()) {
     return NULL;
   }
 
@@ -1563,7 +1563,7 @@ ResultProcessor *RPPauseAfterCount_New(size_t count) {
   ret->base.Next = RPPauseAfterCount_Next;
   ret->base.Free = RPPauseAfterCount_Free;
 
-  globalDebugCtx.query.debugRP = &ret->base;
+  QueryDebugCtx_SetDebugRP(&ret->base);
 
   return &ret->base;
 }
