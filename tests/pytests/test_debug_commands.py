@@ -1063,12 +1063,9 @@ def test_query_controller_pause_and_resume(env):
     env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
 
     # Create 1 docs
-    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+   
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-
-    # Wait for index to finish scan
-    waitForIndex(env, 'idx')
-
+    env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
     # Helper to call a function and push its return value into a list
     def _call_and_store(fn, args, out_list):
         out_list.append(fn(*args))
@@ -1169,9 +1166,9 @@ def test_query_controller_add_before_after(env):
         t_query.join()
 
 @skip(cluster=False)
-def test_cluster_query_controller_pause_and_resume(env):
+def test_cluster_query_controller_pause_and_resume():
     # Set workers to 1 on all shards to make sure queries can be paused
-    verify_command_OK_on_all_shards(env, '_FT.CONFIG SET WORKERS 1')
+    env = Env(moduleArgs='WORKERS 1')
 
     conn = getConnectionByEnv(env)
 
