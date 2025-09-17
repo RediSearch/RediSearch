@@ -16,8 +16,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("src/iterators", "iterators"),
     ]);
 
-    // Generate C bindings - fail build if this doesn't work
+    // Compile the direct benchmark C file
     let root = git_root().expect("Could not find git root");
+    cc::Build::new()
+        .file("src/direct_benchmarks.c")
+        .include(root.join("src").join("wildcard"))
+        .opt_level(3)
+        .compile("direct_benchmarks");
+
+    // Generate C bindings - fail build if this doesn't work
     let headers = ["iterator_api.h", "empty_iterator.h", "idlist_iterator.h", "wildcard_iterator.h"]
         .iter()
         .map(|h| root.join("src").join("iterators").join(h))

@@ -38,10 +38,19 @@ impl Bencher {
     }
 
     pub fn bench(&self, c: &mut Criterion) {
+        // Original benchmarks with FFI overhead
         self.read_large_range(c);
         self.read_medium_range(c);
         self.skip_to_large_range(c);
         self.skip_to_medium_range(c);
+
+        // New direct C benchmarks (eliminates FFI overhead)
+        self.read_large_range_direct(c);
+        self.read_medium_range_direct(c);
+        self.skip_to_large_range_direct(c);
+        self.skip_to_medium_range_direct(c);
+
+        // Edge cases and patterns
         self.edge_cases(c);
         self.skip_patterns(c);
     }
@@ -79,7 +88,6 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Large range: 1M documents (1 to 1,000,000)
-                    // Note: num_docs parameter is ignored by wildcard iterator logic
                     ffi::QueryIterator::new_wildcard(1_000_000, 1_000_000)
                 },
                 |it| {
@@ -98,7 +106,6 @@ impl Bencher {
             b.iter_batched_ref(
                 || {
                     // Medium range: 500K documents (1 to 500,000)
-                    // Using max_id to control actual iteration count
                     ffi::QueryIterator::new_wildcard(500_000, 500_000)
                 },
                 |it| {
@@ -318,4 +325,108 @@ impl Bencher {
 
         group.finish();
     }
+
+    // ===== DIRECT C BENCHMARKS (NO FFI OVERHEAD) =====
+
+    fn read_large_range_direct(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Read Large Range (Direct)");
+        self.c_read_large_range_direct(&mut group);
+        self.rust_read_large_range(&mut group); // Same Rust implementation
+        group.finish();
+    }
+
+    fn read_medium_range_direct(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Read Medium Range (Direct)");
+        self.c_read_medium_range_direct(&mut group);
+        self.rust_read_medium_range(&mut group); // Same Rust implementation
+        group.finish();
+    }
+
+    fn skip_to_large_range_direct(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - SkipTo Large Range (Direct)");
+        self.c_skip_to_large_range_direct(&mut group);
+        self.rust_skip_to_large_range(&mut group); // Same Rust implementation
+        group.finish();
+    }
+
+    fn skip_to_medium_range_direct(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - SkipTo Medium Range (Direct)");
+        self.c_skip_to_medium_range_direct(&mut group);
+        self.rust_skip_to_medium_range(&mut group); // Same Rust implementation
+        group.finish();
+    }
+
+    fn c_read_large_range_direct<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>)
+    where
+        M::Value: From<Duration>
+    {
+        group.bench_function("C (Direct)", |b| {
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    let result = ffi::QueryIterator::benchmark_wildcard_read_direct(1_000_000);
+                    total_time += Duration::from_nanos(result.time_ns);
+                    // Verify iteration count matches expected
+                    assert_eq!(result.iterations, 1_000_000, "C direct benchmark iteration count mismatch");
+                }
+                total_time.into()
+            });
+        });
+    }
+
+    fn c_read_medium_range_direct<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>)
+    where
+        M::Value: From<Duration>
+    {
+        group.bench_function("C (Direct)", |b| {
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    let result = ffi::QueryIterator::benchmark_wildcard_read_direct(500_000);
+                    total_time += Duration::from_nanos(result.time_ns);
+                    // Verify iteration count matches expected
+                    assert_eq!(result.iterations, 500_000, "C direct benchmark iteration count mismatch");
+                }
+                total_time.into()
+            });
+        });
+    }
+
+    fn c_skip_to_large_range_direct<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>)
+    where
+        M::Value: From<Duration>
+    {
+        group.bench_function("C (Direct)", |b| {
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    let result = ffi::QueryIterator::benchmark_wildcard_skip_to_direct(1_000_000, 100);
+                    total_time += Duration::from_nanos(result.time_ns);
+                    // Expected iterations: 1_000_000 / 100 = 10_000
+                    assert_eq!(result.iterations, 10_000, "C direct skip_to benchmark iteration count mismatch");
+                }
+                total_time.into()
+            });
+        });
+    }
+
+    fn c_skip_to_medium_range_direct<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>)
+    where
+        M::Value: From<Duration>
+    {
+        group.bench_function("C (Direct)", |b| {
+            b.iter_custom(|iters| {
+                let mut total_time = Duration::ZERO;
+                for _ in 0..iters {
+                    let result = ffi::QueryIterator::benchmark_wildcard_skip_to_direct(500_000, 100);
+                    total_time += Duration::from_nanos(result.time_ns);
+                    // Expected iterations: 500_000 / 100 = 5_000
+                    assert_eq!(result.iterations, 5_000, "C direct skip_to benchmark iteration count mismatch");
+                }
+                total_time.into()
+            });
+        });
+    }
+
+
 }
