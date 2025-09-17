@@ -7,13 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Empty iterator implementation
+//! Wildcard iterator implementation
 use ffi::t_docId;
 use inverted_index::RSIndexResult;
 
 use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
-/// An iterator that yields all ids within a given range, from 0 to max id in an index.
+/// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
 pub struct Wildcard {
     // Supposed to be the max id in the index
@@ -48,20 +48,20 @@ impl RQEIterator for Wildcard {
 
     fn skip_to(
         &mut self,
-        _doc_id: t_docId,
+        doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
         }
 
-        if _doc_id > self.top_id {
+        if doc_id > self.top_id {
             // skip beyond range - set to EOF
             self.current_id = self.top_id;
             return Ok(None);
         }
 
-        self.current_id = _doc_id;
-        self.result.doc_id = _doc_id;
+        self.current_id = doc_id;
+        self.result.doc_id = doc_id;
         Ok(Some(SkipToOutcome::Found(&self.result)))
     }
 
