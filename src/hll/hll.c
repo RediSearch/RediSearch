@@ -63,7 +63,7 @@ void hll_add_hash(struct HLL *hll, uint32_t h) {
 }
 
 void hll_add(struct HLL *hll, const void *buf, size_t size) {
-  uint32_t hash = fxhash_incremental(buf, size, 0x5f61767a);
+  uint32_t hash = fxhash_32_incremental(buf, size, 0x5f61767a);
   _hll_add_hash(hll, hash);
 }
 
