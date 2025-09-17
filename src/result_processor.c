@@ -118,7 +118,6 @@ static bool Get_DocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx
     } else {
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
-    bool isDeleted = (*dmd)->flags & Document_Deleted;
     if (!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->time.current)) {
       DMD_Return(*dmd);
       return false;;

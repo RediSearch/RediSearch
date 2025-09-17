@@ -1250,8 +1250,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  if (!SearchDisk_Initialize(ctx)) {
-    RedisModule_Log(ctx, "error", "Failed to initialize search disk");
+  bool disk_initialized = SearchDisk_Initialize(ctx);
+  if (disk_initialized && isFlex) {
+    RedisModule_Log(ctx, "notice", "Search Disk is initialized");
+  } else if (!disk_initialized && isFlex) {
+    RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
     return REDISMODULE_ERR;
   }
 
