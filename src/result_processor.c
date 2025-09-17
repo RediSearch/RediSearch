@@ -101,7 +101,7 @@ typedef struct {
  * @param dmd The document metadata pointer to set
  * @return true if the document is not deleted or expired, false otherwise.
  */
-static bool Get_DocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, RSDocumentMetadata **dmd) {
+static bool Get_DocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, const RSDocumentMetadata **dmd) {
   if (spec->diskSpec) {
     RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->ref_count = 1;

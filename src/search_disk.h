@@ -2,6 +2,7 @@
 
 #include "search_disk_api.h"
 #include "iterators/iterator_api.h"
+#include "redismodule.h"
 
 #include <stdbool.h>
 
@@ -113,3 +114,11 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, t_docId do
  * @return true if deleted, false if not deleted or on error
  */
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId);
+
+/**
+ * @brief Check if the search disk module is enabled
+ *
+ * @param ctx Redis module context
+ * @return true if enabled, false otherwise
+ */
+bool SearchDisk_IsEnabled(RedisModuleCtx *ctx);

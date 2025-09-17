@@ -1128,11 +1128,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     RedisModule_FreeCallReply(reply);
   }
 
-  char *isFlexStr = getRedisConfigValue(ctx, "bigredis-enabled");
-  if (isFlexStr && !strcasecmp(isFlexStr, "yes")) {
-    isFlex = true;
-  } // Default is false, so nothing to change in that case.
-  rm_free(isFlexStr);
+  isFlex = SearchDisk_IsEnabled(ctx);
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {
@@ -1257,7 +1253,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   if (!SearchDisk_Initialize(ctx)) {
     RedisModule_Log(ctx, "error", "Failed to initialize search disk");
     return REDISMODULE_ERR;
-  };
+  }
 
   // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
