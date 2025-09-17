@@ -42,7 +42,7 @@ TEST_F(TagIndexTest, testCreate) {
 
   // Buffer grows up to 1077 bytes trying to store 1000 bytes. See Buffer_Grow()
   size_t buffer_cap = 1077;
-  size_t num_blocks = N / INDEX_BLOCK_SIZE_DOCID_ONLY;
+  size_t num_blocks = N / 1000;
 
   // The size of the inverted index structure is 32 bytes
   size_t iv_index_size = 32;
@@ -55,8 +55,9 @@ TEST_F(TagIndexTest, testCreate) {
   std::vector<const char *> v2{"bye"};
   size_t sz = TagIndex_Index(idx, &v2[0], v2.size(), ++d);
   // A base inverted index is 32 bytes
-  // An index block is 48 bytes + its buffer capacity
-  size_t last_block_size = 32 + 48 + INDEX_BLOCK_INITIAL_CAP;
+  // An index block is 48 bytes
+  // And initial block capacity of 6 bytes
+  size_t last_block_size = 32 + 48 + 6;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
 
   QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
