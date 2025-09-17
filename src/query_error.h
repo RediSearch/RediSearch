@@ -160,7 +160,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
 /**
  * Clone the error from src to dest. If dest already has an error, it is not overwritten.
  */
-void QueryError_CloneFrom(QueryError *dest, const QueryError *src);
+void QueryError_CloneFrom(const QueryError *src, QueryError *dest);
 
 /**
  * Retrieve the error string of the error itself. This will use either the

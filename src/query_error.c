@@ -29,7 +29,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
                          (int)n, s, ac->offset, name);
 }
 
-void QueryError_CloneFrom(QueryError *dest, const QueryError *src) {
+void QueryError_CloneFrom(const QueryError *src, QueryError *dest) {
   if (dest->code != QUERY_OK) {
     return;
   }

@@ -1097,29 +1097,36 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
-
-  QueryError status = {0};
-  QueryProcessingCtx *qctx = NULL;
-  QEFlags reqFlags = 0;
-  bool hasLoader = false;
+static QueryProcessingCtx *preapreForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
   AREQ *req = cursor->execState;
-  bool initClock = false;
+  QueryProcessingCtx *qctx = NULL;
   if (req) {
     qctx = AREQ_QueryProcessingCtx(cursor->execState);
     AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
-    reqFlags = AREQ_RequestFlags(req);
-    hasLoader = HasLoader(req);
-    initClock = IsProfile(req) || !IsInternal(req);
+    *reqFlags = AREQ_RequestFlags(req);
+    *hasLoader = HasLoader(req);
+    *initClock = IsProfile(req) || !IsInternal(req);
   } else {
     HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
+    *reqFlags = hreq->reqflags;
     qctx = &hreq->tailPipeline->qctx;
     // If we don't have an AREQ then this is a coordinator cursor going directly to the client
     // We can't have a loader in the coordinator
-    hasLoader = false;
+    *hasLoader = false;
   }
+  qctx->err = status;
+  return qctx;
+}
+
+static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
+
+  QueryError status = {0};
   
-  qctx->err = &status;
+  QEFlags reqFlags = 0;
+  bool hasLoader = false;
+  bool initClock = false;
+  AREQ *req = cursor->execState;
+  QueryProcessingCtx *qctx = preapreForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.

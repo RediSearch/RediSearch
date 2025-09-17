@@ -238,14 +238,14 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 
     // Priority 1: Tail pipeline error (affects final result processing)
     if (hreq->tailPipelineError.code != QUERY_OK) {
-        QueryError_CloneFrom(status, &hreq->tailPipelineError);
+        QueryError_CloneFrom(&hreq->tailPipelineError, status);
         return REDISMODULE_ERR;
     }
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
         if (hreq->errors[i].code != QUERY_OK) {
-            QueryError_CloneFrom(status, &hreq->errors[i]);
+            QueryError_CloneFrom(&hreq->errors[i], status);
             return REDISMODULE_ERR;
         }
     }

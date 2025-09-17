@@ -86,11 +86,10 @@ def test_basic_hybrid_internal_withcursor(env):
     """
     setup_hybrid_test_data(env)
 
-    # Execute _FT.HYBRID command with WITHCURSOR
+    # Execute _FT.HYBRID command with WITHCURSOR using direct vector specification
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-                     'VSIM', '@embedding', '$vec_param', 'WITHCURSOR', 'DIALECT', '2',
-                     'PARAMS', '2', 'vec_param', query_vec.tobytes())
+                     'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR')
 
     # Should return a map with VSIM and SEARCH cursor IDs
     env.assertTrue(isinstance(result, list))
@@ -115,12 +114,11 @@ def test_hybrid_internal_with_count_parameter(env):
     """Test _FT.HYBRID with WITHCURSOR and COUNT parameter"""
     setup_hybrid_test_data(env)
 
-    # Execute with COUNT parameter set to 2
+    # Execute with COUNT parameter set to 2 using direct vector specification
     count_param = 2
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-                     'VSIM', '@embedding', '$vec_param', 'WITHCURSOR', 'COUNT', str(count_param), 'DIALECT', '2',
-                     'PARAMS', '2', 'vec_param', query_vec.tobytes())
+                     'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', 'COUNT', str(count_param))
 
     # Should return a map with cursor IDs
     env.assertTrue(isinstance(result, list))
@@ -148,11 +146,10 @@ def test_hybrid_internal_cursor_interaction(env):
     """Test reading from both VSIM and SEARCH cursors and compare with equivalent FT.SEARCH commands"""
     setup_hybrid_test_data(env)
 
-    # Execute the hybrid command with cursors
+    # Execute the hybrid command with cursors using direct vector specification
     query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:shoes',
-                           'VSIM', '@embedding', '$vec_param', 'WITHCURSOR', 'DIALECT', '2',
-                           'PARAMS', '2', 'vec_param', query_vec.tobytes())
+                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR')
 
     # Should return a map with cursor IDs
     env.assertTrue(isinstance(hybrid_result, list))
@@ -164,11 +161,11 @@ def test_hybrid_internal_cursor_interaction(env):
 
     # Get expected results from equivalent individual FT.SEARCH commands
     # For text search - just get document keys
-    text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:shoes', 'DIALECT', '2', 'NOSTOPWORDS', 'RETURN', '0')
+    text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:shoes', 'DIALECT', '2', 'RETURN', '0')
 
     # For vector search - return only keys to avoid binary data issues
     vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
-                                  'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'NOSTOPWORDS', 'RETURN', '0')
+                                  'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
 
     # Extract document keys from expected results (RETURN 0 format)
     def extract_doc_keys(search_result):
@@ -206,10 +203,10 @@ def test_hybrid_internal_with_params(env):
     # Test with PARAMS for both text and vector parts
     query_vec = create_np_array_typed([1.0, 0.0], 'FLOAT32')
 
-    # Execute hybrid command with parameterized queries
+    # Execute hybrid command with direct vector specification (keeping text param)
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
-                           'VSIM', '@embedding', '$vec_param', 'WITHCURSOR', 'DIALECT', '2',
-                           'PARAMS', '4', 'term', 'shoes', 'vec_param', query_vec.tobytes())
+                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', 'DIALECT', '2',
+                           'PARAMS', '2', 'term', 'shoes')
 
     # Should return cursor map
     env.assertTrue(isinstance(hybrid_result, list))
@@ -219,9 +216,9 @@ def test_hybrid_internal_with_params(env):
 
     # Get expected results from equivalent parameterized FT.SEARCH commands
     text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:($term)', 'DIALECT', '2',
-                                'PARAMS', '2', 'term', 'shoes', 'NOSTOPWORDS', 'RETURN', '0')
+                                'PARAMS', '2', 'term', 'shoes', 'RETURN', '0')
     vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
-                                  'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'NOSTOPWORDS', 'RETURN', '0')
+                                  'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
 
     # Extract expected document keys
     def extract_doc_keys(search_result):
@@ -245,16 +242,14 @@ def test_hybrid_internal_error_cases(env):
     """Test error cases with _FT.HYBRID (without WITHCURSOR)"""
     setup_hybrid_test_data(env)
 
-    # Test with non-existent index
+    # Test with non-existent index using direct vector specification
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     env.expect('_FT.HYBRID', 'nonexistent', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', '$vec_param', 'DIALECT', '2',
-               'PARAMS', '2', 'vec_param', query_vec.tobytes()).error()
+               'VSIM', '@embedding', query_vec.tobytes()).error().contains('No such index nonexistent')
 
-    # Test with invalid vector field
+    # Test with invalid vector field using direct vector specification
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@nonexistent', '$vec_param', 'DIALECT', '2',
-               'PARAMS', '2', 'vec_param', query_vec.tobytes()).error()
+               'VSIM', '@nonexistent', query_vec.tobytes()).error().contains('Unknown field `nonexistent`')
 
 
 @skip(cluster=True)
@@ -272,8 +267,5 @@ def test_hybrid_internal_cursor_limit(env):
     # _FT.HYBRID command should fail because it tries to create 2 cursors but limit is 1
     query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
-               'VSIM', '@embedding', '$vec_param', 'WITHCURSOR', 'DIALECT', '2',
-               'PARAMS', '2', 'vec_param', query_vec.tobytes()).error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
+               'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR').error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
 
-    # Reset cursor limit to default for other tests
-    env.cmd('CONFIG', 'SET', 'search-index-cursor-limit', '128')
