@@ -31,6 +31,12 @@ use inverted_index::{
     raw_doc_ids_only::RawDocIdsOnly,
 };
 
+/// Get the total number of index blocks allocated across all inverted index instances.
+#[unsafe(no_mangle)]
+pub extern "C" fn TotalIIBlocks() -> usize {
+    IndexBlock::total_blocks()
+}
+
 /// An opaque inverted index structure. The actual implementation is determined at runtime based on
 /// the index flags provided when creating the index. This allows us to have a single interface for
 /// all index types while still being able to optimize the storage and performance for each index
