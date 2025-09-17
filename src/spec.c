@@ -1817,6 +1817,8 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Destroy the spec's lock
   pthread_rwlock_destroy(&spec->rwlock);
 
+  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
+
   // Free spec struct
   rm_free(spec);
 
@@ -1866,8 +1868,6 @@ void IndexSpec_Free(IndexSpec *spec) {
   } else {
     redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
   }
-
-  if (spec->diskSpec) SearchDisk_CloseIndex(spec->diskSpec);
 }
 
 //---------------------------------------------------------------------------------------------
