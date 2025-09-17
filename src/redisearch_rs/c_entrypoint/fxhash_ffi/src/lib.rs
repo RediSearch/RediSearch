@@ -63,7 +63,7 @@ pub unsafe extern "C" fn fxhash_64_incremental(buf: *const c_void, len: usize, h
     hasher.write_u64(hval);
     hasher.write(bytes);
 
-    hasher.finish() as u64
+    hasher.finish()
 }
 
 /// Returns the 64-bit [fxhash] of `buf` of length `len`.
