@@ -16,13 +16,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("src/iterators", "iterators"),
     ]);
 
-    // Compile the direct benchmark C file
+    // Compile the wildcard iterator benchmark C file
     let root = git_root().expect("Could not find git root");
     cc::Build::new()
-        .file("src/direct_benchmarks.c")
+        .file("src/benchers/c/wildcard.c")
         .include(root.join("src").join("wildcard"))
         .opt_level(3)
-        .compile("direct_benchmarks");
+        .compile("wildcard_iterator_benchmark");
 
     // Generate C bindings - fail build if this doesn't work
     let headers = [
