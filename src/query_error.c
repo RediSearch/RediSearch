@@ -12,8 +12,8 @@
 
 void QueryError_Init(QueryError *qerr) {
   RS_LOG_ASSERT(qerr, "QueryError should not be NULL");
-  qerr->code = QUERY_OK;
-  qerr->detail = NULL;
+  qerr->_code = QUERY_OK;
+  qerr->_detail = NULL;
 }
 
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name) {
@@ -43,36 +43,36 @@ const char *QueryError_Strerror(QueryErrorCode code) {
 }
 
 void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *err) {
-  if (status->code != QUERY_OK) {
+  if (status->_code != QUERY_OK) {
     return;
   }
   RS_LOG_ASSERT(!status->detail, "detail of error is missing");
-  status->code = code;
+  status->_code = code;
 
   if (err) {
-    status->detail = rm_strdup(err);
+    status->_detail = rm_strdup(err);
   } else {
-    status->detail = rm_strdup(QueryError_Strerror(code));
+    status->_detail = rm_strdup(QueryError_Strerror(code));
   }
-  status->message = status->detail;
+  status->_message = status->_detail;
 }
 
 void QueryError_SetCode(QueryError *status, QueryErrorCode code) {
-  if (status->code == QUERY_OK) {
-    status->code = code;
+  if (status->_code == QUERY_OK) {
+      status->_code = code;
   }
 }
 
 void QueryError_ClearError(QueryError *err) {
-  if (err->detail) {
-    rm_free(err->detail);
-    err->detail = NULL;
+  if (err->_detail) {
+    rm_free(err->_detail);
+    err->_detail = NULL;
   }
-  err->code = QUERY_OK;
+  err->_code = QUERY_OK;
 }
 
 void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...) {
-  if (status->code != QUERY_OK) {
+  if (status->_code != QUERY_OK) {
     return;
   }
 
@@ -82,52 +82,48 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
   rm_vasprintf(&formatted, fmt, ap);
   va_end(ap);
 
-  rm_asprintf(&status->detail, "%s%s", message, formatted);
+  rm_asprintf(&status->_detail, "%s%s", message, formatted);
   rm_free(formatted);
-  status->code = code;
-  status->message = message;
+  status->_code = code;
+  status->_message = message;
 }
 
 void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
-  if (status->code != QUERY_OK) {
+  if (status->_code != QUERY_OK) {
     return;
   }
   va_list ap;
   va_start(ap, fmt);
-  rm_vasprintf(&status->detail, fmt, ap);
+  rm_vasprintf(&status->_detail, fmt, ap);
   va_end(ap);
-  status->code = code;
-  status->message = status->detail;
+  status->_code = code;
+  status->_message = status->_detail;
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
   // Set the code if not previously set. This should be used by code which makes
   // use of the ::detail field, and is a placeholder for something like:
   // functionWithCharPtr(&status->detail);
-  // if (status->detail && status->code == QUERY_OK) {
-  //    status->code = MYCODE;
+  // if (status->detail && status->_code == QUERY_OK) {
+  //    status->_code = MYCODE;
   // }
-  if (status->detail == NULL) {
+  if (status->_detail == NULL) {
     return;
   }
-  if (status->code != QUERY_OK) {
+  if (status->_code != QUERY_OK) {
     return;
   }
-  status->code = code;
+  status->_code = code;
 }
 
 const char *QueryError_GetUserError(const QueryError *status) {
-  return status->detail ? status->detail : QueryError_Strerror(status->code);
+  return status->_detail ? status->_detail : QueryError_Strerror(status->_code);
 }
 
 const char *QueryError_GetDisplayableError(const QueryError *status, bool obfuscate) {
-  if (status->detail == NULL || obfuscate) {
-    return status->message ? status->message : QueryError_Strerror(status->code);
+  if (status->_detail == NULL || obfuscate) {
+    return status->_message ? status->_message : QueryError_Strerror(status->_code);
   } else {
-    return status->detail ? status->detail : QueryError_Strerror(status->code);
+    return status->_detail ? status->_detail : QueryError_Strerror(status->_code);
   }
-}
-
-QueryErrorCode QueryError_GetCode(const QueryError *status) {
-  return status->code;
 }

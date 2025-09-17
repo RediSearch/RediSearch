@@ -280,7 +280,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   SuggestOptions options = {.numResults = 5};
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
   if (parseSuggestOptions(argv + 3, argc - 3, &options, &status) != REDISMODULE_OK) {
     goto parse_error;
   }
