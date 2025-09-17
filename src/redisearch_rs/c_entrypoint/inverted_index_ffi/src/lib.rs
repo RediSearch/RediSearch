@@ -10,6 +10,8 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
+use std::fmt::Display;
+
 use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
@@ -60,6 +62,27 @@ pub enum InvertedIndex {
     RawDocumentIdOnly(inverted_index::InvertedIndex<RawDocIdsOnly>),
     // Needs to track the entries count because it has the `StoreNumeric` flag set
     Numeric(EntriesTrackingIndex<Numeric>),
+}
+
+impl Display for InvertedIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InvertedIndex::Full(_) => write!(f, "Full"),
+            InvertedIndex::FullWide(_) => write!(f, "FullWide"),
+            InvertedIndex::FreqsFields(_) => write!(f, "FreqsFields"),
+            InvertedIndex::FreqsFieldsWide(_) => write!(f, "FreqsFieldsWide"),
+            InvertedIndex::FreqsOnly(_) => write!(f, "FreqsOnly"),
+            InvertedIndex::FieldsOnly(_) => write!(f, "FieldsOnly"),
+            InvertedIndex::FieldsOnlyWide(_) => write!(f, "FieldsOnlyWide"),
+            InvertedIndex::FieldsOffsets(_) => write!(f, "FieldsOffsets"),
+            InvertedIndex::FieldsOffsetsWide(_) => write!(f, "FieldsOffsetsWide"),
+            InvertedIndex::OffsetsOnly(_) => write!(f, "OffsetsOnly"),
+            InvertedIndex::FreqsOffsets(_) => write!(f, "FreqsOffsets"),
+            InvertedIndex::DocumentIdOnly(_) => write!(f, "DocumentIdOnly"),
+            InvertedIndex::RawDocumentIdOnly(_) => write!(f, "RawDocumentIdOnly"),
+            InvertedIndex::Numeric(_) => write!(f, "Numeric"),
+        }
+    }
 }
 
 // Macro to make calling the methods on the inner index easier
@@ -574,7 +597,7 @@ pub unsafe extern "C" fn NewIndexReader(
         (InvertedIndex::FreqsFieldsWide(ii), ReadFilter::FieldMask(mask)) => {
             IndexReader::FreqsFieldsWide(ii.reader(mask))
         }
-        (InvertedIndex::FreqsOnly(ii), ReadFilter::None) => IndexReader::FreqsOnly(ii.reader()),
+        (InvertedIndex::FreqsOnly(ii), _) => IndexReader::FreqsOnly(ii.reader()),
         (InvertedIndex::FieldsOnly(ii), ReadFilter::FieldMask(mask)) => {
             IndexReader::FieldsOnly(ii.reader(mask))
         }
@@ -587,16 +610,10 @@ pub unsafe extern "C" fn NewIndexReader(
         (InvertedIndex::FieldsOffsetsWide(ii), ReadFilter::FieldMask(mask)) => {
             IndexReader::FieldsOffsetsWide(ii.reader(mask))
         }
-        (InvertedIndex::OffsetsOnly(ii), ReadFilter::None) => IndexReader::OffsetsOnly(ii.reader()),
-        (InvertedIndex::FreqsOffsets(ii), ReadFilter::None) => {
-            IndexReader::FreqsOffsets(ii.reader())
-        }
-        (InvertedIndex::DocumentIdOnly(ii), ReadFilter::None) => {
-            IndexReader::DocumentIdOnly(ii.reader())
-        }
-        (InvertedIndex::RawDocumentIdOnly(ii), ReadFilter::None) => {
-            IndexReader::RawDocumentIdOnly(ii.reader())
-        }
+        (InvertedIndex::OffsetsOnly(ii), _) => IndexReader::OffsetsOnly(ii.reader()),
+        (InvertedIndex::FreqsOffsets(ii), _) => IndexReader::FreqsOffsets(ii.reader()),
+        (InvertedIndex::DocumentIdOnly(ii), _) => IndexReader::DocumentIdOnly(ii.reader()),
+        (InvertedIndex::RawDocumentIdOnly(ii), _) => IndexReader::RawDocumentIdOnly(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::None) => IndexReader::Numeric(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) if filter.is_numeric_filter() => {
             IndexReader::NumericFiltered(FilterNumericReader::new(filter, ii.reader()))
@@ -604,7 +621,7 @@ pub unsafe extern "C" fn NewIndexReader(
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) => {
             IndexReader::NumericGeoFiltered(FilterGeoReader::new(filter, ii.reader()))
         }
-        (_, filter) => panic!("Unsupported filter for inverted index: {filter:?}"),
+        (index, filter) => panic!("Unsupported filter ({filter:?}) for inverted index ({index})"),
     };
 
     let reader_boxed = Box::new(reader);
