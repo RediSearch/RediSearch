@@ -1203,8 +1203,6 @@ def test_cluster_query_controller_pause_and_resume():
     def _call_and_store(fn, args, out_list):
         out_list.append(fn(*args))
 
-    queries_completed = 0
-
     for query_type in ['FT.SEARCH']:
         # We need to call the queries in MT so the paused query won't block the test
         query_result = []
@@ -1227,14 +1225,13 @@ def test_cluster_query_controller_pause_and_resume():
 
         # If we are here, at least one query is paused
         # Verify that we have active queries across the cluster
-        active_queries = env.cmd('INFO', 'MODULES')['search_total_active_queries']
-        env.assertEqual(active_queries, 1)
+        for shard_id in range(1, env.shardsCount + 1):
+            active_queries = env.getConnection(shard_id).execute_command('INFO', 'MODULES')['search_total_active_queries']
+            env.assertEqual(active_queries, 1)
 
         # Resume all shards
         allShards_setPauseRPResume(env)
 
         t_query.join()
-
-        queries_completed += 1
 
         env.assertEqual(query_result[0][0], n_docs)
