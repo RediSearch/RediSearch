@@ -2038,7 +2038,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
                                 int16_t numFields) {
   sp->flags = flags;
   sp->numFields = numFields;
-  sp->fields = rm_calloc(sizeof(FieldSpec), numFields);
+  sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
