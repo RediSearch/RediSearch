@@ -34,6 +34,10 @@ impl Encoder for RawDocIdsOnly {
         // Wrote delta as raw 4-bytes word
         Ok(4)
     }
+
+    fn delta_base(block: &IndexBlock) -> t_docId {
+        block.first_doc_id
+    }
 }
 
 impl DecodedBy for RawDocIdsOnly {
