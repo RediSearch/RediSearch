@@ -1547,10 +1547,9 @@ static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
 
 static void RPPauseAfterCount_Free(ResultProcessor *base) {
   rm_free(base);
-  // Clear the debugRP pointer if it points to us
-  if (globalDebugCtx.query.debugRP == base) {
-    globalDebugCtx.query.debugRP = NULL;
-  }
+
+  RS_LOG_ASSERT(globalDebugCtx.query.debugRP == base, "Freed debug RP tried to change DebugCTX debugRP but it's not the current debug RP");
+  globalDebugCtx.query.debugRP = NULL;
 }
 
 ResultProcessor *RPPauseAfterCount_New(size_t count) {
