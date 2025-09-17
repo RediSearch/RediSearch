@@ -1466,7 +1466,7 @@ TEST_F(IndexTest, testVarintFieldMask) {
 
 TEST_F(IndexTest, testDeltaSplits) {
   size_t index_memsize = 0;
-  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &index_memsize);
+  InvertedIndex *idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS | Index_WideSchema), &index_memsize);
   ForwardIndexEntry ent = {0};
   ent.docId = 1;
   ent.fieldMask = RS_FIELDMASK_ALL;
