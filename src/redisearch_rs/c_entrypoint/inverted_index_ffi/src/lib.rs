@@ -621,6 +621,10 @@ pub unsafe extern "C" fn NewIndexReader(
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) => {
             IndexReader::NumericGeoFiltered(FilterGeoReader::new(filter, ii.reader()))
         }
+        // In normal Rust we would not panic, but would rather design the type system in such a way
+        // that it would be impossible to get the reader for an index with an unsupported filter.
+        // But for now we still have to interface with some C code and can't have this type
+        // system design yet. So it is okay to panic, but only because we are in an FFI layer.
         (index, filter) => panic!("Unsupported filter ({filter:?}) for inverted index ({index})"),
     };
 
