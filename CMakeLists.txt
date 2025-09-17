@@ -39,7 +39,8 @@ function(setup_cc_options)
     endif()
 
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        message(STATUS "Using libc++ for Clang")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++ -v")
     endif()
 endfunction()
 
