@@ -388,6 +388,8 @@ typedef struct {
   size_t lastblkBytesCollected;
   size_t lastblkNumEntries;
   size_t lastblkEntriesRemoved;
+
+  uint64_t gcBlocksDenied;
 } II_GCScanStats;
 
 /* Repair an index block by removing garbage - records pointing at deleted documents,
@@ -410,7 +412,7 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
                                  II_GCScanStats *info);
 
 bool InvertedIndex_GcDelta_GetLastBlockIgnored(InvertedIndexGcDelta *d);
-void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d);
+void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d, II_GCScanStats *info);
 
 // --------------------- II High Level GC API
 

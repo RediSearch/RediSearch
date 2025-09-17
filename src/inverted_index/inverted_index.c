@@ -1479,7 +1479,6 @@ struct InvertedIndexGcDelta {
   size_t deleted_len;
 
   InvertedIndex_RepairedInput *repaired;
-  size_t repaired_len;
 
   bool last_block_ignored;
 };
@@ -1530,7 +1529,9 @@ static void checkLastBlock(InvertedIndex *idx, InvertedIndexGcDelta *delta,
   info->nbytesCollected -= info->lastblkBytesCollected;
   info->nentriesCollected -= info->lastblkEntriesRemoved;
   delta->last_block_ignored = true;
-  // gc->stats.gcBlocksDenied++; // TODO[glendc]: what to do with this snarly line
+
+  // used to be directly on gc, now we do it via info gc stats
+  info->gcBlocksDenied++;
 }
 
 void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
@@ -1550,7 +1551,7 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
   }
 
   // Free blocks that will be replaced by repaired versions
-  for (size_t i = 0; i < d->repaired_len; ++i) {
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
     const int64_t oldix = d->repaired[i].oldix;
     IndexBlock *blk = InvertedIndex_BlockRef(idx, (size_t)oldix);
     indexBlock_Free(blk);
@@ -1610,7 +1611,7 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
 
   // Install repaired blocks at their new positions
   // TODO : can we skip if we have newBlocklist?
-  for (size_t i = 0; i < d->repaired_len; ++i) {
+  for (size_t i = 0; i < info->nblocksRepaired; ++i) {
     const int64_t newix = d->repaired[i].newix;
     RS_LOG_ASSERT(newix >= 0 && (size_t)newix < InvertedIndex_NumBlocks(idx),
                   "newix out of bounds in InvertedIndex_ApplyGcDelta");
@@ -1625,6 +1626,8 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
   RS_LOG_ASSERT(InvertedIndex_NumBlocks(idx) > 0, "index must have at least one block");
   IndexBlock *last = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
   InvertedIndex_SetLastId(idx, IndexBlock_LastId(last));
+
+  InvertedIndex_SetNumDocs(idx, InvertedIndex_NumDocs(idx) - info->ndocsCollected);
 }
 
 // ------------------ builders
@@ -1637,7 +1640,7 @@ void InvertedIndex_GcDelta_SetLastBlockIgnored(InvertedIndexGcDelta *d, bool v) 
   d->last_block_ignored = v;
 }
 
-void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d) {
+void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d, II_GCScanStats *info) {
   if (!d) {
       return;
   }
@@ -1653,9 +1656,13 @@ void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d) {
     d->deleted_len = 0;
   }
   if (d->repaired) {
+    if (info != NULL) {
+        for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
+            IndexBlock_DataFree(&d->repaired[ii].blk);
+        }
+    }
     rm_free(d->repaired);
     d->repaired = NULL;
-    d->repaired_len = 0;
   }
 
   rm_free(d);
@@ -1688,7 +1695,7 @@ static void II_Gc_WriteTerminator(II_GCWriter *wr) {
 
 // ---- Read Utilities (utilities which are ported over from fork_gc.c)
 
-static int II_Gc_ReadFixed(II_GCReader *rd, const void *buff, size_t len) {
+static int II_Gc_ReadFixed(II_GCReader *rd, void *buff, size_t len) {
   return rd->read(rd->ctx, buff, len);
 }
 
@@ -1836,25 +1843,18 @@ done:
     return rv;
 }
 
-/*
- * struct InvertedIndexGcDelta {
-   IndexBlock *new_blocklist;
-   size_t new_blocklist_size;
-   InvertedIndex_DeletedInput *deleted;
-   size_t deleted_len;
-   InvertedIndex_RepairedInput *repaired;
-   size_t repaired_len;
- };
- */
-
  static int __attribute__((warn_unused_result))
  II_Gc_ReadRepairedBlock(II_GCReader* rd, InvertedIndex_RepairedInput *binfo) {
-   if (II_Gc_ReadFixed(rd, binfo, sizeof(*binfo)) != 0) {
-     return 1;
+   int result = II_Gc_ReadFixed(rd, binfo, sizeof(*binfo));
+   if (result != 0) {
+     return result;
    }
-   if (II_Gc_ReadBuffer(rd, (void **)IndexBlock_DataPtr(&binfo->blk), IndexBlock_LenPtr(&binfo->blk)) != 0) {
-     return 1;
+
+   result = II_Gc_ReadBuffer(rd, (void **)IndexBlock_DataPtr(&binfo->blk), IndexBlock_LenPtr(&binfo->blk));
+   if (result != 0) {
+     return result;
    }
+
    IndexBlock_SetCap(&binfo->blk, IndexBlock_Len(&binfo->blk));
    return 0;
  }
@@ -1873,7 +1873,7 @@ InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(II_GCReader *rd, II_GCScanStats
     InvertedIndexGcDelta *delta = rm_calloc(1, sizeof(InvertedIndexGcDelta));
 
     if (II_Gc_ReadBuffer(rd, (void **)&delta->new_blocklist, &delta->new_blocklist_size) != 0) {
-        InvertedIndex_GcDelta_Free(delta);
+        InvertedIndex_GcDelta_Free(delta, info);
         return NULL;
     }
 

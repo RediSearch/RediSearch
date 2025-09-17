@@ -57,12 +57,13 @@ typedef enum {
 
 // Assumes the spec is locked.
 static void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,
-            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded) {
+            size_t recordsRemoved, size_t bytesCollected, size_t bytesAdded, uint64_t blocksDenied) {
   sctx->spec->stats.numRecords -= recordsRemoved;
   sctx->spec->stats.invertedSize += bytesAdded;
   sctx->spec->stats.invertedSize -= bytesCollected;
   gc->stats.totalCollected += bytesCollected;
   gc->stats.totalCollected -= bytesAdded;
+  gc->stats.gcBlocksDenied += blocksDenied;
 }
 
 // Buff shouldn't be NULL.
@@ -540,7 +541,7 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
-  InvertedIndexGcDelta *delta = &ninfo->delta;
+  InvertedIndexGcDelta *delta = ninfo->delta;
   II_GCScanStats *info = &ninfo->info;
   size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - info->nblocksOrig; // record before applying changes
   InvertedIndex_ApplyGcDelta(currNode->range->entries, delta, info);
@@ -548,7 +549,7 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   currNode->range->invertedIndexSize += info->nbytesAdded;
   currNode->range->invertedIndexSize -= info->nbytesCollected;
 
-  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded);
+  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded, info->gcBlocksDenied);
 
   resetCardinality(ninfo, currNode->range, blocksSinceFork);
 }
@@ -623,7 +624,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
   }
 
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
+  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
 
 cleanup:
 
@@ -633,7 +634,7 @@ cleanup:
   }
   rm_free(term);
   if (status != FGC_COLLECTED) {
-      InvertedIndex_GcDelta_Free(delta);
+      InvertedIndex_GcDelta_Free(delta, &info);
   }
   return status;
 }
@@ -704,7 +705,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
 
   loop_cleanup:
     if (status != FGC_COLLECTED) {
-        InvertedIndex_GcDelta_Free(ninfo.delta);
+        InvertedIndex_GcDelta_Free(ninfo.delta, &ninfo.info);
     }
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);
@@ -726,7 +727,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (rt->emptyLeaves >= rt->numLeaves / 2) {
       NRN_AddRv rv = NumericRangeTree_TrimEmptyLeaves(rt);
       // rv.sz is the number of bytes added. Since we are cleaning empty leaves, it should be negative
-      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0);
+      FGC_updateStats(gc, &sctx, 0, -rv.sz, 0, 0);
     }
     RedisSearchCtx_UnlockSpec(&sctx);
     IndexSpecRef_Release(spec_ref);
@@ -813,13 +814,13 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       }
     }
 
-    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
+    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
 
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
     if (status != FGC_COLLECTED) {
-        InvertedIndex_GcDelta_Free(delta);
+        InvertedIndex_GcDelta_Free(delta, &info);
     }
     if (tagVal) {
       rm_free(tagVal);
@@ -878,7 +879,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     info.nbytesCollected += InvertedIndex_MemUsage(idx);
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded);
+  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
 
 cleanup:
 
@@ -889,7 +890,7 @@ cleanup:
   HiddenString_Free(fieldName, false);
   rm_free(rawFieldName);
   if (status != FGC_COLLECTED) {
-    InvertedIndex_GcDelta_Free(delta);
+    InvertedIndex_GcDelta_Free(delta, &info);
   }
   return status;
 }
@@ -942,7 +943,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
   }
-  FGC_updateStats(gc, sctx, 0, info.nbytesCollected, info.nbytesAdded);
+  FGC_updateStats(gc, sctx, 0, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
 
 cleanup:
   rm_free(empty_indicator);
@@ -951,7 +952,7 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
   if (status != FGC_COLLECTED)  {
-      InvertedIndex_GcDelta_Free(delta);
+      InvertedIndex_GcDelta_Free(delta, &info);
   }
   return status;
 }
