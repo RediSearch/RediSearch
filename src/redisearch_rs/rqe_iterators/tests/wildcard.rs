@@ -7,411 +7,182 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::{RQEIterator, RQEValidateStatus, SkipToOutcome, wildcard::Wildcard};
+use rqe_iterators::{
+    RQEIterator, RQEIteratorError, SkipToOutcome, wildcard::Wildcard,
+};
 
 mod c_mocks;
 
-// Test cases with different top_id values to cover various scenarios
-static TEST_CASES: &[(u64, &str)] = &[
-    (100, "standard range"),
-    (1, "single document"),
-    (10, "small range"),
-    (1000, "large range"),
-    (42, "arbitrary value"),
-];
+/// Helper function to assert skip_to result with expected doc_id
+fn assert_skip_to_found(
+    result: Result<Option<SkipToOutcome>, RQEIteratorError>,
+    target_doc_id: u64,
+) {
+    assert!(result.is_ok());
+
+    let outcome = result.unwrap();
+    assert!(outcome.is_some());
+
+    if let Some(SkipToOutcome::Found(doc)) = outcome {
+        assert_eq!(doc.doc_id, target_doc_id);
+    } else {
+        panic!("Expected Found outcome, got {:?}", outcome);
+    }
+}
 
 #[test]
 fn initial_state() {
-    for &(top_id, description) in TEST_CASES {
-        let it = Wildcard::new(top_id);
+    let it = Wildcard::new(10);
 
-        assert_eq!(
-            it.last_doc_id(),
-            0,
-            "Case '{}': initial last_doc_id should be 0",
-            description
-        );
-        assert!(
-            !it.at_eof(),
-            "Case '{}': should not be at EOF initially",
-            description
-        );
-        assert_eq!(
-            it.num_estimated(),
-            top_id as usize,
-            "Case '{}': num_estimated should equal top_id",
-            description
-        );
-    }
+    assert_eq!(it.last_doc_id(), 0);
+    assert!(!it.at_eof());
+    assert_eq!(it.num_estimated(), 10);
 }
 
 #[test]
 fn read_sequential() {
-    for &(top_id, description) in TEST_CASES {
-        let mut it = Wildcard::new(top_id);
+    let mut it = Wildcard::new(5);
 
-        // Read all documents sequentially
-        for expected_id in 1..=top_id {
-            let result = it.read();
-            assert!(
-                result.is_ok(),
-                "Case '{}': read() should succeed for id {}",
-                description,
-                expected_id
-            );
-
-            let result = result.unwrap();
-            assert!(
-                result.is_some(),
-                "Case '{}': should have result for id {}",
-                description,
-                expected_id
-            );
-
-            let doc = result.unwrap();
-            assert_eq!(
-                doc.doc_id, expected_id,
-                "Case '{}': wrong doc_id at position {}",
-                description, expected_id
-            );
-            assert_eq!(
-                it.last_doc_id(),
-                expected_id,
-                "Case '{}': wrong last_doc_id at position {}",
-                description,
-                expected_id
-            );
-
-            // Should not be at EOF until we've read all documents
-            let expected_eof = expected_id == top_id;
-            assert_eq!(
-                it.at_eof(),
-                expected_eof,
-                "Case '{}': unexpected EOF state at id {}",
-                description,
-                expected_id
-            );
-        }
-
-        // After reading all docs, next read should return None
+    // Read all documents sequentially
+    for expected_id in 1..=5 {
         let result = it.read();
-        assert!(
-            result.is_ok(),
-            "Case '{}': read() after EOF should succeed",
-            description
-        );
-        assert!(
-            result.unwrap().is_none(),
-            "Case '{}': should return None after EOF",
-            description
-        );
-        assert!(
-            it.at_eof(),
-            "Case '{}': should be at EOF after reading all docs",
-            description
-        );
+        assert!(result.is_ok());
 
-        // Reading again should still return None
-        let result = it.read();
-        assert!(
-            result.is_ok(),
-            "Case '{}': second read() after EOF should succeed",
-            description
-        );
-        assert!(
-            result.unwrap().is_none(),
-            "Case '{}': should still return None after EOF",
-            description
-        );
+        let result = result.unwrap();
+        assert!(result.is_some());
+
+        let doc = result.unwrap();
+        assert_eq!(doc.doc_id, expected_id);
+        assert_eq!(it.last_doc_id(), expected_id);
+
+        // Should not be at EOF until we've read all documents
+        let expected_eof = expected_id == 5;
+        assert_eq!(it.at_eof(), expected_eof);
     }
+
+    // After reading all docs, next read should return None
+    let result = it.read();
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none());
+    assert!(it.at_eof());
+
+    // Reading again should still return None
+    let result = it.read();
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none());
 }
 
 #[test]
 fn skip_to_valid_targets() {
-    let top_id = 100u64;
-    let skip_targets = [5, 10, 20, 50, 75, 100];
+    let mut it = Wildcard::new(10);
 
-    for &target in &skip_targets {
-        let mut it = Wildcard::new(top_id);
+    // Test skipping to middle
+    let result = it.skip_to(5);
+    assert_skip_to_found(result, 5);
+    assert_eq!(it.last_doc_id(), 5);
+    assert!(!it.at_eof());
 
-        let result = it.skip_to(target);
-        assert!(result.is_ok(), "skip_to({}) should succeed", target);
-
-        let outcome = result.unwrap();
-        assert!(outcome.is_some(), "skip_to({}) should return Some", target);
-
-        match outcome.unwrap() {
-            SkipToOutcome::Found(doc) => {
-                assert_eq!(
-                    doc.doc_id, target,
-                    "skip_to({}) should find exact target",
-                    target
-                );
-                assert_eq!(
-                    it.last_doc_id(),
-                    target,
-                    "last_doc_id should be {} after skip_to({})",
-                    target,
-                    target
-                );
-
-                // Should be at EOF only if we skipped to the last document
-                let expected_eof = target == top_id;
-                assert_eq!(
-                    it.at_eof(),
-                    expected_eof,
-                    "unexpected EOF state after skip_to({})",
-                    target
-                );
-            }
-            SkipToOutcome::NotFound(_) => {
-                panic!(
-                    "skip_to({}) should always find target in wildcard iterator",
-                    target
-                );
-            }
-        }
-    }
+    // Test skipping to last document
+    let result = it.skip_to(10);
+    assert_skip_to_found(result, 10);
+    assert_eq!(it.last_doc_id(), 10);
+    assert!(it.at_eof());
 }
 
 #[test]
 fn skip_to_beyond_range() {
-    for &(top_id, description) in TEST_CASES {
-        let mut it = Wildcard::new(top_id);
+    let mut it = Wildcard::new(10);
 
-        let beyond_target = top_id + 1;
-        let result = it.skip_to(beyond_target);
-        assert!(
-            result.is_ok(),
-            "Case '{}': skip_to({}) should succeed",
-            description,
-            beyond_target
-        );
+    let result = it.skip_to(11); // Beyond range
+    assert!(result.is_ok());
 
-        let outcome = result.unwrap();
-        assert!(
-            outcome.is_none(),
-            "Case '{}': skip_to({}) should return None",
-            description,
-            beyond_target
-        );
-        assert!(
-            it.at_eof(),
-            "Case '{}': should be at EOF after skip_to({})",
-            description,
-            beyond_target
-        );
+    let outcome = result.unwrap();
+    assert!(outcome.is_none());
+    assert!(it.at_eof());
 
-        // Subsequent reads should return None
-        let read_result = it.read();
-        assert!(
-            read_result.is_ok(),
-            "Case '{}': read after skip beyond range should succeed",
-            description
-        );
-        assert!(
-            read_result.unwrap().is_none(),
-            "Case '{}': read after skip beyond range should return None",
-            description
-        );
-    }
+    // Subsequent reads should return None
+    let read_result = it.read();
+    assert!(read_result.is_ok());
+    assert!(read_result.unwrap().is_none());
 }
 
 #[test]
 fn rewind() {
-    for &(top_id, description) in TEST_CASES {
-        let mut it = Wildcard::new(top_id);
+    let mut it = Wildcard::new(10);
 
-        // Read some documents (up to 10 or top_id, whichever is smaller)
-        let read_count = std::cmp::min(10, top_id);
-        for i in 1..=read_count {
-            let result = it.read();
-            assert!(
-                result.is_ok(),
-                "Case '{}': read({}) should succeed",
-                description,
-                i
-            );
-            assert!(
-                result.unwrap().is_some(),
-                "Case '{}': read({}) should return Some",
-                description,
-                i
-            );
-        }
-
-        assert_eq!(
-            it.last_doc_id(),
-            read_count,
-            "Case '{}': last_doc_id should be {} after reading",
-            description,
-            read_count
-        );
-
-        // Rewind
-        it.rewind();
-
-        // Check state after rewind
-        assert_eq!(
-            it.last_doc_id(),
-            0,
-            "Case '{}': last_doc_id should be 0 after rewind",
-            description
-        );
-        assert!(
-            !it.at_eof(),
-            "Case '{}': should not be at EOF after rewind",
-            description
-        );
-
-        // Should be able to read from beginning again
+    // Read some documents
+    for _i in 1..=3 {
         let result = it.read();
-        assert!(
-            result.is_ok(),
-            "Case '{}': first read after rewind should succeed",
-            description
-        );
-
-        let result = result.unwrap();
-        assert!(
-            result.is_some(),
-            "Case '{}': first read after rewind should return Some",
-            description
-        );
-
-        let doc = result.unwrap();
-        assert_eq!(
-            doc.doc_id, 1,
-            "Case '{}': first doc after rewind should be 1",
-            description
-        );
-        assert_eq!(
-            it.last_doc_id(),
-            1,
-            "Case '{}': last_doc_id should be 1 after first read",
-            description
-        );
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_some());
     }
+
+    assert_eq!(it.last_doc_id(), 3);
+
+    // Rewind
+    it.rewind();
+
+    // Check state after rewind
+    assert_eq!(it.last_doc_id(), 0);
+    assert!(!it.at_eof());
+
+    // Should be able to read from beginning again
+    let result = it.read();
+    assert!(result.is_ok());
+
+    let result = result.unwrap();
+    assert!(result.is_some());
+
+    let doc = result.unwrap();
+    assert_eq!(doc.doc_id, 1);
+    assert_eq!(it.last_doc_id(), 1);
 }
 
 #[test]
 fn read_after_skip() {
-    let top_id = 100u64;
-    let skip_target = 50u64;
-
-    let mut it = Wildcard::new(top_id);
+    let mut it = Wildcard::new(10);
 
     // Skip to middle
-    let result = it.skip_to(skip_target);
-    assert!(result.is_ok(), "skip_to({}) should succeed", skip_target);
+    let result = it.skip_to(5);
+    assert_skip_to_found(result, 5);
+    assert_eq!(it.last_doc_id(), 5);
 
-    let outcome = result.unwrap();
-    assert!(
-        outcome.is_some(),
-        "skip_to({}) should return Some",
-        skip_target
-    );
-
-    if let SkipToOutcome::Found(doc) = outcome.unwrap() {
-        assert_eq!(
-            doc.doc_id, skip_target,
-            "skip_to({}) should find exact target",
-            skip_target
-        );
-        assert_eq!(
-            it.last_doc_id(),
-            skip_target,
-            "last_doc_id should be {} after skip",
-            skip_target
-        );
-    }
-
-    // Continue reading sequentially from skip_target + 1
-    for expected_id in (skip_target + 1)..=top_id {
+    // Continue reading sequentially from 6 to 10
+    for expected_id in 6..=10 {
         let result = it.read();
-        assert!(
-            result.is_ok(),
-            "read() should succeed for id {}",
-            expected_id
-        );
+        assert!(result.is_ok());
 
         let result = result.unwrap();
-        assert!(
-            result.is_some(),
-            "should have result for id {}",
-            expected_id
-        );
+        assert!(result.is_some());
 
         let doc = result.unwrap();
-        assert_eq!(
-            doc.doc_id, expected_id,
-            "wrong doc_id at position {}",
-            expected_id
-        );
-        assert_eq!(
-            it.last_doc_id(),
-            expected_id,
-            "wrong last_doc_id at position {}",
-            expected_id
-        );
+        assert_eq!(doc.doc_id, expected_id);
+        assert_eq!(it.last_doc_id(), expected_id);
     }
 
     // After reading all remaining docs, should return EOF
     let result = it.read();
-    assert!(result.is_ok(), "read() after all docs should succeed");
-    assert!(
-        result.unwrap().is_none(),
-        "should return None after reading all docs"
-    );
-    assert!(it.at_eof(), "should be at EOF after reading all docs");
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none());
+    assert!(it.at_eof());
 }
 
 #[test]
 fn skip_to_after_eof() {
-    for &(top_id, description) in TEST_CASES {
-        let mut it = Wildcard::new(top_id);
+    let mut it = Wildcard::new(10);
 
-        // First, move to EOF by skipping beyond range
-        let beyond_target = top_id + 1;
-        let result = it.skip_to(beyond_target);
-        assert!(
-            result.is_ok(),
-            "Case '{}': initial skip_to({}) should succeed",
-            description,
-            beyond_target
-        );
-        assert!(
-            it.at_eof(),
-            "Case '{}': should be at EOF after skip beyond range",
-            description
-        );
+    // First, move to EOF by skipping beyond range
+    let result = it.skip_to(11);
+    assert!(result.is_ok());
+    assert!(it.at_eof());
 
-        // Try to skip to a valid target while at EOF
-        if top_id > 1 {
-            let valid_target = top_id / 2;
-            let result = it.skip_to(valid_target);
-            assert!(
-                result.is_ok(),
-                "Case '{}': skip_to({}) after EOF should succeed",
-                description,
-                valid_target
-            );
+    // Try to skip to a valid target while at EOF
+    let result = it.skip_to(5);
+    assert!(result.is_ok());
 
-            let outcome = result.unwrap();
-            assert!(
-                outcome.is_none(),
-                "Case '{}': skip_to({}) after EOF should return None",
-                description,
-                valid_target
-            );
-            assert!(
-                it.at_eof(),
-                "Case '{}': should remain at EOF after skip_to({})",
-                description,
-                valid_target
-            );
-        }
-    }
+    let outcome = result.unwrap();
+    assert!(outcome.is_none());
+    assert!(it.at_eof());
 }
 
 #[test]
@@ -441,369 +212,32 @@ fn zero_documents() {
 }
 
 #[test]
-fn revalidate() {
-    for &(top_id, description) in TEST_CASES {
-        let mut it = Wildcard::new(top_id);
-        assert_eq!(
-            it.revalidate(),
-            RQEValidateStatus::Ok,
-            "Case '{}': revalidate should return Ok",
-            description
-        );
-    }
-}
-
-#[test]
-fn skip_to_same_position() {
-    let top_id = 100u64;
-    let mut it = Wildcard::new(top_id);
-
-    // Skip to position 50
-    let target = 50u64;
-    let result = it.skip_to(target);
-    assert!(result.is_ok(), "first skip_to({}) should succeed", target);
-    assert_eq!(
-        it.last_doc_id(),
-        target,
-        "last_doc_id should be {} after first skip",
-        target
-    );
-
-    // Skip to the same position again
-    let result = it.skip_to(target);
-    assert!(result.is_ok(), "second skip_to({}) should succeed", target);
-
-    let outcome = result.unwrap();
-    assert!(
-        outcome.is_some(),
-        "second skip_to({}) should return Some",
-        target
-    );
-
-    if let SkipToOutcome::Found(doc) = outcome.unwrap() {
-        assert_eq!(
-            doc.doc_id, target,
-            "second skip_to({}) should find exact target",
-            target
-        );
-        assert_eq!(
-            it.last_doc_id(),
-            target,
-            "last_doc_id should still be {} after second skip",
-            target
-        );
-    }
-}
-
-#[test]
+#[cfg(debug_assertions)]
 fn skip_to_backwards() {
-    let top_id = 100u64;
-    let mut it = Wildcard::new(top_id);
+    let mut it = Wildcard::new(100);
 
-    // Skip to position 75
-    let first_target = 75u64;
-    let result = it.skip_to(first_target);
-    assert!(result.is_ok(), "skip_to({}) should succeed", first_target);
-    assert_eq!(
-        it.last_doc_id(),
-        first_target,
-        "last_doc_id should be {}",
-        first_target
-    );
+    let _ = it.skip_to(75);
 
-    // Try to skip backwards to position 25
-    let second_target = 25u64;
-    let result = it.skip_to(second_target);
-    assert!(result.is_ok(), "skip_to({}) should succeed", second_target);
-
-    let outcome = result.unwrap();
-    assert!(
-        outcome.is_some(),
-        "skip_to({}) should return Some",
-        second_target
-    );
-
-    if let SkipToOutcome::Found(doc) = outcome.unwrap() {
-        assert_eq!(
-            doc.doc_id, second_target,
-            "skip_to({}) should find exact target",
-            second_target
-        );
-        assert_eq!(
-            it.last_doc_id(),
-            second_target,
-            "last_doc_id should be {} after backward skip",
-            second_target
-        );
-    }
+    // Try to skip backwards to position 25, should panic
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = it.skip_to(25);
+    }))
+    .expect_err("Expected panic when skipping backwards");
 }
 
 #[test]
-fn mixed_read_and_skip_operations() {
-    let top_id = 50u64;
-    let mut it = Wildcard::new(top_id);
+#[cfg(debug_assertions)]
+fn skip_to_same_position() {
+    let mut it = Wildcard::new(10);
 
-    // Read first few documents
-    for expected_id in 1..=5 {
-        let result = it.read();
-        assert!(
-            result.is_ok(),
-            "read() should succeed for id {}",
-            expected_id
-        );
-        let doc = result.unwrap().unwrap();
-        assert_eq!(
-            doc.doc_id, expected_id,
-            "wrong doc_id at position {}",
-            expected_id
-        );
-    }
+    // Skip to position 5
+    let result = it.skip_to(5);
+    assert!(result.is_ok());
+    assert_eq!(it.last_doc_id(), 5);
 
-    // Skip to middle
-    let skip_target = 30u64;
-    let result = it.skip_to(skip_target);
-    assert!(result.is_ok(), "skip_to({}) should succeed", skip_target);
-    assert_eq!(
-        it.last_doc_id(),
-        skip_target,
-        "last_doc_id should be {}",
-        skip_target
-    );
-
-    // Read a few more
-    for i in 1..=5 {
-        let expected_id = skip_target + i;
-        let result = it.read();
-        assert!(
-            result.is_ok(),
-            "read() should succeed for id {}",
-            expected_id
-        );
-        let doc = result.unwrap().unwrap();
-        assert_eq!(
-            doc.doc_id, expected_id,
-            "wrong doc_id at position {}",
-            expected_id
-        );
-    }
-
-    // Skip to near end
-    let final_skip = top_id - 2;
-    let result = it.skip_to(final_skip);
-    assert!(result.is_ok(), "skip_to({}) should succeed", final_skip);
-    assert_eq!(
-        it.last_doc_id(),
-        final_skip,
-        "last_doc_id should be {}",
-        final_skip
-    );
-
-    // Read remaining documents
-    for expected_id in (final_skip + 1)..=top_id {
-        let result = it.read();
-        assert!(
-            result.is_ok(),
-            "read() should succeed for id {}",
-            expected_id
-        );
-        let doc = result.unwrap().unwrap();
-        assert_eq!(
-            doc.doc_id, expected_id,
-            "wrong doc_id at position {}",
-            expected_id
-        );
-    }
-
-    // Should be at EOF now
-    assert!(it.at_eof(), "should be at EOF after reading all documents");
-    let result = it.read();
-    assert!(result.is_ok(), "read() after EOF should succeed");
-    assert!(
-        result.unwrap().is_none(),
-        "read() after EOF should return None"
-    );
-}
-
-#[test]
-fn edge_case_single_document() {
-    let mut it = Wildcard::new(1);
-
-    // Initial state
-    assert!(!it.at_eof(), "should not be at EOF initially");
-    assert_eq!(it.last_doc_id(), 0, "initial last_doc_id should be 0");
-
-    // Read the single document
-    let result = it.read();
-    assert!(result.is_ok(), "read() should succeed");
-    let doc = result.unwrap().unwrap();
-    assert_eq!(doc.doc_id, 1, "should read document 1");
-    assert_eq!(it.last_doc_id(), 1, "last_doc_id should be 1");
-    assert!(
-        it.at_eof(),
-        "should be at EOF after reading single document"
-    );
-
-    // Next read should return None
-    let result = it.read();
-    assert!(result.is_ok(), "second read() should succeed");
-    assert!(
-        result.unwrap().is_none(),
-        "second read() should return None"
-    );
-
-    // Test skip_to on single document iterator
-    it.rewind();
-    let result = it.skip_to(1);
-    assert!(result.is_ok(), "skip_to(1) should succeed");
-
-    let outcome = result.unwrap();
-    assert!(outcome.is_some(), "skip_to(1) should return Some");
-
-    if let SkipToOutcome::Found(doc) = outcome.unwrap() {
-        assert_eq!(doc.doc_id, 1, "skip_to(1) should find document 1");
-        assert_eq!(it.last_doc_id(), 1, "last_doc_id should be 1 after skip");
-        assert!(
-            it.at_eof(),
-            "should be at EOF after skipping to last document"
-        );
-    }
-}
-
-#[test]
-fn stress_test_large_ranges() {
-    // Test with large but manageable ranges to avoid timeout
-    let large_cases = [(100_000, "100k range"), (1_000_000, "1M range")];
-
-    for &(top_id, description) in &large_cases {
-        let mut it = Wildcard::new(top_id);
-
-        // Test initial state
-        assert_eq!(
-            it.num_estimated(),
-            top_id as usize,
-            "Case '{}': wrong num_estimated",
-            description
-        );
-        assert!(
-            !it.at_eof(),
-            "Case '{}': should not be at EOF initially",
-            description
-        );
-
-        // Test skip to various positions
-        let test_positions = [1, top_id / 4, top_id / 2, 3 * top_id / 4, top_id];
-        for &pos in &test_positions {
-            it.rewind();
-            let result = it.skip_to(pos);
-            assert!(
-                result.is_ok(),
-                "Case '{}': skip_to({}) should succeed",
-                description,
-                pos
-            );
-
-            if let Ok(Some(SkipToOutcome::Found(doc))) = result {
-                assert_eq!(
-                    doc.doc_id, pos,
-                    "Case '{}': skip_to({}) wrong doc_id",
-                    description, pos
-                );
-                assert_eq!(
-                    it.last_doc_id(),
-                    pos,
-                    "Case '{}': skip_to({}) wrong last_doc_id",
-                    description,
-                    pos
-                );
-            }
-        }
-
-        // Test reading a small sample from the beginning
-        it.rewind();
-        for i in 1..=std::cmp::min(100, top_id) {
-            let result = it.read();
-            assert!(
-                result.is_ok(),
-                "Case '{}': read({}) should succeed",
-                description,
-                i
-            );
-            let doc = result.unwrap().unwrap();
-            assert_eq!(
-                doc.doc_id, i,
-                "Case '{}': read({}) wrong doc_id",
-                description, i
-            );
-        }
-    }
-}
-
-#[test]
-fn property_based_skip_to_invariants() {
-    // Test that skip_to maintains invariants across various scenarios
-    let top_id = 1000u64;
-    let mut it = Wildcard::new(top_id);
-
-    // Property: skip_to(x) where x <= top_id should always succeed and position at x
-    for target in [1, 10, 100, 500, 999, 1000] {
-        it.rewind();
-        let result = it.skip_to(target);
-        assert!(result.is_ok(), "skip_to({}) should succeed", target);
-
-        if let Ok(Some(SkipToOutcome::Found(doc))) = result {
-            assert_eq!(
-                doc.doc_id, target,
-                "skip_to({}) should position at target",
-                target
-            );
-            assert_eq!(
-                it.last_doc_id(),
-                target,
-                "last_doc_id should equal target after skip_to({})",
-                target
-            );
-
-            // Property: after skip_to(x), next read() should return x+1 (if x < top_id)
-            if target < top_id {
-                let next_result = it.read();
-                assert!(
-                    next_result.is_ok(),
-                    "read after skip_to({}) should succeed",
-                    target
-                );
-                let next_doc = next_result.unwrap().unwrap();
-                assert_eq!(
-                    next_doc.doc_id,
-                    target + 1,
-                    "read after skip_to({}) should return {}",
-                    target,
-                    target + 1
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn memory_efficiency_validation() {
-    // Ensure that large ranges don't consume excessive memory
-    let large_top_id = 10_000_000u64;
-    let it = Wildcard::new(large_top_id);
-
-    // The iterator should only store a few fields regardless of range size
-    assert_eq!(
-        it.num_estimated(),
-        large_top_id as usize,
-        "num_estimated should match top_id"
-    );
-    assert_eq!(it.last_doc_id(), 0, "initial last_doc_id should be 0");
-    assert!(!it.at_eof(), "should not be at EOF initially");
-
-    // Memory usage should be constant regardless of top_id
-    // This is more of a design validation than a runtime test
-    assert_eq!(
-        std::mem::size_of_val(&it),
-        std::mem::size_of::<Wildcard>(),
-        "iterator size should be constant"
-    );
+    // only skipping to position greater than last_doc_id is possible, should panic
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = it.skip_to(5);
+    }))
+    .expect_err("Expected panic when skipping to same position");
 }

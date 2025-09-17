@@ -53,6 +53,7 @@ impl RQEIterator for Wildcard {
         if self.at_eof() {
             return Ok(None);
         }
+        debug_assert!(self.last_doc_id() < doc_id);
 
         if doc_id > self.top_id {
             // skip beyond range - set to EOF
