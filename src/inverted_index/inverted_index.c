@@ -522,6 +522,10 @@ size_t encode_freqs_offsets(BufferWriter *bw, t_docId delta, RSIndexResult *res)
 
 // Wrapper around the private static `encodeNumeric` function to expose it to benchmarking
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  // Make sure this is deterministic for the benchmarks. Nothing in production calls this function
+  // so it is safe to set this flag here.
+  RSGlobalConfig.numericCompress = false;
+
   return encodeNumeric(bw, delta, res);
 }
 
