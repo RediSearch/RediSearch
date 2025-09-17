@@ -269,7 +269,7 @@ def testDebugDump(env):
 
 @skip(cluster=True, no_json=True)
 def testInvertedIndexMultipleBlocks(env):
-    """ Test internal addition of new inverted index blocks (beyond INDEX_BLOCK_SIZE entries)"""
+    """ Test internal addition of new inverted index blocks (beyond the size of a block)"""
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'arr', 'NUMERIC', '$.arr2', 'AS', 'arr2', 'NUMERIC').ok()
     overlap = 10

@@ -187,7 +187,9 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   // A block is 48 bytes with an initial buffer capacity
   size_t exp_block_memsize = 48;
 
-  size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + INDEX_BLOCK_INITIAL_CAP;
+  size_t exp_initial_block_cap = 6;
+
+  size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + exp_initial_block_cap;
   // The memory occupied by a new inverted index depends of its flags
   // see NewInvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
@@ -460,14 +462,14 @@ TEST_F(IndexTest, testNumericInverted) {
   size_t expected_sz = 0;
   size_t written_bytes = 0;
   size_t bytes_per_entry = 0;
-  size_t buff_cap = INDEX_BLOCK_INITIAL_CAP;
-  size_t available_size = INDEX_BLOCK_INITIAL_CAP;
+  size_t buff_cap = 6; // Initial block capacity
+  size_t available_size = 6; // Nothing is used in the block yet
 
   for (int i = 0; i < 75; i++) {
     sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
     ASSERT_TRUE(sz == expected_sz);
 
-    // The buffer has an initial capacity: INDEX_BLOCK_INITIAL_CAP = 6
+    // The buffer has an initial capacity of 6 bytes
     // For values < 7 (tiny numbers) the header (H) and value (V) will occupy
     // only 1 byte.
     // For values >= 7, the header will occupy 1 byte, and the value 1 bytes.
@@ -1304,7 +1306,7 @@ TEST_F(IndexTest, testIndexFlags) {
   // sizeof InvertedIndex                 32
   // storing fieldmask on idx             16
   // sizeof IndexBlock                    48
-  // INDEX_BLOCK_INITIAL_CAP               6
+  // initial block capacity                6
   ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
@@ -1343,7 +1345,7 @@ TEST_F(IndexTest, testIndexFlags) {
   // which is the sum of the following (See NewInvertedIndex()):
   // sizeof InvertedIndex                 32
   // sizeof IndexBlock                    48
-  // INDEX_BLOCK_INITIAL_CAP               6
+  // initial block capacity                6
   ASSERT_EQ(86, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
@@ -1504,21 +1506,21 @@ TEST_F(IndexTest, testRawDocId) {
   InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, &index_memsize);
 
   // Add a few entries, all with an odd docId
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+  for (t_docId id = 1; id < 100; id += 2) {
     RSIndexResult rec = {.docId = id, .data = {.tag = RSResultData_Virtual}};
     InvertedIndex_WriteEntryGeneric(idx, &rec);
   }
 
   // Test that we can read them back
   QueryIterator *ir = NewInvIndIterator_TermFull(idx);
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+  for (t_docId id = 1; id < 100; id += 2) {
     ASSERT_EQ(ITERATOR_OK, ir->Read(ir));
     ASSERT_EQ(id, ir->lastDocId);
   }
   ASSERT_EQ(ITERATOR_EOF, ir->Read(ir));
 
   // Test that we can skip to all the ids
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id++) {
+  for (t_docId id = 1; id < 100; id++) {
     ir->Rewind(ir);
     IteratorStatus rc = ir->SkipTo(ir, id);
     RSIndexResult *cur = ir->current;

@@ -234,7 +234,8 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeTree *rt = NewNumericRangeTree();
   // The base inverted index is 32 bytes + 8 bytes for the entries count of numeric records
   // And IndexBlock is also 48 bytes
-  size_t empty_numeric_mem_size = 40 + 48 + INDEX_BLOCK_INITIAL_CAP;
+  // And initial block capacity of 6 bytes
+  size_t empty_numeric_mem_size = 40 + 48 + 6;
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
   if (failed_range) {
     FAIL();
