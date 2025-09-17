@@ -31,7 +31,7 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 
-// Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing parameter
+// Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing argument
 static int inline CheckEnd(ArgsCursor *ac, const char *argument, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS,
@@ -463,12 +463,12 @@ error:
 }
 
 /**
- * Parse COMBINE clause parameters for hybrid scoring configuration.
+ * Parse COMBINE clause arguments for hybrid scoring configuration.
  *
- * Supports LINEAR (requires numWeights weight values) and RRF (optional CONSTANT and WINDOW parameters).
+ * Supports LINEAR (requires numWeights weight values) and RRF (optional CONSTANT and WINDOW arguments).
  * Defaults to RRF if no method specified. Uses hybrid-specific defaults: RRF CONSTANT=60, WINDOW=20.
- * WINDOW parameter controls the number of results consumed from each subquery before fusion.
- * When WINDOW is not explicitly set, it can be overridden by LIMIT parameter in fallback logic.
+ * WINDOW argument controls the number of results consumed from each subquery before fusion.
+ * When WINDOW is not explicitly set, it can be overridden by LIMIT argument in fallback logic.
  *
  * @param ac Arguments cursor positioned after "COMBINE"
  * @param combineCtx Hybrid scoring context to populate (window field and hasExplicitWindow flag are set)
@@ -486,7 +486,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
     combineCtx->scoringType = HYBRID_SCORING_RRF;
   }
 
-  // Parse parameters based on scoring type
+  // Parse arguments based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
@@ -495,7 +495,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
       goto error;
     }
   } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
-    // For RRF, we need constant and window parameters
+    // For RRF, we need constant and window arguments
     ArgsCursor params = {0};
     int rv = AC_GetVarArgs(ac, &params);
 
@@ -511,7 +511,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
         goto error;
       }
 
-      // Parse the specified parameters
+      // Parse the specified arguments
       while (!AC_IsAtEnd(&params)) {
         const char *paramName = AC_GetStringNC(&params, NULL);
         if (!paramName) {
@@ -577,16 +577,16 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
 }
 
 /**
- * Apply LIMIT parameter fallback logic to KNN K and WINDOW parameters.
+ * Apply LIMIT argument fallback logic to KNN K and WINDOW arguments.
  *
  * When LIMIT is explicitly provided but KNN K or WINDOW are not explicitly set,
- * this function applies the LIMIT value as a fallback for those parameters instead of their
+ * this function applies the LIMIT value as a fallback for those arguments instead of their
  * defaults (unless they have been explicitly set).
  * This ensures consistent behavior where LIMIT acts as a unified size hint
  * for hybrid search operations.
  *
  * @param tailPipeline The pipeline to extract LIMIT from
- * @param pvd The parsed vector data containing KNN parameters
+ * @param pvd The parsed vector data containing KNN arguments
  * @param hybridParams The hybrid parameters containing WINDOW settings
  */
 static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
@@ -615,10 +615,10 @@ static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
  *
  * The RRF merger only considers the top WINDOW results from each component,
  * so having KNN K > WINDOW would fetch unnecessary results that won't be used.
- * This constraint is applied after all parameter resolution (defaults, explicit values,
+ * This constraint is applied after all argument resolution (defaults, explicit values,
  * and LIMIT fallbacks) is complete.
  *
- * @param pvd The parsed vector data containing KNN parameters
+ * @param pvd The parsed vector data containing KNN arguments
  * @param hybridParams The hybrid parameters containing WINDOW settings
  */
 static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
@@ -814,7 +814,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
 
-  // Apply KNN K ≤ WINDOW constraint after all parameter resolution is complete
+  // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
   // Apply context to each request
