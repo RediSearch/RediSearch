@@ -397,7 +397,7 @@ typedef struct {
  * Returns the number of docs collected, and puts the number of bytes collected in the given
  * pointer.
  */
-size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params); // TODO[glendc]: do we really need to expose the details of something like IndexRepairParams
+size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
 
 /* Apply a GC change set to an inverted index.
  * nblocks_orig is the number of blocks the child had scanned,
