@@ -88,6 +88,45 @@ typedef struct {
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
 } RPQueryIterator;
 
+
+/****
+ * Get_DocumentMetadata - get the document metadata for the current document from the iterator.
+ * If the document is deleted or expired, return false.
+ * If the document is not deleted or expired, return true.
+ * If the document is not deleted or expired, and dmd is not NULL, set *dmd to the document metadata.
+ * @param spec The index spec
+ * @param docs The document table
+ * @param sctx The search context
+ * @param it The query iterator
+ * @param dmd The document metadata pointer to set
+ * @return true if the document is not deleted or expired, false otherwise.
+ */
+static bool Get_DocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, RSDocumentMetadata **dmd) {
+  if (spec->diskSpec) {
+    RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    diskDmd->ref_count = 1;
+    // Start from checking the deleted-ids (in memory), then perform IO
+    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd);
+    if (!foundDocument) {
+      DMD_Return(diskDmd);
+      return false;
+    }
+    *dmd = diskDmd;
+  } else {
+    if (it->current->dmd) {
+      *dmd = it->current->dmd;
+    } else {
+      *dmd = DocTable_Borrow(docs, it->lastDocId);
+    }
+    bool isDeleted = (*dmd)->flags & Document_Deleted;
+    if (!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->time.current)) {
+      DMD_Return(*dmd);
+      return false;;
+    }
+  }
+  return true;
+}
+
 /* Next implementation */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
@@ -131,27 +170,8 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
 validate_current:
     IndexSpec* spec = RP_SPEC(base);
-    if (spec->diskSpec) {
-      RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
-      diskDmd->ref_count = 1;
-      // Start from checking the deleted-ids (in memory), then perform IO
-      const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd);
-      if (!foundDocument) {
-        DMD_Return(diskDmd);
-        continue;
-      }
-      dmd = diskDmd;
-    } else {
-
-      if (it->current->dmd) {
-        dmd = it->current->dmd;
-      } else {
-        dmd = DocTable_Borrow(docs, it->lastDocId);
-      }
-      if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd, &sctx->time.current)) {
-        DMD_Return(dmd);
-        continue;
-      }
+    if (!Get_DocumentMetadata(spec, docs, sctx, it, &dmd)) {
+      continue;
     }
 
     if (isTrimming && RedisModule_ShardingGetKeySlot) {
@@ -646,20 +666,34 @@ typedef struct {
   QueryError status;
 } RPLoader;
 
-static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
-  // If the document was modified or deleted, we don't load it, and we need to mark
-  // the result as expired.
+/***
+ * isDocumentStillValid - check if the document is still valid for loading.
+ * @param self The loader
+ * @param r The search result
+ * @return true if the document is still valid, false otherwise.
+ */
+
+static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   if (self->base.parent->sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
     if (SearchDisk_DocIdDeleted(self->base.parent->sctx->spec->diskSpec, r->dmd->id)) {
       r->flags |= Result_ExpiredDoc;
-      return;
+      return false;
     }
   } else {
     if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
       r->flags |= Result_ExpiredDoc;
-      return;
+      return false;
     }
+  }
+  return true;
+}
+
+static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
+  // If the document was modified or deleted, we don't load it, and we need to mark
+  // the result as expired.
+  if (!isDocumentStillValid(self, r)) {
+    return;
   }
 
   self->loadopts.dmd = r->dmd;
