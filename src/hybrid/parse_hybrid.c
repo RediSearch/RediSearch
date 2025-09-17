@@ -31,7 +31,7 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 
-// Macro to check if we're at the end of arguments and set appropriate error for missing parameter
+// Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing parameter
 #define CheckEnd(x) if (AC_IsAtEnd(ac)) { QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing parameter value for ", x); return REDISMODULE_ERR; }
 
 
@@ -267,7 +267,7 @@ static int parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Que
     return REDISMODULE_ERR;
   }
   else if (params < 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Parameter count requires a non negative integer", ": but %d was given", params);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Parameter count requires a non negative integer", ": but %lld was given", params);
     return REDISMODULE_ERR;
   } else if (params == 0 || params % 2 != 0) {
     QueryError_SetError(status, QUERY_EBADVAL, "Invalid parameter count");
@@ -466,7 +466,9 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
 
-    parseLinearClause(ac, &combineCtx->linearCtx, status);
+    if(parseLinearClause(ac, &combineCtx->linearCtx, status) != REDISMODULE_OK) {
+      goto error;
+    }
   } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
     // For RRF, we need constant and window parameters
     ArgsCursor params = {0};
