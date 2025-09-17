@@ -1407,7 +1407,8 @@ TEST_F(LLApiTest, testInfoSize) {
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   // The base inverted index is 32 bytes + 8 bytes for the entries count of numeric records
   // And IndexBlock is also 48 bytes
-  additional_overhead += 40 + 48 + INDEX_BLOCK_INITIAL_CAP;
+  // And initial block capacity of 6 bytes
+  additional_overhead += 40 + 48 + 6;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
@@ -1469,7 +1470,8 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   // The base inverted index is 32 bytes + 8 bytes for the entries count of numeric records
   // And IndexBlock is also 48 bytes
-  additional_overhead += 40 + 48 + INDEX_BLOCK_INITIAL_CAP;
+  // And initial block capacity of 6 bytes
+  additional_overhead += 40 + 48 + 6;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
