@@ -169,8 +169,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    if (!PipelineAddPauseRPcount(&debug_req->r, results_count, before, rp_type)) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "%s RP type not found in stream or tried to insert after last RP", rp_type_str);
+    if (!PipelineAddPauseRPcount(&debug_req->r, results_count, before, rp_type, status)) {
+      // The query error is handled by each error case
       return REDISMODULE_ERR;
     }
   }

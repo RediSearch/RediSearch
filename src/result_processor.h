@@ -325,7 +325,7 @@ void PipelineAddCrash(struct AREQ *r);
 ResultProcessor *RPPauseAfterCount_New(size_t count);
 
 // Adds a pause processor after N results, before/after a specific RP type
-bool PipelineAddPauseRPcount(struct AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type);
+bool PipelineAddPauseRPcount(struct AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status);
 
 
 #ifdef __cplusplus

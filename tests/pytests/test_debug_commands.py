@@ -1064,7 +1064,8 @@ def test_query_controller_pause_and_resume(env):
     .contains('Query is not paused')
 
     # Set workers to 1 to make sure the query can be paused
-    env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
+    env.expect('FT.CONFIG', 'SET', 'WORKERS', 2).ok()
+
 
     # Create 1 docs
    
@@ -1094,6 +1095,13 @@ def test_query_controller_pause_and_resume(env):
 
         while getIsRPPaused(env) != 1:
             time.sleep(0.1)
+
+        # Test error when trying to create multiple debug RPs (should fail with "Failed to create pause RP or another debug RP is already set")
+        # This tests the error case in PipelineAddPauseRPcount when RPPauseAfterCount_New returns NULL
+        env.expect(debug_cmd(), query_type, 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'PAUSE_AFTER_RP_N', 'Sorter', 0, 'DEBUG_PARAMS_COUNT', 6).error()\
+        .contains('Failed to create pause RP or another debug RP is already set')
+        # The query above completed even though it failed
+        queries_completed += 1
 
         # If we are here, the query is paused
         # Verify workers status

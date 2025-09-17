@@ -1499,8 +1499,15 @@ typedef struct {
 } RPPauseAfterCount;
 
 
-bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type) {
+bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status) {
   ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
+
+  if (!RPPauseAfterCount) {
+    // Set query error
+    QueryError_SetError(status, QUERY_EGENERIC, "Failed to create pause RP or another debug RP is already set");
+    return false;
+  }
+
   bool success = false;
   if (before) {
     success = addResultProcessorBeforeType(r, RPPauseAfterCount, rp_type);
@@ -1510,6 +1517,7 @@ bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultP
   // Free if failed
   if (!success) {
     RPPauseAfterCount->Free(RPPauseAfterCount);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
   }
   return success;
 
@@ -1546,6 +1554,13 @@ static void RPPauseAfterCount_Free(ResultProcessor *base) {
 }
 
 ResultProcessor *RPPauseAfterCount_New(size_t count) {
+
+  // Validate no other debug RP is set
+  // If so, don't set it and return NULL
+  if (globalDebugCtx.query.debugRP) {
+    return NULL;
+  }
+
   RPPauseAfterCount *ret = rm_calloc(1, sizeof(RPPauseAfterCount));
   ret->count = count;
   ret->remaining = count;
