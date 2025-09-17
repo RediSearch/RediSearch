@@ -1059,6 +1059,10 @@ def test_query_controller_pause_and_resume(env):
     env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM', 'ExtraARG').error()\
     .contains('wrong number of arguments')
 
+    # Test error when trying to resume when no query is paused
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME').error()\
+    .contains('Query is not paused')
+
     # Set workers to 1 to make sure the query can be paused
     env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
 

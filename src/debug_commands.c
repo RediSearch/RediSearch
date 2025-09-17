@@ -1880,6 +1880,10 @@ DEBUG_COMMAND(setPauseRPResume) {
     return RedisModule_WrongArity(ctx);
   }
 
+  if (!globalDebugCtx.query.pause) {
+    return RedisModule_ReplyWithError(ctx, "Query is not paused");
+  }
+
   globalDebugCtx.query.pause = false;
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
