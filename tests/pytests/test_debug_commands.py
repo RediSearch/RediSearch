@@ -1067,11 +1067,10 @@ def test_query_controller_pause_and_resume(env):
     # 1 worker is for testing we can't debug multiple queries
     env.expect('FT.CONFIG', 'SET', 'WORKERS', 2).ok()
 
-
     # Create 1 docs
-
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
+
     # Helper to call a function and push its return value into a list
     def _call_and_store(fn, args, out_list):
         out_list.append(fn(*args))
@@ -1131,9 +1130,9 @@ def test_query_controller_pause_and_resume(env):
 def test_query_controller_add_before_after(env):
     # Set workers to 1 to make sure the query can be paused
 
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     # Create 1 docs
     env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
 
     # Check error when workers is 0
     env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
