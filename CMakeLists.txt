@@ -24,11 +24,11 @@ function(setup_cc_options)
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "-fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    set(CMAKE_CXX_STANDARD 20)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(STATUS "Using libc++ for Clang")
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++" PARENT_SCOPE)
     endif()
+    set(CMAKE_CXX_STANDARD 20)
 
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -102,6 +102,8 @@ endif()
 
 # Configure compiler options
 setup_cc_options()
+message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
 
 # Sanitizer settings
 message(STATUS "SAN: ${SAN}")
