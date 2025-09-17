@@ -38,13 +38,7 @@ impl Bencher {
     }
 
     pub fn bench(&self, c: &mut Criterion) {
-        // Original benchmarks with FFI overhead
-        self.read_large_range(c);
-        self.read_medium_range(c);
-        self.skip_to_large_range(c);
-        self.skip_to_medium_range(c);
-
-        // New direct C benchmarks (eliminates FFI overhead)
+        // Direct C benchmarks (eliminates FFI overhead on every function call)
         self.read_large_range_direct(c);
         self.read_medium_range_direct(c);
         self.skip_to_large_range_direct(c);
@@ -53,70 +47,6 @@ impl Bencher {
         // Edge cases and patterns
         self.edge_cases(c);
         self.skip_patterns(c);
-    }
-
-    fn read_large_range(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Read Large Range");
-        self.c_read_large_range(&mut group);
-        self.rust_read_large_range(&mut group);
-        group.finish();
-    }
-
-    fn read_medium_range(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Read Medium Range");
-        self.c_read_medium_range(&mut group);
-        self.rust_read_medium_range(&mut group);
-        group.finish();
-    }
-
-    fn skip_to_large_range(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - SkipTo Large Range");
-        self.c_skip_to_large_range(&mut group);
-        self.rust_skip_to_large_range(&mut group);
-        group.finish();
-    }
-
-    fn skip_to_medium_range(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - SkipTo Medium Range");
-        self.c_skip_to_medium_range(&mut group);
-        self.rust_skip_to_medium_range(&mut group);
-        group.finish();
-    }
-
-    fn c_read_large_range<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    // Large range: 1M documents (1 to 1,000,000)
-                    ffi::QueryIterator::new_wildcard(1_000_000, 1_000_000)
-                },
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
-    fn c_read_medium_range<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            b.iter_batched_ref(
-                || {
-                    // Medium range: 500K documents (1 to 500,000)
-                    ffi::QueryIterator::new_wildcard(500_000, 500_000)
-                },
-                |it| {
-                    while it.read() == ::ffi::IteratorStatus_ITERATOR_OK {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
     }
 
     fn rust_read_large_range<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
@@ -149,46 +79,6 @@ impl Bencher {
                     while let Ok(Some(current)) = it.read() {
                         criterion::black_box(current);
                     }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
-    fn c_skip_to_large_range<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            let step = 100;
-            b.iter_batched_ref(
-                || {
-                    // Large range: skip through 1M documents with step=100
-                    ffi::QueryIterator::new_wildcard(1_000_000, 1_000_000)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
-                    {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-    }
-
-    fn c_skip_to_medium_range<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
-        group.bench_function("C", |b| {
-            let step = 100;
-            b.iter_batched_ref(
-                || {
-                    // Medium range: skip through 500K documents with step=100
-                    ffi::QueryIterator::new_wildcard(500_000, 500_000)
-                },
-                |it| {
-                    while it.skip_to(it.last_doc_id() + step) != ::ffi::IteratorStatus_ITERATOR_EOF
-                    {
-                        criterion::black_box(it.current());
-                    }
-                    it.free();
                 },
                 criterion::BatchSize::SmallInput,
             );
@@ -329,28 +219,28 @@ impl Bencher {
     // ===== DIRECT C BENCHMARKS (NO FFI OVERHEAD) =====
 
     fn read_large_range_direct(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Read Large Range (Direct)");
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Read Large Range");
         self.c_read_large_range_direct(&mut group);
         self.rust_read_large_range(&mut group); // Same Rust implementation
         group.finish();
     }
 
     fn read_medium_range_direct(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Read Medium Range (Direct)");
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Read Medium Range");
         self.c_read_medium_range_direct(&mut group);
         self.rust_read_medium_range(&mut group); // Same Rust implementation
         group.finish();
     }
 
     fn skip_to_large_range_direct(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - SkipTo Large Range (Direct)");
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - SkipTo Large Range");
         self.c_skip_to_large_range_direct(&mut group);
         self.rust_skip_to_large_range(&mut group); // Same Rust implementation
         group.finish();
     }
 
     fn skip_to_medium_range_direct(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - SkipTo Medium Range (Direct)");
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - SkipTo Medium Range");
         self.c_skip_to_medium_range_direct(&mut group);
         self.rust_skip_to_medium_range(&mut group); // Same Rust implementation
         group.finish();
@@ -360,7 +250,7 @@ impl Bencher {
     where
         M::Value: From<Duration>
     {
-        group.bench_function("C (Direct)", |b| {
+        group.bench_function("C", |b| {
             b.iter_custom(|iters| {
                 let mut total_time = Duration::ZERO;
                 for _ in 0..iters {
@@ -378,7 +268,7 @@ impl Bencher {
     where
         M::Value: From<Duration>
     {
-        group.bench_function("C (Direct)", |b| {
+        group.bench_function("C", |b| {
             b.iter_custom(|iters| {
                 let mut total_time = Duration::ZERO;
                 for _ in 0..iters {
@@ -396,7 +286,7 @@ impl Bencher {
     where
         M::Value: From<Duration>
     {
-        group.bench_function("C (Direct)", |b| {
+        group.bench_function("C", |b| {
             b.iter_custom(|iters| {
                 let mut total_time = Duration::ZERO;
                 for _ in 0..iters {
@@ -414,7 +304,7 @@ impl Bencher {
     where
         M::Value: From<Duration>
     {
-        group.bench_function("C (Direct)", |b| {
+        group.bench_function("C", |b| {
             b.iter_custom(|iters| {
                 let mut total_time = Duration::ZERO;
                 for _ in 0..iters {
