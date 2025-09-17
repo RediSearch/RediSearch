@@ -31,6 +31,12 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 
+// Helper function to set error message with proper plural vs singular form
+static void setExpectedArgumentsError(QueryError *status, long long expected, int provided) {
+  const char *verb = (provided == 1) ? "was" : "were";
+  QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected arguments", " %lld, but %d %s provided", expected, provided, verb);
+}
+
 // Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing argument
 static int inline CheckEnd(ArgsCursor *ac, const char *argument, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
@@ -122,7 +128,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 
   for (int i=0; i<argument_count; i+=2) {
     if (AC_IsAtEnd(ac)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected arguments", " %lld, but %d were provided", argument_count, i);
+      setExpectedArgumentsError(status, argument_count, i);
       return REDISMODULE_ERR;
     }
 
@@ -212,7 +218,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
   for (int i=0; i<argument_count; i+=2) {
     if (AC_IsAtEnd(ac)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected arguments", " %lld, but %d were provided", argument_count, i);
+      setExpectedArgumentsError(status, argument_count, i);
       return REDISMODULE_ERR;
     }
 
@@ -301,7 +307,7 @@ static int parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Que
 
   for (int i=0; i<argument_count; i+=2) {
     if (AC_IsAtEnd(ac)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected arguments", " %lld, but %d were provided", argument_count, i);
+      setExpectedArgumentsError(status, argument_count, i);
       return REDISMODULE_ERR;
     }
     if (AC_AdvanceIfMatch(ac, "ALPHA")) {
