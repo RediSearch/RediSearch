@@ -905,7 +905,7 @@ TEST_F(ParseHybridTest, testExplicitTextScorerForRRF) {
 
 TEST_F(ParseHybridTest, testLinearPartialWeightsAlpha) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "ALPHA", "0.6");
-  testErrorCode(args, QUERY_ESYNTAX, "Missing required BETA argument");
+  testErrorCode(args, QUERY_ESYNTAX, "Missing value for BETA");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingArgs) {
@@ -915,7 +915,7 @@ TEST_F(ParseHybridTest, testLinearMissingArgs) {
 
 TEST_F(ParseHybridTest, testLinearPartialWeightsBeta) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "BETA", "0.6");
-  testErrorCode(args, QUERY_ESYNTAX, "Missing required ALPHA argument");
+  testErrorCode(args, QUERY_ESYNTAX, "Missing value for ALPHA");
 }
 
 TEST_F(ParseHybridTest, testLinearNegativeArgumentCount) {

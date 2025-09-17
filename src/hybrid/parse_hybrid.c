@@ -352,7 +352,7 @@ static int parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Que
   if (!(hasAlpha && hasBeta)) {
     bool bothMissing = !hasAlpha && !hasBeta;
     const char *missingArgs = bothMissing ? "ALPHA, BETA" : !hasAlpha ? "ALPHA" : "BETA";
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Missing required ", "%s argument%s", missingArgs, bothMissing ? "s" : "");
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Missing value for ", missingArgs);
     return REDISMODULE_ERR;
   }
 
