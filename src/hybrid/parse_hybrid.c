@@ -628,6 +628,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       copyCursorConfig(&searchRequest->cursorConfig, parsedCmdCtx->cursorConfig);
       copyCursorConfig(&vectorRequest->cursorConfig, parsedCmdCtx->cursorConfig);
     }
+    if (*mergeReqflags & QEXEC_F_SEND_SCORES) {
+      searchRequest->reqflags |= QEXEC_F_SEND_SCORES;
+      vectorRequest->reqflags |= QEXEC_F_SEND_SCORES;
+    }
 
     // Copy request configuration using the helper function
     copyRequestConfig(&searchRequest->reqConfig, parsedCmdCtx->reqConfig);
