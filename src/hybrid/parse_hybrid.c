@@ -107,15 +107,14 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
     return REDISMODULE_ERR;
   }
 
-  bool hasK = false;  // codespell:ignore
   bool hasEF = false;
-  bool hasYieldDistanceAs = false;
+  RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<params; i+=2) {
     CheckEnd("parameter");
 
     if (AC_AdvanceIfMatch(ac, "K")) {
-      if (hasK) { // codespell:ignore
+      if (pvd->hasExplicitK) { // codespell:ignore
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate K parameter");
         return REDISMODULE_ERR;
       }
@@ -126,7 +125,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         return REDISMODULE_ERR;
       }
       vq->knn.k = (size_t)kValue;
-      hasK = true;  // codespell:ignore
       pvd->hasExplicitK = true;
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
@@ -144,17 +142,14 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, strlen(value));
       hasEF = true;
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
-      // TODO: Remove this once we support YIELD_DISTANCE_AS (not part of phase 1)
-      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
-      return REDISMODULE_ERR;
-      if (hasYieldDistanceAs) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
+    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+      if (pvd->vectorScoreFieldAlias != NULL) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS parameter");
         return REDISMODULE_ERR;
       }
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -165,8 +160,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      hasYieldDistanceAs = true;
-
+      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -174,15 +168,14 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       return REDISMODULE_ERR;
     }
   }
-  if (!hasK) { // codespell:ignore
+  if (!pvd->hasExplicitK) { // codespell:ignore
     QueryError_SetError(status, QUERY_EPARSEARGS, "Missing K parameter");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
 }
 
-
-static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **attributes, QueryError *status) {
+static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector RANGE ...
   //                                ^
   long long params;
@@ -195,7 +188,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
   }
   bool hasRadius = false;
   bool hasEpsilon = false;
-  bool hasYieldDistanceAs = false;
+  RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<params; i+=2) {
     CheckEnd("parameter");
@@ -229,17 +222,14 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
       addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, strlen(value));
       hasEpsilon = true;
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
-      // TODO: Remove this once we support YIELD_DISTANCE_AS (not part of phase 1)
-      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
-      return REDISMODULE_ERR;
-      if (hasYieldDistanceAs) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS parameter");
+    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+      if (pvd->vectorScoreFieldAlias != NULL) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS parameter");
         return REDISMODULE_ERR;
       }
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Missing distance field name");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -249,9 +239,8 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, QueryAttribute **at
         .value = rm_strdup(value),
         .vallen = strlen(value)
       };
-      *attributes = array_ensure_append_1(*attributes, attr);
-      hasYieldDistanceAs = true;
-
+      pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
+      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -348,6 +337,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 
   // Create ParsedVectorData struct at the beginning for cleaner error handling
   ParsedVectorData *pvd = rm_calloc(1, sizeof(ParsedVectorData));
+  pvd->queryNodeFlags = QueryNode_YieldsDistance | QueryNode_HybridVectorSubqueryNode;
 
   // Allocate VectorQuery directly (params arrays will be created lazily by array_ensure_append_1)
   VectorQuery *vq = rm_calloc(1, sizeof(VectorQuery));
@@ -400,7 +390,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     vq->type = VECSIM_QT_KNN;
     vq->knn.order = BY_SCORE;
   } else if (AC_AdvanceIfMatch(ac, "RANGE")) {
-    if (parseRangeClause(ac, vq, &pvd->attributes, status) != REDISMODULE_OK) {
+    if (parseRangeClause(ac, vq, pvd, status) != REDISMODULE_OK) {
       goto error;
     }
     vq->type = VECSIM_QT_RANGE;
@@ -431,6 +421,9 @@ final:
       vq->range.vecLen = vectorParamLen;
       break;
   }
+
+  // Set default scoreField using vector field name (can be done during parsing)
+  VectorQuery_SetDefaultScoreField(vq, pvd->fieldName, strlen(pvd->fieldName));
 
   // Store the completed ParsedVectorData in AREQ
   vreq->parsedVectorData = pvd;
@@ -700,6 +693,26 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       goto error;
     }
   }
+
+  // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
+  // otherwise, store the vector score in a default key.
+  const char *vectorScoreFieldAlias = NULL;
+  if (vectorRequest->parsedVectorData->vectorScoreFieldAlias != NULL) {
+    vectorScoreFieldAlias = vectorRequest->parsedVectorData->vectorScoreFieldAlias;
+    vectorRequest->parsedVectorData->vectorScoreFieldAlias = NULL;
+  } else {
+    vectorScoreFieldAlias = VectorQuery_GetDefaultScoreFieldName(
+      vectorRequest->parsedVectorData->fieldName,
+      strlen(vectorRequest->parsedVectorData->fieldName)
+    );
+    vectorRequest->parsedVectorData->queryNodeFlags |= QueryNode_HideVectorDistanceField;
+  }
+  // Store the key string so it could fetch the distance from the RlookupRow
+  PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(
+    vectorRequest->parsedVectorData->fieldName,
+    vectorScoreFieldAlias
+  );
+  AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
   // Save the current position to determine remaining arguments for the merge part
   const int remainingOffset = (int) ac.offset;

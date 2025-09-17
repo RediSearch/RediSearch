@@ -1,7 +1,11 @@
 #include "hybrid/hybrid_request.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
+#include "rlookup.h"
+#include "rlookup.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_lookup_context.h"
+#include "hybrid/hybrid_lookup_context.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
@@ -41,6 +45,13 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
 
         // Obtain the query processing context for the current AREQ
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+
+        // Set the result limit for the current AREQ
+        if (IsHybridVectorSubquery(areq)){
+          qctx->resultLimit = areq->maxAggregateResults;
+        } else if (IsHybridSearchSubquery(areq)) {
+          qctx->resultLimit = areq->maxSearchResults;
+        }
         // Create a depleter processor to extract results from this pipeline
         // The depleter will feed results to the hybrid merger
         RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
@@ -55,17 +66,43 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
     return depleters;
 }
 
+/**
+ * Initialize unified lookup schema and hybrid lookup context for field merging.
+ *
+ * @param requests Array of AREQ pointers containing source lookups (non-null)
+ * @param tailLookup The destination lookup to populate with unified schema (non-null)
+ * @return HybridLookupContext* to an initialized HybridLookupContext
+ */
+static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) requests, RLookup *tailLookup) {
+    RS_ASSERT(requests && tailLookup);
+    size_t nrequests = array_len(requests);
+
+    // Build lookup context for field merging
+    HybridLookupContext *lookupCtx = rm_calloc(1, sizeof(HybridLookupContext));
+    lookupCtx->tailLookup = tailLookup;
+    lookupCtx->sourceLookups = array_newlen(const RLookup*, nrequests);
+
+    // Add keys from all source lookups to create unified schema
+    for (size_t i = 0; i < nrequests; i++) {
+        RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
+        RS_ASSERT(srcLookup);
+        RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS);
+        lookupCtx->sourceLookups[i] = srcLookup;
+    }
+
+    return lookupCtx;
+}
+
 int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, arrayof(ResultProcessor*) depleters) {
-    // Assumes all upstream lookups are synced (required keys exist in all of them and reference the same row indices),
-    // and contain only keys from the loading step
+    // Assumes all upstreams have non-null lookups
     // Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
     RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
-    RLookup_CloneInto(lookup, AGPLN_GetLookup(AREQ_AGGPlan(req->requests[SEARCH_INDEX]), NULL, AGPLN_GETLOOKUP_FIRST));
+    HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
 
     // scoreKey is not NULL if the score is loaded as a field (explicitly or implicitly)
     const RLookupKey *scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
-    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes);
+    ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
 
@@ -116,7 +153,6 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
-        initializeAREQ(requests[i]);
         QueryError_Init(&hybridReq->errors[i]);
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
@@ -231,7 +267,9 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
+  initializeAREQ(search);
   AREQ *vector = AREQ_New();
+  initializeAREQ(vector);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
   search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
   vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);

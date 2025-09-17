@@ -20,7 +20,6 @@
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"
-#include "src/util/likely.h"
 #include "config.h"
 
 /*******************************************************************************************************************
@@ -1091,7 +1090,7 @@ static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader"
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
                                      "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer",
-                                     "Hybrid Merger", "Depleter"};
+                                     "Vector Normalizer", "Hybrid Merger", "Depleter"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1443,6 +1442,66 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 }
 
 /*******************************************************************************************************************
+ *  Vector Normalizer Result Processor
+ *
+ * Normalizes vector distance scores using a provided normalization function.
+ * Processes results immediately without accumulation, unlike RPMaxScoreNormalizer.
+ * The normalization function is provided during construction by pipeline construction logic.
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  VectorNormFunction normFunc;
+  const RLookupKey *scoreKey;      // Score field to normalize
+} RPVectorNormalizer;
+
+static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
+  RPVectorNormalizer *self = (RPVectorNormalizer *)rp;
+
+  // Get next result from upstream
+  int rc = rp->upstream->Next(rp->upstream, r);
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+
+  // Apply normalization to the score
+  double normalizedScore = 0.0;
+  RSValue *scoreValue = RLookup_GetItem(self->scoreKey, &r->rowdata);
+  if (scoreValue) {
+    double originalScore = 0.0;
+    if (RSValue_ToNumber(scoreValue, &originalScore)) {
+      normalizedScore = self->normFunc(originalScore);
+    }
+  }
+  r->score = normalizedScore;
+
+  // Update score field if scoreKey is provided
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(normalizedScore));
+  }
+
+  return RS_RESULT_OK;
+}
+
+static void RPVectorNormalizer_Free(ResultProcessor *rp) {
+  RPVectorNormalizer *self = (RPVectorNormalizer *)rp;
+  rm_free(self);
+}
+
+/* Create a new Vector Normalizer processor */
+ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey) {
+  RPVectorNormalizer *ret = rm_calloc(1, sizeof(*ret));
+
+  ret->normFunc = normFunc;
+  ret->base.Next = RPVectorNormalizer_Next;
+  ret->base.Free = RPVectorNormalizer_Free;
+  ret->base.type = RP_VECTOR_NORMALIZER;
+  ret->scoreKey = scoreKey;
+
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
  *  Depleter Result Processor
  *
  *  The RPDepleter result processor offloads the task of consuming all results from
@@ -1694,6 +1753,7 @@ dictType dictTypeHybridSearchResult = {
  dictIterator *iterator; // Iterator for yielding results
  const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
  RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
+ HybridLookupContext *lookupCtx;  // Lookup context for field merging
 } RPHybridMerger;
 
 /* Generic helper function to check if any upstream has a specific return code */
@@ -1775,7 +1835,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
    RS_ASSERT(hybridResult);
 
-   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx);
+   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
    if (!mergedResult) {
      return RS_RESULT_ERROR;
    }
@@ -1866,6 +1926,12 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    // Free the upstreams array, the upstreams themselves are freed by the pipeline(e.g as a result of AREQ_Free)
    array_free(self->upstreams);
 
+   // Free lookup context if it exists
+   if (self->lookupCtx) {
+     array_free(self->lookupCtx->sourceLookups);
+     rm_free(self->lookupCtx);
+   }
+
    // Free the processor itself
    rm_free(self);
  }
@@ -1883,7 +1949,8 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     ResultProcessor **upstreams,
                                     size_t numUpstreams,
                                     const RLookupKey *scoreKey,
-                                    RPStatus *subqueriesReturnCodes) {
+                                    RPStatus *subqueriesReturnCodes,
+                                    HybridLookupContext *lookupCtx) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   RS_ASSERT(numUpstreams > 0);
@@ -1899,6 +1966,9 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
   // Store reference to the hybrid request's subqueries return codes array
   RS_ASSERT(subqueriesReturnCodes);
   ret->upstreamReturnCodes = subqueriesReturnCodes;
+
+  // Store lookup context for field merging (takes ownership)
+  ret->lookupCtx = lookupCtx;
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
