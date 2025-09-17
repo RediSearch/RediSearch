@@ -387,8 +387,8 @@ static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
 }
 
 /**
- * Formats the passed numeric RSValue as a string. Asserts
- * that said RSValue is indeed of type RSValue_Number.
+ * Formats the passed numeric RSValue as a string.
+ * The passed RSValue must be of type RSValue_Number.
  */
 static size_t RSValue_NumToString(const RSValue *v, char *buf) {
   assert(v->t == RSValue_Number);
