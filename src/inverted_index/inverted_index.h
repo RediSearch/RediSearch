@@ -88,17 +88,6 @@ typedef struct {
 
 // -------------------------
 
-static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
-  bool useFieldMask = flags & Index_StoreFieldFlags;
-  bool useNumEntries = flags & Index_StoreNumeric;
-  RS_ASSERT(!(useFieldMask && useNumEntries));
-  // Avoid some of the allocation if not needed
-  const size_t base = sizeof(InvertedIndex) - sizeof(t_fieldMask); // Size without the union
-  if (useFieldMask) return base + sizeof(t_fieldMask);
-  if (useNumEntries) return base + sizeof(uint64_t);
-  return base;
-}
-
 // Create a new inverted index object, with the given flag.
 // The out parameter memsize must be not NULL, the total of allocated memory
 // will be returned in it

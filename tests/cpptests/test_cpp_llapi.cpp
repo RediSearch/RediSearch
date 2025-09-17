@@ -1405,7 +1405,9 @@ TEST_F(LLApiTest, testInfoSize) {
   gc->callbacks.periodicCallback(gc->gcCtx);
   // we always keep the numeric index root. Also, an inverted index has at least one block with initial capacity.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
-  additional_overhead += sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  // The base inverted index is 32 bytes + 8 bytes for the entries count of numeric records
+  // And IndexBlock is also 48 bytes
+  additional_overhead += 40 + 48 + INDEX_BLOCK_INITIAL_CAP;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
@@ -1465,7 +1467,9 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   gc->callbacks.periodicCallback(gc->gcCtx);
   // we always keep the numeric index root. Also, an inverted index has at least one block with initial capacity.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
-  additional_overhead += sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  // The base inverted index is 32 bytes + 8 bytes for the entries count of numeric records
+  // And IndexBlock is also 48 bytes
+  additional_overhead += 40 + 48 + INDEX_BLOCK_INITIAL_CAP;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.

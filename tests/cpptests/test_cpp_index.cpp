@@ -175,29 +175,21 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   // t_docId lastId             8
   // uint32_t numDocs           4
   // uint32_t gcMarker          4
-  // union {
-  //   t_fieldMask fieldMask;
-  //   uint64_t numEntries;
-  // };                        16
   // ----------------------------
-  // Total                     48
-  size_t ividx_memsize = sizeof(InvertedIndex);
-  size_t exp_ividx_memsize = 48;
-  ASSERT_EQ(exp_ividx_memsize, ividx_memsize);
+  // Total                     32
 
-  size_t idx_no_block_memsize = sizeof_InvertedIndex(indexFlags);
-  size_t exp_idx_no_block_memsize = useFieldMask ?
-                                    exp_ividx_memsize :
-                                    exp_ividx_memsize - exp_t_fieldMask_memsize;
-  ASSERT_EQ(exp_idx_no_block_memsize, idx_no_block_memsize);
+  size_t exp_idx_no_block_memsize = 32;
 
-  size_t block_memsize = sizeof(IndexBlock);
+  if (useFieldMask) {
+    exp_idx_no_block_memsize += t_fiedlMask_memsize;
+  }
+
+  // A block is 48 bytes with an initial buffer capacity
   size_t exp_block_memsize = 48;
-  ASSERT_EQ(exp_block_memsize, block_memsize);
 
   size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + INDEX_BLOCK_INITIAL_CAP;
   // The memory occupied by a new inverted index depends of its flags
-  // see NewInvertedIndex() and sizeof_InvertedIndex() for details
+  // see NewInvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
 
   for (size_t i = 0; i < 200; i++) {
@@ -1309,8 +1301,9 @@ TEST_F(IndexTest, testIndexFlags) {
   // The memory occupied by a empty inverted index
   // created with INDEX_DEFAULT_FLAGS is 102 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof_InvertedIndex(index->flags)   48
-  // sizeof(IndexBlock)                   48
+  // sizeof InvertedIndex                 32
+  // storing fieldmask on idx             16
+  // sizeof IndexBlock                    48
   // INDEX_BLOCK_INITIAL_CAP               6
   ASSERT_EQ(102, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
@@ -1348,8 +1341,8 @@ TEST_F(IndexTest, testIndexFlags) {
   // The memory occupied by a empty inverted index with
   // Index_StoreFieldFlags == 0 is 86 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof_InvertedIndex(index->flags)   32
-  // sizeof(IndexBlock)                   48
+  // sizeof InvertedIndex                 32
+  // sizeof IndexBlock                    48
   // INDEX_BLOCK_INITIAL_CAP               6
   ASSERT_EQ(86, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
