@@ -1543,9 +1543,8 @@ static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
 }
 
 static void RPPauseAfterCount_Free(ResultProcessor *base) {
-  rm_free(base);
-
   RS_LOG_ASSERT(globalDebugCtx.query.debugRP == base, "Freed debug RP tried to change DebugCTX debugRP but it's not the current debug RP");
+  rm_free(base);
   globalDebugCtx.query.debugRP = NULL;
 }
 
