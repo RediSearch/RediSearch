@@ -402,7 +402,7 @@ static inline bool ShouldSkipMulti(const InvIndIterator *it) {
 
 static QueryIterator *InitInvIndIterator(InvIndIterator *it, const InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx, ValidateStatus (*checkAbortFn)(QueryIterator *)) {
-  it->reader = NewIndexReader(idx, decoderCtx);
+  it->reader = NewIndexReader(idx, *decoderCtx);
   it->skipMulti = skipMulti; // Original request, regardless of what implementation is chosen
   it->sctx = sctx;
   it->filterCtx = *filterCtx;

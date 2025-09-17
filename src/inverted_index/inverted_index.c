@@ -1229,14 +1229,14 @@ static __attribute__((always_inline)) inline bool NotAtEnd(IndexReader *ir) {
   return false;
 }
 
-IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx *ctx) {
+IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx ctx) {
   IndexReader *ir = rm_calloc(1, sizeof(IndexReader));
 
   ir->idx = idx;
   ir->currentBlock = 0;
   ir->gcMarker = InvertedIndex_GcMarker(idx);
   ir->decoders = InvertedIndex_GetDecoder(InvertedIndex_Flags(idx));
-  ir->decoderCtx = *ctx;
+  ir->decoderCtx = ctx;
 
   SetCurrentBlockReader(ir);
 

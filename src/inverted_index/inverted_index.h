@@ -202,7 +202,7 @@ typedef struct IndexReader {
 } IndexReader;
 
 /* Make a new inverted index reader. It should be freed using `IndexReader_Free`. */
-IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx *ctx);
+IndexReader *NewIndexReader(const InvertedIndex *idx, IndexDecoderCtx ctx);
 
 /* Free an index reader created using `NewIndexReader` */
 void IndexReader_Free(IndexReader *ir);
