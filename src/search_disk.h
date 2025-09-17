@@ -64,10 +64,11 @@ bool SearchDisk_IndexDocument(RedisSearchDiskIndexSpec *index, const char *term,
  *
  * @param index Pointer to the index
  * @param term Term to iterate over
+ * @param fieldMask Field mask indicating which fields are present
  * @param weight Weight for the term (used in scoring)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, double weight);
+QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const char *term, t_fieldMask fieldMask, double weight);
 
 /**
  * @brief Create an IndexIterator for all the existing documents

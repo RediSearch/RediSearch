@@ -38,8 +38,7 @@ typedef struct IndexDiskAPI {
    *
    * Adds a document to the inverted index for the specified index name and term.
    *
-   * @param db Pointer to the disk database
-   * @param indexName Name of the index to add the document to
+   * @param index Pointer to the index
    * @param term Term to associate the document with
    * @param docId Document ID to index
    * @param fieldMask Field mask indicating which fields are present in the document
@@ -50,12 +49,13 @@ typedef struct IndexDiskAPI {
    /**
    * @brief Creates a new iterator for the inverted index
    *
-   * @param db Pointer to the disk database
-   * @param indexName Name of the index to iterate
-   * @param term Term within the index to iterate
+   * @param index Pointer to the index
+   * @param term Term to associate the document with
+   * @param fieldMask Field mask indicating which fields are present in the document
+   * @param weight Weight for the iterator (used in scoring)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, t_fieldMask fieldMask);
+  QueryIterator *(*newTermIterator)(RedisSearchDiskIndexSpec* index, const char* term, t_fieldMask fieldMask, double weight);
 
   /**
    * @brief Returns the number of documents in the index

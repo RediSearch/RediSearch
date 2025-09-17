@@ -8,7 +8,6 @@
 */
 #include "param.h"
 #include "rmalloc.h"
-#include "module.h"
 
 #include <assert.h>
 
