@@ -10,7 +10,7 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
-use std::fmt::Display;
+use std::fmt::Debug;
 
 use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
@@ -64,23 +64,23 @@ pub enum InvertedIndex {
     Numeric(EntriesTrackingIndex<Numeric>),
 }
 
-impl Display for InvertedIndex {
+impl Debug for InvertedIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InvertedIndex::Full(_) => write!(f, "Full"),
-            InvertedIndex::FullWide(_) => write!(f, "FullWide"),
-            InvertedIndex::FreqsFields(_) => write!(f, "FreqsFields"),
-            InvertedIndex::FreqsFieldsWide(_) => write!(f, "FreqsFieldsWide"),
-            InvertedIndex::FreqsOnly(_) => write!(f, "FreqsOnly"),
-            InvertedIndex::FieldsOnly(_) => write!(f, "FieldsOnly"),
-            InvertedIndex::FieldsOnlyWide(_) => write!(f, "FieldsOnlyWide"),
-            InvertedIndex::FieldsOffsets(_) => write!(f, "FieldsOffsets"),
-            InvertedIndex::FieldsOffsetsWide(_) => write!(f, "FieldsOffsetsWide"),
-            InvertedIndex::OffsetsOnly(_) => write!(f, "OffsetsOnly"),
-            InvertedIndex::FreqsOffsets(_) => write!(f, "FreqsOffsets"),
-            InvertedIndex::DocumentIdOnly(_) => write!(f, "DocumentIdOnly"),
-            InvertedIndex::RawDocumentIdOnly(_) => write!(f, "RawDocumentIdOnly"),
-            InvertedIndex::Numeric(_) => write!(f, "Numeric"),
+            Self::Full(_) => f.debug_tuple("Full").finish(),
+            Self::FullWide(_) => f.debug_tuple("FullWide").finish(),
+            Self::FreqsFields(_) => f.debug_tuple("FreqsFields").finish(),
+            Self::FreqsFieldsWide(_) => f.debug_tuple("FreqsFieldsWide").finish(),
+            Self::FreqsOnly(_) => f.debug_tuple("FreqsOnly").finish(),
+            Self::FieldsOnly(_) => f.debug_tuple("FieldsOnly").finish(),
+            Self::FieldsOnlyWide(_) => f.debug_tuple("FieldsOnlyWide").finish(),
+            Self::FieldsOffsets(_) => f.debug_tuple("FieldsOffsets").finish(),
+            Self::FieldsOffsetsWide(_) => f.debug_tuple("FieldsOffsetsWide").finish(),
+            Self::OffsetsOnly(_) => f.debug_tuple("OffsetsOnly").finish(),
+            Self::FreqsOffsets(_) => f.debug_tuple("FreqsOffsets").finish(),
+            Self::DocumentIdOnly(_) => f.debug_tuple("DocumentIdOnly").finish(),
+            Self::RawDocumentIdOnly(_) => f.debug_tuple("RawDocumentIdOnly").finish(),
+            Self::Numeric(_) => f.debug_tuple("Numeric").finish(),
         }
     }
 }
@@ -625,7 +625,7 @@ pub unsafe extern "C" fn NewIndexReader(
         // that it would be impossible to get the reader for an index with an unsupported filter.
         // But for now we still have to interface with some C code and can't have this type
         // system design yet. So it is okay to panic, but only because we are in an FFI layer.
-        (index, filter) => panic!("Unsupported filter ({filter:?}) for inverted index ({index})"),
+        (index, filter) => panic!("Unsupported filter ({filter:?}) for inverted index ({index:?})"),
     };
 
     let reader_boxed = Box::new(reader);
