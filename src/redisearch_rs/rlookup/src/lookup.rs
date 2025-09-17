@@ -149,6 +149,30 @@ where
     }
 }
 
+impl<'a, T> From<CBCow<'a, T>> for Cow<'a, T>
+where
+    T: ToOwned + ?Sized,
+{
+    fn from(cbcow: CBCow<'a, T>) -> Self {
+        match cbcow {
+            CBCow::Borrowed(b) => Cow::Borrowed(b),
+            CBCow::Owned(o) => Cow::Owned(o),
+        }
+    }
+}
+
+impl<'a, T> From<Cow<'a, T>> for CBCow<'a, T>
+where
+    T: ToOwned + ?Sized,
+{
+    fn from(cow: Cow<'a, T>) -> Self {
+        match cow {
+            Cow::Borrowed(b) => CBCow::Borrowed(b),
+            Cow::Owned(o) => CBCow::Owned(o),
+        }
+    }
+}
+
 /// This type acts like a [std::option::Option] but it has a C-compatible representation.
 ///
 /// This is useful for the types exposed to C via CBindgen.
@@ -1193,17 +1217,25 @@ impl<'a> RLookup<'a> {
         } else {
             // Field not found in the schema.
             let mut key = cursor.current().unwrap();
-            let is_borrowed = matches!(key._name, CBCow::Borrowed(_));
+            let is_name_allocated = matches!(key._name, CBCow::Owned(_));
             let mut key = key.as_mut().project();
 
             // We assume `field_name` is the path to load from in the document.
-            if is_borrowed {
-                *key.path = field_name.as_ptr();
-                *key._path = CBOption::Some(CBCow::Borrowed(field_name));
+
+            if !is_name_allocated {
+                *key._path = CBOption::Some(field_name.into());
+                let CBOption::Some(cow_ref) = (*key._path).as_ref() else {
+                    unimplemented!("CBOption::Some just set, must be Some")
+                };
+                // sync c pointer with Cow
+                *key.path = cow_ref.as_ptr();
             } else if name != field_name {
-                let field_name: CBCow<'_, CStr> = CBCow::Owned(field_name.to_owned());
-                *key.path = field_name.as_ptr();
-                *key._path = CBOption::Some(field_name);
+                *key._path = CBOption::Some(field_name.clone().into());
+                let CBOption::Some(cow_ref) = (*key._path).as_ref() else {
+                    unimplemented!("CBOption::Some just set, must be Some")
+                };
+                // sync c pointer with Cow
+                *key.path = cow_ref.as_ptr();
             } // else
             // If the caller requested to allocate the name, and the name is the same as the path,
             // it was already set to the same allocation for the name, so we don't need to do anything.
