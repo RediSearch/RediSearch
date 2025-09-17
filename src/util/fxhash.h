@@ -12,11 +12,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-// uint32_t rs_fnv_32a_buf(const void *buf, size_t len, uint32_t hval);
 uint32_t fxhash_32_incremental(const void *buf, size_t len, uint32_t hval);
 uint32_t fxhash_32(const void *buf, size_t len);
 
-// uint64_t fnv_64a_buf(const void *buf, size_t len, uint64_t hval);
 uint64_t fxhash_64_incremental(const void *buf, size_t len, uint64_t hval);
 uint32_t fxhash_64(const void *buf, size_t len);
 
