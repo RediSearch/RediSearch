@@ -9,7 +9,6 @@
 #include "spec.h"
 #include "synonym_map.h"
 #include "rmalloc.h"
-#include "util/fnv.h"
 #include "rmutil/rm_assert.h"
 #include "rdb.h"
 

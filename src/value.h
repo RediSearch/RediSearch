@@ -14,7 +14,7 @@
 #include "query_error.h"
 #include "reply.h"
 
-#include "util/fnv.h"
+#include "util/fxhash.h"
 
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
@@ -262,15 +262,15 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
       return RSValue_Hash(v->ref, hval);
     case RSValue_String:
 
-      return fnv_64a_buf(v->strval.str, v->strval.len, hval);
+      return fxhash_64_incremental(v->strval.str, v->strval.len, hval);
     case RSValue_Number:
-      return fnv_64a_buf(&v->numval, sizeof(double), hval);
+      return fxhash_64_incremental(&v->numval, sizeof(double), hval);
 
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
       size_t sz;
       const char *c = RedisModule_StringPtrLen(v->rstrval, &sz);
-      return fnv_64a_buf((void *)c, sz, hval);
+      return fxhash_64_incremental((void *)c, sz, hval);
     }
     case RSValue_Null:
       return hval + 1;

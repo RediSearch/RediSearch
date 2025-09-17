@@ -11,7 +11,6 @@
 #include <string.h>
 #include <stdio.h>
 #include "redismodule.h"
-#include "util/fnv.h"
 #include "triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
