@@ -226,6 +226,10 @@ pub extern "C" fn NewInvertedIndex_Ex(
             flags,
             Numeric::new().with_float_compression(),
         )),
+        // We generally don't panic in Rust code and would have a match were we cover all the cases.
+        // However, the `flags` value stores more than just the storage flags and it is not clear
+        // that the C code won't call this function without any of the storage flags set.
+        //
         _ => panic!("Unsupported index flags: {flags:?}"),
     };
 
