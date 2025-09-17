@@ -27,6 +27,11 @@ fn benchmark_wildcard(c: &mut Criterion) {
     bencher.bench(c);
 }
 
-criterion_group!(benches, benchmark_empty, benchmark_id_list, benchmark_wildcard,);
+criterion_group!(
+    benches,
+    benchmark_empty,
+    benchmark_id_list,
+    benchmark_wildcard,
+);
 
 criterion_main!(benches);

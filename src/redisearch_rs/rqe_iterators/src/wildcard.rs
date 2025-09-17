@@ -30,7 +30,7 @@ impl Wildcard {
         Wildcard {
             top_id,
             current_id: 0,
-            result: RSIndexResult::virt()
+            result: RSIndexResult::virt(),
         }
     }
 }
@@ -51,15 +51,15 @@ impl RQEIterator for Wildcard {
         _doc_id: t_docId,
     ) -> Result<Option<SkipToOutcome<'_, '_>>, RQEIteratorError> {
         if self.at_eof() {
-            return Ok(None)
+            return Ok(None);
         }
-        
+
         if _doc_id > self.top_id {
             // skip beyond range - set to EOF
             self.current_id = self.top_id;
-            return Ok(None)
+            return Ok(None);
         }
-        
+
         self.current_id = _doc_id;
         self.result.doc_id = _doc_id;
         Ok(Some(SkipToOutcome::Found(&self.result)))

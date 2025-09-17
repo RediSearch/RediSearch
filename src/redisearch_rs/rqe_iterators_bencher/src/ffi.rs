@@ -15,8 +15,8 @@ mod bindings {
     #![allow(improper_ctypes)]
     #![allow(dead_code)]
 
+    use ffi::{NumericFilter, t_fieldMask};
     use inverted_index::t_docId;
-    use ffi::{t_fieldMask, NumericFilter};
 
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
@@ -34,11 +34,20 @@ use inverted_index::RSIndexResult;
 unsafe extern "C" {
     /// Benchmark wildcard iterator read operations directly in C
     /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_wildcard_read_direct_c(max_id: u64, iterations_out: *mut u64, time_ns_out: *mut u64);
+    fn benchmark_wildcard_read_direct_c(
+        max_id: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
 
     /// Benchmark wildcard iterator skip_to operations directly in C
     /// Returns the number of iterations performed and total time in nanoseconds
-    fn benchmark_wildcard_skip_to_direct_c(max_id: u64, step: u64, iterations_out: *mut u64, time_ns_out: *mut u64);
+    fn benchmark_wildcard_skip_to_direct_c(
+        max_id: u64,
+        step: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
 }
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -129,7 +138,10 @@ impl QueryIterator {
         unsafe {
             benchmark_wildcard_read_direct_c(max_id, &mut iterations, &mut time_ns);
         }
-        DirectBenchmarkResult { iterations, time_ns }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
     }
 
     /// Run direct C benchmark for wildcard skip_to operations
@@ -139,10 +151,11 @@ impl QueryIterator {
         unsafe {
             benchmark_wildcard_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
         }
-        DirectBenchmarkResult { iterations, time_ns }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
     }
-
-
 }
 
 #[cfg(test)]

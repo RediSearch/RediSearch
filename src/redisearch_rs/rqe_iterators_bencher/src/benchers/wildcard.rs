@@ -187,7 +187,8 @@ impl Bencher {
                         while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
                             criterion::black_box(current);
                             count += 1;
-                            if count >= 1000 { // Limit to avoid timeout
+                            if count >= 1000 {
+                                // Limit to avoid timeout
                                 break;
                             }
                         }
@@ -248,7 +249,7 @@ impl Bencher {
 
     fn c_read_large_range_direct<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>)
     where
-        M::Value: From<Duration>
+        M::Value: From<Duration>,
     {
         group.bench_function("C", |b| {
             b.iter_custom(|iters| {
@@ -257,7 +258,10 @@ impl Bencher {
                     let result = ffi::QueryIterator::benchmark_wildcard_read_direct(1_000_000);
                     total_time += Duration::from_nanos(result.time_ns);
                     // Verify iteration count matches expected
-                    assert_eq!(result.iterations, 1_000_000, "C direct benchmark iteration count mismatch");
+                    assert_eq!(
+                        result.iterations, 1_000_000,
+                        "C direct benchmark iteration count mismatch"
+                    );
                 }
                 total_time.into()
             });
@@ -266,7 +270,7 @@ impl Bencher {
 
     fn c_read_medium_range_direct<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>)
     where
-        M::Value: From<Duration>
+        M::Value: From<Duration>,
     {
         group.bench_function("C", |b| {
             b.iter_custom(|iters| {
@@ -275,7 +279,10 @@ impl Bencher {
                     let result = ffi::QueryIterator::benchmark_wildcard_read_direct(500_000);
                     total_time += Duration::from_nanos(result.time_ns);
                     // Verify iteration count matches expected
-                    assert_eq!(result.iterations, 500_000, "C direct benchmark iteration count mismatch");
+                    assert_eq!(
+                        result.iterations, 500_000,
+                        "C direct benchmark iteration count mismatch"
+                    );
                 }
                 total_time.into()
             });
@@ -284,16 +291,20 @@ impl Bencher {
 
     fn c_skip_to_large_range_direct<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>)
     where
-        M::Value: From<Duration>
+        M::Value: From<Duration>,
     {
         group.bench_function("C", |b| {
             b.iter_custom(|iters| {
                 let mut total_time = Duration::ZERO;
                 for _ in 0..iters {
-                    let result = ffi::QueryIterator::benchmark_wildcard_skip_to_direct(1_000_000, 100);
+                    let result =
+                        ffi::QueryIterator::benchmark_wildcard_skip_to_direct(1_000_000, 100);
                     total_time += Duration::from_nanos(result.time_ns);
                     // Expected iterations: 1_000_000 / 100 = 10_000
-                    assert_eq!(result.iterations, 10_000, "C direct skip_to benchmark iteration count mismatch");
+                    assert_eq!(
+                        result.iterations, 10_000,
+                        "C direct skip_to benchmark iteration count mismatch"
+                    );
                 }
                 total_time.into()
             });
@@ -302,21 +313,23 @@ impl Bencher {
 
     fn c_skip_to_medium_range_direct<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>)
     where
-        M::Value: From<Duration>
+        M::Value: From<Duration>,
     {
         group.bench_function("C", |b| {
             b.iter_custom(|iters| {
                 let mut total_time = Duration::ZERO;
                 for _ in 0..iters {
-                    let result = ffi::QueryIterator::benchmark_wildcard_skip_to_direct(500_000, 100);
+                    let result =
+                        ffi::QueryIterator::benchmark_wildcard_skip_to_direct(500_000, 100);
                     total_time += Duration::from_nanos(result.time_ns);
                     // Expected iterations: 500_000 / 100 = 5_000
-                    assert_eq!(result.iterations, 5_000, "C direct skip_to benchmark iteration count mismatch");
+                    assert_eq!(
+                        result.iterations, 5_000,
+                        "C direct skip_to benchmark iteration count mismatch"
+                    );
                 }
                 total_time.into()
             });
         });
     }
-
-
 }

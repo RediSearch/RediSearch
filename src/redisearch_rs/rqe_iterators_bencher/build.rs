@@ -25,10 +25,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile("direct_benchmarks");
 
     // Generate C bindings - fail build if this doesn't work
-    let headers = ["iterator_api.h", "empty_iterator.h", "idlist_iterator.h", "wildcard_iterator.h"]
-        .iter()
-        .map(|h| root.join("src").join("iterators").join(h))
-        .collect::<Vec<_>>();
+    let headers = [
+        "iterator_api.h",
+        "empty_iterator.h",
+        "idlist_iterator.h",
+        "wildcard_iterator.h",
+    ]
+    .iter()
+    .map(|h| root.join("src").join("iterators").join(h))
+    .collect::<Vec<_>>();
     generate_c_bindings(headers, ".*/iterators/.*.h")?;
 
     Ok(())
