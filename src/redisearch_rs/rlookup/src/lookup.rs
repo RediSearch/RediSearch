@@ -1870,8 +1870,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name.into(),
-                field_name.into(),
+                key_name,
+                field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -1911,8 +1911,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name.into(),
-                field_name.into(),
+                key_name,
+                field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -1955,8 +1955,8 @@ mod tests {
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup.get_key_load(
-            key_name.into(),
-            field_name.into(),
+            key_name,
+            field_name,
             make_bitflags!(RLookupKeyFlag::Override),
         );
 
@@ -1992,8 +1992,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name.into(),
-                field_name.into(),
+                key_name,
+                field_name,
                 make_bitflags!(RLookupKeyFlag::{Override | ForceLoad}),
             )
             .expect("expected to find key by name");
@@ -2033,7 +2033,7 @@ mod tests {
             rlookup.keys.push(key);
 
             let retrieved_key =
-                rlookup.get_key_load(key_name.into(), field_name.into(), RLookupKeyFlags::empty());
+                rlookup.get_key_load(key_name, field_name, RLookupKeyFlags::empty());
             assert!(retrieved_key.is_none());
             if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
                 assert!(!key.flags.contains(RLookupKeyFlag::ExplicitReturn));
@@ -2042,11 +2042,8 @@ mod tests {
             }
 
             // let's use the load to tag explicit return
-            let opt = rlookup.get_key_load(
-                key_name.into(),
-                field_name.into(),
-                RLookupKeyFlag::ExplicitReturn.into(),
-            );
+            let opt =
+                rlookup.get_key_load(key_name, field_name, RLookupKeyFlag::ExplicitReturn.into());
             assert!(opt.is_none(), "expected None, got {opt:?}");
 
             if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
@@ -2072,8 +2069,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name.into(),
-                field_name.into(),
+                key_name,
+                field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
@@ -2101,8 +2098,8 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(
-                key_name.into(),
-                field_name.into(),
+                key_name,
+                field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
             .expect("expected to find key by name");
