@@ -1069,7 +1069,7 @@ def test_query_controller_pause_and_resume(env):
 
 
     # Create 1 docs
-   
+
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect('HSET', 'doc1', 'name', 'name1').equal(1)
     # Helper to call a function and push its return value into a list
@@ -1137,7 +1137,7 @@ def test_query_controller_add_before_after(env):
 
     # Check error when workers is 0
     env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
-    .contains("Query PAUSE_BEFORE_RP_N is only supported in with WORKERS")
+    .contains("Query PAUSE_BEFORE_RP_N is only supported with WORKERS")
 
     env.expect('FT.CONFIG', 'SET', 'WORKERS', 1).ok()
 
@@ -1152,7 +1152,7 @@ def test_query_controller_add_before_after(env):
         # Check wrong RP type error
         cmd_str = 'BEFORE' if before else 'AFTER'
         env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'InvalidRP', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
-        .contains(f"Invalid PAUSE_{cmd_str}_RP_N RP type")
+        .contains(f"InvalidRP is an invalid PAUSE_{cmd_str}_RP_N RP type")
         # Check RP type that is not in the stream
         env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
         .contains(f"Highlighter RP type not found in stream or tried to insert after last RP")
