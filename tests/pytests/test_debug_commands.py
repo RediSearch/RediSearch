@@ -1237,5 +1237,4 @@ def test_cluster_query_controller_pause_and_resume():
 
         queries_completed += 1
 
-        # Verify the query returned results (should be at least 1 result per shard)
-        env.assertTrue(query_result[0][0] >= 1, message=f"Expected at least 1 result, got {query_result[0][0]}")
+        env.assertEqual(query_result[0][0], n_docs)
