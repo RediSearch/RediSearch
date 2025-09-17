@@ -147,6 +147,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS parameter");
         return REDISMODULE_ERR;
       }
+      CheckEnd("YIELD_SCORE_AS");
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
@@ -227,6 +228,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS parameter");
         return REDISMODULE_ERR;
       }
+      CheckEnd("YIELD_SCORE_AS");
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");

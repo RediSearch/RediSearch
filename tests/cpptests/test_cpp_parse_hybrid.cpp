@@ -950,15 +950,15 @@ TEST_F(ParseHybridTest, testLinearMissingBetaValue) {
   testErrorCode(args, QUERY_EPARSEARGS, "Missing parameter value for BETA");
 }
 
-TEST_F(ParseHybridTest, testKNNMissingYieldDistanceAsValue) {
+TEST_F(ParseHybridTest, testKNNMissingYieldScoreAsValue) {
   // Test KNN with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "YIELD_DISTANCE_AS");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing parameter value for YIELD_DISTANCE_AS");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "YIELD_SCORE_AS");
+  testErrorCode(args, QUERY_EPARSEARGS, "Missing parameter value for YIELD_SCORE_AS");
 }
 
-TEST_F(ParseHybridTest, testRangeMissingYieldDistanceAsValue) {
+TEST_F(ParseHybridTest, testRangeMissingYieldScoreAsValue) {
   // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_DISTANCE_AS");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing parameter value for YIELD_DISTANCE_AS");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS");
+  testErrorCode(args, QUERY_EPARSEARGS, "Missing parameter value for YIELD_SCORE_AS");
 }
 
