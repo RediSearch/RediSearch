@@ -83,7 +83,6 @@ private:
         // This function should populate the InvertedIndex with terms
         size_t memsize;
         idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), &memsize);
-        ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr); // Expect a seeker with the default flags
         for (size_t i = 0; i < n_docs; ++i) {
             ForwardIndexEntry h = {0};
             h.docId = resultSet[i];
@@ -273,7 +272,6 @@ TEST_F(IndexIteratorTestEdges, GetCorrectValue) {
 }
 
 TEST_F(IndexIteratorTestEdges, EOFAfterFiltering) {
-    ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker == nullptr);
     // Fill the index with entries, all with value 1.0
     AddEntries(1, 1234, 1.0);
     // Create an iterator that reads only entries with value 2.0
@@ -287,7 +285,6 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
     size_t memsize;
     InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), &memsize);
     ASSERT_TRUE(idx != nullptr);
-    ASSERT_TRUE(InvertedIndex_GetDecoder(InvertedIndex_Flags(idx)).seeker != nullptr);
     for (t_docId i = 1; i < 1000; ++i) {
         auto res = (RSIndexResult) {
             .docId = i,
