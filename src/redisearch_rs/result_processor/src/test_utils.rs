@@ -135,11 +135,10 @@ impl Chain {
         P: ResultProcessor + 'static,
     {
         let mut result_processor = ResultProcessorWrapper::new(result_processor);
-        let query_processing_context_ptr = &raw mut *self.query_processing_context;
+        result_processor.header.parent = &raw mut *self.query_processing_context;
 
         if let Some(upstream) = self.result_processors.last() {
             result_processor.header.upstream = upstream.as_ptr();
-            result_processor.header.parent = query_processing_context_ptr;
         }
 
         // Safety: We treat this pointer as pinned and never hand out mutable references that would allow
