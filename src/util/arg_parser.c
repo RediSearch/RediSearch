@@ -216,19 +216,19 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             }
             break;
         case ARG_TYPE_BITFLAG: {
-            if (def->options.bitflag.target) {
-                switch (def->options.bitflag.size) {
+            if (def->target) {
+                switch (def->options.bitflag.target_size) {
                     case sizeof(uint32_t):
-                        *(uint32_t*)def->options.bitflag.target |= (uint32_t)def->options.bitflag.mask;
+                        *(uint32_t*)def->target |= (uint32_t)def->options.bitflag.mask;
                         break;
                     case sizeof(uint64_t):
-                        *(uint64_t*)def->options.bitflag.target |= (uint64_t)def->options.bitflag.mask;
+                        *(uint64_t*)def->target |= (uint64_t)def->options.bitflag.mask;
                         break;
                     case sizeof(unsigned short):
-                        *(unsigned short*)def->options.bitflag.target |= (unsigned short)def->options.bitflag.mask;
+                        *(unsigned short*)def->target |= (unsigned short)def->options.bitflag.mask;
                     break;
                     case sizeof(unsigned char):
-                        *(unsigned char*)def->options.bitflag.target |= (unsigned char)def->options.bitflag.mask;
+                        *(unsigned char*)def->target |= (unsigned char)def->options.bitflag.mask;
                     break;
                     default:
                         set_error(parser, "Unsupported target size for bitwise flag", def->name);
@@ -757,14 +757,12 @@ ArgParser *ArgParser_AddBoolV(ArgParser *parser, const char *name, const char *d
 // Bitwise flag adder: when present, OR mask into the integer pointed by target
 ArgParser *ArgParser_AddBitflagV(ArgParser *parser, const char *name, const char *description,
                                 void *target, size_t target_size, unsigned long long mask, ...) {
-    // Store mask and target info in definition's user_data via callback
-    // We wrap the user's callback (if any) to perform the OR before invoking it
-    // Add as a boolean presence flag (no direct target assignment)
-    ArgDefinition *def = add_definition(parser, name, description, ARG_TYPE_BITFLAG, NULL);
+    // Store mask and target info in definition
+    // Add as a bitflag type with target assignment
+    ArgDefinition *def = add_definition(parser, name, description, ARG_TYPE_BITFLAG, target);
     if (!def) return parser;
 
-    def->options.bitflag.target = target;
-    def->options.bitflag.size = target_size;
+    def->options.bitflag.target_size = target_size;
     def->options.bitflag.mask = mask;
 
     va_list args;

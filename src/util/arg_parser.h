@@ -60,11 +60,11 @@ typedef struct {
     uint16_t position;          // 1 = first argument after command, 2 = second, etc.
     bool has_position;
 
-    // Type-specific options
+    // Type-specific options (tagged union for type safety)
     union {
         struct {
-            int min_args;       // For SUBARGS/SLICE: minimum arguments
-            int max_args;       // For SUBARGS/SLICE: maximum arguments (-1 = unlimited)
+            int min_args;       // For SUBARGS: minimum arguments
+            int max_args;       // For SUBARGS: maximum arguments (-1 = unlimited)
         } subargs;
 
         struct {
@@ -79,11 +79,8 @@ typedef struct {
         } string;
 
         struct {
-            void *target;
-            size_t size;
-            unsigned long long mask;
-            ArgCallback user_cb;
-            void *user_ud;
+            size_t target_size;           // Size of target for type safety
+            unsigned long long mask;      // Bitmask to OR into target
         } bitflag;
     } options;
 
