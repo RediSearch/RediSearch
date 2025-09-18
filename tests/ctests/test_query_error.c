@@ -9,6 +9,7 @@
 
 #include "test_util.h"
 #include "src/query_error.h"
+#include "src/rmalloc.h"
 #include <string.h>
 
 int testQueryErrorInit() {
