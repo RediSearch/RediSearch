@@ -9,6 +9,7 @@
 
 use std::{
     ffi::{CStr, c_char},
+    mem::offset_of,
     ptr::NonNull,
     slice,
 };

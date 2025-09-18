@@ -1502,6 +1502,7 @@ dependencies = [
  "redis-module",
  "result_processor_ffi",
  "slots_tracker_ffi",
+ "sorting_vector_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
@@ -2356,6 +2357,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "ffi",
+ "redis-module",
  "redis_mock",
  "thiserror",
  "workspace_hack",

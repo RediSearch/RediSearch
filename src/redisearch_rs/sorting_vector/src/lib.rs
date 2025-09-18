@@ -74,29 +74,24 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         Ok(())
     }
 
+    /// Set a string at the given index.
+    pub fn try_insert_string(&mut self, idx: usize, str: Vec<u8>) -> Result<(), IndexOutOfBounds> {
+        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
+        *spot = T::create_string(str);
+        Ok(())
+    }
+
     /// Set a string at the given index, the string is normalized before being set.
-    pub fn try_insert_string<S: AsRef<str>>(
+    pub fn try_insert_string_normalize(
         &mut self,
         idx: usize,
-        str: S,
+        str: impl AsRef<str>,
     ) -> Result<(), IndexOutOfBounds> {
-        let rs_value_from_c = T::is_ptr_type();
-        if rs_value_from_c {
-            // If the RSValue type is owned and allocated by C, we cannot allocate parts of it in Rust yet.
-            // See MOD-10347 for details.
-            // See the details about case folding below too.
-            unimplemented!("We cannot yet allocate RSValues in Rust. See MOD-10347 for details.");
-        }
-
         let casemapper = CaseMapper::new();
 
-        // In Rust we will use ICU4X for case folding. This has been done in C by a different library, called
-        // lib_nu. Before we switch to use this code in production we need to make sure that the behavior is the same.
-        // See MOD-10320 for details.
         let normalized = casemapper.fold_string(str.as_ref()).into_owned();
-        let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = T::create_string(normalized.into_bytes());
-        Ok(())
+
+        self.try_insert_string(idx, normalized.into_bytes())
     }
 
     /// Set a value at the given index
