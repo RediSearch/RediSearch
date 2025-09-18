@@ -10,6 +10,7 @@
 use std::{
     ffi::c_void,
     io::{BufRead, Cursor, Seek, Write},
+    sync::atomic::{self, AtomicUsize},
 };
 
 use debug::{BlockSummary, Summary};
@@ -226,6 +227,10 @@ pub struct InvertedIndex<E> {
     /// handled.
     flags: IndexFlags,
 
+    /// A marker used by the garbage collector to determine if the index has been modified since
+    /// the last GC pass. This is used to reset a reader if the index has been modified.
+    gc_marker: AtomicUsize,
+
     /// The encoder to use when adding new entries to the index
     encoder: E,
 }
@@ -289,6 +294,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks: Vec::new(),
             n_unique_docs: 0,
             flags,
+            gc_marker: AtomicUsize::new(0),
             encoder,
         }
     }
@@ -313,6 +319,7 @@ impl<E: Encoder> InvertedIndex<E> {
             blocks,
             n_unique_docs,
             flags,
+            gc_marker: AtomicUsize::new(0),
             encoder,
         }
     }
