@@ -95,7 +95,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
         // See MOD-10320 for details.
         let normalized = casemapper.fold_string(str.as_ref()).into_owned();
         let spot = self.values.get_mut(idx).ok_or(IndexOutOfBounds(()))?;
-        *spot = T::create_string(normalized);
+        *spot = T::create_string(normalized.into_bytes());
         Ok(())
     }
 
@@ -157,7 +157,7 @@ impl<T: RSValueTrait> RSSortingVector<T> {
             let value = walk_down_rsvalue_ref_chain(&self.values[idx]);
 
             if value.get_type() == ffi::RSValueType_RSValueType_String {
-                sz += value.as_str().unwrap().len();
+                sz += value.as_str_bytes().unwrap().len();
             }
         }
         sz
