@@ -277,9 +277,9 @@ run:
 		fi; \
 	fi
 
-# Function to extract EXCLUDE_RUST_BENCHING_CRATES_LINKING_C from build.sh
+# Function to extract RUST_EXCLUDE_CRATES from build.sh
 define get_rust_exclude_crates
-$(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
+$(shell grep "RUST_EXCLUDE_CRATES=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
 endef
 
 lint:
