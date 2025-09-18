@@ -362,6 +362,18 @@ const NumericFilter *IndexReader_NumericFilter(const struct IndexReader *ir);
  */
 void IndexReader_SwapIndex(struct IndexReader *ir, const struct InvertedIndex *ii);
 
+/**
+ * Revalidate the index reader against its inverted index. This is only needed if the inverted index
+ * has been modified since the last time the reader was used. The function returns true if the
+ * reader needs revalidation, false otherwise.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+bool IndexReader_Revalidate(const struct IndexReader *ir);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

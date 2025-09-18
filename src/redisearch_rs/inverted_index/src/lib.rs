@@ -957,6 +957,12 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader
         self.inner.reset();
     }
 
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
+    }
+
     /// Return the number of unique documents in the underlying index.
     pub fn unique_docs(&self) -> usize {
         self.inner.unique_docs()
@@ -1064,6 +1070,12 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
         self.inner.reset();
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
     }
 
     /// Return the number of unique documents in the underlying index.
@@ -1201,6 +1213,12 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
         self.inner.reset();
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.inner.needs_revalidation()
     }
 
     /// Return the number of unique documents in the underlying index.
