@@ -78,9 +78,10 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
  * in RediSearch query execution pipelines.
  *
  * @param index Pointer to the index
+ * @param weight Weight for the term (used in scoring)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index);
+QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight);
 
 // DocTable API wrappers
 

@@ -102,8 +102,7 @@ QueryIterator *NewWildcardIterator_Optimized(const RedisSearchCtx *sctx, double 
 // Otherwise, it will return a non-optimized wildcard iterator
 QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight) {
   if (q->sctx->spec->diskSpec) {
-    // TODO: Pass weight potentially
-    return SearchDisk_NewWildcardIterator(q->sctx->spec->diskSpec);
+    return SearchDisk_NewWildcardIterator(q->sctx->spec->diskSpec, weight);
   }
   if (q->sctx->spec->rule && q->sctx->spec->rule->index_all == true) { // LLAPI spec may not have a rule
     return NewWildcardIterator_Optimized(q->sctx, weight);

@@ -63,7 +63,7 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the index
    * @return Number of documents in the index
    */
-  QueryIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index);
+  QueryIterator* (*newWildcardIterator)(RedisSearchDiskIndexSpec *index, double weight);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

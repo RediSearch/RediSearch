@@ -60,9 +60,9 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
     return disk->index.newTermIterator(index, term, fieldMask, weight);
 }
 
-QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index) {
+QueryIterator* SearchDisk_NewWildcardIterator(RedisSearchDiskIndexSpec *index, double weight) {
     RS_ASSERT(disk && index);
-    return disk->index.newWildcardIterator(index);
+    return disk->index.newWildcardIterator(index, weight);
 }
 
 t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, const char *key, double score, uint32_t flags, uint32_t maxFreq) {
