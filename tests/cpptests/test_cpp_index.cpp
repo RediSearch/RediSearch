@@ -1261,66 +1261,53 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 102 bytes,
+  // created with INDEX_DEFAULT_FLAGS is 56 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 32
+  // sizeof InvertedIndex                 40
   // storing fieldmask on idx             16
-  // sizeof IndexBlock                    48
-  // initial block capacity                6
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(56, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(10, sz);
+  ASSERT_EQ(65, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(56, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(sz2, 0);
+  ASSERT_EQ(sz2, 52);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(56, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(19, InvertedIndex_WriteForwardIndexEntry(w, &h));
-  InvertedIndex_Free(w);
-
-  flags |= Index_WideSchema;
-  w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
-  ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
-  h.fieldMask = 0xffffffffffff;
-  sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(19, sz);
+  ASSERT_EQ(69, InvertedIndex_WriteForwardIndexEntry(w, &h));
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 86 bytes
+  // Index_StoreFieldFlags == 0 is 40 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 32
-  // sizeof IndexBlock                    48
-  // initial block capacity                6
-  ASSERT_EQ(86, index_memsize);
+  // sizeof InvertedIndex                 40
+  ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(0, sz);
+  ASSERT_EQ(51, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(102, index_memsize);
+  ASSERT_EQ(56, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h);
-  ASSERT_EQ(4, sz);
+  ASSERT_EQ(59, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
