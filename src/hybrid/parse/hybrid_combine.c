@@ -1,7 +1,109 @@
 #include "hybrid_callbacks.h"
 #include "hybrid/hybrid_scoring.h"
 #include "query_error.h"
+#include "util/arg_parser.h"
 #include <string.h>
+
+static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
+  // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
+  //        ^
+
+  // Variables to hold parsed values
+  double alphaValue = 0.0;
+  double betaValue = 0.0;
+
+  ArgsCursor linear;
+  int rc = AC_GetVarArgs(ac, &linear);
+  if (rc != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for LINEAR: %s", AC_Strerror(rc));
+    return;
+  }
+
+  // Create ArgParser for clean argument parsing
+  ArgParser *parser = ArgParser_New(&linear, "LINEAR");
+  if (!parser) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser");
+    return;
+  }
+
+  // Define the required arguments
+  ArgParser_AddDouble(parser, "ALPHA", "Alpha weight value", &alphaValue);
+  ArgParser_AddDouble(parser, "BETA", "Beta weight value", &betaValue);
+
+  // Parse the arguments
+  ArgParseResult result = ArgParser_Parse(parser);
+  if (!result.success) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
+    ArgParser_Free(parser);
+    return;
+  }
+
+  // Check that both required arguments were parsed
+  if (!ArgParser_WasParsed(parser, "ALPHA")) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for ALPHA");
+    ArgParser_Free(parser);
+    return;
+  }
+  if (!ArgParser_WasParsed(parser, "BETA")) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for BETA");
+    ArgParser_Free(parser);
+    return;
+  }
+
+  // Store the parsed values
+  linearCtx->linearWeights[0] = alphaValue;
+  linearCtx->linearWeights[1] = betaValue;
+
+  ArgParser_Free(parser);
+}
+
+static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError *status) {
+  // RRF CONSTANT 6 WINDOW 20 ...
+  //     ^
+
+  // Variables to hold parsed values
+  double constantValue = HYBRID_DEFAULT_RRF_CONSTANT;  // Default from hybrid_scoring.h
+  long long windowValue = HYBRID_DEFAULT_WINDOW;       // Default from hybrid_scoring.h
+
+  // Create ArgParser for clean argument parsing
+  ArgParser *parser = ArgParser_New(ac, "RRF");
+  if (!parser) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser");
+    return;
+  }
+
+  // Define the optional arguments with validation
+  ArgParser_AddDouble(parser, "CONSTANT", "RRF constant value (must be positive)", &constantValue);
+  ArgParser_AddLong(parser, "WINDOW", "RRF window size (must be positive)", &windowValue);
+
+  // Parse the arguments
+  ArgParseResult result = ArgParser_Parse(parser);
+  if (!result.success) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
+    ArgParser_Free(parser);
+    return;
+  }
+
+  // Validate the parsed values
+  if (ArgParser_WasParsed(parser, "CONSTANT") && constantValue <= 0) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF (must be positive)");
+    ArgParser_Free(parser);
+    return;
+  }
+
+  if (ArgParser_WasParsed(parser, "WINDOW") && windowValue <= 0) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Invalid WINDOW value in RRF (must be positive)");
+    ArgParser_Free(parser);
+    return;
+  }
+
+  // Store the parsed values
+  rrfCtx->constant = constantValue;
+  rrfCtx->window = (size_t)windowValue;
+  rrfCtx->hasExplicitWindow = ArgParser_WasParsed(parser, "WINDOW");
+
+  ArgParser_Free(parser);
+}
 
 // COMBINE callback - implements exact ParseCombine behavior from hybrid_args.c
 void handleCombine(ArgParser *parser, const void *value, void *user_data) {
@@ -22,60 +124,10 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
     }
 
     if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-        // Parse LINEAR weights
-        ArgsCursor weights = {0};
-        int rv = AC_GetVarArgs(ac, &weights);
-        if (rv != AC_OK) {
-            QueryError_SetError(status, QUERY_ESYNTAX, "LINEAR requires weight arguments");
-            return;
-        }
-
-        if (AC_NumArgs(&weights) != numWeights) {
-            QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "LINEAR requires exactly", " %zu weight values", numWeights);
-            return;
-        }
-
         combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
         combineCtx->linearCtx.numWeights = numWeights;
-
-        for (size_t i = 0; i < numWeights; i++) {
-            double weight;
-            if (AC_GetDouble(&weights, &weight, 0) != AC_OK || weight < 0) {
-                QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid weight value in LINEAR", " at weight #%zu", i);
-                rm_free(combineCtx->linearCtx.linearWeights);
-                combineCtx->linearCtx.linearWeights = NULL;
-                return;
-            }
-            combineCtx->linearCtx.linearWeights[i] = weight;
-        }
+        parseLinearClause(ac, &combineCtx->linearCtx, status);
     } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
-        // Parse RRF parameters
-        ArgsCursor params = {0};
-        int rv = AC_GetVarArgs(ac, &params);
-        if (rv == AC_OK) {
-            while (!AC_IsAtEnd(&params)) {
-                const char *paramName = AC_GetStringNC(&params, NULL);
-
-                if (strcasecmp(paramName, "CONSTANT") == 0) {
-                    double constant;
-                    if (AC_GetDouble(&params, &constant, 0) != AC_OK || constant <= 0) {
-                        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
-                        return;
-                    }
-                    combineCtx->rrfCtx.constant = constant;
-                } else if (strcasecmp(paramName, "WINDOW") == 0) {
-                    long long window;
-                    if (AC_GetLongLong(&params, &window, 0) != AC_OK || window <= 0) {
-                        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid WINDOW value in RRF");
-                        return;
-                    }
-                    combineCtx->rrfCtx.window = window;
-                    combineCtx->rrfCtx.hasExplicitWindow = true;
-                } else {
-                    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RRF", paramName);
-                    return;
-                }
-            }
-        }
+        parseRRFClause(ac, &combineCtx->rrfCtx, status);
     }
 }
