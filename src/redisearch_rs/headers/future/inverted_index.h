@@ -20,6 +20,14 @@
 typedef struct IndexBlock IndexBlock;
 
 /**
+ * An opaque inverted index reader structure. The actual implementation is determined at runtime
+ * based on the index type and filter provided when creating the reader. This allows us to have a
+ * single interface for all index reader types while still being able to optimize the storage
+ * and performance for each index reader type.
+ */
+typedef struct IndexReader IndexReader;
+
+/**
  * An opaque inverted index structure. The actual implementation is determined at runtime based on
  * the index flags provided when creating the index. This allows us to have a single interface for
  * all index types while still being able to optimize the storage and performance for each index
@@ -202,6 +210,157 @@ const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii,
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
 t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
+
+/**
+ * Create a new inverted index reader for the given inverted index and filter. The returned pointer
+ * must be freed using [`IndexReader_Free`] when no longer needed.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ *
+ * # Panics
+ * This function will panic if the provided filter is not compatible with the `InvertedIndex` type.
+ */
+struct IndexReader *NewIndexReader(const struct InvertedIndex *ii, IndexDecoderCtx ctx);
+
+/**
+ * Free the memory associated with an index reader instance created using [`NewIndexReader`].
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance created using
+ *   [`NewIndexReader`].
+ */
+void IndexReader_Free(struct IndexReader *ir);
+
+/**
+ * Reset the index reader to the beginning of the index.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+void IndexReader_Reset(struct IndexReader *ir);
+
+/**
+ * Get the estimated number of documents in the index reader.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+uintptr_t IndexReader_NumEstimated(const struct IndexReader *ir);
+
+/**
+ * Check if the index reader can read from the given inverted index. This is true if the index
+ * reader was created for the same type of index as the given inverted index.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ */
+bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedIndex *ii);
+
+/**
+ * Check if the index reader supports seeking to a specific document ID. This is true for all
+ * index reader types.
+ *
+ * # Safety
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+bool IndexReader_HasSeeker(const struct IndexReader *_ir);
+
+/**
+ * Advance the index reader to the next entry in the index. If there is a next entry, it will be
+ * written to the output parameter `res` and the function will return true. If there are no more
+ * entries, the function will return false.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `res` must be a valid pointer to an `RSIndexResult` instance.
+ */
+bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
+
+/**
+ * Skip the internal block of the inverted index reader to the block that may contain the given
+ * document ID. If such a block exists, the function returns true and the next call to
+ * `IndexReader_Seek` will return the entry for the given document ID or the next higher document
+ * ID. If the document ID is beyond the last document in the index, the function returns false.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
+
+/**
+ * Seek the index reader to the entry with the given document ID. If such an entry exists, it will be
+ * written to the output parameter `res` and the function will return true. If there is no entry
+ * with the given document ID, but there are entries with higher document IDs, the next higher
+ * entry will be written to `res` and the function will return true. If there are no more entries
+ * with document IDs greater than or equal to the given document ID, the function will return false.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `res` must be a valid pointer to an `RSIndexResult` instance.
+ */
+bool IndexReader_Seek(struct IndexReader *ir,
+                      t_docId doc_id,
+                      RSIndexResult *res);
+
+/**
+ * Check if the index reader can return multiple entries for the same document ID.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+bool IndexReader_HasMulti(const struct IndexReader *ir);
+
+/**
+ * Get the flags used to create the inverted index of the reader.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+IndexFlags IndexReader_Flags(const struct IndexReader *ir);
+
+/**
+ * Get a pointer to the numeric filter used by the index reader. If the index reader does not use
+ * a numeric filter, the function will return NULL.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ */
+const NumericFilter *IndexReader_NumericFilter(const struct IndexReader *ir);
+
+/**
+ * Swap the inverted index of the reader with the given inverted index. This is only used by some
+ * C tests to trigger revalidation on the reader.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ */
+void IndexReader_SwapIndex(struct IndexReader *ir, const struct InvertedIndex *ii);
 
 #ifdef __cplusplus
 }  // extern "C"
