@@ -1184,6 +1184,10 @@ def test_cluster_query_controller_pause_and_resume():
 
     conn = getConnectionByEnv(env)
 
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
     n_docs_per_shard = 100
     # Enough docs to make sure we have results from all shards
     n_docs = n_docs_per_shard * env.shardsCount
@@ -1191,12 +1195,6 @@ def test_cluster_query_controller_pause_and_resume():
         res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
         env.assertEqual(res, 1)
 
-    # Create index
-    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-    env.assertEqual(res, 'OK')
-
-    # Wait until index scan completes to prevent contention on the spec lock
-    allShards_waitForIndexFinishScan(env, 'idx')
 
     # Helper to call a function and push its return value into a list
     def _call_and_store(fn, args, out_list):
@@ -1243,3 +1241,51 @@ def test_cluster_query_controller_pause_and_resume():
             env.assertEqual(query_result[0][0], n_docs)
         else:
             env.assertEqual(len(query_result[0]) - 1, n_docs)
+
+@skip(cluster=False)
+def test_cluster_query_controller_pause_and_resume_coord(env):
+
+    conn = getConnectionByEnv(env)
+
+    # Create index
+    res = conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
+    env.assertEqual(res, 'OK')
+
+    n_docs_per_shard = 100
+    # Enough docs to make sure we have results from all shards
+    n_docs = n_docs_per_shard * env.shardsCount
+    for i in range(n_docs):
+        res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
+        env.assertEqual(res, 1)
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    # We need to call the queries in MT so the paused query won't block the test
+    query_result = []
+
+    # Build threads
+    query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t']
+
+    t_query = threading.Thread(
+        target=_call_and_store,
+        args=(runDebugQueryCommandPauseBeforeRPAfterN,
+            (env, query_args, 'Network', 0),
+            query_result),
+        daemon=True
+    )
+
+    # Start the query and the pause-check in parallel
+    t_query.start()
+
+    # Wait for the coordinator to be paused
+    while getIsRPPaused(env) != 1:
+        time.sleep(0.1)
+
+    # Resume the coordinator
+    setPauseRPResume(env)
+
+    t_query.join()
+
+    env.assertEqual(len(query_result[0]) - 1, n_docs)
