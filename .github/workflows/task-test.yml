@@ -182,7 +182,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-          SVS_PRE_COMPILED_LIB: 1
+          BUILD_INTEL_SVS_OPT: 1
         run: make build TESTS=1
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}

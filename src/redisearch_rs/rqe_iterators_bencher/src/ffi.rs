@@ -159,6 +159,8 @@ impl QueryIterator {
 }
 
 #[cfg(test)]
+// `miri` can't handle FFI.
+#[cfg(not(miri))]
 mod tests {
     use super::*;
     use bindings::{IteratorStatus_ITERATOR_EOF, ValidateStatus_VALIDATE_OK};

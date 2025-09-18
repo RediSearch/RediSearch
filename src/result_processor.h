@@ -102,7 +102,7 @@ typedef struct QueryProcessingCtx {
   QueryError *err;
 
   bool isProfile;
-  RSFailurePolicy timeoutPolicy;
+  RSTimeoutPolicy timeoutPolicy;
 } QueryProcessingCtx;
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
