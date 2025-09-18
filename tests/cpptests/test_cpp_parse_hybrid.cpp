@@ -739,13 +739,13 @@ TEST_F(ParseHybridTest, testKNNMissingArgumentCount) {
 TEST_F(ParseHybridTest, testVsimKNNOddParamCount) {
   // Test KNN with count=1 (odd count, missing K value)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "1", "K", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Invalid argument count");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count");
 }
 
 TEST_F(ParseHybridTest, testKNNZeroArgumentCount) {
   // Test KNN with zero argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "0");
-  testErrorCode(args, QUERY_EPARSEARGS, "Invalid argument count");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count");
 }
 
 TEST_F(ParseHybridTest, testVsimSubqueryMissingK) {
@@ -813,13 +813,13 @@ TEST_F(ParseHybridTest, testRangeMissingArgumentCount) {
 TEST_F(ParseHybridTest, testVsimRangeOddParamCount) {
   // Test RANGE with count=3 (odd count, missing EPSILON value)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "3", "RADIUS", "0.5", "EPSILON", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "Invalid argument count");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count: 3 (must be a positive even number for key/value pairs)");
 }
 
 TEST_F(ParseHybridTest, testRangeZeroArgumentCount) {
   // Test RANGE with zero argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "0");
-  testErrorCode(args, QUERY_EPARSEARGS, "Invalid argument count");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count: 0 (must be a positive even number for key/value pairs)");
 }
 
 TEST_F(ParseHybridTest, testRangeInvalidRadiusValue) {
@@ -920,7 +920,7 @@ TEST_F(ParseHybridTest, testLinearPartialWeightsBeta) {
 
 TEST_F(ParseHybridTest, testLinearNegativeArgumentCount) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "-2", "ALPHA", "0.6", "BETA", "0.4");
-  testErrorCode(args, QUERY_ESYNTAX, "Argument count requires a non negative integer: but -2 was given");
+  testErrorCode(args, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingArgumentCount) {

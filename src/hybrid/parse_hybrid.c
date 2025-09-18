@@ -32,9 +32,9 @@
 #include "hybrid/hybrid_request.h"
 
 // Helper function to set error message with proper plural vs singular form
-static void setExpectedArgumentsError(QueryError *status, long long expected, int provided) {
+static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
   const char *verb = (provided == 1) ? "was" : "were";
-  QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected arguments", " %lld, but %d %s provided", expected, provided, verb);
+  QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected arguments", " %u, but %d %s provided", expected, provided, verb);
 }
 
 // Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing argument
@@ -114,21 +114,21 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
     return REDISMODULE_ERR;
   }
   // Try to get number of arguments
-  long long argument_count;
-  if (AC_GetLongLong(ac, &argument_count, 0) != AC_OK ) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Invalid argument count");
+  unsigned int argumentCount;
+  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
     return REDISMODULE_ERR;
-  } else if (argument_count == 0 || argument_count % 2 != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count");
+  } else if (argumentCount == 0 || argumentCount % 2 != 0) {
+    QueryError_SetError(status, QUERY_ESYNTAX, "Invalid argument count");
     return REDISMODULE_ERR;
   }
 
   bool hasEF = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<argument_count; i+=2) {
+  for (int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
-      setExpectedArgumentsError(status, argument_count, i);
+      setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
     }
 
@@ -203,12 +203,12 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
     return REDISMODULE_ERR;
   }
   // Try to get number of arguments
-  long long argument_count;
-  if (AC_GetLongLong(ac, &argument_count, 0) != AC_OK ) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Invalid argument count");
+  unsigned int argumentCount;
+  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
     return REDISMODULE_ERR;
-  } else if (argument_count == 0 || argument_count % 2 != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count");
+  } else if (argumentCount == 0 || argumentCount % 2 != 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
     return REDISMODULE_ERR;
   }
 
@@ -216,9 +216,9 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   bool hasEpsilon = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<argument_count; i+=2) {
+  for (int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
-      setExpectedArgumentsError(status, argument_count, i);
+      setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
     }
 
@@ -288,29 +288,25 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 static int parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
   // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
   //        ^
-  long long argument_count;
+  unsigned int argumentCount;
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument count");
     return REDISMODULE_ERR;
   }
-  if (AC_GetLongLong(ac, &argument_count, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count");
+  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
     return REDISMODULE_ERR;
-  }
-  else if (argument_count < 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Argument count requires a non negative integer", ": but %lld was given", argument_count);
-    return REDISMODULE_ERR;
-  } else if (argument_count == 0 || argument_count % 2 != 0) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Invalid argument count");
+  } else if (argumentCount == 0 || argumentCount % 2 != 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
     return REDISMODULE_ERR;
   }
 
   bool hasAlpha = false;
   bool hasBeta = false;
 
-  for (int i=0; i<argument_count; i+=2) {
+  for (int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
-      setExpectedArgumentsError(status, argument_count, i);
+      setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
     }
     if (AC_AdvanceIfMatch(ac, "ALPHA")) {
