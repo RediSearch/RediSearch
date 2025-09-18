@@ -12,7 +12,7 @@
 use std::time::Duration;
 
 use criterion::{
-    BenchmarkGroup, Criterion,
+    BenchmarkGroup, BenchmarkId, Criterion,
     measurement::{Measurement, WallTime},
 };
 use rqe_iterators::{RQEIterator, wildcard::Wildcard};
@@ -46,7 +46,8 @@ impl Bencher {
 
         // Edge cases and patterns
         self.edge_cases(c);
-        self.skip_patterns(c);
+        self.variable_steps(c);
+        self.random_access(c);
     }
 
     fn rust_read_large_range<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>) {
@@ -172,49 +173,63 @@ impl Bencher {
         group.finish();
     }
 
-    fn skip_patterns(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Skip Patterns");
+    fn variable_steps(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Variable Steps");
+        let steps = [1, 10, 100, 1000];
 
-        // Variable step sizes
-        group.bench_function("Variable Steps", |b| {
-            let steps = [1, 10, 100, 1000];
+        for &step in &steps {
+            self.rust_variable_steps(&mut group, step);
+        }
+
+        group.finish();
+    }
+
+    fn rust_variable_steps<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, step: u64) {
+        group.bench_function(BenchmarkId::new("Rust", format!("Step: {}", step)), |b| {
             b.iter_batched_ref(
                 || Wildcard::new(100_000),
                 |it| {
-                    for &step in &steps {
-                        let mut count = 0;
-                        it.rewind();
-                        while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
-                            criterion::black_box(current);
-                            count += 1;
-                            if count >= 1000 {
-                                // Limit to avoid timeout
-                                break;
-                            }
+                    let mut count = 0;
+                    while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + step) {
+                        criterion::black_box(current);
+                        count += 1;
+                        if count >= 1000 {
+                            // Limit to avoid timeout
+                            break;
                         }
                     }
                 },
                 criterion::BatchSize::SmallInput,
             );
         });
+    }
 
-        // Random access pattern
-        group.bench_function("Random Access", |b| {
-            let targets = [1, 50000, 25000, 75000, 10000, 90000, 5000, 95000];
-            b.iter_batched_ref(
-                || Wildcard::new(100_000),
-                |it| {
-                    for &target in &targets {
+    fn random_access(&self, c: &mut Criterion) {
+        let mut group = self.benchmark_group(c, "Iterator - Wildcard - Random Access");
+        let targets = [1, 50000, 25000, 75000, 10000, 90000, 5000, 95000];
+
+        for &target in &targets {
+            self.rust_random_access(&mut group, target);
+        }
+
+        group.finish();
+    }
+
+    fn rust_random_access<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, target: u64) {
+        group.bench_function(
+            BenchmarkId::new("Rust", format!("Target: {}", target)),
+            |b| {
+                b.iter_batched_ref(
+                    || Wildcard::new(100_000),
+                    |it| {
                         if let Ok(Some(current)) = it.skip_to(target) {
                             criterion::black_box(current);
                         }
-                    }
-                },
-                criterion::BatchSize::SmallInput,
-            );
-        });
-
-        group.finish();
+                    },
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
     }
 
     // ===== DIRECT C BENCHMARKS (NO FFI OVERHEAD) =====

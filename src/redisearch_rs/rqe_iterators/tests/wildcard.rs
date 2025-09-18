@@ -7,9 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::{
-    RQEIterator, RQEIteratorError, SkipToOutcome, wildcard::Wildcard,
-};
+use rqe_iterators::{RQEIterator, RQEIteratorError, SkipToOutcome, wildcard::Wildcard};
 
 mod c_mocks;
 
