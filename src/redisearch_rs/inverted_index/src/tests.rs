@@ -17,7 +17,6 @@ use crate::{
     DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
     FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, InvertedIndex, NumericFilter,
     RSAggregateResult, RSIndexResult, RSResultData, RSResultKind, RSTermRecord,
-    SkipDuplicatesReader,
     debug::{BlockSummary, Summary},
 };
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
@@ -814,28 +813,6 @@ fn reader_is_index() {
 }
 
 #[test]
-fn read_skipping_over_duplicates() {
-    // Make an iterator where the first two entries have the same doc ID and the third one is different
-    let iter = vec![
-        RSIndexResult::virt().doc_id(10).weight(2.0),
-        RSIndexResult::virt().doc_id(10).weight(5.0),
-        RSIndexResult::virt().doc_id(11),
-    ];
-
-    let reader = SkipDuplicatesReader::new(iter.into_iter());
-    let records = reader.collect::<Vec<_>>();
-
-    assert_eq!(
-        records,
-        vec![
-            RSIndexResult::virt().doc_id(10).weight(2.0),
-            RSIndexResult::virt().doc_id(11),
-        ],
-        "should skip duplicates"
-    );
-}
-
-#[test]
 fn reading_filter_based_on_field_mask() {
     // Make an iterator with three records having different field masks. The second record will be
     // filtered out based on the field mask.
@@ -879,7 +856,7 @@ fn reading_filter_based_on_numeric_filter() {
         offset: 0,
     };
 
-    let reader = FilterNumericReader::new(filter, iter.into_iter());
+    let reader = FilterNumericReader::new(&filter, iter.into_iter());
     let records = reader.collect::<Vec<_>>();
 
     assert_eq!(
@@ -914,13 +891,25 @@ fn reading_filter_based_on_geo_filter() {
         RSIndexResult::numeric(25.0).doc_id(12),
     ];
 
-    let filter = GeoFilter {
+    let geo_filter = GeoFilter {
         fieldSpec: ptr::null(),
         lat: 0.0,
         lon: 0.0,
         radius: 20.0,
         unitType: GeoDistance_GEO_DISTANCE_M,
         numericFilters: ptr::null_mut(),
+    };
+
+    let filter = NumericFilter {
+        min: 0.0,
+        max: 0.0,
+        min_inclusive: false,
+        max_inclusive: false,
+        field_spec: ptr::null(),
+        geo_filter: &geo_filter as *const _ as *const _,
+        ascending: true,
+        limit: 0,
+        offset: 0,
     };
 
     let reader = FilterGeoReader::new(&filter, iter.into_iter());

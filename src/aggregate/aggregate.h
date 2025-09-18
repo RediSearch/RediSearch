@@ -165,7 +165,7 @@ typedef struct AREQ {
   unsigned int dialectVersion;
   // Query timeout in milliseconds
   long long reqTimeout;
-  RSFailurePolicy timeoutPolicy;
+  RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
   uint64_t BM25STD_TanhFactor;
