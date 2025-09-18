@@ -74,17 +74,57 @@ impl ResultProcessor for ResultRP {
     }
 }
 
+/// A mock result processor of a fixed type, that just calls it's upstream's `next`.
+pub struct MockResultProcessor<const TYPE: ffi::ResultProcessorType>;
+
+impl<const RP_TYPE: ffi::ResultProcessorType> MockResultProcessor<RP_TYPE> {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for MockResultProcessor<RP_TYPE> {
+    const TYPE: ffi::ResultProcessorType = RP_TYPE;
+
+    fn next(&mut self, mut cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+        let Some(mut upstream) = cx.upstream() else {
+            return Ok(None);
+        };
+
+        upstream.next(res)
+    }
+}
+
 /// A mock implementation of the "result processor chain" part of the `QueryIterator`
 ///
 /// It acts as an owning collection of linked result processors.
 pub struct Chain {
     result_processors: Vec<NonNull<crate::Header>>,
+    query_processing_context: Pin<Box<ffi::QueryProcessingCtx>>,
 }
 
 impl Chain {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
+        let query_processing_context = ffi::QueryProcessingCtx {
+            rootProc: ptr::null_mut(),
+            endProc: ptr::null_mut(),
+            sctx: ptr::null_mut(),
+            initTime: ffi::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            GILTime: 0,
+            minScore: 0.0,
+            totalResults: 0,
+            resultLimit: 0,
+            err: ptr::null_mut(),
+            isProfile: false,
+            timeoutPolicy: 0,
+        };
+
         Self {
             result_processors: Vec::new(),
+            query_processing_context: Box::pin(query_processing_context),
         }
     }
 
@@ -95,6 +135,7 @@ impl Chain {
         P: ResultProcessor + 'static,
     {
         let mut result_processor = ResultProcessorWrapper::new(result_processor);
+        result_processor.header.parent = &raw mut *self.query_processing_context;
 
         if let Some(upstream) = self.result_processors.last() {
             result_processor.header.upstream = upstream.as_ptr();
@@ -102,9 +143,19 @@ impl Chain {
 
         // Safety: We treat this pointer as pinned and never hand out mutable references that would allow
         // moving out of the type.
-        let ptr = unsafe { ResultProcessorWrapper::into_ptr(Box::pin(result_processor)).cast() };
+        let header_ptr: NonNull<crate::Header> =
+            unsafe { ResultProcessorWrapper::into_ptr(Box::pin(result_processor)).cast() };
 
-        self.result_processors.push(ptr);
+        // Safety: ResultProcessorWrapper's layout is compatible with ffi::ResultProcessor.
+        let result_processor_ptr: *mut ffi::ResultProcessor = unsafe { header_ptr.cast().as_mut() };
+
+        // Safety: this pointer was created in Self::new, and is convertible to a reference.
+        if self.query_processing_context.as_ref().rootProc.is_null() {
+            self.query_processing_context.as_mut().rootProc = result_processor_ptr;
+        }
+        self.query_processing_context.as_mut().endProc = result_processor_ptr;
+
+        self.result_processors.push(header_ptr);
     }
 
     /// Append a new result processor at the end of the chain. It will have its `upstream`
@@ -121,6 +172,10 @@ impl Chain {
         }
 
         self.result_processors.push(result_processor);
+
+        // Safety: Header's layout is compatible with ffi::ResultProcessor.
+        self.query_processing_context.as_mut().endProc =
+            unsafe { result_processor.cast().as_mut() };
     }
 
     /// Return a raw `NonNull` ptr to the last result processor in the chain
