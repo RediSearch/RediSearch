@@ -135,8 +135,7 @@ impl Chain {
         P: ResultProcessor + 'static,
     {
         let mut result_processor = ResultProcessorWrapper::new(result_processor);
-        let query_processing_context_ptr: *mut ffi::QueryProcessingCtx =
-            &*self.query_processing_context as *const _ as *mut _;
+        let query_processing_context_ptr = &raw mut *self.query_processing_context;
 
         if let Some(upstream) = self.result_processors.last() {
             result_processor.header.upstream = upstream.as_ptr();
