@@ -1651,7 +1651,7 @@ static inline void RPDepleter_StartDepletionThread(RPDepleter *self) {
 // Can only succeed once, if called after RE_RESULT_OK was returned an error will be returned
 // Waits for all the depletion threads to take a read lock
 // After all of them took a lock it will release its own read lock which was previously obtained in the main query thread
-// This ensures all the depleters see a consistend index state across the board for their lifetime
+// This ensures all the depleters see a consistent index state across the board for their lifetime
 static inline int RPDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *nextThreadCtx) {
   if (sync->take_index_lock && !sync->index_released) {
     // Load the atomic counter
