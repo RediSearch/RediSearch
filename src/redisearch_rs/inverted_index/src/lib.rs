@@ -703,6 +703,11 @@ pub struct IndexReader<'index, E, D> {
     /// The last document ID that was read from the index. This is used to determine the base
     /// document ID for delta calculations.
     last_doc_id: t_docId,
+
+    /// The marker of the inverted index when this reader last read from it. This is used to
+    /// detect if the index has been modified since the last read, in which case the reader
+    /// should be reset.
+    gc_marker: usize,
 }
 
 impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> Iterator for IndexReader<'index, E, D> {
@@ -740,6 +745,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
             current_buffer: Cursor::new(&first_block.buffer),
             current_block_idx: 0,
             last_doc_id: first_block.first_doc_id,
+            gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
         }
     }
 
@@ -822,6 +828,13 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
     /// Reset the reader to the beginning of the index.
     pub fn reset(&mut self) {
         self.set_current_block(0);
+        self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
+    }
+
+    /// Check if the underlying index has been modified since the last time this reader read from it.
+    /// If it has, then the reader should be reset before reading from it again.
+    pub fn needs_revalidation(&self) -> bool {
+        self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed)
     }
 
     /// Return the number of unique documents in the underlying index.

@@ -11,6 +11,7 @@ use core::panic;
 use std::{
     io::{Cursor, Read},
     ptr,
+    sync::atomic,
 };
 
 use crate::{
@@ -701,13 +702,31 @@ fn reader_reset() {
     assert_eq!(record, RSIndexResult::virt().doc_id(11));
     drop(record);
 
+    assert_eq!(ir.gc_marker, 0);
+    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+
     ir.reset();
+
+    assert_eq!(ir.gc_marker, 1);
 
     let record = ir
         .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
+}
+
+#[test]
+fn reader_needs_revalidation() {
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+
+    let ir = ii.reader();
+
+    assert!(!ir.needs_revalidation(), "index was not modified yet");
+
+    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+    assert!(ir.needs_revalidation(), "index was modified");
 }
 
 #[test]
