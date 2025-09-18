@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .iter()
     .map(|h| root.join("src").join("iterators").join(h))
     .collect::<Vec<_>>();
-    generate_c_bindings(headers, ".*/iterators/.*.h")?;
+    generate_c_bindings(headers, ".*/iterators/.*.h", true)?;
 
     Ok(())
 }
