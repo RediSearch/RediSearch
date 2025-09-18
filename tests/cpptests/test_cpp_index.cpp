@@ -410,14 +410,10 @@ TEST_F(IndexTest, testNumericInverted) {
   size_t expected_sz = 0;
   size_t written_bytes = 0;
   size_t bytes_per_entry = 0;
-  size_t buff_cap = 6; // Initial block capacity
-  size_t available_size = 6; // Nothing is used in the block yet
+  size_t buff_cap = 0; // Initial block capacity
 
   for (int i = 0; i < 75; i++) {
-    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
-    ASSERT_TRUE(sz == expected_sz);
-
-    // The buffer has an initial capacity of 6 bytes
+    // The buffer has an initial capacity of 0 bytes
     // For values < 7 (tiny numbers) the header (H) and value (V) will occupy
     // only 1 byte.
     // For values >= 7, the header will occupy 1 byte, and the value 1 bytes.
@@ -425,41 +421,51 @@ TEST_F(IndexTest, testNumericInverted) {
     // The delta will occupy 1 byte.
     // The first entry has zero delta, so it will not be written.
     //
-    // For the first 3 entries, the buffer will not grow, and sz = 0,
-    // after that, the sz be greater than zero when the buffer grows.
     // The buffer will grow when there is not enough space to write the entry
     //
     // The number of bytes added to the capacity is defined by the formula:
-    // MIN(1 + buf->cap / 5, 1024 * 1024)  (see buffer.c Buffer_Grow())
+    // MIN(1 + buf.cap / 5, 1024 * 1024)  (see controlled_cursor.rs reserve_and_pad())
     //
     //   | H + V | Delta | Bytes     | Written  | Buff cap | Available | sz
     // i | bytes | bytes | per Entry | bytes    |          | size      |
     // ----------------------------------------------------------------------
-    // 0 | 1     | 0     | 1         |  1       |  6       | 5         | 0
-    // 1 | 1     | 1     | 2         |  3       |  6       | 3         | 0
-    // 2 | 1     | 1     | 2         |  5       |  6       | 1         | 0
-    // 3 | 1     | 1     | 2         |  7       |  8       | 1         | 2
-    // 4 | 1     | 1     | 2         |  9       | 10       | 1         | 2
-    // 5 | 1     | 1     | 2         | 11       | 13       | 2         | 3
-    // 6 | 1     | 1     | 2         | 13       | 16       | 3         | 0
-    // 7 | 2     | 1     | 3         | 16       | 16       | 0         | 3
-    // 8 | 2     | 1     | 3         | 19       | 20       | 1         | 4
-    // 9 | 2     | 1     | 3         | 19       | 25       | 1         | 5
+    // 0 | 1     | 0     | 1         |  1       |  1       | 0         | 1
+    // 1 | 1     | 1     | 2         |  3       |  3       | 0         | 2
+    // 2 | 1     | 1     | 2         |  5       |  5       | 0         | 2
+    // 3 | 1     | 1     | 2         |  7       |  7       | 0         | 2
+    // 4 | 1     | 1     | 2         |  9       |  9       | 0         | 2
+    // 5 | 1     | 1     | 2         | 11       | 11       | 0         | 2
+    // 6 | 1     | 1     | 2         | 13       | 14       | 1         | 3
+    // 7 | 2     | 1     | 3         | 16       | 17       | 1         | 3
+    // 8 | 2     | 1     | 3         | 19       | 21       | 2         | 4
+    // 9 | 2     | 1     | 3         | 22       | 26       | 4         | 5
 
-    if(i < 7) {
-      bytes_per_entry = 1 + (i > 0);
+    if (i < 1) {
+      bytes_per_entry = 1;
+    } else if (i < 7) {
+      bytes_per_entry = 2;
     } else {
       bytes_per_entry = 3;
     }
 
     // Simulate the buffer growth to get the expected size
     written_bytes += bytes_per_entry;
-    if(buff_cap < written_bytes || buff_cap - written_bytes < bytes_per_entry) {
-      expected_sz = MIN(1 + buff_cap / 5, 1024 * 1024);
-    } else {
-      expected_sz = 0;
+    size_t target_cap = buff_cap;
+    while (target_cap < written_bytes) {
+      target_cap += MIN(1 + target_cap / 5, 1024 * 1024);
     }
-    buff_cap += expected_sz;
+
+    expected_sz = target_cap - buff_cap;
+    buff_cap = target_cap;
+
+    // The first write will make an index block of 48 bytes
+    if (i < 1) {
+      expected_sz += 48;
+    }
+
+    // Check if the write matches the simulation
+    sz = InvertedIndex_WriteNumericEntry(idx, i + 1, (double)(i + 1));
+    ASSERT_EQ(sz, expected_sz) << " at i=" << i;
   }
   ASSERT_EQ(75, InvertedIndex_LastId(idx));
 
