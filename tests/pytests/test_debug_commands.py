@@ -1202,15 +1202,21 @@ def test_cluster_query_controller_pause_and_resume():
     def _call_and_store(fn, args, out_list):
         out_list.append(fn(*args))
 
-    for query_type in ['FT.SEARCH']:
+    for query_type in ['FT.SEARCH', 'FT.AGGREGATE']:
         # We need to call the queries in MT so the paused query won't block the test
         query_result = []
 
         # Build threads
+        query_args = [query_type, 'idx', '*']
+        if query_type == 'FT.AGGREGATE':
+            query_args.append('LOAD')
+            query_args.append(1)
+            query_args.append('@t')
+
         t_query = threading.Thread(
             target=_call_and_store,
             args=(runDebugQueryCommandPauseBeforeRPAfterN,
-                (env, [query_type, 'idx', '*'], 'Index', 0),
+                (env, query_args, 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
                 query_result),
             daemon=True
         )
@@ -1233,4 +1239,7 @@ def test_cluster_query_controller_pause_and_resume():
 
         t_query.join()
 
-        env.assertEqual(query_result[0][0], n_docs)
+        if query_type == 'FT.SEARCH':
+            env.assertEqual(query_result[0][0], n_docs)
+        else:
+            env.assertEqual(len(query_result[0]) - 1, n_docs)

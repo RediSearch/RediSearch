@@ -99,10 +99,10 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     PipelineAddCrash(&debug_req->r);
   }
 
-  // Error handling: Verify internal_only is used with timeout
-  if (internal_only && !AC_IsInitialized(&timeoutArgs)) {
+  // Error handling: Verify internal_only is not used with CRASH
+  if (internal_only && crash) {
     QueryError_SetError(status, QUERY_EPARSEARGS,
-                        "INTERNAL_ONLY must be used with TIMEOUT_AFTER_N");
+                        "INTERNAL_ONLY is not supported with CRASH");
     return REDISMODULE_ERR;
   }
 
@@ -141,6 +141,15 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   // Handle pause before/after RP after N (contains the same logic)
   // Args order: RP_TYPE, N
   if (AC_IsInitialized(&pauseAfterArgs) || AC_IsInitialized(&pauseBeforeArgs)) {
+
+    // In FT.AGGREGATE - Check if INTERNAL_ONLY is set
+    // If it is set - if we are in a cluster coordinator - do nothing
+    // If it is not set - if we are not cluster coordinator - do nothing
+    // This can be checked by comparing isClusterCoord(debug_req) and internal_only
+    if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
+          isClusterCoord(debug_req) == internal_only) {
+      return REDISMODULE_OK;
+    }
 
     bool before = AC_IsInitialized(&pauseBeforeArgs);
     ArgsCursor *pauseArgs = before ? &pauseBeforeArgs : &pauseAfterArgs;
