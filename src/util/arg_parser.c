@@ -34,7 +34,6 @@ ArgParser *ArgParser_New(ArgsCursor *cursor, const char *command_name) {
     parser->error_buffer = NULL;
 
     if (!parser->definitions) {
-        if (parser->definitions) array_free(parser->definitions);
         rm_free((void*)parser->command_name);
         rm_free(parser);
         return NULL;
@@ -43,12 +42,7 @@ ArgParser *ArgParser_New(ArgsCursor *cursor, const char *command_name) {
     // Skip the first argument if it matches the command name
     // This handles cases where the cursor includes the command name as the first argument
     if (cursor && !AC_IsAtEnd(cursor) && command_name) {
-        const char *first_arg;
-        if (AC_GetString(cursor, &first_arg, NULL, AC_F_NOADVANCE) == AC_OK) {
-            if (strcasecmp(first_arg, command_name) == 0) {
-                AC_Advance(cursor);  // Skip the command name
-            }
-        }
+        AC_AdvanceIfMatch(cursor, command_name);
     }
 
     return parser;
