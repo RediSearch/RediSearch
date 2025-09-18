@@ -1805,22 +1805,21 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
     usleep(1000);
   }
 
-  size_t numDone = 0;
-  while (numDone < count) {
+  for (size_t numDone = 0; numDone < count; ) {
     pthread_mutex_lock(&sync->mutex);
     for (size_t i = 0; i < count; i++) {
       RPDepleter *depleter = (RPDepleter*)depleters[i];
-      if (depleter->done_depleting) {
+      // Can't rely on done_depleting since it is set by thread and it doesn't change its own Next function
+      // This way the behaviour is more predictable
+      if (depleter->base.Next == RPDepleter_Next_Yield) {
         continue;
       }
-      // This is the only function which can turn on the done_depleting flag
-      // Will internally wait on a condition variable until the depleter finishes running
+      // Will internally wait on a condition variable until the depleter finishes depleting
       if (RPDepleter_WaitForDepletionToComplete(depleter, sync) == RS_RESULT_OK) {
         ++numDone;
       }
     }
     pthread_mutex_unlock(&sync->mutex);
-
     // Only sleep if we haven't completed all depleters
     if (numDone < count) {
       usleep(1000);

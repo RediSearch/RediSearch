@@ -408,8 +408,6 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }    
     replyWithCursors(replyCtx, cursors);
     array_free(cursors);
-    // Free the depleters array only on success
-    array_free(depleters);
     return REDISMODULE_OK;
 }
 
