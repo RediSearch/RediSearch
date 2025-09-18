@@ -2034,6 +2034,14 @@ static void IndexSpec_InitLock(IndexSpec *sp) {
   pthread_rwlock_init(&sp->rwlock, &attr);
 }
 
+// Helper function for initializing a field spec
+static void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index) {
+  fs->index = index;
+  fs->indexError = IndexError_Init();
+}
+
+// Helper function for initializing an index spec
+// Solves issues where a field is initialized in index creation but not when loading from RDB
 static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFlags flags,
                                 int16_t numFields) {
   sp->flags = flags;
@@ -2064,11 +2072,16 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
 
   IndexSpec_InitLock(sp);
+  // First, initialise fields IndexError for every field
+  // In the RDB flow if some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
+  for (t_fieldIndex i = 0; i < sp->numFields; i++) {
+    initializeFieldSpec(sp->fields + i, i);
+  }
 }
 
 IndexSpec *NewIndexSpec(const HiddenString *name) {
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
-  initializeIndexSpec(sp, name, INDEX_DEFAULT_FLAGS, SPEC_MAX_FIELDS);
+  initializeIndexSpec(sp, name, INDEX_DEFAULT_FLAGS, 0);
   sp->stopwords = DefaultStopWordList();
   return sp;
 }
@@ -2081,7 +2094,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   sp->fields = fields;
   FieldSpec *fs = sp->fields + sp->numFields;
   memset(fs, 0, sizeof(*fs));
-  fs->index = sp->numFields++;
+  initializeFieldSpec(fs, sp->numFields);
+  ++sp->numFields;
   fs->fieldName = NewHiddenString(name, strlen(name), true);
   fs->fieldPath = (path) ? NewHiddenString(path, strlen(path), true) : fs->fieldName;
   fs->ftId = RS_INVALID_FIELD_ID;
@@ -2100,7 +2114,6 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
         break;
     }
   }
-  fs->indexError = IndexError_Init();
   return fs;
 }
 
@@ -2934,15 +2947,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   initializeIndexSpec(sp, specName, flags, numFields);
 
   IndexSpec_MakeKeyless(sp);
-
-  // First, initialise fields IndexError before loading them.
-  // If some fields are not loaded correctly, we will free the spec and attempt to cleanup all the fields.
-  for (int i = 0; i < sp->numFields; i++) {
-    sp->fields[i].indexError = IndexError_Init();
-  }
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    fs->index = i;
     if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver) != REDISMODULE_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Failed to load index field", " %d", i);
       goto cleanup;
@@ -3077,9 +3083,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   int maxSortIdx = -1;
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
-    fs->indexError = IndexError_Init(); // Must be initialized in all fields before attempting to free the spec
-    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);
-    sp->fields[i].index = i;
+    initializeFieldSpec(fs, i);
+    FieldSpec_RdbLoad(rdb, fs, spec_ref, encver);    
     if (FieldSpec_IsSortable(fs)) {
       sp->numSortableFields++;
     }
