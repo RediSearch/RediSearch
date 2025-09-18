@@ -37,10 +37,10 @@ fn test_insert() -> Result<(), IndexOutOfBounds> {
 
     assert_eq!(vector[0].as_num(), Some(42.0));
     assert_eq!(vector[0].get_type(), ffi::RSValueType_RSValueType_Number);
-    assert_eq!(vector[1].as_str(), Some("abcdefg"));
+    assert_eq!(vector[1].as_str_bytes(), Some("abcdefg".as_bytes()));
     assert_eq!(vector[1].get_type(), ffi::RSValueType_RSValueType_String);
     assert_eq!(vector[2].get_ref().unwrap().as_num(), Some(3.0));
-    assert_eq!(vector[3].as_str(), Some("hello world")); // we normalize --> lowercase
+    assert_eq!(vector[3].as_str_bytes(), Some("hello world".as_bytes())); // we normalize --> lowercase
     assert!(vector[4].is_null());
 
     Ok(())
@@ -103,13 +103,13 @@ fn test_memory_size() -> Result<(), IndexOutOfBounds> {
 }
 
 #[test]
-#[cfg(not(miri))]
+#[cfg_attr(miri, ignore)]
 fn test_case_folding_aka_normalization() -> Result<(), IndexOutOfBounds> {
     // Not in Miri because icu_casemap raised errors over Miri, see https://github.com/unicode-org/icu4x/issues/6723
 
     let str = "Straße";
     let mut vec: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
     vec.try_insert_string(0, str)?;
-    assert_eq!(vec[0].as_str(), Some("strasse"));
+    assert_eq!(vec[0].as_str_bytes(), Some("strasse".as_bytes()));
     Ok(())
 }
