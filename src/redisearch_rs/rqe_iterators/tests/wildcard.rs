@@ -7,25 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use rqe_iterators::{RQEIterator, RQEIteratorError, SkipToOutcome, wildcard::Wildcard};
+use rqe_iterators::{RQEIterator, SkipToOutcome, wildcard::Wildcard};
 
 mod c_mocks;
 
-/// Helper function to assert skip_to result with expected doc_id
-fn assert_skip_to_found(
-    result: Result<Option<SkipToOutcome>, RQEIteratorError>,
-    target_doc_id: u64,
-) {
-    assert!(result.is_ok());
+/// Helper macro to assert skip_to result with expected doc_id
+/// This preserves the call site location in test failures
+macro_rules! assert_skip_to_found {
+    ($result:expr, $target_doc_id:expr) => {
+        assert!($result.is_ok());
 
-    let outcome = result.unwrap();
-    assert!(outcome.is_some());
+        let outcome = $result.unwrap();
+        assert!(outcome.is_some());
 
-    if let Some(SkipToOutcome::Found(doc)) = outcome {
-        assert_eq!(doc.doc_id, target_doc_id);
-    } else {
-        panic!("Expected Found outcome, got {:?}", outcome);
-    }
+        if let Some(SkipToOutcome::Found(doc)) = outcome {
+            assert_eq!(doc.doc_id, $target_doc_id);
+        } else {
+            panic!("Expected Found outcome, got {:?}", outcome);
+        }
+    };
 }
 
 #[test]
@@ -76,13 +76,13 @@ fn skip_to_valid_targets() {
 
     // Test skipping to middle
     let result = it.skip_to(5);
-    assert_skip_to_found(result, 5);
+    assert_skip_to_found!(result, 5);
     assert_eq!(it.last_doc_id(), 5);
     assert!(!it.at_eof());
 
     // Test skipping to last document
     let result = it.skip_to(10);
-    assert_skip_to_found(result, 10);
+    assert_skip_to_found!(result, 10);
     assert_eq!(it.last_doc_id(), 10);
     assert!(it.at_eof());
 }
@@ -142,7 +142,7 @@ fn read_after_skip() {
 
     // Skip to middle
     let result = it.skip_to(5);
-    assert_skip_to_found(result, 5);
+    assert_skip_to_found!(result, 5);
     assert_eq!(it.last_doc_id(), 5);
 
     // Continue reading sequentially from 6 to 10
@@ -211,20 +211,19 @@ fn zero_documents() {
 
 #[test]
 #[cfg(debug_assertions)]
+#[should_panic]
 fn skip_to_backwards() {
     let mut it = Wildcard::new(100);
 
     let _ = it.skip_to(75);
 
     // Try to skip backwards to position 25, should panic
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = it.skip_to(25);
-    }))
-    .expect_err("Expected panic when skipping backwards");
+    let _ = it.skip_to(25);
 }
 
 #[test]
 #[cfg(debug_assertions)]
+#[should_panic]
 fn skip_to_same_position() {
     let mut it = Wildcard::new(10);
 
@@ -233,9 +232,6 @@ fn skip_to_same_position() {
     assert!(result.is_ok());
     assert_eq!(it.last_doc_id(), 5);
 
-    // only skipping to position greater than last_doc_id is possible, should panic
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = it.skip_to(5);
-    }))
-    .expect_err("Expected panic when skipping to same position");
+    // Try to skip backwards to the same position, should panic
+    let _ = it.skip_to(5);
 }
