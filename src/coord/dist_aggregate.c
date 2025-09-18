@@ -24,6 +24,12 @@
 
 #include <err.h>
 
+// Lightweight context for network communication operations
+typedef struct {
+    MRIterator *it;
+    MRCommand cmd;
+} NetworkContext;
+
 // Get cursor command using a cursor id and an existing aggregate command
 // Returns true if the cursor is not done (i.e., not depleted)
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx) {
@@ -70,87 +76,98 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   return true;
 }
 
+// Validates reply format
+static bool validateReply(MRReply *rep, int protocol) {
+    if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+        return false;
+    }
+
+    const bool isResp3 = protocol == 3;
+    bool bail_out = MRReply_Type(rep) != MR_REPLY_ARRAY;
+
+    if (!bail_out) {
+        size_t len = MRReply_Length(rep);
+        if (isResp3) {
+            bail_out = len != 2;
+        } else {
+            bail_out = len != 2 && len != 3;
+        }
+    }
+
+    return !bail_out;
+}
+
+// Extracts cursor ID from reply
+static long long extractCursorId(MRReply *rep) {
+    long long cursorId = 0;
+    MRReply* cursor = MRReply_ArrayElement(rep, 1);
+    if (!MRReply_ToInteger(cursor, &cursorId)) {
+        cursorId = 0;
+    }
+    return cursorId;
+}
+
+// Checks if reply contains search results
+static bool hasSearchResults(MRReply *rep, MRCommand *cmd) {
+    const bool isResp3 = cmd->protocol == 3;
+
+    if (isResp3) {
+        MRReply *map = MRReply_ArrayElement(rep, 0);
+        MRReply *results = NULL;
+        if (map && MRReply_Type(map) == MR_REPLY_MAP) {
+            results = MRReply_MapElement(map, "results");
+            if (cmd->forProfiling) results = MRReply_MapElement(results, "results");
+            if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
+                return true;
+            }
+        }
+    } else {
+        MRReply *results = MRReply_ArrayElement(rep, 0);
+        if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 1) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
-  // If the root command of this reply is a DEL command, we don't want to
-  // propagate it up the chain to the client
+  // Handle DEL command responses
   if (cmd->rootCommand == C_DEL) {
-    // Discard the response, and return REDIS_OK
     MRIteratorCallback_Done(ctx, MRReply_Type(rep) == MR_REPLY_ERROR);
     MRReply_Free(rep);
     return;
   }
 
-  // Check if an error returned from the shard
+  // Handle error responses
   if (MRReply_Type(rep) == MR_REPLY_ERROR) {
     const char* error = MRReply_String(rep, NULL);
-    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
-    RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
-    MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
+    RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard",
+                   GetRedisErrorCodeLength(error), error);
+    MRIteratorCallback_AddReply(ctx, rep);
     MRIteratorCallback_Done(ctx, 1);
     return;
   }
 
-  const bool isResp3 = cmd->protocol == 3;
-  bool bail_out = MRReply_Type(rep) != MR_REPLY_ARRAY;
-
-  if (!bail_out) {
-    size_t len = MRReply_Length(rep);
-    if (isResp3) {
-      bail_out = len != 2; // (map, cursor)
-      if (bail_out) {
-        RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2, got %ld", len);
-      }
-    } else {
-      bail_out = len != 2 && len != 3; // (results, cursor) or (results, cursor, profile)
-      if (bail_out) {
-        RedisModule_Log(RSDummyContext, "warning", "Expected reply of length 2 or 3, got %ld", len);
-      }
-    }
-  }
-
-  if (bail_out) {
+  // Validate reply using extracted function
+  if (!validateReply(rep, cmd->protocol)) {
     RedisModule_Log(RSDummyContext, "warning", "An unexpected reply was received from a shard");
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
     return;
   }
 
-  long long cursorId;
-  MRReply* cursor = MRReply_ArrayElement(rep, 1);
-  if (!MRReply_ToInteger(cursor, &cursorId)) {
-    cursorId = 0;
+  // Extract cursor ID using extracted function
+  long long cursorId = extractCursorId(rep);
+
+  // Process and add reply using extracted function
+  if (hasSearchResults(rep, cmd)) {
+    MRIteratorCallback_AddReply(ctx, rep);
+    rep = NULL; // User code now owns the reply
   }
 
-  // Push the reply down the chain
-  if (isResp3) // RESP3
-  {
-    MRReply *map = MRReply_ArrayElement(rep, 0);
-    MRReply *results = NULL;
-    if (map && MRReply_Type(map) == MR_REPLY_MAP) {
-      results = MRReply_MapElement(map, "results");
-      if (cmd->forProfiling) results = MRReply_MapElement(results, "results"); // profile has an extra level
-      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
-        MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-        // User code now owns the reply, so we can't free it here ourselves!
-        rep = NULL;
-      }
-    }
-  }
-  else // RESP2
-  {
-    MRReply *results = MRReply_ArrayElement(rep, 0);
-    if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 1) {
-      MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
-      // User code now owns the reply, so we can't free it here ourselves!
-      rep = NULL;
-    }
-  }
-
-  // rewrite and resend the cursor command if needed
-  // should only be determined based on the cursor and not on the set of results we get
+  // Handle cursor continuation using existing function
   if (!getCursorCommand(cursorId, cmd, MRIteratorCallback_GetCtx(ctx))) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
@@ -160,7 +177,6 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   }
 
   if (rep != NULL) {
-    // If rep has been set to NULL, it means the callback has been invoked
     MRReply_Free(rep);
   }
 }
@@ -230,8 +246,7 @@ typedef struct {
   // Lookup - the rows are written in here
   RLookup *lookup;
   size_t curIdx;
-  MRIterator *it;
-  MRCommand cmd;
+  NetworkContext netCtx;
   AREQ *areq;
 
   // profile vars
@@ -243,63 +258,6 @@ static void RPNet_resetCurrent(RPNet *nc) {
     nc->current.rows = NULL;
 }
 
-static int getNextReply(RPNet *nc) {
-  if (nc->cmd.forCursor) {
-    // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
-    // TODO: could be replaced with a query specific configuration
-    if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
-      // No more replies
-      RPNet_resetCurrent(nc);
-      return 0;
-    }
-  }
-  MRReply *root = MRIterator_Next(nc->it);
-  if (root == NULL) {
-    // No more replies
-    RPNet_resetCurrent(nc);
-    return MRIterator_GetPending(nc->it);
-  }
-
-  // Check if an error was returned
-  if(MRReply_Type(root) == MR_REPLY_ERROR) {
-    nc->current.root = root;
-    return 1;
-  }
-
-  MRReply *rows = MRReply_ArrayElement(root, 0);
-  if (nc->cmd.forProfiling && nc->cmd.protocol == 3) {
-    /* On RESP3, FT.PROFILE AGGREGATE returns:
-      [
-        {
-          "Results": { <FT.AGGREGATE reply> },
-          "Profile": { <profile data> }
-        },
-        cursor_id
-      ]
-     * So we need to extract the "Results" map from the first element of the array
-     */
-
-    rows = MRReply_MapElement(rows, "results");
-  }
-  if (   rows == NULL
-      || (MRReply_Type(rows) != MR_REPLY_ARRAY && MRReply_Type(rows) != MR_REPLY_MAP)
-      || MRReply_Length(rows) == 0) {
-    MRReply_Free(root);
-    root = NULL;
-    rows = NULL;
-    RedisModule_Log(RSDummyContext, "warning", "An empty reply was received from a shard");
-  }
-
-  // invariant: either rows == NULL or least one row exists
-
-  nc->current.root = root;
-  nc->current.rows = rows;
-
-  RS_ASSERT(!nc->current.rows
-         || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
-         || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
-  return 1;
-}
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
@@ -320,6 +278,102 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
     *flags &= ~QEXEC_FORMAT_EXPAND;
   }
   *flags &= ~QEXEC_FORMAT_DEFAULT;
+}
+
+// Processes network replies into search results
+static int processNetworkReply(MRReply *root, MRReply *rows, RLookup *lookup,
+                              SearchResult *r, uint32_t *reqflags, size_t curIdx) {
+    if (!root || !rows) {
+        return RS_RESULT_EOF;
+    }
+
+    bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
+    size_t len;
+    if (resp3) {
+        MRReply *results = MRReply_MapElement(rows, "results");
+        len = MRReply_Length(results);
+    } else {
+        len = MRReply_Length(rows);
+    }
+
+    if (curIdx >= len) {
+        return RS_RESULT_EOF;
+    }
+
+    if (resp3) {
+        MRReply *results = MRReply_MapElement(rows, "results");
+        RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
+        MRReply *result = MRReply_ArrayElement(results, curIdx);
+        RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
+        MRReply *fields = MRReply_MapElement(result, "extra_attributes");
+        RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
+
+        processResultFormat(reqflags, rows);
+
+        for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
+            size_t len;
+            const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
+            MRReply *val = MRReply_ArrayElement(fields, i + 1);
+            RSValue *v = MRReply_ToValue(val);
+            RLookup_WriteOwnKeyByName(lookup, field, len, &r->rowdata, v);
+        }
+    } else {
+        MRReply *rep = MRReply_ArrayElement(rows, curIdx);
+        for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
+            size_t len;
+            const char *field = MRReply_String(MRReply_ArrayElement(rep, i), &len);
+            RSValue *v = RS_NullVal();
+            if (i + 1 < MRReply_Length(rep)) {
+                MRReply *val = MRReply_ArrayElement(rep, i + 1);
+                v = MRReply_ToValue(val);
+            }
+            RLookup_WriteOwnKeyByName(lookup, field, len, &r->rowdata, v);
+        }
+    }
+    return RS_RESULT_OK;
+}
+
+// Handles communication and reply retrieval with focused parameters
+static int getNextReply(NetworkContext *netCtx, MRReply **root, MRReply **rows) {
+    if (netCtx->cmd.forCursor) {
+        if (!MR_ManuallyTriggerNextIfNeeded(netCtx->it, clusterConfig.cursorReplyThreshold)) {
+            *root = NULL;
+            *rows = NULL;
+            return 0;
+        }
+    }
+
+    MRReply *reply = MRIterator_Next(netCtx->it);
+    if (reply == NULL) {
+        *root = NULL;
+        *rows = NULL;
+        return MRIterator_GetPending(netCtx->it);
+    }
+
+    if(MRReply_Type(reply) == MR_REPLY_ERROR) {
+        *root = reply;
+        *rows = NULL;
+        return 1;
+    }
+
+    MRReply *rows_reply = MRReply_ArrayElement(reply, 0);
+    if (netCtx->cmd.forProfiling && netCtx->cmd.protocol == 3) {
+        rows_reply = MRReply_MapElement(rows_reply, "results");
+    }
+
+    if (rows_reply == NULL
+        || (MRReply_Type(rows_reply) != MR_REPLY_ARRAY && MRReply_Type(rows_reply) != MR_REPLY_MAP)
+        || MRReply_Length(rows_reply) == 0) {
+        MRReply_Free(reply);
+        *root = NULL;
+        *rows = NULL;
+        RedisModule_Log(RSDummyContext, "warning", "An empty reply was received from a shard");
+        return 0;
+    }
+
+    *root = reply;
+    *rows = rows_reply;
+    return 1;
 }
 
 static int rpnetNext(ResultProcessor *self, SearchResult *r) {
@@ -391,15 +445,16 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
-      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->netCtx.it));
 
       return RS_RESULT_TIMEDOUT;
-    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+    } else if (MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->netCtx.it))) {
       // if timeout was set in previous reads, reset it
-      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
+      MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->netCtx.it));
     }
 
-    if (!getNextReply(nc)) {
+    if (!getNextReply(&nc->netCtx, &nc->current.root, &nc->current.rows)) {
+      RPNet_resetCurrent(nc);
       return RS_RESULT_EOF;
     }
 
@@ -434,50 +489,19 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     }
   }
 
-  if (resp3) // RESP3
-  {
-    MRReply *results = MRReply_MapElement(rows, "results");
-    RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
-    MRReply *result = MRReply_ArrayElement(results, nc->curIdx++);
-    RS_LOG_ASSERT(result && MRReply_Type(result) == MR_REPLY_MAP, "invalid result record");
-    MRReply *fields = MRReply_MapElement(result, "extra_attributes");
-    RS_LOG_ASSERT(fields && MRReply_Type(fields) == MR_REPLY_MAP, "invalid fields record");
-
-    processResultFormat(&nc->areq->reqflags, rows);
-
-    for (size_t i = 0; i < MRReply_Length(fields); i += 2) {
-      size_t len;
-      const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
-      MRReply *val = MRReply_ArrayElement(fields, i + 1);
-      RSValue *v = MRReply_ToValue(val);
-      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
-    }
-  }
-  else // RESP2
-  {
-    MRReply *rep = MRReply_ArrayElement(rows, nc->curIdx++);
-    for (size_t i = 0; i < MRReply_Length(rep); i += 2) {
-      size_t len;
-      const char *field = MRReply_String(MRReply_ArrayElement(rep, i), &len);
-      RSValue *v = RS_NullVal();
-      if (i + 1 < MRReply_Length(rep)) {
-        MRReply *val = MRReply_ArrayElement(rep, i + 1);
-        v = MRReply_ToValue(val);
-      }
-      RLookup_WriteOwnKeyByName(nc->lookup, field, len, &r->rowdata, v);
-    }
-  }
-  return RS_RESULT_OK;
+  int result = processNetworkReply(root, rows, nc->lookup, r, &nc->areq->reqflags, nc->curIdx);
+  nc->curIdx++;
+  return result;
 }
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
+  MRIterator *it = MR_Iterate(&nc->netCtx.cmd, netCursorCallback);
   if (!it) {
     return RS_RESULT_ERROR;
   }
 
-  nc->it = it;
+  nc->netCtx.it = it;
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
@@ -485,9 +509,9 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
-  if (nc->it) {
+  if (nc->netCtx.it) {
     RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
-    MRIterator_Release(nc->it);
+    MRIterator_Release(nc->netCtx.it);
   }
 
   if (nc->shardsProfile) {
@@ -500,14 +524,14 @@ static void rpnetFree(ResultProcessor *rp) {
   }
 
   MRReply_Free(nc->current.root);
-  MRCommand_Free(&nc->cmd);
+  MRCommand_Free(&nc->netCtx.cmd);
 
   rm_free(rp);
 }
 
 static RPNet *RPNet_New(const MRCommand *cmd) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
-  nc->cmd = *cmd; // Take ownership of the command's internal allocations
+  nc->netCtx.cmd = *cmd; // Take ownership of the command's internal allocations
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
@@ -853,7 +877,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // rpnet now owns the command
-  MRCommand *cmd = &(((RPNet *)AREQ_QueryProcessingCtx(r)->rootProc)->cmd);
+  MRCommand *cmd = &(((RPNet *)AREQ_QueryProcessingCtx(r)->rootProc)->netCtx.cmd);
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
   // insert also debug params at the end
