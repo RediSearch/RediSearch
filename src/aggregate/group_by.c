@@ -11,6 +11,7 @@
 #include <util/block_alloc.h>
 #include <util/khash.h>
 #include "reducer.h"
+#include "rlookup_rs.h"
 
 /**
  * A group represents the allocated context of all reducers in a group, and the
@@ -21,7 +22,7 @@
  */
 typedef struct {
   /** Contains the selected 'out' values used by the reducers output functions */
-  RLookupRow rowdata;
+  RLookupRow* rowdata;
 
   /**
    * Contains the actual per-reducer data for the group, in an accumulating
@@ -86,6 +87,7 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   size_t elemSize = GROUP_BYTESIZE(g);
   Group *group = BlkAlloc_Alloc(&g->groupsAlloc, elemSize, GROUPS_PER_BLOCK * elemSize);
   memset(group, 0, elemSize);
+  group->rowdata = NewRLookupRow();
 
   for (size_t ii = 0; ii < numReducers; ++ii) {
     group->accumdata[ii] = g->reducers[ii]->NewInstance(g->reducers[ii]);
@@ -94,7 +96,7 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   /** Initialize the row data! */
   for (size_t ii = 0; ii < ngrpvals; ++ii) {
     const RLookupKey *dstkey = g->dstkeys[ii];
-    RLookup_WriteKey(dstkey, &group->rowdata, (RSValue *)groupvals[ii]);
+    RLookup_WriteKey(dstkey, group->rowdata, (RSValue *)groupvals[ii]);
   }
   return group;
 }
@@ -102,9 +104,9 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
 static void writeGroupValues(const Grouper *g, const Group *gr, SearchResult *r) {
   for (size_t ii = 0; ii < g->nkeys; ++ii) {
     const RLookupKey *dstkey = g->dstkeys[ii];
-    RSValue *groupval = RLookup_GetItem(dstkey, &gr->rowdata);
+    RSValue *groupval = RLookup_GetItem(dstkey, gr->rowdata);
     if (groupval) {
-      RLookup_WriteKey(dstkey, &r->rowdata, groupval);
+      RLookup_WriteKey(dstkey, r->rowdata, groupval);
     }
   }
 }
@@ -123,7 +125,7 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
     for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
-      RLookup_WriteOwnKey(rd->dstkey, &r->rowdata, v);
+      RLookup_WriteOwnKey(rd->dstkey, r->rowdata, v);
     }
     ++g->iter;
     return RS_RESULT_OK;
@@ -223,7 +225,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   int rc;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    invokeGroupReducers(g, &res->rowdata);
+    invokeGroupReducers(g, res->rowdata);
     SearchResult_Clear(res);
   }
   base->parent->resultLimit = chunkLimit; // restore the limit
@@ -256,7 +258,8 @@ static void Grouper_rpFree(ResultProcessor *grrp) {
       continue;
     }
     Group *gr = kh_value(g->groups, it);
-    RLookupRow_Reset(&gr->rowdata);
+    RLookupRow_Reset(gr->rowdata);
+    FreeRLookupRow(gr->rowdata);
   }
   kh_destroy(khid, g->groups);
   BlkAlloc_FreeAll(&g->groupsAlloc, cleanCallback, g, GROUP_BYTESIZE(g));

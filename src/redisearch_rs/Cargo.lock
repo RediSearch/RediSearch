@@ -1376,6 +1376,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "redis-module",
+ "rlookup_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
@@ -1465,6 +1466,7 @@ dependencies = [
  "cbindgen",
  "ffi",
  "rlookup",
+ "sorting_vector",
  "value",
 ]
 

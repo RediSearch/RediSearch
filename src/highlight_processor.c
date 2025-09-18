@@ -12,6 +12,7 @@
 #include "util/minmax.h"
 #include "toksep.h"
 #include <ctype.h>
+#include "rlookup_rs.h"
 
 typedef struct {
   ResultProcessor base;
@@ -321,7 +322,7 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   hlpDocContext docParams = {.byteOffsets = dmd->byteOffsets,  // nl
                              .iovsArr = NULL,
                              .indexResult = ir,
-                             .row = &r->rowdata};
+                             .row = r->rowdata};
 
   if (fields->numFields) {
     for (size_t ii = 0; ii < fields->numFields; ++ii) {

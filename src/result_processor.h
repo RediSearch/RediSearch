@@ -129,7 +129,7 @@ typedef struct {
   RSIndexResult *indexResult;
 
   // Row data. Use RLookup_* functions to access
-  RLookupRow rowdata;
+  RLookupRow* rowdata;
 
   uint8_t flags;
 } SearchResult;

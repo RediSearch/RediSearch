@@ -11,7 +11,34 @@ use std::ptr::NonNull;
 
 use rlookup::RLookupKey;
 
-use value::{RSValueFFI, RSValueTrait};
+use sorting_vector::RSSortingVector;
+
+use value::RSValueFFI;
+
+pub type RLookupRow = rlookup::RLookupRow<'static, RSValueFFI>;
+
+/// Creates a new RLookupRow and returns a pointer to it.
+///
+/// Safety:
+/// The caller is responsible for freeing the returned pointer using `FreeRLookupRow`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewRLookupRow() -> *mut RLookupRow {
+    Box::into_raw(Box::new(RLookupRow::new()))
+}
+
+/// Frees a RLookupRow created by `NewRLookupRow`.
+///
+/// Safety:
+/// 1. The pointer must be a valid pointer to an [`RLookupRow`] created by [`NewRLookupRow`].
+/// 2. The pointer must not be used after calling this function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FreeRLookupRow(row: Option<NonNull<RLookupRow>>) {
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
+    if let Some(row) = row {
+        // Safety: Caller has to provide a valid pointer
+        drop(unsafe { Box::from_raw(row.as_ptr()) });
+    }
+}
 
 /// Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
 ///
@@ -20,9 +47,9 @@ use value::{RSValueFFI, RSValueTrait};
 /// 2. `row` must be a valid pointer to an [`RLookupRow`].
 /// 3. `value` must be a valid pointer to an [`ffi::RSValue`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookup_WriteKey<'a>(
+pub unsafe extern "C" fn RLookup_WriteKey(
     key: *const RLookupKey,
-    row: Option<NonNull<rlookup::RLookupRow<'a, RSValueFFI>>>,
+    row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
 ) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupKey
@@ -31,8 +58,9 @@ unsafe extern "C" fn RLookup_WriteKey<'a>(
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow
     let row = unsafe { row.expect("row must not be null").as_mut() };
 
-    let mut value = RSValueFFI(value.expect("value must not be null"));
-    value.increment();
+    let value = RSValueFFI(value.expect("value must not be null"));
+    // Safety: The caller has ensured that this is a valid RSValue pointer
+    unsafe { ffi::RSValue_IncrRef(value.0.as_ptr()) };
     row.write_key(key, value);
 }
 
@@ -43,9 +71,9 @@ unsafe extern "C" fn RLookup_WriteKey<'a>(
 /// 2. `row` must be a valid pointer to an [`RLookupRow`].
 /// 3. `value` must be a valid pointer to an [`ffi::RSValue`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookup_WriteOwnKey<'a>(
+pub unsafe extern "C" fn RLookup_WriteOwnKey(
     key: *const RLookupKey,
-    row: Option<NonNull<rlookup::RLookupRow<'a, RSValueFFI>>>,
+    row: Option<NonNull<RLookupRow>>,
     value: Option<NonNull<ffi::RSValue>>,
 ) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupKey
@@ -62,9 +90,7 @@ unsafe extern "C" fn RLookup_WriteOwnKey<'a>(
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RLookupRow`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Wipe<'a>(
-    row: Option<NonNull<rlookup::RLookupRow<'a, RSValueFFI>>>,
-) {
+pub unsafe extern "C" fn RLookupRow_Wipe(row: Option<NonNull<RLookupRow>>) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let row = unsafe { row.expect("row must not be null").as_mut() };
     row.wipe();
@@ -77,10 +103,48 @@ unsafe extern "C" fn RLookupRow_Wipe<'a>(
 /// Safety:
 /// 1. The pointer must be a valid pointer to an [`RLookupRow`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RLookupRow_Reset<'a>(
-    row: Option<NonNull<rlookup::RLookupRow<'a, RSValueFFI>>>,
-) {
+pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<RLookupRow>>) {
     // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
     let vec = unsafe { row.expect("row must not be null").as_mut() };
     vec.reset_dyn_values();
+}
+
+/// Sets a sorting vector for the row.
+/// Safety:
+/// 1. `row` must be a valid pointer to an [`RLookupRow`].
+/// 2. `sv` must be a valid pointer to an [`ffi::RSSortingVector`].
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_SetSortingVector(
+    row: Option<NonNull<RLookupRow>>,
+    sv: *const ffi::RSSortingVector,
+) {
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
+    let row = unsafe { row.expect("row must not be null").as_mut() };
+    let sv: *const RSSortingVector<RSValueFFI> = sv.cast();
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RSSortingVector.
+    let sv = unsafe { sv.as_ref() };
+
+    row.set_sorting_vector(sv.unwrap());
+}
+
+/// Returns a pointer to the sorting vector if it exists, or null otherwise.
+///
+/// Safety:
+/// The caller does not own the returned pointer and must not attempt to free it.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_GetSortingVector(
+    row: Option<NonNull<RLookupRow>>,
+) -> *const ffi::RSSortingVector {
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
+    let row = unsafe { row.expect("row must not be null").as_ref() };
+    // Safety: The caller has to ensure that the pointer is kept around
+    unsafe { row.get_sorting_vector() as *const ffi::RSSortingVector }
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "C" fn RLookupRow_GetDynLen(row: Option<NonNull<RLookupRow>>) -> u32 {
+    // Safety: The caller has to ensure that the pointer is valid and points to a properly initialized RLookupRow.
+    let row = unsafe { row.expect("row must not be null").as_ref() };
+    // Safety: The caller has to ensure that the pointer is kept around
+    row.num_dyn_values()
 }

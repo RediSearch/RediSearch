@@ -88,45 +88,61 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
 
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
-    pub fn write_key(&mut self, key: &RLookupKey, val: T) {
+    pub fn write_key(&mut self, key: &RLookupKey, val: T) -> Option<T> {
         let idx = key.dstidx;
         if self.dyn_values.len() <= idx as usize {
             self.set_dyn_capacity((idx + 1) as usize);
         }
 
-        let in_place = &mut self.dyn_values[idx as usize];
-        if let Some(existing_value) = in_place {
-            existing_value.decrement();
-            self.num_dyn_values -= 1;
+        let prev = self.dyn_values[idx as usize].replace(val);
+
+        if prev.is_none() {
+            self.num_dyn_values += 1;
         }
 
-        *in_place = Some(val);
-        self.num_dyn_values += 1;
+        prev
     }
 
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
     /// This does not free all the memory consumed by the row, but simply resets
-    /// the row data (preserving any caches) so that it may be refilled.    
+    /// the row data (preserving any caches) so that it may be refilled.
     pub fn wipe(&mut self) {
-        for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
-            value.as_mut().unwrap().decrement();
-            *value = None;
-            self.num_dyn_values -= 1;
+        for value in &mut self.dyn_values {
+            if value.is_some() {
+                *value = None;
+                self.num_dyn_values -= 1;
+            }
         }
+        /*
+                for value in self.dyn_values.iter_mut().filter(|v| v.is_some()) {
+        <<<<<<< Conflict 3 of 3
+        %%%%%%% Changes from base to side #1
+        -            value.as_mut().unwrap().decrement();
+        +++++++ Contents of side #2
+                    // this will drop the value, decrementing the ref count
+        >>>>>>> Conflict 3 of 3 ends
+                    *value = None;
+                    self.num_dyn_values -= 1;
+                }
+                */
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.
     ///
     /// It does not affect the sorting vector.
     pub fn reset_dyn_values(&mut self) {
-        self.wipe();
+        self.num_dyn_values = 0;
         self.dyn_values = vec![];
     }
-}
 
-impl<'a, T: RSValueTrait> Drop for RLookupRow<'a, T> {
-    fn drop(&mut self) {
-        // Wipe the row, decrementing any instances of `T`
-        self.wipe();
+    /// Returns a pointer to the sorting vector if it exists, or a null pointer otherwise.
+    ///
+    /// # Safety
+    /// The caller does not own the returned pointer and must not attempt to free it.
+    pub unsafe fn get_sorting_vector(&self) -> *const RSSortingVector<T> {
+        match self.sorting_vector {
+            Some(sv) => sv as *const RSSortingVector<T>,
+            None => std::ptr::null(),
+        }
     }
 }
