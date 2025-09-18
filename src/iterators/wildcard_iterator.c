@@ -10,6 +10,7 @@
 #include "wildcard_iterator.h"
 #include "inverted_index_iterator.h"
 #include "empty_iterator.h"
+#include "search_disk.h"
 
 /* Free a wildcard iterator */
 static void WI_Free(QueryIterator *base) {
@@ -100,6 +101,9 @@ QueryIterator *NewWildcardIterator_Optimized(const RedisSearchCtx *sctx, double 
 // If the spec tracks all existing documents, it will return an iterator over those documents.
 // Otherwise, it will return a non-optimized wildcard iterator
 QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight) {
+  if (q->sctx->spec->diskSpec) {
+    return SearchDisk_NewWildcardIterator(q->sctx->spec->diskSpec, weight);
+  }
   if (q->sctx->spec->rule && q->sctx->spec->rule->index_all == true) { // LLAPI spec may not have a rule
     return NewWildcardIterator_Optimized(q->sctx, weight);
   } else {
