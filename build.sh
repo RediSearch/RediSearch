@@ -340,6 +340,10 @@ prepare_cmake_arguments() {
   else
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_INTEL_SVS_OPT=ON"
   fi
+
+  if [[ "$RUST_DYN_CRT" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_DYN_CRT=1"
+  fi
 }
 
 #-----------------------------------------------------------------------------

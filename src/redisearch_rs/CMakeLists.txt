@@ -9,18 +9,27 @@ endif()
 
 # Determine Rust profile based on build configuration
 set(RUST_PROFILE "release")
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(RUST_PROFILE "dev")
-elseif(DEFINED BUILD_SEARCH_UNIT_TESTS AND BUILD_SEARCH_UNIT_TESTS)
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+if(DEFINED BUILD_SEARCH_UNIT_TESTS AND BUILD_SEARCH_UNIT_TESTS)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DEFINED SAN OR DEFINED COV)
         set(RUST_PROFILE "dev")
     else()
         set(RUST_PROFILE "optimised_test")
     endif()
+else()
+    # For non-test builds, only use dev profile for Debug builds (not SAN/COV)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(RUST_PROFILE "dev")
+    endif()
 endif()
 
-# Set up RUSTFLAGS
-set(RUST_FLAGS "-D warnings")
+# Set up RUSTFLAGS - respect existing environment variable and default to -D warnings
+if(DEFINED ENV{RUSTFLAGS})
+    set(RUST_FLAGS "$ENV{RUSTFLAGS}")
+else()
+    set(RUST_FLAGS "-D warnings")
+endif()
+
+# Add dynamic C runtime flag if requested (crucial for Alpine Linux)
 if(DEFINED RUST_DYN_CRT AND RUST_DYN_CRT)
     set(RUST_FLAGS "${RUST_FLAGS} -C target-feature=-crt-static")
 endif()
@@ -28,19 +37,23 @@ endif()
 # Exclude benchmarking crates that link C code
 set(EXCLUDE_ARGS "--exclude" "inverted_index_bencher" "--exclude" "rqe_iterators_bencher")
 
+# Map Rust profile names to their corresponding artifact directory names
+if(RUST_PROFILE STREQUAL "dev")
+    set(RUST_ARTIFACT_DIR "debug")
+else()
+    # For release, optimised_test, and other custom profiles, use the profile name as-is
+    set(RUST_ARTIFACT_DIR "${RUST_PROFILE}")
+endif()
+
 # Determine the output library path based on profile and context
 if(DEFINED BINDIR)
     # We're being built as part of the main RediSearch build
     set(RUST_TARGET_DIR "${BINDIR}/redisearch_rs")
-    set(RUST_LIB_PATH "${BINDIR}/redisearch_rs/${RUST_PROFILE}/libredisearch_rs.a")
+    set(RUST_LIB_PATH "${BINDIR}/redisearch_rs/${RUST_ARTIFACT_DIR}/libredisearch_rs.a")
 else()
     # We're being built standalone or as a subdirectory
     set(RUST_TARGET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/target")
-    if(RUST_PROFILE STREQUAL "dev")
-        set(RUST_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/target/debug/libredisearch_rs.a")
-    else()
-        set(RUST_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/target/release/libredisearch_rs.a")
-    endif()
+    set(RUST_LIB_PATH "${CMAKE_CURRENT_SOURCE_DIR}/target/${RUST_ARTIFACT_DIR}/libredisearch_rs.a")
 endif()
 
 # Check if we're being used as a subdirectory to avoid target conflicts
