@@ -96,15 +96,15 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
 
   // Handle crash
   if (crash) {
+    // Verify internal_only is not used with CRASH
+    if (internal_only) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "INTERNAL_ONLY is not supported with CRASH");
+      return REDISMODULE_ERR;
+    }
+
     PipelineAddCrash(&debug_req->r);
   }
 
-  // Error handling: Verify internal_only is not used with CRASH
-  if (internal_only && crash) {
-    QueryError_SetError(status, QUERY_EPARSEARGS,
-                        "INTERNAL_ONLY is not supported with CRASH");
-    return REDISMODULE_ERR;
-  }
 
   // Handle timeout
   if (AC_IsInitialized(&timeoutArgs)) {
@@ -136,6 +136,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       // Take this into account when adding more debug types that are modifying the rp pipeline.
       PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
     }
+    return REDISMODULE_OK;
   }
 
   // Handle pause before/after RP after N (contains the same logic)
@@ -182,6 +183,13 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       // The query error is handled by each error case
       return REDISMODULE_ERR;
     }
+    return REDISMODULE_OK;
+  }
+
+  // Verify internal_only is not used without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N
+  if (internal_only) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N");
+    return REDISMODULE_ERR;
   }
 
   return REDISMODULE_OK;

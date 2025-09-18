@@ -675,10 +675,10 @@ class TestQueryDebugCommands(object):
         debug_params = ['INTERNAL_ONLY', 'TIMEOUT_AFTER_N', 'DEBUG_PARAMS_COUNT', 2]
         expectError(debug_params, 'TIMEOUT_AFTER_N: Expected an argument, but none provided')
 
-        # INTERNAL_ONLY without TIMEOUT_AFTER_N
+        # INTERNAL_ONLY without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N
         debug_params = ['INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1]
-        expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
-        expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
+        expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
+        expectError(debug_params, 'INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N')
 
         # TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR is disabled.
         if (self.env.isCluster() and self.cmd == "AGGREGATE"):
@@ -1085,7 +1085,7 @@ def test_query_controller_pause_and_resume(env):
         t_query = threading.Thread(
             target=_call_and_store,
             args=(runDebugQueryCommandPauseBeforeRPAfterN,
-                (env, [query_type, 'idx', '*'], 'Index', 0),
+                (env, [query_type, 'idx', '*'], 'Index', 0, ['INTERNAL_ONLY'] if query_type == 'FT.AGGREGATE' else None),
                 query_result),
             daemon=True
         )
@@ -1098,7 +1098,7 @@ def test_query_controller_pause_and_resume(env):
 
         # Test error when trying to create multiple debug RPs (should fail with "Failed to create pause RP or another debug RP is already set")
         # This tests the error case in PipelineAddPauseRPcount when RPPauseAfterCount_New returns NULL
-        env.expect(debug_cmd(), query_type, 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'PAUSE_AFTER_RP_N', 'Sorter', 0, 'DEBUG_PARAMS_COUNT', 6).error()\
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'PAUSE_BEFORE_RP_N', 'Index', 0, 'PAUSE_AFTER_RP_N', 'Sorter', 0, 'DEBUG_PARAMS_COUNT', 6).error()\
         .contains('Failed to create pause RP or another debug RP is already set')
         # The query above completed even though it failed
         queries_completed += 1
