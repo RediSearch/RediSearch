@@ -76,6 +76,10 @@ pub fn rerun_cbinden(config: &cbindgen::Config) -> Result<(), Box<dyn std::error
             }
         }
     }
+    // We should also regenerate the header files if the source of the current
+    // crate changes. The current crate isn't usually included in `cbindgen`'s
+    // config file under `parse.include`.
+    let _ = rerun_if_rust_changes(&PathBuf::from("src"));
 
     Ok(())
 }
