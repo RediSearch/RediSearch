@@ -32,7 +32,7 @@ set(EXCLUDE_ARGS "--exclude" "inverted_index_bencher" "--exclude" "rqe_iterators
 if(DEFINED BINDIR)
     # We're being built as part of the main RediSearch build
     set(RUST_TARGET_DIR "${BINDIR}/redisearch_rs")
-    set(RUST_LIB_PATH "${BINDIR}/redisearch_rs/libredisearch_rs.a")
+    set(RUST_LIB_PATH "${BINDIR}/redisearch_rs/${RUST_PROFILE}/libredisearch_rs.a")
 else()
     # We're being built standalone or as a subdirectory
     set(RUST_TARGET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/target")
