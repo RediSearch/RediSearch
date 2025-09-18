@@ -194,16 +194,11 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
     }
     
     ctx->searchopts->params = params;
-    ArgsCursor *ac = (ArgsCursor*)value;
-    QueryError *status = ctx->status;
+}
 
-    // Replicate exact original logic: lines 342-349
-    if (AC_GetLongLong(ac, &dialect, AC_F_GE1) != AC_OK) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT requires a positive integer");
-        return;
-    }
-    ctx->reqConfig->requestConfigParams.dialectVersion = dialect;
-    ctx->dialectSpecified = true;
+// DIALECT callback - implements EXACT original logic from lines 341-349
+void handleDialect(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
     ctx->specifiedArgs |= SPECIFIED_ARG_DIALECT;
 }
 
