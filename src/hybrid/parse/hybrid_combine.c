@@ -22,7 +22,7 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   // Create ArgParser for clean argument parsing
   ArgParser *parser = ArgParser_New(&linear, "LINEAR");
   if (!parser) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create LINEAR argument parser");
     return;
   }
 
@@ -58,17 +58,24 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
 }
 
 static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError *status) {
-  // RRF CONSTANT 6 WINDOW 20 ...
+  // RRF 4 CONSTANT 6 WINDOW 20 ...
   //     ^
 
   // Variables to hold parsed values
   double constantValue = HYBRID_DEFAULT_RRF_CONSTANT;  // Default from hybrid_scoring.h
   long long windowValue = HYBRID_DEFAULT_WINDOW;       // Default from hybrid_scoring.h
 
+  ArgsCursor rrf;
+  int rc = AC_GetVarArgs(ac, &rrf);
+  if (rc != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for RRF: %s", AC_Strerror(rc));
+    return;
+  }
+
   // Create ArgParser for clean argument parsing
-  ArgParser *parser = ArgParser_New(ac, "RRF");
+  ArgParser *parser = ArgParser_New(&rrf, "RRF");
   if (!parser) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create argument parser");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create RRF argument parser");
     return;
   }
 
@@ -108,26 +115,30 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
 // COMBINE callback - implements exact ParseCombine behavior from hybrid_args.c
 void handleCombine(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ArgsCursor *ac = (ArgsCursor*)value;
+    const char *method = *(const char**)value;
     QueryError *status = ctx->status;
     HybridScoringContext *combineCtx = ctx->hybridScoringCtx;
+    ctx->specifiedArgs |= SPECIFIED_ARG_COMBINE;
     size_t numWeights = ctx->numSubqueries;
 
     // Exact implementation of ParseCombine from hybrid_args.c
     // Check if a specific method is provided
-    if (AC_AdvanceIfMatch(ac, "LINEAR")) {
-        combineCtx->scoringType = HYBRID_SCORING_LINEAR;
-    } else if (AC_AdvanceIfMatch(ac, "RRF")) {
-        combineCtx->scoringType = HYBRID_SCORING_RRF;
+    HybridScoringType parsedScoringType;
+    if (strcasecmp(method, "LINEAR") == 0) {
+        parsedScoringType = HYBRID_SCORING_LINEAR;
+    } else if (strcasecmp(method, "RRF") == 0) {
+        parsedScoringType = HYBRID_SCORING_RRF;
     } else {
-        combineCtx->scoringType = HYBRID_SCORING_RRF;
+        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown COMBINE method", " `%s`", method);
+        return;
     }
 
-    if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
+    ArgsCursor *ac = parser->cursor;
+    if (parsedScoringType == HYBRID_SCORING_LINEAR) {
         combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
         combineCtx->linearCtx.numWeights = numWeights;
         parseLinearClause(ac, &combineCtx->linearCtx, status);
-    } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
+    } else if (parsedScoringType == HYBRID_SCORING_RRF) {
         parseRRFClause(ac, &combineCtx->rrfCtx, status);
     }
 }
