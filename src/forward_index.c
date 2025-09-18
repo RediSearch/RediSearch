@@ -8,7 +8,7 @@
 */
 #include "forward_index.h"
 #include "tokenize.h"
-#include "util/fnv.h"
+#include "util/fxhash.h"
 #include "util/logging.h"
 #include <stdio.h>
 #include <sys/param.h>
@@ -45,7 +45,7 @@ static KHTableEntry *allocBucketEntry(void *ptr) {
 }
 
 static uint32_t hashKey(const void *s, size_t n) {
-  return rs_fnv_32a_buf(s, n, 0);
+  return fxhash_32(s, n);
 }
 
 #define CHARS_PER_TERM 5

@@ -9,7 +9,6 @@
 #include "aggregate/reducer.h"
 #include "util/block_alloc.h"
 #include "util/khash.h"
-#include "util/fnv.h"
 #include "hll/hll.h"
 
 #define HLL_PRECISION_BITS 8

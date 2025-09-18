@@ -6,16 +6,16 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#ifndef __FT_FNV_H__
-#define __FT_FNV_H__
+#ifndef FXHASH_H
+#define FXHASH_H
 
 #include <stdint.h>
 #include <stdlib.h>
 
-#define FNV_32_PRIME ((Fnv32_t)0x01000193)
+uint32_t fxhash_32_incremental(const void *buf, size_t len, uint32_t hval);
+uint32_t fxhash_32(const void *buf, size_t len);
 
-uint32_t rs_fnv_32a_buf(const void *buf, size_t len, uint32_t hval);
-
-uint64_t fnv_64a_buf(const void *buf, size_t len, uint64_t hval);
+uint64_t fxhash_64_incremental(const void *buf, size_t len, uint64_t hval);
+uint32_t fxhash_64(const void *buf, size_t len);
 
 #endif
