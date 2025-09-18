@@ -41,13 +41,10 @@ typedef enum {
     ARG_TYPE_BITFLAG,       // Bitwise flag (ORs mask into target)
     ARG_TYPE_STRING,        // String argument
     ARG_TYPE_INT,           // Integer argument
-    ARG_TYPE_UINT,          // Unsigned integer
     ARG_TYPE_LONG,          // Long long integer
     ARG_TYPE_ULONG,         // Unsigned long long
     ARG_TYPE_DOUBLE,        // Double precision float
     ARG_TYPE_SUBARGS,       // Variable number of sub-arguments
-    ARG_TYPE_SLICE,         // Fixed number of sub-arguments
-    ARG_TYPE_CUSTOM         // Custom parsing function
 } ArgType;
 
 // Argument definition structure
