@@ -435,7 +435,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    if (!HybridRequest_BuildDepletionPipeline(hreq, hybridParams)) {
+    if (!HybridRequest_BuildDepletionPipeline(hreq, hybridParams) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
