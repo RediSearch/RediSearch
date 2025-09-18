@@ -486,6 +486,16 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.blocks.get(index)
     }
+
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.gc_marker.load(atomic::Ordering::Relaxed)
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+    }
 }
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
@@ -575,6 +585,16 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.index.block_ref(index)
+    }
+
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.index.gc_marker()
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.index.gc_marker_inc();
     }
 
     /// Get a reference to the inner inverted index.
@@ -668,6 +688,16 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
         self.index.block_ref(index)
+    }
+
+    /// Get the current GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker(&self) -> usize {
+        self.index.gc_marker()
+    }
+
+    /// Increment the GC marker of this index. This is only used by the some C tests.
+    pub fn gc_marker_inc(&self) {
+        self.index.gc_marker_inc();
     }
 
     /// Get a reference to the inner inverted index.

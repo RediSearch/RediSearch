@@ -212,6 +212,26 @@ const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii,
 t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
 
 /**
+ * Get the garbage collector marker of the inverted index. This is used by some C tests.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ */
+uintptr_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
+
+/**
+ * Increment the garbage collector marker of the inverted index. This is used by some C tests.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ */
+void InvertedIndex_GcMarkerInc(const struct InvertedIndex *ii);
+
+/**
  * Create a new inverted index reader for the given inverted index and filter. The returned pointer
  * must be freed using [`IndexReader_Free`] when no longer needed.
  *
