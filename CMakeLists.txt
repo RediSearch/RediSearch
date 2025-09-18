@@ -248,9 +248,6 @@ add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
 add_subdirectory(src/redisearch_rs)
 
-# Ensure ordering, (inverted_index_bencher requires inverted_index)
-add_dependencies(redisearch_rs inverted_index)
-
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
 file(GLOB SOURCES
