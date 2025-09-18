@@ -739,13 +739,13 @@ TEST_F(ParseHybridTest, testKNNMissingArgumentCount) {
 TEST_F(ParseHybridTest, testVsimKNNOddParamCount) {
   // Test KNN with count=1 (odd count, missing K value)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "1", "K", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count: 1 (must be a positive even number for key/value pairs)");
 }
 
 TEST_F(ParseHybridTest, testKNNZeroArgumentCount) {
   // Test KNN with zero argument count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "0");
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count");
+  testErrorCode(args, QUERY_ESYNTAX, "Invalid argument count: 0 (must be a positive even number for key/value pairs)");
 }
 
 TEST_F(ParseHybridTest, testVsimSubqueryMissingK) {
