@@ -21,7 +21,7 @@ protected:
         ArgsCursor_InitCString(&cursor, test_args.data(), test_args.size());
 
         // Create parser
-        parser = ArgParser_New(&cursor, "TEST_COMMAND");
+        parser = ArgParser_New(&cursor, "COMMAND");
         ASSERT_NE(parser, nullptr);
     }
 
@@ -40,7 +40,7 @@ protected:
         }
         custom_args = args;
         ArgsCursor_InitCString(&custom_cursor, custom_args.data(), custom_args.size());
-        parser = ArgParser_New(&custom_cursor, "TEST_COMMAND");
+        parser = ArgParser_New(&custom_cursor, "COMMAND");
         ASSERT_NE(parser, nullptr);
     }
 
@@ -56,6 +56,8 @@ TEST_F(ArgParserTest, BasicCreationAndDestruction) {
 }
 
 TEST_F(ArgParserTest, ParseBooleanFlag) {
+    SetupCustomArgs({"COMMAND", "VERBOSE"});
+
     bool verbose = false;
     ArgParser_AddBoolV(parser, "VERBOSE", "Enable verbose output", &verbose,
                       ARG_OPT_OPTIONAL,
@@ -69,6 +71,8 @@ TEST_F(ArgParserTest, ParseBooleanFlag) {
 }
 
 TEST_F(ArgParserTest, ParseLongInteger) {
+    SetupCustomArgs({"COMMAND", "TIMEOUT", "5000"});
+
     long long timeout = 0;
     ArgParser_AddLongV(parser, "TIMEOUT", "Query timeout in ms", &timeout,
                       ARG_OPT_OPTIONAL,
@@ -83,6 +87,8 @@ TEST_F(ArgParserTest, ParseLongInteger) {
 }
 
 TEST_F(ArgParserTest, ParseString) {
+    SetupCustomArgs({"COMMAND", "FORMAT", "json"});
+
     const char *format = nullptr;
     ArgParser_AddStringV(parser, "FORMAT", "Output format", &format,
                          ARG_OPT_OPTIONAL,
@@ -96,6 +102,8 @@ TEST_F(ArgParserTest, ParseString) {
 }
 
 TEST_F(ArgParserTest, ParseSubArgs) {
+    SetupCustomArgs({"COMMAND", "LIMIT", "10", "20"});
+
     ArgsCursor limit_args;
     ArgParser_AddSubArgsV(parser, "LIMIT", "Limit results", &limit_args, 2, 2,
                           ARG_OPT_OPTIONAL,
@@ -114,6 +122,8 @@ TEST_F(ArgParserTest, ParseSubArgs) {
 }
 
 TEST_F(ArgParserTest, MultipleArguments) {
+    SetupCustomArgs({"COMMAND", "TIMEOUT", "5000", "VERBOSE", "FORMAT", "json", "LIMIT", "10", "20"});
+
     bool verbose = false;
     long long timeout = 0;
     const char *format = nullptr;
@@ -234,7 +244,7 @@ TEST_F(ArgParserTest, DefaultValues) {
 }
 
 TEST_F(ArgParserTest, PositionalArguments) {
-    SetupCustomArgs({"COMMAND", "first_pos", "TIMEOUT", "5000", "second_pos"});
+    SetupCustomArgs({"COMMAND", "first_pos", "second_pos", "TIMEOUT", "5000"});
 
     const char *first_arg = nullptr;
     const char *second_arg = nullptr;
@@ -308,6 +318,8 @@ static void test_callback(ArgParser *parser, void *target, void *user_data) {
 }
 
 TEST_F(ArgParserTest, CallbackExecution) {
+    SetupCustomArgs({"COMMAND", "VERBOSE"});
+
     bool verbose = false;
     int callback_count = 0;
 

@@ -16,11 +16,12 @@
 #define MAX_ERROR_MSG_LEN 512
 
 // Internal helper functions
-static int resize_definitions(ArgParser *parser);
 static ArgDefinition *find_definition(ArgParser *parser, const char *name);
+static ArgDefinition *find_positional_definition(ArgParser *parser, int position);
 static int parse_single_arg(ArgParser *parser, ArgDefinition *def);
 static void set_error(ArgParser *parser, const char *message, const char *arg_name);
 static void apply_defaults(ArgParser *parser);
+
 
 ArgParser *ArgParser_New(ArgsCursor *cursor, const char *command_name) {
     ArgParser *parser = rm_calloc(1, sizeof(ArgParser));
@@ -28,13 +29,26 @@ ArgParser *ArgParser_New(ArgsCursor *cursor, const char *command_name) {
 
     parser->cursor = cursor;
     parser->command_name = command_name ? rm_strdup(command_name) : NULL;
-    parser->definitions = rm_calloc(INITIAL_DEF_CAPACITY, sizeof(ArgDefinition));
-    parser->def_count = 0;
+    parser->definitions = array_new(ArgDefinition, INITIAL_DEF_CAPACITY);
     parser->strict_mode = true;
+    parser->error_buffer = NULL;
 
     if (!parser->definitions) {
+        if (parser->definitions) array_free(parser->definitions);
+        rm_free((void*)parser->command_name);
         rm_free(parser);
         return NULL;
+    }
+
+    // Skip the first argument if it matches the command name
+    // This handles cases where the cursor includes the command name as the first argument
+    if (cursor && !AC_IsAtEnd(cursor) && command_name) {
+        const char *first_arg;
+        if (AC_GetString(cursor, &first_arg, NULL, AC_F_NOADVANCE) == AC_OK) {
+            if (strcasecmp(first_arg, command_name) == 0) {
+                AC_Advance(cursor);  // Skip the command name
+            }
+        }
     }
 
     return parser;
@@ -44,52 +58,48 @@ void ArgParser_Free(ArgParser *parser) {
     if (!parser) return;
 
     // Free allocated strings in definitions
-    for (size_t i = 0; i < parser->def_count; i++) {
+    for (size_t i = 0; i < array_len(parser->definitions); i++) {
         ArgDefinition *def = &parser->definitions[i];
         if (def->name) rm_free((void*)def->name);
         if (def->description) rm_free((void*)def->description);
     }
 
-    rm_free(parser->definitions);
-    rm_free(parser->parsed_flags);
+    array_free(parser->definitions);
+    rm_free(parser->error_buffer);
     rm_free((void*)parser->command_name);
     rm_free(parser);
 }
 
-static int resize_definitions(ArgParser *parser) {
-    size_t new_capacity = parser->def_count * 2;
-    if (new_capacity < INITIAL_DEF_CAPACITY) {
-        new_capacity = INITIAL_DEF_CAPACITY;
-    }
-
-    ArgDefinition *new_defs = rm_realloc(parser->definitions,
-                                        new_capacity * sizeof(ArgDefinition));
-    if (!new_defs) return -1;
-
-    parser->definitions = new_defs;
-    return 0;
-}
-
 static ArgDefinition *add_definition(ArgParser *parser, const char *name,
                                    const char *description, ArgType type, void *target) {
-    if (parser->def_count >= INITIAL_DEF_CAPACITY && resize_definitions(parser) != 0) {
+    if (!parser || !name) return NULL;
+
+    char *name_copy = rm_strdup(name);
+    char *desc_copy = description ? rm_strdup(description) : NULL;
+
+    // Check for allocation failures
+    if (!name_copy || (description && !desc_copy)) {
+        rm_free(name_copy);
+        rm_free(desc_copy);
         return NULL;
     }
 
-    ArgDefinition *def = &parser->definitions[parser->def_count++];
-    memset(def, 0, sizeof(ArgDefinition));
+    ArgDefinition def = {
+        .name = name_copy,
+        .description = desc_copy,
+        .type = type,
+        .target = target,
+        .required = false,
+        .repeatable = false,
+        .has_default = false,
+        .has_position = false,
+        .position = 0,
+        .parsed = false,
+    };
 
-    def->name = rm_strdup(name);
-    def->description = description ? rm_strdup(description) : NULL;
-    def->type = type;
-    def->target = target;
-    def->required = false;
-    def->repeatable = false;
-    def->has_default = false;
-    def->has_position = false;
-    def->position = 0;
+    array_append(parser->definitions, def);
 
-    return def;
+    return &array_tail(parser->definitions);
 }
 
 ArgParser *ArgParser_AddFlag(ArgParser *parser, const char *name, const char *description,
@@ -160,18 +170,40 @@ ArgParser *ArgParser_AddSubArgs(ArgParser *parser, const char *name, const char 
 
 // Internal helper to access the last added definition (used by variadic option applier)
 static ArgDefinition *get_last_definition(ArgParser *parser) {
-    if (parser->def_count == 0) return NULL;
-    return &parser->definitions[parser->def_count - 1];
+    if (array_len(parser->definitions) == 0) return NULL;
+    return &array_tail(parser->definitions);
 }
 
 static ArgDefinition *find_definition(ArgParser *parser, const char *name) {
-    for (size_t i = 0; i < parser->def_count; i++) {
-        if (strcasecmp(parser->definitions[i].name, name) == 0) {
-            return &parser->definitions[i];
+    // Early return for empty definitions or null name
+    if (!name || array_len(parser->definitions) == 0) {
+        return NULL;
+    }
+
+    // Linear search - could be optimized with hash table for large numbers of arguments
+    for (size_t i = 0; i < array_len(parser->definitions); i++) {
+        ArgDefinition *def = &parser->definitions[i];
+        if (strcasecmp(def->name, name) == 0) {
+            return def;
         }
     }
     return NULL;
 }
+
+// Optimized lookup for positional arguments
+static ArgDefinition *find_positional_definition(ArgParser *parser, int position) {
+    if (!parser || position < 1) return NULL;
+
+    for (size_t i = 0; i < array_len(parser->definitions); i++) {
+        ArgDefinition *def = &parser->definitions[i];
+        if (def->has_position && def->position == position) {
+            return def;
+        }
+    }
+    return NULL;
+}
+
+
 
 static void set_error(ArgParser *parser, const char *message, const char *arg_name) {
     parser->last_result.success = false;
@@ -295,13 +327,27 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
         }
 
         case ARG_TYPE_SUBARGS: {
-            if (def->options.subargs.max_args == 1) {
-                // Single argument slice
-                rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, 1);
-            } else {
-                // Variable arguments
-                rv = AC_GetVarArgs(parser->cursor, (ArgsCursor*)def->target);
+            // For SubArgs, we need to determine how many arguments to consume
+            int args_to_consume = def->options.subargs.max_args;
+
+            // If max_args is -1, it means variable length - try to consume remaining args
+            if (args_to_consume == -1) {
+                args_to_consume = AC_NumRemaining(parser->cursor);
             }
+
+            // Ensure we don't consume more than available or less than minimum
+            int remaining = AC_NumRemaining(parser->cursor);
+            if (args_to_consume > remaining) {
+                args_to_consume = remaining;
+            }
+
+            // Check minimum requirement
+            if (args_to_consume < def->options.subargs.min_args) {
+                set_error(parser, "Not enough arguments provided", def->name);
+                return AC_ERR_NOARG;
+            }
+
+            rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, args_to_consume);
             break;
         }
 
@@ -328,10 +374,9 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
 }
 
 ArgParseResult ArgParser_Parse(ArgParser *parser) {
+    static ArgParseResult null_result = {false, "Invalid parser or cursor", NULL, -1};
     if (!parser || !parser->cursor) {
-        parser->last_result.success = false;
-        parser->last_result.error_message = "Invalid parser or cursor";
-        return parser->last_result;
+        return null_result;
     }
 
     // Initialize result as success
@@ -340,34 +385,23 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
     parser->last_result.error_arg = NULL;
     parser->last_result.error_position = -1;
 
-    // Allocate parsed flags tracking
-    if (!parser->parsed_flags) {
-        parser->parsed_flags = rm_calloc(parser->def_count, sizeof(bool));
-        if (!parser->parsed_flags) {
-            set_error(parser, "Memory allocation failed", NULL);
-            return parser->last_result;
-        }
+    // Reset all parsed flags to false for this parse
+    for (size_t i = 0; i < array_len(parser->definitions); i++) {
+        parser->definitions[i].parsed = false;
     }
 
     // First pass: parse positional arguments in order
     int current_position = 1;
     while (!AC_IsAtEnd(parser->cursor)) {
-        // Find positional argument for current position
-        ArgDefinition *pos_def = NULL;
-        for (size_t i = 0; i < parser->def_count; i++) {
-            if (parser->definitions[i].has_position &&
-                parser->definitions[i].position == current_position) {
-                pos_def = &parser->definitions[i];
-                break;
-            }
-        }
+        // Find positional argument for current position (optimized lookup)
+        ArgDefinition *pos_def = find_positional_definition(parser, current_position);
 
         if (!pos_def) {
             // No more positional arguments, break to named argument parsing
             break;
         }
 
-        // Check if this looks like a named argument (starts with keyword)
+        // Check if the current argument is a known named argument
         const char *arg_name;
         int rv = AC_GetString(parser->cursor, &arg_name, NULL, AC_F_NOADVANCE);
         if (rv != AC_OK) {
@@ -375,42 +409,49 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
             break;
         }
 
-        // If this matches the expected positional argument name, parse it
-        if (strcmp(arg_name, pos_def->name) == 0) {
-            // Advance past the argument name
-            AC_Advance(parser->cursor);
-
-            // Check if already parsed and not repeatable
-            size_t def_index = pos_def - parser->definitions;
-            if (parser->parsed_flags[def_index] && !pos_def->repeatable) {
-                set_error(parser, "Argument specified multiple times", pos_def->name);
-                break;
-            }
-
-            // Parse the argument value
-            rv = parse_single_arg(parser, pos_def);
-            if (rv != AC_OK) {
-                if (parser->last_result.success) {
-                    set_error(parser, AC_Strerror(rv), pos_def->name);
-                }
-                break;
-            }
-
-            parser->parsed_flags[def_index] = true;
-            current_position++;
-        } else {
-            // Expected positional argument not found at this position
-            if (pos_def->required) {
-                set_error(parser, "Required positional argument missing or out of order", pos_def->name);
-                break;
-            } else {
-                // Skip this optional positional argument
-                current_position++;
-            }
+        // Check if this is a named argument (not positional)
+        ArgDefinition *named_def = find_definition(parser, arg_name);
+        if (named_def && !named_def->has_position) {
+            // This is a named argument, stop positional parsing
+            break;
         }
+
+        // This should be a positional argument value
+        // Check if already parsed and not repeatable
+        if (pos_def->parsed && !pos_def->repeatable) {
+            set_error(parser, "Argument specified multiple times", pos_def->name);
+            break;
+        }
+
+        // Parse the positional argument value directly (no name expected)
+        rv = parse_single_arg(parser, pos_def);
+        if (rv != AC_OK) {
+            if (parser->last_result.success) {
+                set_error(parser, AC_Strerror(rv), pos_def->name);
+            }
+            break;
+        }
+
+        pos_def->parsed = true;
+        current_position++;
     }
 
-    // Second pass: parse remaining named arguments
+    // Check for missing required positional arguments
+    int check_position = current_position;
+    while (true) {
+        ArgDefinition *pos_def = find_positional_definition(parser, check_position);
+        if (!pos_def) break;
+
+        if (pos_def->required) {
+            if (!pos_def->parsed) {
+                set_error(parser, "Required positional argument missing or out of order", pos_def->name);
+                break;
+            }
+        }
+        check_position++;
+    }
+
+    // Second pass: parse remaining arguments (both named and positional)
     while (!AC_IsAtEnd(parser->cursor) && parser->last_result.success) {
         const char *arg_name;
         int rv = AC_GetString(parser->cursor, &arg_name, NULL, AC_F_NOADVANCE);
@@ -419,8 +460,37 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
             break;
         }
 
+        // Check if this is a known argument (named or positional)
         ArgDefinition *def = find_definition(parser, arg_name);
         if (!def) {
+            // Check if this could be a positional argument value
+            // Find the next unparsed positional argument
+            ArgDefinition *pos_def = NULL;
+            for (int pos = 1; pos <= 100; pos++) { // reasonable limit
+                ArgDefinition *candidate = find_positional_definition(parser, pos);
+                if (!candidate) break;
+
+                if (!candidate->parsed) {
+                    pos_def = candidate;
+                    break;
+                }
+            }
+
+            if (pos_def) {
+                // Parse as positional argument
+                size_t def_index = pos_def - parser->definitions;
+                rv = parse_single_arg(parser, pos_def);
+                if (rv != AC_OK) {
+                    if (parser->last_result.success) {
+                        set_error(parser, AC_Strerror(rv), pos_def->name);
+                    }
+                    break;
+                }
+                pos_def->parsed = true;
+                continue;
+            }
+
+            // Unknown argument
             if (parser->strict_mode) {
                 set_error(parser, "Unknown argument", arg_name);
                 break;
@@ -431,18 +501,19 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
             }
         }
 
-        // Skip if this is a positional argument (already handled)
+        // Skip if this is a positional argument that was already handled
         if (def->has_position) {
-            AC_Advance(parser->cursor);
-            continue;
+            if (def->parsed) {
+                AC_Advance(parser->cursor);
+                continue;
+            }
         }
 
         // Advance past the argument name
         AC_Advance(parser->cursor);
 
         // Check if already parsed and not repeatable
-        size_t def_index = def - parser->definitions;
-        if (parser->parsed_flags[def_index] && !def->repeatable) {
+        if (def->parsed && !def->repeatable) {
             set_error(parser, "Argument specified multiple times", def->name);
             break;
         }
@@ -456,13 +527,13 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
             break;
         }
 
-        parser->parsed_flags[def_index] = true;
+        def->parsed = true;
     }
 
     // Check for required arguments that weren't parsed
     if (parser->last_result.success) {
-        for (size_t i = 0; i < parser->def_count; i++) {
-            if (parser->definitions[i].required && !parser->parsed_flags[i]) {
+        for (size_t i = 0; i < array_len(parser->definitions); i++) {
+            if (parser->definitions[i].required && !parser->definitions[i].parsed) {
                 set_error(parser, "Required argument missing", parser->definitions[i].name);
                 break;
             }
@@ -482,27 +553,48 @@ const char *ArgParser_GetErrorString(ArgParser *parser) {
         return NULL;
     }
 
-    static char error_buffer[MAX_ERROR_MSG_LEN];
-    if (parser->last_result.error_arg) {
-        snprintf(error_buffer, sizeof(error_buffer), "%s: %s",
-                parser->last_result.error_arg, parser->last_result.error_message);
-    } else {
-        snprintf(error_buffer, sizeof(error_buffer), "%s", parser->last_result.error_message);
+    // Thread-safe: use parser's own buffer instead of static
+    if (!parser->error_buffer) {
+        parser->error_buffer = rm_malloc(MAX_ERROR_MSG_LEN);
+        if (!parser->error_buffer) {
+            return "Memory allocation failed for error message";
+        }
     }
 
-    return error_buffer;
+    if (parser->last_result.error_arg) {
+        snprintf(parser->error_buffer, MAX_ERROR_MSG_LEN, "%s: %s",
+                parser->last_result.error_arg, parser->last_result.error_message);
+    } else {
+        snprintf(parser->error_buffer, MAX_ERROR_MSG_LEN, "%s", parser->last_result.error_message);
+    }
+
+    return parser->error_buffer;
+}
+
+bool ArgParser_HasMore(ArgParser *parser) {
+    if (!parser || !parser->cursor) return false;
+    return !AC_IsAtEnd(parser->cursor);
+}
+
+int ArgParser_GetRemainingCount(ArgParser *parser) {
+    if (!parser || !parser->cursor) return 0;
+    return AC_NumRemaining(parser->cursor);
+}
+
+ArgsCursor *ArgParser_GetRemainingArgs(ArgParser *parser) {
+    if (!parser) return NULL;
+    return parser->cursor;
 }
 
 bool ArgParser_WasParsed(ArgParser *parser, const char *arg_name) {
-    if (!parser || !parser->parsed_flags || !arg_name) {
+    if (!parser || !arg_name) {
         return false;
     }
 
     ArgDefinition *def = find_definition(parser, arg_name);
     if (!def) return false;
 
-    size_t def_index = def - parser->definitions;
-    return parser->parsed_flags[def_index];
+    return def->parsed;
 }
 
 // Common validators
@@ -528,11 +620,11 @@ int ArgParser_ValidateNonNegative(const void *value, const char **error_msg) {
 
 // Apply default values for unparsed optional arguments
 static void apply_defaults(ArgParser *parser) {
-    for (size_t i = 0; i < parser->def_count; i++) {
+    for (size_t i = 0; i < array_len(parser->definitions); i++) {
         ArgDefinition *def = &parser->definitions[i];
 
         // Skip if already parsed or no default
-        if (parser->parsed_flags[i] || !def->has_default || !def->target) {
+        if (def->parsed || !def->has_default || !def->target) {
             continue;
         }
 
@@ -598,7 +690,7 @@ static void apply_variadic_options(ArgParser *parser, va_list args) {
 
             case ARG_OPT_RANGE:
                 if (def->type == ARG_TYPE_INT || def->type == ARG_TYPE_LONG ||
-                    def->type == ARG_TYPE_UINT || def->type == ARG_TYPE_ULONG) {
+                    def->type == ARG_TYPE_ULONG) {  // Removed ARG_TYPE_UINT (doesn't exist)
                     def->options.numeric.min_val = va_arg(args, long long);
                     def->options.numeric.max_val = va_arg(args, long long);
                     def->options.numeric.has_min = true;
@@ -715,6 +807,30 @@ ArgParser *ArgParser_AddIntV(ArgParser *parser, const char *name, const char *de
 ArgParser *ArgParser_AddLongV(ArgParser *parser, const char *name, const char *description,
                              long long *target, ...) {
     ArgParser_AddLong(parser, name, description, target);
+
+    va_list args;
+    va_start(args, target);
+    apply_variadic_options(parser, args);
+    va_end(args);
+
+    return parser;
+}
+
+ArgParser *ArgParser_AddULongV(ArgParser *parser, const char *name, const char *description,
+                              unsigned long long *target, ...) {
+    ArgParser_AddULong(parser, name, description, target);
+
+    va_list args;
+    va_start(args, target);
+    apply_variadic_options(parser, args);
+    va_end(args);
+
+    return parser;
+}
+
+ArgParser *ArgParser_AddDoubleV(ArgParser *parser, const char *name, const char *description,
+                               double *target, ...) {
+    ArgParser_AddDouble(parser, name, description, target);
 
     va_list args;
     va_start(args, target);

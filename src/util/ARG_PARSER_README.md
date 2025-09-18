@@ -16,7 +16,6 @@ ArgParser is a flexible argument parsing library built on top of ArgsCursor that
 
 - `src/util/arg_parser.h` - Header file with API definitions
 - `src/util/arg_parser.c` - Implementation
-- `src/hybrid/parse/hybrid_optional_args.c` - Real-world usage examples
 
 ## Basic Usage
 
@@ -29,6 +28,10 @@ bool verbose = false;
 long long timeout = 5000;
 const char *format = NULL;
 int flags = 0;  // For bitflag operations
+
+// Initialize ArgsCursor with command arguments (typically from Redis command)
+ArgsCursor cursor;
+ArgsCursor_InitRString(&cursor, argv, argc);  // From RedisModuleString** argv, int argc
 
 // Create parser
 ArgParser *parser = ArgParser_New(&cursor, "MYCOMMAND");
@@ -85,17 +88,34 @@ printf("Index: %s, Verbose: %s, Timeout: %lld, Format: %s, WithScores: %s\n",
 ArgParser_Free(parser);
 ```
 
-### Legacy Chained API (Still Available)
-```c
-// For compatibility, the old chained API still works
-ArgParser_AddFlag(parser, "VERBOSE", "Enable verbose output", &verbose)
-    ->Optional()
-    ->WithDefault(0);
+### ArgsCursor Initialization
 
-ArgParser_AddLong(parser, "TIMEOUT", "Query timeout", &timeout)
-    ->Optional()
-    ->WithRange(100, 300000)
-    ->WithValidator(ArgParser_ValidatePositive);
+The ArgsCursor can be initialized in several ways depending on your context:
+
+```c
+// From Redis module command (most common)
+ArgsCursor cursor;
+ArgsCursor_InitRString(&cursor, argv, argc);  // RedisModuleString** argv, int argc
+
+// From C string array (useful for testing)
+const char *args[] = {"MYCOMMAND", "TIMEOUT", "5000", "VERBOSE"};
+ArgsCursor cursor;
+ArgsCursor_InitCString(&cursor, args, sizeof(args)/sizeof(args[0]));
+
+// From existing ArgsCursor (sub-parsing)
+ArgsCursor sub_cursor;
+AC_GetSlice(&parent_cursor, &sub_cursor, num_args);
+```
+
+### Non-Variadic API (Basic)
+```c
+// Basic API without configuration options - use variadic API for advanced features
+ArgParser_AddFlag(parser, "VERBOSE", "Enable verbose output", &verbose);
+ArgParser_AddLong(parser, "TIMEOUT", "Query timeout", &timeout);
+ArgParser_AddString(parser, "FORMAT", "Output format", &format);
+
+// Note: Non-variadic functions don't support validation, defaults, or other options
+// Use the variadic API (ArgParser_Add*V functions) for full functionality
 ```
 
 ## Comparison: Old vs New
@@ -121,6 +141,7 @@ if (AC_AdvanceIfMatch(ac, "LIMIT")) {
 
 ### After (ArgParser style):
 ```c
+// ac is the same ArgsCursor from the "Before" example
 ArgParser *parser = ArgParser_New(ac, "AGGREGATE");
 
 // Using variadic API (recommended)
@@ -166,7 +187,7 @@ ArgParser_Free(parser);
 - `ArgParser_AddDoubleV()` - Double precision floating point
 - `ArgParser_AddSubArgsV()` - Variable sub-arguments (like `LIMIT 0 10`)
 
-### Legacy Chained API
+### Non-Variadic API (Basic)
 - `ArgParser_AddFlag()` - Boolean flags
 - `ArgParser_AddString()` - String arguments
 - `ArgParser_AddInt()` / `ArgParser_AddLong()` / `ArgParser_AddULong()` - Numeric arguments
@@ -177,14 +198,6 @@ ArgParser_Free(parser);
 - `ArgParser_ParseNext(parser)` - Parse single argument (for incremental parsing)
 - `ArgParser_HasMore(parser)` - Check if more arguments are available
 - `ArgParser_PrintHelp(parser)` - Print help information for all arguments
-
-### Constraints (Chainable for Legacy API)
-- `->Required()` / `->Optional()` - Set requirement
-- `->WithRange(min, max)` - Numeric range validation
-- `->WithAllowedValues(values)` - String value validation
-- `->WithValidator(func)` - Custom validation
-- `->WithCallback(func, data)` - Custom processing
-- `->WithDefault(value)` - Default values
 
 ### Variadic Options (for `*V` functions)
 All variadic functions accept these options, terminated by `ARG_OPT_END`:
@@ -356,14 +369,3 @@ if (ArgParser_GetRemainingCount(parser) > 0) {
     // Process remaining arguments manually if needed
 }
 ```
-
-## Real-World Usage
-
-See `src/hybrid/parse/hybrid_optional_args.c` for a complete real-world example of ArgParser usage in the RediSearch hybrid search feature. This example demonstrates:
-
-- Complex argument parsing with callbacks
-- Bitflag operations for setting request flags
-- Error handling integration with QueryError
-- Mixed positional and named arguments
-
-This provides a unified, clean code structure that avoids complex parsing logic and makes user code easily readable and maintainable.

@@ -10,6 +10,7 @@
 #include "redismodule.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include "util/arr/arr.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,10 +20,10 @@ extern "C" {
  * Enhanced argument parser built on top of ArgsCursor for more flexible and readable parsing.
  *
  * Key features:
- * - Fluent API for chaining operations
+ * - Declarative argument definition with variadic API
  * - Built-in error handling with descriptive messages
  * - Support for optional arguments with defaults
- * - Validation callbacks
+ * - Validation callbacks and custom validators
  * - Automatic help generation
  * - Context preservation for better error reporting
  */
@@ -59,7 +60,7 @@ typedef struct {
     bool repeatable;            // Whether argument can appear multiple times
 
     // Positional constraint (1-based). If set, this argument is parsed by position instead of name.
-    int position;               // 1 = first argument after command, 2 = second, etc.
+    uint16_t position;          // 1 = first argument after command, 2 = second, etc.
     bool has_position;
 
     // Type-specific options
@@ -102,6 +103,9 @@ typedef struct {
         bool flag_default;
     } defaults;
     bool has_default;
+
+    // Parse state
+    bool parsed;                // Whether this argument has been parsed
 } ArgDefinition;
 
 // Parse result structure
@@ -115,13 +119,12 @@ struct ArgParseResult {
 // Main parser structure
 struct ArgParser {
     ArgsCursor *cursor;         // Underlying cursor
-    ArgDefinition *definitions; // Array of argument definitions
-    size_t def_count;          // Number of definitions
+    arrayof(ArgDefinition) definitions; // Array of argument definitions
     const char *command_name;   // Command name for error messages
-    bool strict_mode;          // Whether to fail on unknown arguments
+    bool strict_mode;           // Whether to fail on unknown arguments
 
     // Internal state
-    bool *parsed_flags;        // Track which arguments have been parsed
+    char *error_buffer;        // Thread-safe error message buffer
     ArgParseResult last_result; // Last parse result
 };
 
