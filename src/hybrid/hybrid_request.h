@@ -66,9 +66,9 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  *
  * @param req The HybridRequest containing multiple AREQ search requests
  * @param params Pipeline parameters including synchronization settings
- * @return Array of depleter processors that will feed the merge pipeline, or NULL on failure
+ * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params);
 
 /**
  * Build the merge pipeline for hybrid search processing.
@@ -84,10 +84,9 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
  *
  * @param req The HybridRequest containing the tail pipeline for merging
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
- * @param depleters Array of depleter processors from the depletion pipeline
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, arrayof(ResultProcessor*) depleters);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.
@@ -104,8 +103,6 @@ void HybridRequest_Free(HybridRequest *req);
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
-
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

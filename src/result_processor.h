@@ -352,22 +352,7 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
  * @param count Number of depleter processors in the array
  * @return RS_RESULT_OK if all depleters completed successfully, otherwise an error code
  */
-int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters, size_t count);
-
-/**
- * Starts the depletion for all the depleters in the array with configurable timeout behavior.
- * Waits until all finished depleting or timeout is reached, and returns.
- * @param depleters Array of depleter processors
- * @param count Number of depleter processors in the array
- * @param start_wait_interval_us Microseconds to wait between checks while waiting for depletion to start
- * @param completion_wait_interval_us Microseconds to wait between checks while waiting for completion
- * @param max_timeout_ms Maximum timeout in milliseconds (0 means no timeout)
- * @return RS_RESULT_OK if all depleters completed successfully, RS_RESULT_TIMEDOUT on timeout, otherwise an error code
- */
-int RPDepleter_DepleteAllWithTimeout(arrayof(ResultProcessor*) depleters, size_t count,
-                                     unsigned int start_wait_interval_us,
-                                     unsigned int completion_wait_interval_us,
-                                     long long max_timeout_ms);
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
  * Creates a new shared synchronization object for coordinating multiple RPDepleter processors.

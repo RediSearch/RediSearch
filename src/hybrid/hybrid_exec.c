@@ -305,9 +305,11 @@ static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
 }
 
 /**
- * Destroy a blocked client hybrid context and clean up resources.
- *
- * @param BCHCtx The blocked client context to destroy
+ * Execute the hybrid search pipeline and send results to the client.
+ * This function uses the hybrid-specific result serialization functions.
+ * @param hreq The HybridRequest with built pipeline
+ * @param ctx Redis module context for sending the reply
+ * @param sctx Redis search context
  */
 void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
     AGGPlan *plan = &hreq->tailPipeline->ap;
@@ -339,56 +341,7 @@ int HybridRequest_StartSingleCursor(StrongRef hybrid_ref, RedisModule_Reply *rep
     return REDISMODULE_OK;
 }
 
-int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, arrayof(ResultProcessor*) depleters, QueryError *status) {
-    HybridRequest *req = StrongRef_Get(hybrid_ref);
-    if (req->nrequests == 0 || req->nrequests != array_len(depleters)) {
-      QueryError_SetError(&req->tailPipelineError, QUERY_EGENERIC, "Number of requests mismatch");
-      return REDISMODULE_ERR;
-    }
-    arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
-    for (size_t i = 0; i < req->nrequests; i++) {
-      AREQ *areq = req->requests[i];
-      if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
-         break;
-      }
-      Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
-      if (!cursor) {
-        break;
-      }
-      // transfer ownership of the request to the cursor
-      cursor->execState = areq;
-      cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
-      areq->cursor_id = cursor->id;
-      array_ensure_append_1(cursors, cursor);
-    }
-
-    if (array_len(cursors) != req->nrequests) {
-      for (size_t i = 0; i < array_len(cursors); i++) {
-        Cursor_Free(cursors[i]);
-      }
-      array_free(cursors);
-      // verify error exists
-      RS_ASSERT(QueryError_HasError(status));
-      return REDISMODULE_ERR;
-    }
-
-    int rc = RPDepleter_DepleteAll(depleters, req->nrequests);
-    if (rc != RS_RESULT_OK) {
-      for (size_t i = 0; i < array_len(cursors); i++) {
-        Cursor_Free(cursors[i]);
-      }
-      array_free(cursors);
-      if (rc == RS_RESULT_TIMEDOUT) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ETIMEDOUT, "Depleting timed out");
-      } else {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
-      }
-      return REDISMODULE_ERR;
-    }
-
-    // We only support 2 subqueries
-    RS_ASSERT(array_len(cursors) == 2);
-    
+static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) cursors) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
@@ -396,9 +349,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, a
       Cursor *cursor = cursors[i];
       Cursor_Pause(cursor);
       AREQ *areq = cursor->execState;
-      if (areq->reqflags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) {
+      if (IsHybridSearchSubquery(areq)) {
         RedisModule_ReplyKV_LongLong(reply, "SEARCH", cursor->id);
-      } else if (areq->reqflags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY) {
+      } else if (IsHybridVectorSubquery(areq)) {
         RedisModule_ReplyKV_LongLong(reply, "VSIM", cursor->id);
       } else {
         // This should never happen, we currently only support SEARCH and VSIM subqueries
@@ -407,6 +360,53 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, a
     }
     RedisModule_Reply_MapEnd(reply);
     RedisModule_EndReply(reply);
+}
+
+int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status) {
+    HybridRequest *req = StrongRef_Get(hybrid_ref);
+    if (req->nrequests == 0) {
+      QueryError_SetError(&req->tailPipelineError, QUERY_EGENERIC, "No subqueries in hybrid request");
+      return REDISMODULE_ERR;
+    }
+    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor*, req->nrequests);
+    arrayof(Cursor*) cursors = array_new(Cursor*, req->nrequests);
+    for (size_t i = 0; i < req->nrequests; i++) {
+      AREQ *areq = req->requests[i];
+      if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+         break;
+      }
+      array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
+      Cursor *cursor = Cursors_Reserve(getCursorList(false), areq->sctx->spec->own_ref, areq->cursorConfig.maxIdle, status);
+      if (!cursor) {
+        break;
+      }
+      // The cursor lifetime will determine the hybrid request lifetime
+      cursor->execState = areq;
+      cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
+      areq->cursor_id = cursor->id;
+      array_ensure_append_1(cursors, cursor);
+    }
+
+    if (array_len(cursors) != req->nrequests) {
+      array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
+      array_free(depleters);
+      // verify error exists
+      RS_ASSERT(QueryError_HasError(status));
+      return REDISMODULE_ERR;
+    }
+
+    int rc = RPDepleter_DepleteAll(depleters);
+    array_free(depleters);
+    if (rc != RS_RESULT_OK) {
+      array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
+      if (rc == RS_RESULT_TIMEDOUT) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ETIMEDOUT, "Depleting timed out");
+      } else {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
+      }
+      return REDISMODULE_ERR;
+    }    
+    replyWithCursors(replyCtx, cursors);
     array_free(cursors);
     // Free the depleters array only on success
     array_free(depleters);
@@ -431,28 +431,21 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   hreq->reqflags = hybridParams->aggregationParams.common.reqflags;
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
-  arrayof(ResultProcessor*) depleters = NULL;
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    depleters = HybridRequest_BuildDepletionPipeline(hreq, hybridParams);
-    if (!depleters) {
+    if (!HybridRequest_BuildDepletionPipeline(hreq, hybridParams)) {
       return REDISMODULE_ERR;
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   
-  if (isCursor) { 
-    RS_ASSERT(depleters);
-    if (HybridRequest_StartCursors(hybrid_ref, ctx, depleters, status) != REDISMODULE_OK) {
-      // If we failed starting the cursors we need to free the depleters array
-      array_free(depleters);
-      return REDISMODULE_ERR;
-    }
-  } else {
+  if (!isCursor) { 
     HybridRequest_Execute(hreq, ctx, sctx);
+  } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
   }
 
   freeHybridParams(hybridParams);

@@ -269,3 +269,46 @@ def test_hybrid_internal_cursor_limit(env):
     env.expect('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
                'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR').error().contains('INDEX_CURSOR_LIMIT of 1 has been reached for an index')
 
+
+@skip(cluster=True)
+def test_hybrid_internal_empty_search_results(env):
+    """Test _FT.HYBRID when search subquery returns no results
+
+    This test verifies behavior when the text search part finds no matching documents,
+    while the vector similarity part can still return results.
+    """
+    setup_hybrid_test_data(env)
+
+    # Search for a term that doesn't exist in any document
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:nonexistent',
+                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR')
+
+    # Should return a map with cursor IDs
+    env.assertTrue(isinstance(hybrid_result, list))
+    result_dict = dict(zip(hybrid_result[::2], hybrid_result[1::2]))
+
+    # Should have both cursor types
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
+
+    # Verify that text search returns no results
+    text_search_result = env.cmd('FT.SEARCH', 'idx', '@description:nonexistent', 'DIALECT', '2', 'RETURN', '0')
+    env.assertEqual(text_search_result[0], 0)  # Should have 0 results
+
+    # Verify that vector search still returns results
+    vector_search_result = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 10 @embedding $vec_param]', 'DIALECT', '2',
+                                  'PARAMS', '2', 'vec_param', query_vec.tobytes(), 'RETURN', '0')
+    env.assertTrue(vector_search_result[0] > 0)  # Should have results
+
+    # Read from cursors and verify behavior
+    cursor_results = {}
+    for cursor_type, cursor_id in result_dict.items():
+        cursor_results[cursor_type] = read_cursor_completely(env, 'idx', cursor_id)
+
+    # SEARCH cursor should return empty results
+    env.assertEqual(cursor_results['SEARCH'], [])
+
+    # VSIM cursor should return some results
+    env.assertTrue(len(cursor_results['VSIM']) > 0)
+

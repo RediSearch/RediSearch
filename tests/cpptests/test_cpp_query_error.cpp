@@ -170,6 +170,7 @@ TEST_F(QueryErrorTest, testQueryErrorCloneFrom) {
 
   QueryError_ClearError(&src);
   QueryError_ClearError(&dest);
+  QueryError_ClearError(&src2);
 }
 
 TEST_F(QueryErrorTest, testQueryErrorGetDisplayableError) {
