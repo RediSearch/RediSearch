@@ -78,6 +78,7 @@ void QueryError_ClearError(QueryError *err) {
     rm_free(err->detail);
     err->detail = NULL;
   }
+  err->message = NULL;
   err->code = QUERY_OK;
 }
 
