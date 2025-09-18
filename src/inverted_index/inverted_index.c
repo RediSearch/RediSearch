@@ -23,6 +23,8 @@
 
 uint64_t TotalBlocks = 0;
 
+// This is a temporary wrapper around `TotalBlocks`. When we switch over to Rust it won't be possible to access `TotalBlocks` directly. So
+// this aligns the usage with the incoming Rust code.
 size_t TotalIIBlocks() {
   return TotalBlocks;
 }
