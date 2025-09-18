@@ -1215,8 +1215,8 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
                             RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
   RSSortingVector *sv = dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
-  for (size_t ii = 0; ii < sv->len; ++ii) {
-    if (!sv->values[ii]) {
+  for (size_t ii = 0; ii < RSSortingVector_Length(sv); ++ii) {
+    if (!RSSortingVector_Get(sv, ii)) {
       continue;
     }
     RedisModule_Reply_Array(reply);
@@ -1240,7 +1240,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       }
 
       RedisModule_Reply_CString(reply, "value");
-      RedisModule_Reply_RSValue(reply, sv->values[ii], 0);
+      RedisModule_Reply_RSValue(reply, RSSortingVector_Get(sv, ii), 0);
     RedisModule_Reply_ArrayEnd(reply);
   }
   RedisModule_Reply_ArrayEnd(reply);
