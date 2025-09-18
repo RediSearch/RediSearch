@@ -1097,7 +1097,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static QueryProcessingCtx *preapreForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
+static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
   AREQ *req = cursor->execState;
   QueryProcessingCtx *qctx = NULL;
   if (req) {
@@ -1126,7 +1126,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
   bool hasLoader = false;
   bool initClock = false;
   AREQ *req = cursor->execState;
-  QueryProcessingCtx *qctx = preapreForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
+  QueryProcessingCtx *qctx = prepareForCursorRead(cursor, &hasLoader, &initClock, &reqFlags, &status);
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
