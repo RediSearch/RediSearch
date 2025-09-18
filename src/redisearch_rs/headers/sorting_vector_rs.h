@@ -91,19 +91,35 @@ void RSSortingVector_PutNum(RSSortingVector *vec,
  *
  * Panics if the `idx` is out of bounds for the vector.
  *
- * This function will normalize the string to lowercase and use utf normalization for sorting if `is_normalized` is true.
- *
  * # Safety
  *
  * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
  * 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
- * 3. `str` pointer must be normalized (lowercase and utf normalization).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RSSortingVector_PutStr(RSSortingVector *vec,
                             size_t idx,
                             const char *str);
+
+/**
+ * Puts a string at the given index in the sorting vector, the string is normalized before being set.
+ *
+ * # Panics
+ *
+ * - Panics if the provided string is invalid UTF-8
+ * - Panics if the `idx` is out of bounds for the vector.
+ *
+ * # Safety
+ *
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
+ * 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RSSortingVector_PutStrNormalize(RSSortingVector *vec,
+                                     size_t idx,
+                                     const char *str);
 
 /**
  * Puts a value at the given index in the sorting vector. If a out of bounds occurs it returns silently.

@@ -537,7 +537,7 @@ mod tests {
         row.write_key_by_name(
             &mut rlookup,
             c"lang",
-            RSValueMock::create_string("en".to_string()),
+            RSValueMock::create_string(b"en".to_vec()),
         );
         row.write_key_by_name(&mut rlookup, c"c", RSValueMock::create_num(42.));
         row.write_key_by_name(&mut rlookup, c"payload", RSValueMock::create_num(815.0));
