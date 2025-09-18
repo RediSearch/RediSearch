@@ -22,6 +22,16 @@ fn benchmark_id_list(c: &mut Criterion) {
     bencher.bench(c);
 }
 
-criterion_group!(benches, benchmark_empty, benchmark_id_list,);
+fn benchmark_inverted_index(c: &mut Criterion) {
+    let bencher = benchers::inverted_index::NumericFullBencher::default();
+    bencher.bench(c);
+}
+
+criterion_group!(
+    benches,
+    benchmark_empty,
+    benchmark_id_list,
+    benchmark_inverted_index,
+);
 
 criterion_main!(benches);
