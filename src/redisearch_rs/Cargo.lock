@@ -1423,6 +1423,7 @@ dependencies = [
  "query_error_ffi",
  "redis-module",
  "result_processor_ffi",
+ "sorting_vector_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",

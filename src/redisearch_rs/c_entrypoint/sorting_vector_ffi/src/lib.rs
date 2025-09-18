@@ -35,7 +35,7 @@ pub type RSSortingVector = sorting_vector::RSSortingVector<RSValueFFI>;
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_Get(
+pub unsafe extern "C-unwind" fn RSSortingVector_Get(
     vec: *const RSSortingVector,
     idx: libc::size_t,
 ) -> *mut ffi::RSValue {
@@ -53,7 +53,7 @@ unsafe extern "C" fn RSSortingVector_Get(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc::size_t {
+pub unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc::size_t {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.as_ref().expect("vec must not be null") };
 
@@ -68,7 +68,9 @@ unsafe extern "C" fn RSSortingVector_Length(vec: *const RSSortingVector) -> libc
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_GetMemorySize(vec: *const RSSortingVector) -> libc::size_t {
+pub unsafe extern "C" fn RSSortingVector_GetMemorySize(
+    vec: *const RSSortingVector,
+) -> libc::size_t {
     // Safety: The caller must ensure that the pointer is valid (1.)
     let vec = unsafe { vec.as_ref().expect("vec must not be null") };
 
@@ -87,7 +89,7 @@ unsafe extern "C" fn RSSortingVector_GetMemorySize(vec: *const RSSortingVector) 
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutNum(
+pub unsafe extern "C" fn RSSortingVector_PutNum(
     vec: Option<NonNull<RSSortingVector>>,
     idx: libc::size_t,
     num: f64,
@@ -101,7 +103,7 @@ unsafe extern "C" fn RSSortingVector_PutNum(
         });
 }
 
-/// Puts a string at the given index in the sorting vector.
+/// Puts a string at the given index in the sorting vector. Will take ownership of the string pointer.
 ///
 /// # Panics
 ///
@@ -114,10 +116,12 @@ unsafe extern "C" fn RSSortingVector_PutNum(
 /// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
 /// 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
 /// 3. `str` pointer must be normalized (lowercase and utf normalization).
+/// 4. `str` must be allocated using the RedisModule Allocator.
+/// 4. `str` must not be used again.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutStr(
+pub unsafe extern "C-unwind" fn RSSortingVector_PutStr(
     vec: Option<NonNull<RSSortingVector>>,
     idx: libc::size_t,
     str: *const c_char,
@@ -154,7 +158,7 @@ unsafe extern "C" fn RSSortingVector_PutStr(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutRSVal(
+pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     vec: Option<NonNull<RSSortingVector>>,
     idx: libc::size_t,
     val: Option<NonNull<ffi::RSValue>>,
@@ -182,7 +186,7 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_PutNull(
+pub unsafe extern "C" fn RSSortingVector_PutNull(
     vec: Option<NonNull<RSSortingVector>>,
     idx: libc::size_t,
 ) {
@@ -200,7 +204,7 @@ unsafe extern "C" fn RSSortingVector_PutNull(
 ///
 /// Panics if `len` is greater than [`RS_SORTABLES_MAX`].
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_New(len: libc::size_t) -> *mut RSSortingVector {
+pub extern "C" fn RSSortingVector_New(len: libc::size_t) -> *mut RSSortingVector {
     assert!(
         len <= RS_SORTABLES_MAX,
         "RSSortingVector_New called with length greater than RS_SORTABLES_MAX ({RS_SORTABLES_MAX})"
@@ -220,7 +224,7 @@ unsafe extern "C" fn RSSortingVector_New(len: libc::size_t) -> *mut RSSortingVec
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-unsafe extern "C" fn RSSortingVector_Free(vec: *mut RSSortingVector) {
+pub unsafe extern "C" fn RSSortingVector_Free(vec: *mut RSSortingVector) {
     // We allow null in free as this is C standard behavior and used in RediSearch codebase.
     if vec.is_null() {
         return;

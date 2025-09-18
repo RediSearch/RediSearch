@@ -21,6 +21,7 @@ pub use fnv_ffi as fnv;
 pub use inverted_index_ffi as inverted_index;
 pub use query_error_ffi as query_error;
 pub use result_processor_ffi as result_processor;
+pub use sorting_vector_ffi as sorting_vector;
 pub use triemap_ffi as triemap;
 pub use types_ffi as types;
 pub use varint_ffi as varint;

@@ -85,7 +85,7 @@ void RSSortingVector_PutNum(RSSortingVector *vec,
                             double num);
 
 /**
- * Puts a string at the given index in the sorting vector.
+ * Puts a string at the given index in the sorting vector. Will take ownership of the string pointer.
  *
  * # Panics
  *
@@ -98,6 +98,8 @@ void RSSortingVector_PutNum(RSSortingVector *vec,
  * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`].
  * 2. `str` must be a [valid], non-null pointer to a C string (null-terminated).
  * 3. `str` pointer must be normalized (lowercase and utf normalization).
+ * 4. `str` must be allocated using the RedisModule Allocator.
+ * 4. `str` must not be used again.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
