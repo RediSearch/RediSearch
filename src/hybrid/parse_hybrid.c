@@ -31,6 +31,21 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 
+// Helper function to set error message with proper plural vs singular form
+static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
+  const char *verb = (provided == 1) ? "was" : "were";
+  QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Expected arguments", " %u, but %d %s provided", expected, provided, verb);
+}
+
+// Check if we're at the end of arguments in the middle of a clause and set appropriate error for missing argument
+static int inline CheckEnd(ArgsCursor *ac, const char *argument, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS,
+                                    "Missing argument value for ", argument);
+      return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
 
 static VecSimRawParam createVecSimRawParam(const char *name, size_t nameLen, const char *value, size_t valueLen) {
   return (VecSimRawParam){
@@ -84,7 +99,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     }
 
     // Unknown argument that's not VSIM - this is an error
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in SEARCH", cur);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in SEARCH", cur);
     return REDISMODULE_ERR;
   }
 
@@ -94,30 +109,35 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
 static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
-  // Try to get number of parameters
-  long long params;
-  if (AC_GetLongLong(ac, &params, 0) != AC_OK ) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument count");
     return REDISMODULE_ERR;
-  } else if (params == 0 || params % 2 != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter count");
+  }
+  // Try to get number of arguments
+  unsigned int argumentCount;
+  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
+    return REDISMODULE_ERR;
+  } else if (argumentCount == 0 || argumentCount % 2 != 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
     return REDISMODULE_ERR;
   }
 
   bool hasEF = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<params; i+=2) {
+  for (int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing parameter");
+      setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
     }
 
     if (AC_AdvanceIfMatch(ac, "K")) {
       if (pvd->hasExplicitK) { // codespell:ignore
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate K parameter");
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate K argument");
         return REDISMODULE_ERR;
       }
+      if (CheckEnd(ac, "K", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       long long kValue;
       if (AC_GetLongLong(ac, &kValue, AC_F_GE1) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid K value");
@@ -128,9 +148,10 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 
     } else if (AC_AdvanceIfMatch(ac, "EF_RUNTIME")) {
       if (hasEF) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate EF_RUNTIME parameter");
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate EF_RUNTIME argument");
         return REDISMODULE_ERR;
       }
+      if (CheckEnd(ac, "EF_RUNTIME", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EF_RUNTIME value");
@@ -142,9 +163,10 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
       if (pvd->vectorScoreFieldAlias != NULL) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS parameter");
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
         return REDISMODULE_ERR;
       }
+      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
@@ -162,12 +184,12 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in KNN", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in KNN", current);
       return REDISMODULE_ERR;
     }
   }
   if (!pvd->hasExplicitK) { // codespell:ignore
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing K parameter");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing required argument K");
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -176,29 +198,36 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
 static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector RANGE ...
   //                                ^
-  long long params;
-  if (AC_GetLongLong(ac, &params, 0) != AC_OK ) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter count");
-    return REDISMODULE_ERR;
-  } else if (params == 0 || params % 2 != 0) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid parameter count");
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument count");
     return REDISMODULE_ERR;
   }
+  // Try to get number of arguments
+  unsigned int argumentCount;
+  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK ) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
+    return REDISMODULE_ERR;
+  } else if (argumentCount == 0 || argumentCount % 2 != 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
+    return REDISMODULE_ERR;
+  }
+
   bool hasRadius = false;
   bool hasEpsilon = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
-  for (int i=0; i<params; i+=2) {
+  for (int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Missing parameter");
+      setExpectedArgumentsError(status, argumentCount, i);
       return REDISMODULE_ERR;
     }
 
     if (AC_AdvanceIfMatch(ac, "RADIUS")) {
       if (hasRadius) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate RADIUS parameter");
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate RADIUS argument");
         return REDISMODULE_ERR;
       }
+      if (CheckEnd(ac, "RADIUS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       double radiusValue;
       if (AC_GetDouble(ac, &radiusValue, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid RADIUS value");
@@ -209,9 +238,10 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
     } else if (AC_AdvanceIfMatch(ac, "EPSILON")) {
       if (hasEpsilon) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate EPSILON parameter");
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate EPSILON argument");
         return REDISMODULE_ERR;
       }
+      if (CheckEnd(ac, "EPSILON", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ESYNTAX, "Invalid EPSILON value");
@@ -223,9 +253,10 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
       if (pvd->vectorScoreFieldAlias != NULL) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS parameter");
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
         return REDISMODULE_ERR;
       }
+      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_EBADVAL, "Invalid vector score field name");
@@ -243,14 +274,84 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RANGE", current);
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in RANGE", current);
       return REDISMODULE_ERR;
     }
   }
   if (!hasRadius) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing RADIUS parameter");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing required argument RADIUS");
     return REDISMODULE_ERR;
   }
+  return REDISMODULE_OK;
+}
+
+static int parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
+  // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
+  //        ^
+  unsigned int argumentCount;
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument count");
+    return REDISMODULE_ERR;
+  }
+  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
+    return REDISMODULE_ERR;
+  } else if (argumentCount == 0 || argumentCount % 2 != 0) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
+    return REDISMODULE_ERR;
+  }
+
+  bool hasAlpha = false;
+  bool hasBeta = false;
+
+  for (int i=0; i<argumentCount; i+=2) {
+    if (AC_IsAtEnd(ac)) {
+      setExpectedArgumentsError(status, argumentCount, i);
+      return REDISMODULE_ERR;
+    }
+    if (AC_AdvanceIfMatch(ac, "ALPHA")) {
+      if (hasAlpha) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate ALPHA argument");
+        return REDISMODULE_ERR;
+      }
+      if (CheckEnd(ac, "ALPHA", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+      double alphaValue;
+      if (AC_GetDouble(ac, &alphaValue, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid ALPHA value");
+        return REDISMODULE_ERR;
+      }
+      linearCtx->linearWeights[0] = alphaValue;
+      hasAlpha = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "BETA")) {
+      if (hasBeta) {
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate BETA argument");
+        return REDISMODULE_ERR;
+      }
+      if (CheckEnd(ac, "BETA", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+      double betaValue;
+      if (AC_GetDouble(ac, &betaValue, 0) != AC_OK) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid BETA value");
+        return REDISMODULE_ERR;
+      }
+      linearCtx->linearWeights[1] = betaValue;
+      hasBeta = true;
+
+    } else {
+      const char *current;
+      AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in LINEAR", current);
+      return REDISMODULE_ERR;
+    }
+  }
+
+  if (!(hasAlpha && hasBeta)) {
+    bool bothMissing = !hasAlpha && !hasBeta;
+    const char *missingArgs = bothMissing ? "ALPHA, BETA" : !hasAlpha ? "ALPHA" : "BETA";
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Missing value for ", missingArgs);
+    return REDISMODULE_ERR;
+  }
+
   return REDISMODULE_OK;
 }
 static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
@@ -263,7 +364,7 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
 static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // Check for required VSIM keyword
   if (!AC_AdvanceIfMatch(ac, "VSIM")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "VSIM parameter is required");
+    QueryError_SetError(status, QUERY_ESYNTAX, "VSIM argument is required");
     return REDISMODULE_ERR;
   }
 
@@ -295,7 +396,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   const char *vectorParam;
   size_t vectorParamLen;
   if (AC_GetString(ac, &vectorParam, &vectorParamLen, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector parameter");
+    QueryError_SetError(status, QUERY_ESYNTAX, "Missing vector argument");
     goto error;
   }
 
@@ -306,7 +407,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     pvd->isParameter = true;
   }
 
-  // Set default KNN values before checking for more parameters
+  // Set default KNN values before checking for more arguments
   vq->type = VECSIM_QT_KNN;
   vq->knn.k = HYBRID_DEFAULT_KNN_K;
   vq->knn.order = BY_SCORE;
@@ -329,7 +430,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     vq->range.order = BY_SCORE;
   }
 
-  // Check for optional FILTER clause - parameter may not be in our scope
+  // Check for optional FILTER clause - argument may not be in our scope
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     if (parseFilterClause(ac, vreq, status) != REDISMODULE_OK) {
       goto error;
@@ -368,12 +469,12 @@ error:
 }
 
 /**
- * Parse COMBINE clause parameters for hybrid scoring configuration.
+ * Parse COMBINE clause arguments for hybrid scoring configuration.
  *
- * Supports LINEAR (requires numWeights weight values) and RRF (optional CONSTANT and WINDOW parameters).
+ * Supports LINEAR (requires numWeights weight values) and RRF (optional CONSTANT and WINDOW arguments).
  * Defaults to RRF if no method specified. Uses hybrid-specific defaults: RRF CONSTANT=60, WINDOW=20.
- * WINDOW parameter controls the number of results consumed from each subquery before fusion.
- * When WINDOW is not explicitly set, it can be overridden by LIMIT parameter in fallback logic.
+ * WINDOW argument controls the number of results consumed from each subquery before fusion.
+ * When WINDOW is not explicitly set, it can be overridden by LIMIT argument in fallback logic.
  *
  * @param ac Arguments cursor positioned after "COMBINE"
  * @param combineCtx Hybrid scoring context to populate (window field and hasExplicitWindow flag are set)
@@ -391,22 +492,16 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
     combineCtx->scoringType = HYBRID_SCORING_RRF;
   }
 
-  // Parse parameters based on scoring type
+  // Parse arguments based on scoring type
   if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
 
-    // Parse the weight values directly
-    for (size_t i = 0; i < numWeights; i++) {
-      double weight;
-      if (AC_GetDouble(ac, &weight, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Missing or invalid weight value in LINEAR weights");
-        goto error;
-      }
-      combineCtx->linearCtx.linearWeights[i] = weight;
+    if (parseLinearClause(ac, &combineCtx->linearCtx, status) != REDISMODULE_OK) {
+      goto error;
     }
   } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
-    // For RRF, we need constant and window parameters
+    // For RRF, we need constant and window arguments
     ArgsCursor params = {0};
     int rv = AC_GetVarArgs(ac, &params);
 
@@ -418,15 +513,15 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
     if (rv == AC_OK) {
       // Parameters were provided
       if (params.argc % 2 != 0) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "RRF parameters must be in name-value pairs");
+        QueryError_SetError(status, QUERY_ESYNTAX, "RRF arguments must be in name-value pairs");
         goto error;
       }
 
-      // Parse the specified parameters
+      // Parse the specified arguments
       while (!AC_IsAtEnd(&params)) {
         const char *paramName = AC_GetStringNC(&params, NULL);
         if (!paramName) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Missing parameter name in RRF");
+          QueryError_SetError(status, QUERY_ESYNTAX, "Missing argument name in RRF");
           goto error;
         }
 
@@ -446,7 +541,7 @@ static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t
           combineCtx->rrfCtx.window = window;
           combineCtx->rrfCtx.hasExplicitWindow = true;
         } else {
-          QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown parameter", " `%s` in RRF", paramName);
+          QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in RRF", paramName);
           goto error;
         }
       }
@@ -488,16 +583,16 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
 }
 
 /**
- * Apply LIMIT parameter fallback logic to KNN K and WINDOW parameters.
+ * Apply LIMIT argument fallback logic to KNN K and WINDOW arguments.
  *
  * When LIMIT is explicitly provided but KNN K or WINDOW are not explicitly set,
- * this function applies the LIMIT value as a fallback for those parameters instead of their
+ * this function applies the LIMIT value as a fallback for those arguments instead of their
  * defaults (unless they have been explicitly set).
  * This ensures consistent behavior where LIMIT acts as a unified size hint
  * for hybrid search operations.
  *
  * @param tailPipeline The pipeline to extract LIMIT from
- * @param pvd The parsed vector data containing KNN parameters
+ * @param pvd The parsed vector data containing KNN arguments
  * @param hybridParams The hybrid parameters containing WINDOW settings
  */
 static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
@@ -526,10 +621,10 @@ static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
  *
  * The RRF merger only considers the top WINDOW results from each component,
  * so having KNN K > WINDOW would fetch unnecessary results that won't be used.
- * This constraint is applied after all parameter resolution (defaults, explicit values,
+ * This constraint is applied after all argument resolution (defaults, explicit values,
  * and LIMIT fallbacks) is complete.
  *
- * @param pvd The parsed vector data containing KNN parameters
+ * @param pvd The parsed vector data containing KNN arguments
  * @param hybridParams The hybrid parameters containing WINDOW settings
  */
 static void applyKNNTopKWindowConstraint(ParsedVectorData *pvd,
@@ -615,7 +710,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   ArgsCursor ac;
   ArgsCursor_InitRString(&ac, argv + 2, argc - 2);
   if (AC_IsAtEnd(&ac) || !AC_AdvanceIfMatch(&ac, "SEARCH")) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH parameter is required");
+    QueryError_SetError(status, QUERY_ESYNTAX, "SEARCH argument is required");
     goto error;
   }
 
@@ -627,7 +722,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  // Look for optional COMBINE parameter
+  // Look for optional COMBINE argument
   if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
     if (parseCombine(&ac, hybridParams->scoringCtx, HYBRID_REQUEST_NUM_SUBQUERIES, status) != REDISMODULE_OK) {
       goto error;
@@ -725,7 +820,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
 
-  // Apply KNN K ≤ WINDOW constraint after all parameter resolution is complete
+  // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
   // Apply context to each request

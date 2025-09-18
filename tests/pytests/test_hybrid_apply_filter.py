@@ -60,7 +60,7 @@ def test_hybrid_apply_filter_linear():
     setup_basic_index(env)
     query_vector = np.array([0, 0]).astype(np.float32).tobytes()
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM' ,'@embedding', query_vector,\
-         'COMBINE', 'LINEAR', '0.0', '1.0', 'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', '@doubled_score>1')
+         'COMBINE', 'LINEAR', '4', 'ALPHA', '0.0', 'BETA', '1.0', 'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', '@doubled_score>1')
     results = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:1"})
 
@@ -78,6 +78,7 @@ def test_hybrid_apply_filter_rrf():
     threshold = 2*(1/61 + 1/61)
     epsilon = 0.001
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', query_vector,\
+        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
          'APPLY', '2*@__score', 'AS', 'doubled_score', 'FILTER', f'@doubled_score>{threshold - epsilon}')
     results = get_results_from_hybrid_response(response)
     env.assertTrue(set(results.keys()) == {"doc:4"})
