@@ -22,9 +22,15 @@ function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    set(CMAKE_C_FLAGS "-fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(STATUS "Using libc++ for Clang")
+        set(CMAKE_CXX_FLAGS "-stdlib=libc++ -fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    else()
+        set(CMAKE_CXX_FLAGS "-fPIC -g -v -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    endif()
     set(CMAKE_CXX_STANDARD 20)
+
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
@@ -97,6 +103,8 @@ endif()
 
 # Configure compiler options
 setup_cc_options()
+message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
 
 # Sanitizer settings
 message(STATUS "SAN: ${SAN}")
@@ -305,6 +313,8 @@ endif()
 set_target_properties(redisearch
     PROPERTIES
     LINKER_LANGUAGE CXX
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
     C_STANDARD 17
     C_STANDARD_REQUIRED ON)
 setup_shared_object_target(redisearch "")
@@ -328,6 +338,25 @@ extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
 
+# # Handle C++ standard library linking based on compiler
+# if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+#     # For Clang, try to use libc++ if available, otherwise use libstdc++ with explicit version
+#     find_library(LIBCXX_FOUND c++)
+#     if(LIBCXX_FOUND)
+#         message(STATUS "Using libc++ for Clang")
+#         target_compile_options(redisearch PRIVATE -stdlib=libc++)
+#         target_link_options(redisearch PRIVATE -stdlib=libc++)
+#     else()
+#         message(STATUS "Using libstdc++ for Clang")
+#         target_link_libraries(redisearch stdc++)
+#         # Try to link statically to avoid version conflicts
+#         target_link_options(redisearch PRIVATE -static-libstdc++ -static-libgcc)
+#     endif()
+# else()
+#     # For GCC, use standard dynamic linking
+#     target_link_libraries(redisearch stdc++)
+#     target_link_options(redisearch PRIVATE -shared-libgcc)
+# endif()
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
