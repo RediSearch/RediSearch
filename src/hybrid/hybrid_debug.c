@@ -286,9 +286,6 @@ int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   HybridRequest_Execute(hreq, ctx, hreq->sctx);
 
-  // Note: hreq is freed by HybridRequest_Execute, but we need to free the debug wrapper
-  debug_req->hreq = NULL;
   HybridRequest_Debug_Free(debug_req);
-
   return REDISMODULE_OK;
 }

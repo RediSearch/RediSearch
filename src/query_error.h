@@ -158,6 +158,11 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);
 
 /**
+ * Clone the error from src to dest. If dest already has an error, it is not overwritten.
+ */
+void QueryError_CloneFrom(const QueryError *src, QueryError *dest);
+
+/**
  * Retrieve the error string of the error itself. This will use either the
  * built-in error string for the given code, or the custom string within the
  * object.

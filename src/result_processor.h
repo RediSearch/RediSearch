@@ -347,6 +347,14 @@ void PipelineAddCrash(struct AREQ *r);
 ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx);
 
 /**
+ * Starts the depletion for all the depleters in the array, waits until all finished depleting, and returns.
+ * @param depleters Array of depleter processors
+ * @param count Number of depleter processors in the array
+ * @return RS_RESULT_OK if all depleters completed successfully, otherwise an error code
+ */
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
+
+/**
  * Creates a new shared synchronization object for coordinating multiple RPDepleter processors.
  * This is used during pipeline construction to create sync objects that allow multiple
  * depleters to coordinate their background threads and wake each other when depleting completes.
