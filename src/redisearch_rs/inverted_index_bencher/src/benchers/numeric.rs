@@ -15,7 +15,7 @@ use criterion::{
     measurement::{Measurement, WallTime},
 };
 use inverted_index::{
-    Decoder, Encoder, IdDelta,
+    Decoder, Encoder, IdDelta, RSIndexResult,
     numeric::{Numeric, NumericDelta},
 };
 use itertools::Itertools;
@@ -363,7 +363,8 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
                     || Cursor::new(buffer.as_ref()),
                     |buffer| {
                         let decoder = Numeric::new();
-                        let result = decoder.decode(buffer, 100).unwrap();
+                        let mut record = RSIndexResult::numeric(0.0);
+                        let result = decoder.decode(buffer, 100, &mut record).unwrap();
 
                         let _ = black_box(result);
                     },

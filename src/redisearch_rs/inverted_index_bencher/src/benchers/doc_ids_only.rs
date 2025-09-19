@@ -157,7 +157,8 @@ impl Bencher {
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
                         let decoder = DocIdsOnly::default();
-                        let result = decoder.decode(buffer, 100).unwrap();
+                        let mut record = RSIndexResult::term();
+                        let result = decoder.decode(buffer, 100, &mut record).unwrap();
 
                         let _ = black_box(result);
                     },
