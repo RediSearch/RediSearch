@@ -228,10 +228,10 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  // The buffer's initial capacity is 6 bytes, the function
+  // The buffer's initial capacity is 8 bytes, the function
   // IndexBlock_Repair() shrinks the buffer to the number of valid entries in
   // the block, collecting the remaining memory.
-  ASSERT_EQ(6 - 1, fgc->stats.totalCollected);
+  ASSERT_EQ(8 - 1, fgc->stats.totalCollected);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
@@ -402,8 +402,8 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(1, sctx.spec->stats.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  // 32 bytes is the base size of an inverted index
-  ASSERT_EQ(lastBlockMemory + 32, sctx.spec->stats.invertedSize);
+  // 48 bytes is the base size of an inverted index
+  ASSERT_EQ(lastBlockMemory + 48, sctx.spec->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks() - startValue);
 }
 
