@@ -20,7 +20,7 @@ use ffi::{
 
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
-    FilterNumericReader, IndexBlock, NumericFilter, RSIndexResult, ReadFilter,
+    FilterNumericReader, IndexBlock, IndexReader as _, NumericFilter, RSIndexResult, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -797,8 +797,8 @@ pub unsafe extern "C" fn IndexReader_HasSeeker(_ir: *const IndexReader) -> bool 
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Next<'index, 'filter>(
-    ir: *mut IndexReader<'index, 'filter>,
+pub unsafe extern "C" fn IndexReader_Next<'index>(
+    ir: *mut IndexReader<'index, 'index>,
     res: *mut RSIndexResult<'index>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
@@ -807,17 +807,10 @@ pub unsafe extern "C" fn IndexReader_Next<'index, 'filter>(
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &mut *ir };
 
-    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    // SAFETY: The caller must ensure that `res` is a valid pointer to a `RSIndexResult`
     let res = unsafe { &mut *res };
 
-    match ir_dispatch!(ir, next) {
-        Some(new_res) => {
-            *res = new_res;
-
-            true
-        }
-        None => false,
-    }
+    ir_dispatch!(ir, next_record, res).unwrap_or_default()
 }
 
 /// Skip the internal block of the inverted index reader to the block that may contain the given
@@ -850,8 +843,8 @@ pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docI
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Seek<'index, 'filter>(
-    ir: *mut IndexReader<'index, 'filter>,
+pub unsafe extern "C" fn IndexReader_Seek<'index>(
+    ir: *mut IndexReader<'index, 'index>,
     doc_id: t_docId,
     res: *mut RSIndexResult<'index>,
 ) -> bool {
@@ -861,18 +854,10 @@ pub unsafe extern "C" fn IndexReader_Seek<'index, 'filter>(
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
     let ir = unsafe { &mut *ir };
 
-    // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
+    // SAFETY: The caller must ensure that `res` is a valid pointer to a `RSIndexResult`
     let res = unsafe { &mut *res };
 
-    match ir_dispatch!(ir, seek_record, doc_id) {
-        Ok(Some(new_res)) => {
-            *res = new_res;
-
-            true
-        }
-        Ok(None) => false,
-        Err(_) => false,
-    }
+    ir_dispatch!(ir, seek_record, doc_id, res).unwrap_or_default()
 }
 
 /// Check if the index reader can return multiple entries for the same document ID.

@@ -957,12 +957,12 @@ pub enum ReadFilter<'numeric_filter> {
 /// A reader that filters out records that do not match a given field mask. It is used to
 /// filter records in an index based on their field mask, allowing only those that match the
 /// specified mask to be returned.
-pub struct FilterMaskReader<I> {
+pub struct FilterMaskReader<IR> {
     /// Mask which a record needs to match to be valid
     mask: t_fieldMask,
 
     /// The inner reader that will be used to read the records from the index.
-    inner: I,
+    inner: IR,
 }
 
 impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
@@ -1063,20 +1063,24 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
 /// specified filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
-pub struct FilterNumericReader<'filter, I> {
+pub struct FilterNumericReader<'filter, IR> {
     /// The numeric filter that is used to filter the records.
     filter: &'filter NumericFilter,
 
     /// The inner reader that will be used to read the records from the index.
-    inner: I,
+    inner: IR,
 }
 
-impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterNumericReader<'filter, I> {
+impl<'filter, 'index, IR: IndexReader<'index>> FilterNumericReader<'filter, IR> {
     /// Create a new filter numeric reader with the given filter and inner iterator.
-    pub fn new(filter: &'filter NumericFilter, inner: I) -> Self {
+    pub fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
         Self { filter, inner }
     }
+}
 
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
+{
     /// Get the numeric filter used by this reader.
     pub fn filter(&self) -> &NumericFilter {
         self.filter
@@ -1178,7 +1182,7 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 /// specified geo filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
-pub struct FilterGeoReader<'filter, I> {
+pub struct FilterGeoReader<'filter, IR> {
     /// Numeric filter with a geo filter set to which a record needs to match to be valid.
     /// This is only needed because the reader needs to be able to return the original numeric
     /// filter.
@@ -1188,16 +1192,16 @@ pub struct FilterGeoReader<'filter, I> {
     geo_filter: &'filter GeoFilter,
 
     /// The inner reader that will be used to read the records from the index.
-    inner: I,
+    inner: IR,
 }
 
-impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterGeoReader<'filter, I> {
+impl<'filter, 'index, IR: IndexReader<'index>> FilterGeoReader<'filter, IR> {
     /// Create a new filter geo reader with the given numeric filter and inner iterator
     ///
     /// # Safety
     /// The caller should ensure the `geo_filter` pointer in the numeric filter is set and a valid
     /// pointer to a `GeoFilter` struct for the lifetime of this reader.
-    pub fn new(filter: &'filter NumericFilter, inner: I) -> Self {
+    pub fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
         debug_assert!(
             !filter.geo_filter.is_null(),
             "FilterGeoReader needs the geo filter to be set on the numeric filter"
@@ -1213,7 +1217,11 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterGeoReader
             inner,
         }
     }
+}
 
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
+{
     /// Get the numeric filter used by this reader.
     pub fn filter(&self) -> &NumericFilter {
         self.filter
