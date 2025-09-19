@@ -8,8 +8,10 @@
 */
 
 use std::{
+    mem::ManuallyDrop,
     ops::{Deref, DerefMut},
-    rc::Rc,
+    ptr::NonNull,
+    sync::Arc,
 };
 
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
@@ -19,33 +21,50 @@ use value::RSValueTrait;
 ///
 /// Mainly tests the increment and decrement methods but may contain a
 /// numeric value for testing purposes.
-#[derive(Clone, Debug, PartialEq)]
-struct MockRSValue {
-    value: Rc<Option<f64>>,
+#[derive(Debug, PartialEq)]
+struct MockRSValue(NonNull<Option<f64>>);
 
-    clone: Option<Rc<Option<f64>>>,
+impl MockRSValue {
+    fn strong_count(&self) -> usize {
+        let me = ManuallyDrop::new(unsafe { Arc::from_raw(self.0.as_ptr()) });
+        Arc::strong_count(&me)
+    }
+}
+
+impl Clone for MockRSValue {
+    fn clone(&self) -> Self {
+        unsafe {
+            Arc::increment_strong_count(self.0.as_ptr());
+        }
+        Self(self.0)
+    }
+}
+
+impl Drop for MockRSValue {
+    fn drop(&mut self) {
+        unsafe {
+            Arc::decrement_strong_count(self.0.as_ptr());
+        }
+    }
 }
 
 impl RSValueTrait for MockRSValue {
     fn create_null() -> Self {
-        MockRSValue {
-            value: Rc::new(None),
-            clone: None,
-        }
+        let inner = Arc::into_raw(Arc::new(None));
+
+        MockRSValue(NonNull::new(inner.cast_mut()).unwrap())
     }
 
     fn create_string(_: String) -> Self {
-        MockRSValue {
-            value: Rc::new(None),
-            clone: None,
-        }
+        let inner = Arc::into_raw(Arc::new(None));
+
+        MockRSValue(NonNull::new(inner.cast_mut()).unwrap())
     }
 
     fn create_num(val: f64) -> Self {
-        MockRSValue {
-            value: Rc::new(Some(val)),
-            clone: None,
-        }
+        let inner = Arc::into_raw(Arc::new(Some(val)));
+
+        MockRSValue(NonNull::new(inner.cast_mut()).unwrap())
     }
 
     fn create_ref(value: Self) -> Self {
@@ -69,7 +88,7 @@ impl RSValueTrait for MockRSValue {
     }
 
     fn as_num(&self) -> Option<f64> {
-        *self.value.as_ref()
+        unsafe { *self.0.as_ref() }
     }
 
     fn get_type(&self) -> ffi::RSValueType {
@@ -78,14 +97,6 @@ impl RSValueTrait for MockRSValue {
 
     fn is_ptr_type() -> bool {
         false
-    }
-
-    fn increment(&mut self) {
-        self.clone = Some(self.value.clone());
-    }
-
-    fn decrement(&mut self) {
-        self.clone.take();
     }
 }
 
@@ -150,21 +161,15 @@ fn test_insert_non_owned() {
     row.write_key(&key, mock.clone());
 
     // We have the key outside of the row, so it should have a ref count of 2
-    assert_eq!(
-        Rc::strong_count(&row.dyn_values()[0].as_ref().unwrap().value),
-        2
-    );
+    assert_eq!(row.dyn_values()[0].as_ref().unwrap().strong_count(), 2);
 
     drop(mock);
     // After dropping, the ref count should be back to 1
-    assert_eq!(
-        Rc::strong_count(&row.dyn_values()[0].as_ref().unwrap().value),
-        1
-    );
+    assert_eq!(row.dyn_values()[0].as_ref().unwrap().strong_count(), 1);
 }
 
 #[test]
-fn test_insert_overwrite() {
+fn insert_overwrite() {
     let mut row: RLookupRow<MockRSValue> = RLookupRow::new();
     assert!(row.is_empty());
     assert_eq!(row.len(), 0);
@@ -175,8 +180,10 @@ fn test_insert_overwrite() {
 
     // insert a key at the first position
     let mock_to_be_overwritten = MockRSValue::create_num(42.0);
-    row.write_key(&key, mock_to_be_overwritten.clone());
-    assert_eq!(Rc::strong_count(&mock_to_be_overwritten.value), 2);
+
+    let prev = row.write_key(&key, mock_to_be_overwritten.clone());
+    assert!(prev.is_none());
+    assert_eq!(mock_to_be_overwritten.strong_count(), 2);
 
     assert!(!row.is_empty());
     assert_eq!(row.len(), 1);
@@ -184,14 +191,14 @@ fn test_insert_overwrite() {
     assert_eq!(row.dyn_values()[0].as_ref().unwrap().as_num(), Some(42.0));
 
     // overwrite the value at the same index
-    row.write_key(&key, MockRSValue::create_num(84.0));
+    let prev = row.write_key(&key, MockRSValue::create_num(84.0));
+    assert!(prev.is_some());
+
     assert_eq!(row.num_dyn_values(), 1);
     assert_eq!(row.dyn_values()[0].as_ref().unwrap().as_num(), Some(84.0));
     // The overwritten value should have been decremented
-    assert_eq!(
-        Rc::strong_count(&row.dyn_values()[0].as_ref().unwrap().value),
-        1
-    );
+    assert_eq!(row.dyn_values()[0].as_ref().unwrap().strong_count(), 1);
+    assert_eq!(mock_to_be_overwritten.strong_count(), 2); // we have both mock_to_be_overwritten and prev
 }
 
 struct WriteKeyMock<'a> {
@@ -266,4 +273,42 @@ fn test_wipe() {
     assert_eq!(row.len(), 10);
     assert_eq!(row.num_dyn_values(), 10);
     assert_eq!(row.num_resize, 10);
+}
+
+#[test]
+fn test_reset() {
+    let mut row = WriteKeyMock::new();
+
+    // create 10 entries in the row
+    for i in 0..10 {
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        key.dstidx = i as u16;
+        row.write_key(&key, MockRSValue::create_num(i as f64 * 2.5));
+    }
+
+    assert!(!row.is_empty());
+    assert_eq!(row.len(), 10);
+    assert_eq!(row.num_dyn_values(), 10);
+    assert_eq!(row.num_resize, 10);
+
+    // wipe the row, we expect all values to be cleared but memory to be retained
+    row.reset_dyn_values();
+    assert_eq!(row.num_dyn_values(), 0);
+    assert_eq!(row.len(), 0);
+    assert!(row.dyn_values().iter().all(|v| v.is_none()));
+
+    // create the same 10 entries in the row
+    for i in 0..10 {
+        let mut key = RLookupKey::new(c"test", RLookupKeyFlags::empty());
+        key.dstidx = i as u16;
+        row.write_key(&key, MockRSValue::create_num(i as f64 * 2.5));
+    }
+    // we expect new resizes because the vector was replaced with a new allocation
+    assert_eq!(row.num_resize, 20);
+
+    // and the same test as after the first insert
+    assert!(!row.is_empty());
+    assert_eq!(row.len(), 10);
+    assert_eq!(row.num_dyn_values(), 10);
+    assert_eq!(row.num_resize, 20);
 }

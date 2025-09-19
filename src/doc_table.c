@@ -320,7 +320,7 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
     md->payload = NULL;
   }
   if (md->sortVector) {
-    SortingVector_Free(md->sortVector);
+    RSSortingVector_Free(md->sortVector);
     md->sortVector = NULL;
     md->flags &= ~Document_HasSortVector;
   }

@@ -9,15 +9,10 @@
 // forward declarations for bitflags type names
 typedef uint32_t RLookupKeyFlags;
 typedef uint32_t RLookupOptions;
- 
+
 // forward declarations for types that are only used as a pointer
 typedef struct RLookupRow RLookupRow;
 typedef struct RSValue RSValue;
-
-typedef struct FatPtr {
-  const char* ptr;
-  size_t len;
-} FatPtr;
 
 
 enum RLookupKeyFlag
@@ -122,101 +117,6 @@ typedef uint32_t RLookupOption;
  */
 typedef struct RLookupRow RLookupRow;
 
-/**
- * This type acts like a [std::borrow::Cow] but it has a C-compatible representation.
- *
- * This is useful for the types exposed to C via CBindgen.
- */
-enum CBCow_CStr_Tag
-#ifdef __cplusplus
-  : uint8_t
-#endif // __cplusplus
- {
-  Borrowed_CStr,
-  Owned_CStr,
-};
-#ifndef __cplusplus
-typedef uint8_t CBCow_CStr_Tag;
-#endif // __cplusplus
-
-typedef union CBCow_CStr {
-  CBCow_CStr_Tag tag;
-  struct {
-    CBCow_CStr_Tag borrowed_tag;
-    const FatPtr *borrowed;
-  };
-  struct {
-    CBCow_CStr_Tag owned_tag;
-    FatPtr owned;
-  };
-} CBCow_CStr;
-
-/**
- * This type acts like a [std::option::Option] but it has a C-compatible representation.
- *
- * This is useful for the types exposed to C via CBindgen.
- */
-enum CBOption_CBCow_CStr_Tag
-#ifdef __cplusplus
-  : uint8_t
-#endif // __cplusplus
- {
-  None_CBCow_CStr,
-  Some_CBCow_CStr,
-};
-#ifndef __cplusplus
-typedef uint8_t CBOption_CBCow_CStr_Tag;
-#endif // __cplusplus
-
-typedef union CBOption_CBCow_CStr {
-  CBOption_CBCow_CStr_Tag tag;
-  struct {
-    CBOption_CBCow_CStr_Tag some_tag;
-    union CBCow_CStr some;
-  };
-} CBOption_CBCow_CStr;
-
-/**
- * RLookup key
- *
- * `RLookupKey`s are used to speed up accesses in an `RLookupRow`. Instead of having to do repeated
- * string comparisons to find the correct value by path/name, an `RLookupKey` is created using the
- * `RLookup` which then allows `O(1)` lookup within the `RLookupRow`.
- *
- *
- * The old C documentation for this type for posterity and later reference. Note that it is unclear
- * how much this reflects the actual state of the code.
- *
- * ```text
- * RLookup Key
- *
- * A lookup key is a structure which contains an array index at which the
- * data may be reliably located. This avoids needless string comparisons by
- * using quick objects rather than "dynamic" string comparison mechanisms.
- *
- * The basic workflow is that users of a given key (i.e. "foo") are expected
- * to first create the key by use of RLookup_GetKey(). This will provide
- * the consumer with an opaque object that is the slot of "foo". Once the
- * key is provided, it may then be use to both read and write the key.
- *
- * Using a pre-defined key also allows the query to maintain a central registry
- * of used names. If a user makes a typo in a query, this registry will easily
- * detect that the name was not used previously.
- *
- * Note that the same name can be registered twice, in which case it will simply
- * increment the reference to the same key.
- *
- * There are two arrays which are accessed to check for the key. Their use is
- * mutually exclusive per-key, though multiple keys may exist which can access
- * either one or the other array. The first array is the "sorting vector" for
- * a given document. The F_SVSRC flag is set on keys which are expected to be
- * found within the sorting vector.
- *
- * The second array is a "dynamic" array within a given result's row data.
- * This is used for data generated on the fly, or for data not stored within
- * the sorting vector.
- * ```
- */
 typedef struct RLookupKey {
   /**
    * Index into the dynamic values array within the associated `RLookupRow`.
@@ -253,14 +153,6 @@ typedef struct RLookupKey {
    * Pointer to next field in the list
    */
   struct RLookupKey *next;
-  /**
-   * The actual "owning" strings, we need to hold onto these
-   * so the pointers above stay valid. Note that you
-   * MUST NEVER MOVE THESE BEFORE THE name AND path FIELDS UNLESS
-   * YOU WANT TO POTENTIALLY RISK UB
-   */
-  union CBCow_CStr _name;
-  union CBOption_CBCow_CStr _path;
 } RLookupKey;
 
 #ifdef __cplusplus
