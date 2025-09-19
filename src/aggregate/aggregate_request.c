@@ -1334,10 +1334,12 @@ void AREQ_Free(AREQ *req) {
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
 
-  if (req->rootiter) {
-    req->rootiter->Free(req->rootiter);
-    req->rootiter = NULL;
-  }
+  // NOTE: req->rootiter is already freed by
+  // Pipeline_Clean() -> QITR_FreeChain() -> rpQueryItFree()
+  // The RPQueryIterator owns the rootiter and frees it when the result
+  // processor chain is cleaned up.
+  // Attempting to free it again here would cause a double-free error.
+  req->rootiter = NULL;
   if (req->optimizer) {
     QOptimizer_Free(req->optimizer);
   }
@@ -1347,8 +1349,6 @@ void AREQ_Free(AREQ *req) {
   if (req->searchopts.stopwords) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
-
-  ConcurrentSearchCtx_Free(&req->conc);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.
@@ -1414,7 +1414,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .ast = &req->ast,
       .rootiter = req->rootiter,
       .scorerName = req->searchopts.scorerName,
-      .conc = &req->conc,
+      // .conc = &req->conc,
       .reqConfig = &req->reqConfig,
     };
     Pipeline_BuildQueryPart(&req->pipeline, &params);

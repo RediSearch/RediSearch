@@ -8,6 +8,8 @@
 */
 
 #include "union_iterator.h"
+#include "wildcard_iterator.h"
+#include "empty_iterator.h"
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
   const QueryIterator *it1 = e1, *it2 = e2;
@@ -22,20 +24,14 @@ static inline void resetMinIdHeap(UnionIterator *ui) {
   heap_t *hp = ui->heap_min_id;
   heap_clear(hp);
   for (int i = 0; i < ui->num_orig; i++) {
-    heap_offerx(hp, ui->its_orig[i]);
+    if (!ui->its_orig[i]->atEOF) {
+      heap_offerx(hp, ui->its_orig[i]);
+    }
   }
 }
 
 static inline void UI_AddChild(UnionIterator *ui, QueryIterator *it) {
   AggregateResult_AddChild(ui->base.current, it->current);
-}
-
-static inline void UI_SyncIterList(UnionIterator *ui) {
-  ui->num = ui->num_orig;
-  memcpy(ui->its, ui->its_orig, sizeof(*ui->its) * ui->num_orig);
-  if (ui->heap_min_id) {
-    resetMinIdHeap(ui);
-  }
 }
 
 /**
@@ -46,6 +42,23 @@ static inline void UI_RemoveExhausted(UnionIterator *it, int idx) {
   // Quickly remove the iterator by swapping it with the last iterator.
   RS_ASSERT(0 <= idx && idx < it->num);
   it->its[idx] = it->its[--it->num]; // Also decrement the number of iterators
+}
+
+void UI_SyncIterList(UnionIterator *ui) {
+  ui->num = ui->num_orig;
+  memcpy(ui->its, ui->its_orig, sizeof(*ui->its) * ui->num_orig);
+  if (ui->heap_min_id) {
+    resetMinIdHeap(ui);
+  }
+  for (size_t i = 0; i < ui->num; i++) {
+    while (i < ui->num && ui->its[i]->atEOF) {
+      UI_RemoveExhausted(ui, i);
+    }
+  }
+  if (ui->num == 0) {
+    // If no active iterators, set EOF
+    ui->base.atEOF = true;
+  }
 }
 
 static size_t UI_NumEstimated(QueryIterator *base) {
@@ -95,8 +108,8 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
   if (base->atEOF) {
     return ITERATOR_EOF;
   }
-  t_docId minId = UINT64_MAX;
-  AggregateResult_Reset(ui->base.current);
+  t_docId minId = DOCID_MAX;
+  IndexResult_ResetAggregate(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     if (cur->lastDocId < nextId) {
@@ -119,19 +132,19 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
     if (minId > cur->lastDocId) minId = cur->lastDocId;
   }
 
-  if (minId == nextId) {
+  if (ui->num == 0) {
+    base->atEOF = true;
+    return ITERATOR_EOF;
+  } else if (minId == nextId) {
     // We found what we were looking for
     ui->base.lastDocId = minId;
     // Current record was already set while scanning the children
     return ITERATOR_OK;
-  } else if (ui->num) {
+  } else {
     // We didn't find the requested ID, but we know the next minimal ID
     base->lastDocId = minId;
     UI_SetFullFlat(ui);
     return ITERATOR_NOTFOUND;
-  } else {
-    base->atEOF = true;
-    return ITERATOR_EOF;
   }
 }
 
@@ -143,8 +156,8 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   const t_docId lastId = ui->base.lastDocId;
-  t_docId minId = UINT64_MAX;
-  AggregateResult_Reset(ui->base.current);
+  t_docId minId = DOCID_MAX;
+  IndexResult_ResetAggregate(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     RS_LOG_ASSERT(cur->lastDocId >= lastId,
@@ -181,9 +194,9 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
   if (base->atEOF) {
     return ITERATOR_EOF;
   }
-  t_docId minId = UINT64_MAX;
+  t_docId minId = DOCID_MAX;
   QueryIterator *minIt;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   // TODO: performance improvement?
   // We can avoid performing any `SkipTo` call if we first scan an check if we already have a child
   // that matches the required ID.
@@ -250,7 +263,7 @@ static inline IteratorStatus UI_Skip_Full_Heap(QueryIterator *base, const t_docI
   }
   QueryIterator *cur;
   heap_t *hp = ui->heap_min_id;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->lastDocId < nextId) {
     IteratorStatus rc = cur->SkipTo(cur, nextId);
     if (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
@@ -282,7 +295,7 @@ static inline IteratorStatus UI_Read_Full_Heap(QueryIterator *base) {
   }
   QueryIterator *cur;
   heap_t *hp = ui->heap_min_id;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->lastDocId == base->lastDocId) {
     IteratorStatus rc = cur->Read(cur);
     if (rc == ITERATOR_OK) {
@@ -317,7 +330,7 @@ static inline IteratorStatus UI_Skip_Quick_Heap(QueryIterator *base, const t_doc
   }
   QueryIterator *cur;
   heap_t *hp = ui->heap_min_id;
-  AggregateResult_Reset(ui->base.current);
+  IndexResult_ResetAggregate(ui->base.current);
   // TODO: performance improvement?
   // before attempting to advance lagging iterators, we can perform a quick scan of the heap and check if
   // we already have a matching iterator, saving us from performing any `SkipTo` call, which may be expensive.
@@ -372,8 +385,113 @@ static void UI_Free(QueryIterator *base) {
   rm_free(ui);
 }
 
-QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit,
+/**
+ * Reduce the union iterator by applying these rules:
+ * 1. Remove all empty iterators
+ * 2. If in quick exit mode and any of the iterators is a wildcard iterator, return it and free the rest
+ * 3. Otherwise, return NULL and let the caller create the union iterator
+ */
+static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool quickExit) {
+  QueryIterator *ret = NULL;
+  // Let's remove all the empty iterators from the list
+  size_t current_size = *num;
+  size_t write_idx = 0;
+  for (size_t i = 0; i < current_size; ++i) {
+    if (its[i]) {
+      if (its[i]->type != EMPTY_ITERATOR) {
+        its[write_idx++] = its[i];
+      } else {
+        its[i]->Free(its[i]);
+      }
+    }
+  }
+  *num = write_idx;
+  if (quickExit) {
+    for (size_t i = 0; i < write_idx; ++i) {
+      if (IsWildcardIterator(its[i])) {
+        ret = its[i];
+        for (size_t j = 0; j < write_idx; ++j) {
+          if (i != j && its[j]) {
+            its[j]->Free(its[j]);
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  if (write_idx == 1) {
+    ret = its[0];
+  } else if (write_idx == 0) {
+    ret = NewEmptyIterator();
+  }
+  if (ret != NULL) {
+    rm_free(its);
+  }
+  return ret;
+}
+
+static ValidateStatus UI_Revalidate(QueryIterator *base) {
+  UnionIterator *ui = (UnionIterator *)base;
+  t_docId original_lastDocId = base->lastDocId;
+  bool all_child_ok = true;
+
+  // Loop over the original iterators list and revalidate each child
+  // Use read/write indexes to efficiently pack the array
+  uint32_t new_num_orig = 0;
+  for (uint32_t i = 0; i < ui->num_orig; i++) {
+    QueryIterator *child = ui->its_orig[i];
+    RS_ASSERT(child != NULL);
+
+    ValidateStatus child_status = child->Revalidate(child);
+    all_child_ok = all_child_ok && (child_status == VALIDATE_OK);
+
+    if (child_status == VALIDATE_ABORTED) {
+      // Free the aborted child
+      child->Free(child);
+      // Don't copy this child to write position (effectively removes it)
+    } else {
+      // Keep this child - copy it to write position
+      ui->its_orig[new_num_orig++] = child;
+    }
+  }
+  if (all_child_ok) {
+    // No children were removed or moved, just return
+    return VALIDATE_OK;
+  }
+  ui->num_orig = new_num_orig;
+  if (ui->num_orig == 0) {
+    // All children were aborted, we should abort the union iterator
+    return VALIDATE_ABORTED;
+  }
+
+  // Use UI_SyncIterList to update `its` array and heap - remove exhausted iterators
+  UI_SyncIterList(ui);
+
+  // Update current result - reset and rebuild if we have active children
+  IndexResult_ResetAggregate(ui->base.current);
+  // Find the minimum docId among active children to update current result
+  t_docId minId = DOCID_MAX;
+  for (int i = 0; i < ui->num; i++) {
+    if (ui->its[i]->lastDocId < minId) {
+      minId = ui->its[i]->lastDocId;
+    }
+  }
+  if (ui->num > 0) base->lastDocId = minId;
+  // Set the current result based on the minimum docId found, regardless of quick exit or algorithm
+  UI_SetFullFlat(ui);
+
+  // Return VALIDATE_MOVED only if our lastDocId actually changed
+  return (base->lastDocId != original_lastDocId) ? VALIDATE_MOVED : VALIDATE_OK;
+}
+
+QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
                                 double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+
+  QueryIterator* ret = UnionIteratorReducer(its, &num, quickExit);
+  if (ret != NULL) {
+    return ret;
+  }
   // create union context
   UnionIterator *ui = rm_calloc(1, sizeof(UnionIterator));
   ui->its_orig = its;
@@ -384,14 +502,15 @@ QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickE
   ui->q_str = q_str;
 
   // bind the union iterator calls
-  QueryIterator *base = &ui->base;
-  base->type = UNION_ITERATOR;
-  base->atEOF = false;
-  base->lastDocId = 0;
-  base->current = NewUnionResult(num, weight);
-  base->NumEstimated = UI_NumEstimated;
-  base->Free = UI_Free;
-  base->Rewind = UI_Rewind;
+  ret = &ui->base;
+  ret->type = UNION_ITERATOR;
+  ret->atEOF = false;
+  ret->lastDocId = 0;
+  ret->current = NewUnionResult(num, weight);
+  ret->NumEstimated = UI_NumEstimated;
+  ret->Free = UI_Free;
+  ret->Rewind = UI_Rewind;
+  ret->Revalidate = UI_Revalidate;
 
   // Choose `Read` and `SkipTo` implementations.
   // We have 2 factors for the choice:
@@ -401,15 +520,15 @@ QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickE
   // Each implementation if fine-tuned for the best performance in its scenario, and relies on the current state
   // of the iterator and how it was left by previous API calls, so we can't change implementation mid-execution.
   if (num > config->minUnionIterHeap) {
-    base->Read = quickExit ? UI_Read_Quick_Heap : UI_Read_Full_Heap;
-    base->SkipTo = quickExit ? UI_Skip_Quick_Heap : UI_Skip_Full_Heap;
+    ret->Read = quickExit ? UI_Read_Quick_Heap : UI_Read_Full_Heap;
+    ret->SkipTo = quickExit ? UI_Skip_Quick_Heap : UI_Skip_Full_Heap;
     ui->heap_min_id = rm_malloc(heap_sizeof(num));
     heap_init(ui->heap_min_id, cmpLastDocId, NULL, num);
   } else {
-    base->Read = quickExit ? UI_Read_Quick_Flat : UI_Read_Full_Flat;
-    base->SkipTo = quickExit ? UI_Skip_Quick_Flat : UI_Skip_Full_Flat;
+    ret->Read = quickExit ? UI_Read_Quick_Flat : UI_Read_Full_Flat;
+    ret->SkipTo = quickExit ? UI_Skip_Quick_Flat : UI_Skip_Full_Flat;
   }
 
   UI_SyncIterList(ui);
-  return base;
+  return ret;
 }

@@ -94,6 +94,7 @@ def testGetConfigOptions(env):
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
     check_config('INDEXER_YIELD_EVERY_OPS')
+    check_config('ON_OOM')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -123,6 +124,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'ON_OOM', 1).equal('Invalid ON_OOM value')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -139,7 +141,7 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
-    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')    
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
@@ -189,8 +191,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
-
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
+    env.assertEqual(res_dict['ON_OOM'][0], 'ignore')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -246,6 +248,7 @@ def testInitConfig():
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
     _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
+    _test_config_str('ON_OOM', 'ignore')
 
 @skip(cluster=True)
 def test_command_name(env: Env):
@@ -854,6 +857,7 @@ def testModuleLoadexNumericParamsLastWins():
 def testNumericArgDeprecationMessage():
     moduleArgs = ''
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        # Since the IO threads are not lazily started, we cannot set the max number of shards and all that to the max values
         moduleArgs += f'{argName} {maxValue} '
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
@@ -914,6 +918,23 @@ def testConfigAPIRunTimeEnumParams():
 
     # Test search-on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
+            .contains('CONFIG SET failed')
+
+        # Test search-on-oom - valid values
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-oom')\
+        .equal(['search-on-oom', 'fail'])
+
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'return').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-oom')\
+        .equal(['search-on-oom', 'return'])
+
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'ignore').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-oom')\
+        .equal(['search-on-oom', 'ignore'])
+
+    # Test search-on-oom - invalid values
+    env.expect('CONFIG', 'SET', 'search-on-oom', 'invalid_value').error()\
             .contains('CONFIG SET failed')
 
 @skip(cluster=True, redis_less_than='7.9.227')
@@ -1840,3 +1861,13 @@ def testConfigIndependence_max_values():
         env.expect('CONFIG', 'SET', configName, 'yes').ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, maxValueConfigDict)
+
+@skip(cluster=True)
+def test_on_oom(env):
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'ignore').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'ignore']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'fail').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'fail']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
+    env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'return']])
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')

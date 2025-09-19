@@ -16,7 +16,6 @@
 #include "commands.h"
 #include "document.h"
 #include "tag_index.h"
-#include "index.h"
 #include "triemap.h"
 #include "query.h"
 #include "redis_index.h"
@@ -28,6 +27,7 @@
 #include "util/logging.h"
 #include "util/workers.h"
 #include "util/references.h"
+#include "util/mempool.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -47,6 +47,8 @@
 #include "reply.h"
 #include "resp3.h"
 #include "coord/rmr/rmr.h"
+#include "shard_window_ratio.h"
+
 #include "hiredis/async.h"
 #include "coord/rmr/reply.h"
 #include "coord/rmr/redis_cluster.h"
@@ -64,6 +66,8 @@
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
+#include "legacy_types.h"
+#include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
@@ -81,6 +85,7 @@
     }                                                                                                       \
   } while(0);
 
+#define CEIL_DIV(a, b) ((a + b - 1) / b)
 
 extern RSConfig RSGlobalConfig;
 
@@ -111,10 +116,19 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
     return true;
   }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
+
+  if (!user_name) {
+    // In Redis, the "master" client (such as replication or internal server
+    // operations) may not have an associated user, and
+    // RedisModule_GetCurrentUserName will return NULL in such cases.
+    // We thus allow full access to the super-user.
+    return true;
+  }
+
   RedisModuleUser *user = RedisModule_GetModuleUserFromUserName(user_name);
 
   if (!user) {
-    RedisModule_Log(ctx, "verbose", "No user found");
+    RedisModule_Log(ctx, "warning", "No user found for current client");
     RedisModule_FreeString(ctx, user_name);
     return false;
   }
@@ -462,7 +476,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
-    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    RedisModule_ReplyWithSet(ctx, 0);
     goto cleanup;
   }
 
@@ -737,7 +751,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   CurrentThread_SetIndexSpec(ref);
 
   if (!sp->smap) {
-    return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
+    return RedisModule_ReplyWithMap(ctx, 0);
   }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
@@ -746,7 +760,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
-  RedisModule_ReplyWithMapOrArray(ctx, size * 2, true);
+  RedisModule_ReplyWithMap(ctx, size);
 
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
@@ -1069,8 +1083,8 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
 Version supportedVersion = {
-    .majorVersion = 7,
-    .minorVersion = 1,
+    .majorVersion = 8,
+    .minorVersion = 0,
     .patchVersion = 0,
 };
 
@@ -1245,19 +1259,15 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
   }
 
-  // register trie type
+  // register trie-dictionary type
   RM_TRY_F(DictRegister, ctx);
 
+  // register the trie type (half-legacy, still used by `FT.SUG*` commands)
   RM_TRY_F(TrieType_Register, ctx);
 
   RM_TRY_F(IndexSpec_RegisterType, ctx);
 
-  RM_TRY_F(TagIndex_RegisterType, ctx);
-
-  RM_TRY_F(InvertedIndex_RegisterType, ctx);
-
-  RM_TRY_F(NumericIndexType_Register, ctx);
-
+  RM_TRY_F(RegisterLegacyTypes, ctx);
 
 // With coordinator we do not want to raise a move error for index commands so we do not specify
 // any key.
@@ -1449,6 +1459,7 @@ void RediSearch_CleanupModule(void) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+  MR_FreeCluster();
 
   // free global structures
   Extensions_Free();
@@ -1741,7 +1752,7 @@ static int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   req->profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     req->profileArgs += 2;
-    req->profileClock = clock();
+    rs_wall_clock_init(&req->profileClock);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       req->profileLimited = 1;
       req->profileArgs++;
@@ -1881,7 +1892,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
-  req->initClock = clock();
+  rs_wall_clock_init(&req->initClock);
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -1899,8 +1910,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   req->requiredFields = NULL;
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
-  // fprintf(stderr, "Sortby: %d, asc: %d withsort: %d\n", req->withSortby, req->sortAscending,
-  //         req->withSortingKeys);
 
   // Detect "NOCONTENT"
   req->noContent = RMUtil_ArgExists("NOCONTENT", argv, argc, argvOffset) != 0;
@@ -2027,9 +2036,6 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
         // Sort by string sort keys
         cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-        // printf("Using sortKey!! <N=%lu> %.*s vs <N=%lu> %.*s. Result=%d\n", r2->sortKeyLen,
-        //        (int)r2->sortKeyLen, r2->sortKey, r1->sortKeyLen, (int)r1->sortKeyLen, r1->sortKey,
-        //        cmp);
       } else {
         // If at least one of these has no sort key, it gets high value regardless of asc/desc
         return r2->sortKey ? 1 : -1;
@@ -2037,32 +2043,22 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
     }
     // in case of a tie or missing both sorting keys - compare ids
     if (!cmp) {
-      // printf("It's a tie! Comparing <N=%lu> %.*s vs <N=%lu> %.*s\n", r2->idLen, (int)r2->idLen,
-      //        r2->id, r1->idLen, (int)r1->idLen, r1->id);
       cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
     }
     return (req->sortAscending ? -cmp : cmp);
   }
 
   double s1 = r1->score, s2 = r2->score;
-  // printf("Scores: %lf vs %lf. WithSortBy: %d. SK1=%p. SK2=%p\n", s1, s2, req->withSortby,
-  //        r1->sortKey, r2->sortKey);
   if (s1 < s2) {
     return 1;
   } else if (s1 > s2) {
     return -1;
   } else {
-    // printf("Scores are tied. Will compare ID Strings instead\n");
-
     // This was reversed to be more compatible with OSS version where tie breaker was changed
     // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
     // or descending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-
-    // printf("ID Strings: Comparing <N=%lu> %.*s vs <N=%lu> %.*s => %d\n", r2->idLen,
-    // (int)r2->idLen,
-    //        r2->id, r1->idLen, (int)r1->idLen, r1->id, rv);
     return rv;
   }
 }
@@ -2118,7 +2114,6 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
       res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
       RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
     }
-    // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
   return res;
 }
@@ -2135,7 +2130,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
-  if (!result_id || !MRReply_Type(result_id) == MR_REPLY_STRING) {
+  if (!result_id || MRReply_Type(result_id) != MR_REPLY_STRING) {
     // We crash in development env, and return NULL (such that an error is raised)
     // in production.
     RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
@@ -2196,7 +2191,6 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
           res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
           RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
         }
-        // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
     }
   }
@@ -2443,11 +2437,8 @@ static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, 
 
   rCtx->cachedResult = NULL;
 
-  // fprintf(stderr, "Result %d Reply docId %s score: %f sortkey %f\n", i, res->id, res->score, res->sortKeyNum);
-
   // TODO: minmax_heap?
   if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-    // printf("Offering result score %f\n", res->score);
     heap_offerx(rCtx->pq, res);
   } else {
     searchResult *smallest = heap_peek(rCtx->pq);
@@ -2520,8 +2511,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
 
     int step = rCtx->offsets.step;
-    // fprintf(stderr, "Step %d, scoreOffset %d, fieldsOffset %d, sortKeyOffset %d\n", step,
-    //         scoreOffset, fieldsOffset, sortKeyOffset);
 
     for (int j = 1; j < len; j += step) {
       if (j + step > len) {
@@ -2714,13 +2703,15 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
  * It is used by both SEARCH and AGGREGATE.
  */
 static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
-  // The 1st location always stores the results. On FT.AGGREGATE, the next place stores the
-  // cursor ID. The last location (2nd for FT.SEARCH and 3rd for FT.AGGREGATE) stores the
-  // profile information of the shard.
-  const int profile_data_idx = isSearch ? 1 : 2;
+  // On FT.SEARCH, `replies` is an array of replies from the shards.
+  // On FT.AGGREGATE, `replies` is already the profile part only
   for (int i = 0; i < count; ++i) {
-    MRReply *shards_reply = MRReply_ArrayElement(replies[i], profile_data_idx);
-    MRReply *shards_array_profile = MRReply_ArrayElement(shards_reply, 1);
+    MRReply *current = replies[i];
+    if (isSearch) {
+      // On FT.SEARCH, extract the profile information from the reply. (should be the second element)
+      current = MRReply_ArrayElement(current, 1);
+    }
+    MRReply *shards_array_profile = MRReply_ArrayElement(current, 1);
     MRReply *shard_profile = MRReply_ArrayElement(shards_array_profile, 0);
     MR_ReplyWithMRReply(reply, shard_profile);
   }
@@ -2728,15 +2719,11 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
 
 static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
-    MRReply *profile;
-    if (!isSearch) {
-      // On aggregate commands, take the results from the response (second component is the cursor-id)
-      MRReply *results = MRReply_ArrayElement(replies[i], 0);
-      profile = MRReply_MapElement(results, PROFILE_STR);
-    } else {
-      profile = MRReply_MapElement(replies[i], PROFILE_STR);
+    MRReply *current = replies[i];
+    if (isSearch) { // On aggregate commands, we get the profile info directly.
+      current = MRReply_MapElement(current, PROFILE_STR);
     }
-    MRReply *shards = MRReply_MapElement(profile, PROFILE_SHARDS_STR);
+    MRReply *shards = MRReply_MapElement(current, PROFILE_SHARDS_STR);
     MRReply *shard = MRReply_ArrayElement(shards, 0);
 
     MR_ReplyWithMRReply(reply, shard);
@@ -2753,21 +2740,21 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 struct PrintCoordProfile_ctx {
-  clock_t totalTime;
-  clock_t postProcessTime;
+  rs_wall_clock *totalTime;
+  rs_wall_clock_ns_t postProcessTime;
 };
 static void profileSearchReplyCoordinator(RedisModule_Reply *reply, void *ctx) {
   struct PrintCoordProfile_ctx *pCtx = ctx;
   RedisModule_Reply_Map(reply);
-  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - pCtx->totalTime) / CLOCKS_PER_MILLISEC);
-  RedisModule_ReplyKV_Double(reply, "Post Processing time", (double)(clock() - pCtx->postProcessTime) / CLOCKS_PER_MILLISEC);
+  RedisModule_ReplyKV_Double(reply, "Total Coordinator time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(pCtx->totalTime)));
+  RedisModule_ReplyKV_Double(reply, "Post Processing time", rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_now_ns() - pCtx->postProcessTime));
   RedisModule_Reply_MapEnd(reply);
 }
 
 static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
                                int count, MRReply **replies,
-                               clock_t totalTime, clock_t postProcessTime) {
-  bool has_map = RedisModule_HasMap(reply);
+                               rs_wall_clock *totalTime, rs_wall_clock_ns_t postProcessTime) {
+  bool has_map = RedisModule_IsRESP3(reply);
   RedisModule_Reply_Map(reply); // root
     // Have a named map for the results for RESP3
     if (has_map) {
@@ -2811,11 +2798,10 @@ static bool should_return_error(MRReply *reply) {
 static bool should_return_timeout_error(searchRequestCtx *req) {
   return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
          && req->timeout != 0
-         && ((double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC) > req->timeout;
+         && (rs_wall_clock_convert_ns_to_ms_d(rs_wall_clock_elapsed_ns(&req->initClock))) > req->timeout;
 }
 
 static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
-  clock_t postProcessTime;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mc);
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   searchRequestCtx *req = MRCtx_GetPrivData(mc);
@@ -2917,10 +2903,10 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   if (!profile) {
     sendSearchResults(reply, &rCtx);
   } else {
-    profileSearchReply(reply, &rCtx, count, replies, req->profileClock, clock());
+    profileSearchReply(reply, &rCtx, count, replies, &req->profileClock, rs_wall_clock_now_ns());
   }
-
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
+  rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, duration);
 
 cleanup:
   RedisModule_EndReply(reply);
@@ -2931,6 +2917,7 @@ cleanup:
   if (rCtx.reduceSpecialCaseCtxKnn &&
       rCtx.reduceSpecialCaseCtxKnn->knn.pq) {
     heap_destroy(rCtx.reduceSpecialCaseCtxKnn->knn.pq);
+    rCtx.reduceSpecialCaseCtxKnn->knn.pq = NULL;
   }
 
   RedisModule_BlockedClientMeasureTimeEnd(bc);
@@ -2943,7 +2930,7 @@ cleanup:
   // and since we already replied with error in this case (in the beginning of this function),
   // we can't pass `mc` to the unblock function.
   searchRequestCtx_Free(req);
-  MR_requestCompleted();
+  MRCtx_RequestCompleted(mc);
   MRCtx_Free(mc);
   return res;
 }
@@ -3331,6 +3318,28 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
 
   cmd->protocol = protocol;
 
+  // Handle KNN with shard ratio optimization for both multi-shard and standalone
+  if (req->specialCases) {
+    for (size_t i = 0; i < array_len(req->specialCases); ++i) {
+      if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
+        specialCaseCtx* knnCtx = req->specialCases[i];
+        KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+        double ratio = knn_query->shardWindowRatio;
+
+        // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
+        if (ratio < MAX_SHARD_WINDOW_RATIO) {
+          // Calculate effective K based on deployment mode
+          size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, NumShards);
+          // No modification needed if K values are the same
+          if (knn_query->k == effectiveK) break;
+          // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
+          modifyKNNCommand(cmd, 2 + req->profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
+        }
+        break; // Only handle KNN context
+      }
+    }
+  }
+
   // replace the LIMIT {offset} {limit} with LIMIT 0 {limit}, because we need all top N to merge
   int limitIndex = RMUtil_ArgExists("LIMIT", argv, argc, 3);
   if (limitIndex && req->limit > 0 && limitIndex < argc - 2) {
@@ -3451,7 +3460,7 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
     }
     searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
-    MR_requestCompleted();
+    MRCtx_RequestCompleted(mrctx);
     MRCtx_Free(mrctx);
   }
   return REDISMODULE_OK;
@@ -3548,13 +3557,7 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (MR_CurrentTopologyExists()) {
-    // If we have a topology, we must read it from the uv thread
-    MR_uvReplyClusterInfo(ctx);
-  } else {
-    // If we don't have a topology, we can reply immediately
-    MR_ReplyClusterInfo(ctx, NULL);
-  }
+  MR_uvReplyClusterInfo(ctx);
   return REDISMODULE_OK;
 }
 
@@ -3571,7 +3574,7 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+  RedisModule_Log(ctx, "debug", "SetClusterCommand: Setting number of partitions to %ld", topo->numShards);
   NumShards = topo->numShards;
 
   // send the topology to the cluster
@@ -3604,8 +3607,10 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
   }
 
-  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard);
-  MR_Init(cl, clusterConfig.timeoutMS);
+  size_t num_io_threads = clusterConfig.coordinatorIOThreads;
+  size_t conn_pool_size = CEIL_DIV(num_connections_per_shard, num_io_threads);
+
+  MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;
 }

@@ -29,14 +29,35 @@ static const char *on_timeout_vals[2] = {
   "fail"
 };
 
+typedef enum {
+  OomPolicy_Return,       // Return what we have on OOM
+  OomPolicy_Fail,         // Just fail without returning anything
+  OomPolicy_Ignore,       // Ignore OOM and continue
+  OomPolicy_Invalid       // Not a real value
+} RSOomPolicy;
+
+static const int on_oom_enums[3] = {
+  OomPolicy_Return,
+  OomPolicy_Fail,
+  OomPolicy_Ignore
+};
+static const char *on_oom_vals[3] = {
+  "return",
+  "fail",
+  "ignore"
+};
+
+
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
+const char *OomPolicy_ToString(RSOomPolicy);
 
 /**
  * Returns TimeoutPolicy_Invalid if the string could not be parsed
  */
 RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n);
+RSOomPolicy OomPolicy_Parse(const char *s, size_t n);
 
 static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
@@ -75,6 +96,8 @@ typedef struct {
   bool printProfileClock;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
+  // OOM policy
+  RSOomPolicy oomPolicy;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -246,6 +269,13 @@ void UpgradeDeprecatedMTConfigs();
 
 char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 
+// We limit the number of worker threads to limit the amount of memory used by the thread pool
+// and to prevent the system from running out of resources.
+// The number of worker threads should be proportional to the number of cores in the system at most,
+// otherwise no performance improvement will be achieved.
+#ifndef MAX_WORKER_THREADS
+#define MAX_WORKER_THREADS (1 << 4)
+#endif
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
@@ -280,6 +310,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_SHARD_WINDOW_RATIO 1.0
+#define MIN_SHARD_WINDOW_RATIO 0.0  // Exclusive minimum (must be > 0.0)
+#define MAX_SHARD_WINDOW_RATIO 1.0
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -328,6 +361,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .requestConfigParams.oomPolicy = OomPolicy_Ignore,                         \
   }
 
 #define REDIS_ARRAY_LIMIT 7

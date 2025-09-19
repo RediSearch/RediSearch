@@ -132,6 +132,14 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
 
     // We clear new extra allocation to Null all list pointers
     size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
+
+    // Log DocTable capacity growth to help diagnose cases where a small number of documents
+    // combined with frequent updates cause disproportionate memory usage.
+    // This allows us to confirm if unexpected memory spikes are due to capacity increases.
+    // Note: We do not shrink the DocTable to avoid the cost of rehashing.
+    // To adjust its size, lower the search-max-doctablesize configuration value.
+    RedisModule_Log(RSDummyContext, "notice", "DocTable capacity increase from %zu to %zu", oldcap, t->cap);
+
     memset(&t->buckets[oldcap], 0, memsetSize);
   }
 
@@ -221,24 +229,12 @@ void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expiratio
   }
 }
 
-bool DocTable_HasExpiration(DocTable *t, t_docId docId)
-{
-  return t->ttl && TimeToLiveTable_HasExpiration(t->ttl, docId);
-}
-
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
   if (!hasExpirationTimeInformation(dmd->flags)) {
       return false;
   }
   RS_LOG_ASSERT(t->ttl, "Document has expiration time information but no TTL table");
   return TimeToLiveTable_HasDocExpired(t->ttl, dmd->id, expirationPoint);
-}
-
-bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint) {
-  if (!t->ttl || !fieldIndices || fieldCount == 0) {
-    return true;
-  }
-  return TimeToLiveTable_VerifyDocAndFields(t->ttl, docId, fieldIndices, fieldCount, predicate, expirationPoint);
 }
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the

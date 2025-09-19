@@ -89,6 +89,8 @@ use layout::*;
 pub(crate) mod header;
 pub(crate) mod layout;
 
+pub use header::Header;
+
 /// Allocates a header (and array) for a `LowMemoryThinVec<T>` with the given capacity.
 ///
 /// # Panics

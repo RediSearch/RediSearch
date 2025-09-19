@@ -11,7 +11,6 @@
 
 #include <stdlib.h>
 
-#include "index.h"
 #include "query_node.h"
 #include "query_parser/tokenizer.h"
 #include "redis_index.h"
@@ -90,7 +89,7 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
 
-IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
+QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
 
 /**
  * Global filter options impact *all* query nodes. This structure can be used
@@ -127,8 +126,8 @@ void SetFilterNode(QueryAST *q, QueryNode *filterNode);
  * @param status error detail
  * @return an iterator.
  */
-IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
-                            RedisSearchCtx *sctx, ConcurrentSearchCtx *conc, uint32_t reqflags, QueryError *status);
+QueryIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
+                            RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

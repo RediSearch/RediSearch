@@ -349,7 +349,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
 
   RLookup_Init(first, cache);
 
-  ResultProcessor *rp = RPIndexIterator_New(params->rootiter, params->common.sctx, params->conc);
+  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->common.sctx);
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();

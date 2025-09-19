@@ -20,6 +20,8 @@
 #include "inverted_index.h"
 #include "numeric_filter.h"
 #include "hll/hll.h"
+#include "config.h"
+#include "iterators/iterator_api.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -88,21 +90,8 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
-                                              const NumericFilter *f, int skipMulti,
-                                              const FieldFilterContext* filterCtx);
-
-struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType,
-                                               IteratorsConfig *config, const FieldFilterContext* filterCtx);
-
-/* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
- * vector with range node pointers.  */
-Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf);
-
-/* Recursively free a node and its children
- * rv will be updated with the number of cleaned up records and ranges in the subtree */
-void NumericRangeNode_Free(NumericRangeNode *n, NRN_AddRv *rv);
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt, FieldType forType,
+                                        IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
 /* Recursively trim empty nodes from tree  */
 NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
@@ -123,16 +112,9 @@ void NumericRangeTree_Free(NumericRangeTree *t);
 /* Return the estimated cardinality of the numeric range */
 size_t NumericRange_GetCardinality(const NumericRange *nr);
 
-extern RedisModuleType *NumericIndexType;
-
 NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName, bool create_if_missing);
 
-int NumericIndexType_Register(RedisModuleCtx *ctx);
-void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
-void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
-void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);
-void NumericIndexType_Free(void *value);
-unsigned long NumericIndexType_MemUsage(const void *value);
+unsigned long NumericIndexType_MemUsage(const NumericRangeTree *tree);
 
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);

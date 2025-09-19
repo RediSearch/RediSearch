@@ -54,7 +54,7 @@ where
     F: FnOnce(*mut TrieMap),
 {
     let t = NewTrieMap();
-    let entries = vec![
+    let entries = [
         (b"bike".as_slice(), 0u8),
         (b"biker", 1),
         (b"bis", 2),
@@ -315,7 +315,12 @@ fn test_trie_iter_timeout() {
         let mut value: *mut c_void = std::ptr::null_mut();
 
         let mut deadline = timespec_monotonic_now();
-        deadline.tv_nsec += 1000 * 200; // Timeout in 200 ms
+        let duration_ns = 200_000_000; // 200 ms are 200_000_000 nanoseconds
+        deadline.tv_nsec += duration_ns;
+
+        // handle overflow, a second consists of 1_000_000_000 nanoseconds
+        deadline.tv_sec += deadline.tv_nsec / 1_000_000_000;
+        deadline.tv_nsec %= 1_000_000_000;
 
         // Safety: We adhere to all the safety requirements of `TrieMapIterator_SetTimeout`
         unsafe { TrieMapIterator_SetTimeout(it, deadline) };
@@ -340,7 +345,8 @@ fn test_trie_iter_timeout() {
         // We're using a monotonic timer, so this should not be flaky
         while {
             let now = timespec_monotonic_now();
-            now.tv_sec <= deadline.tv_sec || now.tv_nsec <= deadline.tv_nsec
+            now.tv_sec < deadline.tv_sec
+                || (now.tv_sec == deadline.tv_sec && now.tv_nsec <= deadline.tv_nsec)
         } {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }

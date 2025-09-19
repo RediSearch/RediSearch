@@ -256,7 +256,7 @@ static void Grouper_rpFree(ResultProcessor *grrp) {
       continue;
     }
     Group *gr = kh_value(g->groups, it);
-    RLookupRow_Cleanup(&gr->rowdata);
+    RLookupRow_Reset(&gr->rowdata);
   }
   kh_destroy(khid, g->groups);
   BlkAlloc_FreeAll(&g->groupsAlloc, cleanCallback, g, GROUP_BYTESIZE(g));

@@ -48,8 +48,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
  * RLookup registry. Returns NULL if there is no sorting key
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
-  if ((kk->flags & RLOOKUP_F_SVSRC) && (r->rowdata.sv && RSSortingVector_Length(r->rowdata.sv) > kk->svidx)) {
-    return RSSortingVector_Get(r->rowdata.sv, kk->svidx);
+  const RSSortingVector* sv = RLookupRow_GetSortingVector(&r->rowdata);
+  if ((kk->flags & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > kk->svidx)) {
+    return RSSortingVector_Get(sv, kk->svidx);
   } else {
     return RLookup_GetItem(kk, &r->rowdata);
   }
@@ -106,7 +107,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   const uint32_t options = AREQ_RequestFlags(req);
   const RSDocumentMetadata *dmd = r->dmd;
   size_t count0 = RedisModule_Reply_LocalCount(reply);
-  bool has_map = RedisModule_HasMap(reply);
+  bool has_map = RedisModule_IsRESP3(reply);
 
   if (has_map) {
     RedisModule_Reply_Map(reply);
@@ -347,7 +348,7 @@ long calc_results_len(AREQ *req, size_t limit) {
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
 }
 
-static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done, clock_t duration) {
+static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
   if (results) {
     destroyResults(results);
   } else {
@@ -360,6 +361,7 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   if (QueryError_GetCode(qctx->err) == QUERY_OK || hasTimeoutError(qctx->err)) {
+    rs_wall_clock_ns_t duration = rs_wall_clock_elapsed_ns(&req->initClock);
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }
 
@@ -480,7 +482,7 @@ done_2:
     }
 
 done_2_err:
-    finishSendChunk(req, results, &r, cursor_done, clock() - req->initClock);
+    finishSendChunk(req, results, &r, cursor_done);
 
     if (resultsLen != REDISMODULE_POSTPONED_ARRAY_LEN && rc == RS_RESULT_OK && resultsLen != nelem) {
       RS_LOG_ASSERT_FMT(false, "Failed to predict the number of replied results. Prediction=%ld, actual_number=%ld.", resultsLen, nelem);
@@ -618,7 +620,7 @@ done_3:
     }
 
 done_3_err:
-    finishSendChunk(req, results, &r, cursor_done, clock() - req->initClock);
+    finishSendChunk(req, results, &r, cursor_done);
 }
 
 /**
@@ -759,10 +761,9 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // Setting the timeout context should be done in the same thread that executes the query.
   SearchCtx_UpdateTime(sctx, req->reqConfig.queryTimeoutMS);
 
-  ConcurrentSearchCtx_Init(sctx->redisCtx, &req->conc);
-  req->rootiter = QAST_Iterate(ast, opts, sctx, &req->conc, AREQ_RequestFlags(req), status);
+  req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
-  // check possible optimization after creation of IndexIterator tree
+  // check possible optimization after creation of QueryIterator tree
   if (IsOptimized(req)) {
     QOptimizer_Iterators(req, req->optimizer);
   }
@@ -780,17 +781,18 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     Profile_AddIters(&req->rootiter);
   }
 
-  clock_t parseClock;
+  rs_wall_clock parseClock;
   bool is_profile = IsProfile(req);
   if (is_profile) {
-    parseClock = clock();
-    req->parseTime = parseClock - req->initClock;
+    rs_wall_clock_init(&parseClock);
+    // Calculate the time elapsed for profileParseTime by using the initialized parseClock
+    req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock);
   }
 
   rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
-    req->pipelineBuildTime = clock() - parseClock;
+    req->profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
   }
 
   if (IsDebug(req)) {
@@ -884,12 +886,11 @@ int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, 
 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
-    r->initClock = clock();
+    rs_wall_clock_init(&r->initClock);
   }
 
-  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
-  if (qctx->isProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &qctx->initTime);
+  if (r->qiter.isProfile) {
+    rs_wall_clock_init(&r->qiter.initTime);
   }
 
   // This function also builds the RedisSearchCtx
@@ -913,12 +914,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
-    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
-    if (qctx->isProfile) {
-      struct timespec time;
-      clock_gettime(CLOCK_MONOTONIC, &time);
-      rs_timersub(&time, &qctx->initTime, &time);
-      rs_timeradd(&time, &qctx->GILTime, &qctx->GILTime);
+    if (r->qiter.isProfile){
+      r->qiter.GILTime += rs_wall_clock_elapsed_ns(&r->qiter.initTime);
     }
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
@@ -1072,7 +1069,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
-  bool has_map = RedisModule_HasMap(reply);
 
   // update timeout for current cursor read
   SearchCtx_UpdateTime(AREQ_SearchCtx(req), req->reqConfig.queryTimeoutMS);
@@ -1134,7 +1130,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
   }
 
   if (IsProfile(req) || !IsInternal(req)) {
-    req->initClock = clock(); // Reset the clock for the current cursor read
+    rs_wall_clock_init(&req->initClock); // Reset the clock for the current cursor read
   }
 
   runCursor(reply, cursor, count);

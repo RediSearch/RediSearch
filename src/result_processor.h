@@ -14,11 +14,12 @@
 #include "value.h"
 #include "concurrent_ctx.h"
 #include "search_ctx.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 #include "search_options.h"
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "rs_wall_clock.h"
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
@@ -75,15 +76,19 @@ typedef enum {
 struct ResultProcessor;
 struct RLookup;
 
-typedef struct {
+// Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
+typedef struct QueryProcessingCtx {
   // First processor
   struct ResultProcessor *rootProc;
 
   // Last processor
   struct ResultProcessor *endProc;
 
-  struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  struct timespec GILTime;  //milliseconds
+  // Contains our spec
+  // RedisSearchCtx *sctx;  // removed by Jonathan https://github.com/RediSearch/RediSearch/pull/6399/
+
+  rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
 
   // the minimal score applicable for a result. It can be used to optimize the
   // scorers
@@ -105,11 +110,11 @@ typedef struct {
 
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
-} QueryIterator, QueryProcessingCtx;
+} QueryProcessingCtx;
 
-const IndexIterator *QITR_GetRootFilter(QueryIterator *it);
-void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
-void QITR_FreeChain(QueryIterator *qitr);
+QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
+void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
+void QITR_FreeChain(QueryProcessingCtx *qitr);
 
 /*
  * SearchResult - the object all the processing chain is working on.
@@ -212,7 +217,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPIndexIterator_New(const IndexIterator *itr, RedisSearchCtx *sctx, ConcurrentSearchCtx *conc);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, RedisSearchCtx *sctx);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -226,7 +231,6 @@ ResultProcessor *RPMetricsLoader_New();
 #define SORTASCMAP_SETASC(mm, pos) ((mm) |= (1LLU << (pos)))
 #define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
 #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
-void SortAscMap_Dump(uint64_t v, size_t n);
 
 /**
  * Creates a sorter result processor.
@@ -264,8 +268,6 @@ void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
                                    const RLookup *lookup);
 
-void RP_DumpChain(const ResultProcessor *rp);
-
 /*******************************************************************************************************************
  *  Profiling Processor
  *
@@ -283,7 +285,7 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
  *******************************************************************************************************************/
 ResultProcessor *RPCounter_New();
 
-clock_t RPProfile_GetClock(ResultProcessor *rp);
+rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qctx);
