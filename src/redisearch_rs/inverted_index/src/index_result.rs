@@ -251,6 +251,19 @@ impl<'index> RSTermRecord<'index> {
             },
         }
     }
+
+    /// Set the offsets of this term record, replacing any existing offsets.
+    pub fn set_offsets(&mut self, offsets: RSOffsetVector<'index>) {
+        match self {
+            RSTermRecord::Borrowed { offsets: o, .. } => {
+                *o = offsets;
+            }
+            RSTermRecord::Owned { offsets: o, .. } => {
+                o.free_data();
+                *o = offsets.to_owned();
+            }
+        }
+    }
 }
 
 impl RSTermRecord<'static> {
@@ -813,6 +826,28 @@ impl<'index> RSIndexResult<'index> {
         self.data.kind()
     }
 
+    pub unsafe fn as_numeric_unchecked(&self) -> f64 {
+        match &self.data {
+            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => *numeric,
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::HybridMetric(_) => unsafe { std::hint::unreachable_unchecked() },
+        }
+    }
+
+    pub unsafe fn as_numeric_unchecked_mut(&mut self) -> &mut f64 {
+        match &mut self.data {
+            RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => numeric,
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::HybridMetric(_) => unsafe { std::hint::unreachable_unchecked() },
+        }
+    }
+
     /// Get this record as a numeric record if possible. If the record is not numeric, returns
     /// `None`.
     pub fn as_numeric(&self) -> Option<f64> {
@@ -836,6 +871,18 @@ impl<'index> RSIndexResult<'index> {
             | RSResultData::Intersection(_)
             | RSResultData::Term(_)
             | RSResultData::Virtual => None,
+        }
+    }
+
+    pub fn as_term_unchecked_mut(&mut self) -> &mut RSTermRecord<'index> {
+        match &mut self.data {
+            RSResultData::Term(term) => term,
+            RSResultData::Union(_)
+            | RSResultData::Intersection(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_)
+            | RSResultData::HybridMetric(_) => unsafe { std::hint::unreachable_unchecked() },
         }
     }
 

@@ -58,15 +58,15 @@ impl Decoder for FreqsFields {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, field_mask] = decoded_values;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask as t_fieldMask)
-            .frequency(freq);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask as t_fieldMask;
+        result.freq = freq;
+        Ok(())
     }
 }
 
@@ -110,15 +110,15 @@ impl Decoder for FreqsFieldsWide {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, freq] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-        let record = RSIndexResult::term()
-            .doc_id(base + delta as t_docId)
-            .field_mask(field_mask)
-            .frequency(freq);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        result.field_mask = field_mask;
+        result.freq = freq;
+        Ok(())
     }
 }
