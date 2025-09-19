@@ -46,3 +46,12 @@ pub extern "C" fn ResultMetrics_Free(metrics: *mut ::ffi::RSYieldableMetric) {
 pub extern "C" fn Term_Free(_t: *mut ::ffi::RSQueryTerm) {
     // RSQueryTerm used by the benchers are created on the stack so we don't need to free them.
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn isWithinRadius(
+    _gf: *const ::ffi::GeoFilter,
+    _d: f64,
+    _distance: *mut f64,
+) -> bool {
+    panic!("isWithinRadius should not be called by any of the benchmarks");
+}
