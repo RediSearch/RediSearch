@@ -13,6 +13,7 @@ rlookup.workspace = true
 pin-project.workspace = true
 libc = { workspace = true, features = ["extra_traits"] }
 enumflags2.workspace = true
+mimic.workspace = true
 
 [lints]
 workspace = true
