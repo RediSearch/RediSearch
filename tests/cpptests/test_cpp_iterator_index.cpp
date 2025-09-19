@@ -346,6 +346,11 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
               .fieldMask = fieldMask,
               .data = {.term_tag = RSResultData_Term},
           };
+
+          if (flags & Index_StoreNumeric) {
+              res.data.tag = RSResultData_Numeric;
+          }
+
           for (size_t i = 1; i <= n_docs; ++i) {
               res.docId = i;
               InvertedIndex_WriteEntryGeneric(idx, &res);
