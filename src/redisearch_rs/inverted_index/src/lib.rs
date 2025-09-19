@@ -1083,11 +1083,8 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterNumericRe
     }
 }
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
-{
-    /// Read the next record from the index. If there are no more records to read, then `None` is returned.
-    pub fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReader<'index, IR> {
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
 
@@ -1103,9 +1100,7 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
         }
     }
 
-    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
-    /// of the index is reached before finding the document ID, then `None` is returned.
-    pub fn seek_record(
+    fn seek_record(
         &mut self,
         doc_id: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -1124,7 +1119,11 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
             Ok(false)
         }
     }
+}
 
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
+{
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
     pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
@@ -1221,11 +1220,8 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterGeoReader
     }
 }
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
-{
-    /// Read the next record from the index. If there are no more records to read, then `None` is returned.
-    pub fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'index, IR> {
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
 
@@ -1244,9 +1240,7 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
         }
     }
 
-    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
-    /// of the index is reached before finding the document ID, then `None` is returned.
-    pub fn seek_record(
+    fn seek_record(
         &mut self,
         doc_id: t_docId,
         result: &mut RSIndexResult<'index>,
@@ -1268,7 +1262,11 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
             Ok(false)
         }
     }
+}
 
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
+{
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
     pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
