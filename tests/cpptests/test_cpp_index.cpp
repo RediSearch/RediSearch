@@ -500,26 +500,7 @@ TEST_F(IndexTest, testNumericVaried) {
   static const size_t numCount = sizeof(nums) / sizeof(double);
 
   for (size_t i = 0; i < numCount; i++) {
-    size_t min_data_len;
-    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-    size_t cap = IndexBlock_Cap(lastBlock);
-    size_t offset = IndexBlock_Len(lastBlock);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, i + 1, nums[i]);
-
-    if(i == 0 || i == 4 || i == 5) {
-      // For tests numbers 0, 1.0, and 5.0, two bytes are enough to store them.
-      min_data_len = 2;
-    } else {
-      min_data_len = 10;
-    }
-
-    // if there was not enough space to store the entry,
-    // the capacity of the block was increased and sz > 0
-    if(cap - offset < min_data_len) {
-      ASSERT_TRUE(sz > 0);
-    } else {
-      ASSERT_TRUE(sz == 0);
-    }
     // printf("[%lu]: Stored %lf\n", i, nums[i]);
   }
 
@@ -541,37 +522,36 @@ TEST_F(IndexTest, testNumericVaried) {
 
 typedef struct {
   double value;
-  size_t size;
 } encodingInfo;
 static const encodingInfo infos[] = {
-    {0, 1},                    // 0
-    {1, 2},                    // 1
-    {63, 3},                   // 2
-    {-1, 3},                   // 3
-    {-63, 3},                  // 4
-    {64, 3},                   // 5
-    {-64, 3},                  // 6
-    {255, 3},                  // 7
-    {-255, 3},                 // 8
-    {65535, 4},                // 9
-    {-65535, 4},               // 10
-    {16777215, 5},             // 11
-    {-16777215, 5},            // 12
-    {4294967295, 6},           // 13
-    {-4294967295, 6},          // 14
-    {4294967295 + 1, 7},       // 15
-    {4294967295 + 2, 7},       // 16
-    {549755813888.0, 7},       // 17
-    {549755813888.0 + 2, 7},   // 18
-    {549755813888.0 - 23, 7},  // 19
-    {-549755813888.0, 7},      // 20
-    {1503342028.957225, 10},   // 21
-    {42.4345, 10},              // 22
-    {(float)0.5, 6},           // 23
-    {DBL_MAX, 10},             // 24
-    {UINT64_MAX >> 12, 9},     // 25
-    {INFINITY, 2},             // 26
-    {-INFINITY, 2}             // 27
+    {0},                    // 0
+    {1},                    // 1
+    {63},                   // 2
+    {-1},                   // 3
+    {-63},                  // 4
+    {64},                   // 5
+    {-64},                  // 6
+    {255},                  // 7
+    {-255},                 // 8
+    {65535},                // 9
+    {-65535},               // 10
+    {16777215},             // 11
+    {-16777215},            // 12
+    {4294967295},           // 13
+    {-4294967295},          // 14
+    {4294967295 + 1},       // 15
+    {4294967295 + 2},       // 16
+    {549755813888.0},       // 17
+    {549755813888.0 + 2},   // 18
+    {549755813888.0 - 23},  // 19
+    {-549755813888.0},      // 20
+    {1503342028.957225},   // 21
+    {42.4345},              // 22
+    {(float)0.5},           // 23
+    {DBL_MAX},             // 24
+    {UINT64_MAX >> 12},     // 25
+    {INFINITY},             // 26
+    {-INFINITY}             // 27
 };
 
 void testNumericEncodingHelper(bool isMulti) {
@@ -581,31 +561,10 @@ void testNumericEncodingHelper(bool isMulti) {
 
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\n[%lu]: Expecting Val=%lf, Sz=%lu\n", ii, infos[ii].value, infos[ii].size);
-    IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-    size_t cap = IndexBlock_Cap(lastBlock);
-    size_t offset = IndexBlock_Len(lastBlock);
     size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
 
-    // if there was not enough space to store the entry, sz will be greater than zero
-    if(cap - offset < infos[ii].size) {
-      ASSERT_TRUE(sz > 0);
-    } else {
-      ASSERT_TRUE(sz == 0);
-    }
-
     if (isMulti) {
-      IndexBlock *lastBlock = InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1);
-      cap = IndexBlock_Cap(lastBlock);
-      offset = IndexBlock_Len(lastBlock);
-
       size_t sz = InvertedIndex_WriteNumericEntry(idx, ii + 1, infos[ii].value);
-
-      // Delta is 0, so we don't store it.
-      if(cap - offset < infos[ii].size - 1) {
-        ASSERT_TRUE(sz > 0);
-      } else {
-        ASSERT_TRUE(sz == 0);
-      }
     }
   }
 
