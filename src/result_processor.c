@@ -183,7 +183,6 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, RedisSearchCtx *sctx) 
   ret->iterator = root;
   ret->base.Next = rpQueryItNext;
   ret->base.Free = rpQueryItFree;
-  // ret->conc = conc; // this doesn't exist on master
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
   return &ret->base;

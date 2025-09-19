@@ -94,7 +94,6 @@ void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   opt->sctx = sctx;
-  // opt->conc = &req->conc;
 
   // get FieldSpec of sortby field and results limit
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));

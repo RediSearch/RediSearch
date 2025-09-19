@@ -86,11 +86,6 @@ typedef struct QueryPipelineParams {
      *  how documents are ranked by relevance. If NULL, the default scorer is used. */
     const char *scorerName;
 
-    /** Concurrent search context for thread-safe index access during queries.
-     *  Manages read locks, thread-local state, and coordination when multiple
-     *  search threads are accessing the same index data structures concurrently. */
-    // ConcurrentSearchCtx *conc;
-
     /** Request configuration containing timeout policies and execution settings.
      *  Determines how the search query behaves under timeout conditions and other
      *  execution constraints like memory limits. */

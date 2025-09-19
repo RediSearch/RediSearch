@@ -1414,7 +1414,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .ast = &req->ast,
       .rootiter = req->rootiter,
       .scorerName = req->searchopts.scorerName,
-      // .conc = &req->conc,
       .reqConfig = &req->reqConfig,
     };
     Pipeline_BuildQueryPart(&req->pipeline, &params);

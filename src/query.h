@@ -121,7 +121,6 @@ void SetFilterNode(QueryAST *q, QueryNode *filterNode);
  * @param opts options
  * @param sctx the search context. Note that this may be retained by the iterators
  *  for the remainder of the query.
- * @param conc Used to save state on the query
  * @param reqflags Request (AGG/SEARCH) flags
  * @param status error detail
  * @return an iterator.
