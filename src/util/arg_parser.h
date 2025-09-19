@@ -115,7 +115,6 @@ struct ArgParser {
     ArgsCursor *cursor;         // Underlying cursor
     arrayof(ArgDefinition) definitions; // Array of argument definitions
     const char *command_name;   // Command name for error messages
-    bool strict_mode;           // Whether to fail on unknown arguments
 
     // Internal state
     char *error_buffer;        // Thread-safe error message buffer
@@ -189,9 +188,6 @@ bool ArgParser_HasMore(ArgParser *parser);
 const char *ArgParser_GetErrorString(ArgParser *parser);
 void ArgParser_PrintHelp(ArgParser *parser);
 bool ArgParser_WasParsed(ArgParser *parser, const char *arg_name);
-ArgParser *ArgParser_SetStrictMode(ArgParser *parser, bool strict);
-int ArgParser_GetRemainingCount(ArgParser *parser);
-ArgsCursor *ArgParser_GetRemainingArgs(ArgParser *parser);
 
 // Common validators
 int ArgParser_ValidatePositive(const void *value, const char **error_msg);

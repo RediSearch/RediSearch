@@ -197,21 +197,6 @@ TEST_F(ArgParserTest, StrictModeUnknownArgument) {
     ASSERT_NE(result.error_message, nullptr);
 }
 
-TEST_F(ArgParserTest, NonStrictModeUnknownArgument) {
-    SetupCustomArgs({"COMMAND", "UNKNOWN_ARG", "value", "TIMEOUT", "5000"});
-
-    ArgParser_SetStrictMode(parser, false);
-
-    long long timeout = 0;
-    ArgParser_AddLongV(parser, "TIMEOUT", "Query timeout in ms", &timeout,
-                      ARG_OPT_OPTIONAL,
-                      ARG_OPT_END);
-
-    ArgParseResult result = ArgParser_Parse(parser);
-    ASSERT_TRUE(result.success) << "Parse should succeed in non-strict mode: " << ArgParser_GetErrorString(parser);
-    ASSERT_EQ(timeout, 5000LL);
-}
-
 TEST_F(ArgParserTest, DefaultValues) {
     SetupCustomArgs({"COMMAND"});  // No arguments provided
 
@@ -453,26 +438,4 @@ TEST_F(ArgParserTest, EmptyArguments) {
     // No arguments defined, should parse successfully
     ArgParseResult result = ArgParser_Parse(parser);
     ASSERT_TRUE(result.success) << "Parse failed: " << ArgParser_GetErrorString(parser);
-}
-
-TEST_F(ArgParserTest, RemainingArgsCount) {
-    SetupCustomArgs({"COMMAND", "TIMEOUT", "5000", "extra1", "extra2"});
-
-    ArgParser_SetStrictMode(parser, false);  // Allow unknown arguments
-
-    long long timeout = 0;
-    ArgParser_AddLongV(parser, "TIMEOUT", "Query timeout in ms", &timeout,
-                      ARG_OPT_OPTIONAL,
-                      ARG_OPT_END);
-
-    ArgParseResult result = ArgParser_Parse(parser);
-    ASSERT_TRUE(result.success) << "Parse failed: " << ArgParser_GetErrorString(parser);
-    ASSERT_EQ(timeout, 5000LL);
-
-    // Check remaining arguments
-    int remaining_count = ArgParser_GetRemainingCount(parser);
-    ASSERT_EQ(remaining_count, 2) << "Should have 2 remaining arguments";
-
-    ArgsCursor *remaining = ArgParser_GetRemainingArgs(parser);
-    ASSERT_NE(remaining, nullptr);
 }

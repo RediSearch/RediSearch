@@ -30,7 +30,6 @@ ArgParser *ArgParser_New(ArgsCursor *cursor, const char *command_name) {
     parser->cursor = cursor;
     parser->command_name = command_name ? rm_strdup(command_name) : NULL;
     parser->definitions = array_new(ArgDefinition, INITIAL_DEF_CAPACITY);
-    parser->strict_mode = true;
     parser->error_buffer = NULL;
 
     if (!parser->definitions) {
@@ -485,14 +484,8 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
             }
 
             // Unknown argument
-            if (parser->strict_mode) {
-                set_error(parser, "Unknown argument", arg_name);
-                break;
-            } else {
-                // Skip unknown argument in non-strict mode
-                AC_Advance(parser->cursor);
-                continue;
-            }
+            set_error(parser, "Unknown argument", arg_name);
+            break;
         }
 
         // Skip if this is a positional argument that was already handled
@@ -570,16 +563,6 @@ bool ArgParser_HasMore(ArgParser *parser) {
     return !AC_IsAtEnd(parser->cursor);
 }
 
-int ArgParser_GetRemainingCount(ArgParser *parser) {
-    if (!parser || !parser->cursor) return 0;
-    return AC_NumRemaining(parser->cursor);
-}
-
-ArgsCursor *ArgParser_GetRemainingArgs(ArgParser *parser) {
-    if (!parser) return NULL;
-    return parser->cursor;
-}
-
 bool ArgParser_WasParsed(ArgParser *parser, const char *arg_name) {
     if (!parser || !arg_name) {
         return false;
@@ -643,13 +626,6 @@ static void apply_defaults(ArgParser *parser) {
                 break;
         }
     }
-}
-
-ArgParser *ArgParser_SetStrictMode(ArgParser *parser, bool strict) {
-    if (parser) {
-        parser->strict_mode = strict;
-    }
-    return parser;
 }
 
 // Helper function to apply variadic options to the last added definition

@@ -175,9 +175,6 @@ ArgParser_Free(parser);
 - `ArgParser_Parse(parser)` - Parse all arguments, returns `ArgParseResult`
 - `ArgParser_GetErrorString(parser)` - Get detailed error message
 - `ArgParser_WasParsed(parser, arg_name)` - Check if argument was parsed
-- `ArgParser_SetStrictMode(parser, strict)` - Enable/disable strict mode
-- `ArgParser_GetRemainingCount(parser)` - Get count of unparsed arguments
-- `ArgParser_GetRemainingArgs(parser)` - Get cursor to remaining arguments
 
 ### Variadic Argument Types (Recommended)
 - `ArgParser_AddBoolV()` - Boolean flags (true when present)
@@ -353,19 +350,5 @@ if (!result.success) {
     printf("\n");
     ArgParser_Free(parser);
     return -1;
-}
-```
-
-### Strict Mode
-By default, ArgParser operates in strict mode, which means it will fail if it encounters unknown arguments. You can disable strict mode to allow unknown arguments to be ignored:
-
-```c
-// Disable strict mode - unknown arguments will be ignored
-ArgParser_SetStrictMode(parser, false);
-
-// After parsing, get remaining unparsed arguments
-if (ArgParser_GetRemainingCount(parser) > 0) {
-    ArgsCursor *remaining = ArgParser_GetRemainingArgs(parser);
-    // Process remaining arguments manually if needed
 }
 ```
