@@ -86,7 +86,8 @@ pub fn decode_term_record_offsets<'index>(
     field_mask: t_fieldMask,
     freq: u32,
     offsets_sz: u32,
-) -> std::io::Result<RSIndexResult<'index>> {
+    result: &mut RSIndexResult<'index>,
+) -> std::io::Result<()> {
     // borrow the offsets vector from the cursor
     let start = cursor.position() as usize;
     let end = start + offsets_sz as usize;
@@ -108,15 +109,14 @@ pub fn decode_term_record_offsets<'index>(
 
     let offsets = RSOffsetVector::with_data(data, offsets_sz);
 
-    let record = RSIndexResult::term_with_term_ptr(
-        std::ptr::null_mut(),
-        offsets,
-        base + delta as t_docId,
-        field_mask,
-        freq,
-    );
+    result.doc_id = base + delta as t_docId;
+    result.field_mask = field_mask;
+    result.freq = freq;
 
-    Ok(record)
+    let term = result.as_term_unchecked_mut();
+    term.set_offsets(offsets);
+
+    Ok(())
 }
 
 impl Decoder for Full {
@@ -124,19 +124,21 @@ impl Decoder for Full {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<4, _>(cursor)?;
         let [delta, freq, field_mask, offsets_sz] = decoded_values;
 
-        let record = decode_term_record_offsets(
+        decode_term_record_offsets(
             cursor,
             base,
             delta,
             field_mask as t_fieldMask,
             freq,
             offsets_sz,
+            result,
         )?;
-        Ok(record)
+        Ok(())
     }
 
     fn seek<'index>(
@@ -144,11 +146,14 @@ impl Decoder for Full {
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
         let (freq, field_mask, offsets_sz) = loop {
             let [delta, freq, field_mask, offsets_sz] = match qint_decode::<4, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
-                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
                 Err(error) => return Err(error),
             };
 
@@ -162,15 +167,16 @@ impl Decoder for Full {
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
         };
 
-        let record = decode_term_record_offsets(
+        decode_term_record_offsets(
             cursor,
             base,
             0,
             field_mask as t_fieldMask,
             freq,
             offsets_sz,
+            result,
         )?;
-        Ok(Some(record))
+        Ok(true)
     }
 }
 
@@ -224,13 +230,14 @@ impl Decoder for FullWide {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, freq, offsets_sz] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-        let record = decode_term_record_offsets(cursor, base, delta, field_mask, freq, offsets_sz)?;
-        Ok(record)
+        decode_term_record_offsets(cursor, base, delta, field_mask, freq, offsets_sz, result)?;
+        Ok(())
     }
 
     fn seek<'index>(
@@ -238,11 +245,14 @@ impl Decoder for FullWide {
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
         let (freq, field_mask, offsets_sz) = loop {
             let [delta, freq, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
-                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
                 Err(error) => return Err(error),
             };
             let field_mask = t_fieldMask::read_as_varint(cursor)?;
@@ -257,7 +267,7 @@ impl Decoder for FullWide {
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
         };
 
-        let record = decode_term_record_offsets(cursor, base, 0, field_mask, freq, offsets_sz)?;
-        Ok(Some(record))
+        decode_term_record_offsets(cursor, base, 0, field_mask, freq, offsets_sz, result)?;
+        Ok(true)
     }
 }
