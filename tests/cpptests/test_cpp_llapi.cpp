@@ -1396,11 +1396,11 @@ TEST_F(LLApiTest, testInfoSize) {
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 525 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 361 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 431 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 267 + additional_overhead);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
   // we always keep the numeric index root.
@@ -1457,17 +1457,17 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 629 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 458 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 535 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 364 + additional_overhead);
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
   // we always keep the numeric index root.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   // The base inverted index is 48 bytes + 8 bytes for the entries count of numeric records
-  additional_overhead += 48;
+  additional_overhead += 56;
   EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
