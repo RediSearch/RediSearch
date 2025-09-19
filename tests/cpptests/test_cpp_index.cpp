@@ -169,27 +169,21 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
   // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // IndexBlock *blocks         8
-  // uint32_t size              4
-  // IndexFlags                 4
-  // t_docId lastId             8
-  // uint32_t numDocs           4
-  // uint32_t gcMarker          4
+  // Vec<IndexBlock> blocks    24
+  // u32 n_uniqe_blocks         4
+  // flags IndexFlags           4
+  // u32 gc_marker              4
   // ----------------------------
-  // Total                     32
+  // Total                     36
+  // After padding             40
 
-  size_t exp_idx_no_block_memsize = 32;
+  size_t exp_idx_no_block_memsize = 40;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
   }
 
-  // A block is 48 bytes with an initial buffer capacity
-  size_t exp_block_memsize = 48;
-
-  size_t exp_initial_block_cap = 6;
-
-  size_t expectedIndexSize = exp_idx_no_block_memsize + exp_block_memsize + exp_initial_block_cap;
+  size_t expectedIndexSize = exp_idx_no_block_memsize;
   // The memory occupied by a new inverted index depends of its flags
   // see NewInvertedIndex() for details
   ASSERT_EQ(expectedIndexSize, index_memsize);
