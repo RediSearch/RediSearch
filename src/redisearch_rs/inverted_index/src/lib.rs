@@ -23,7 +23,6 @@ pub use index_result::{
     RSAggregateResult, RSAggregateResultIter, RSIndexResult, RSOffsetVector, RSQueryTerm,
     RSResultData, RSResultKind, RSResultKindMask, RSTermRecord,
 };
-use redis_module::logging::log_warning;
 
 pub mod debug;
 pub mod doc_ids_only;
@@ -174,7 +173,8 @@ pub trait Decoder {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>>;
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
@@ -188,17 +188,18 @@ pub trait Decoder {
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
         loop {
-            match self.decode(cursor, base) {
-                Ok(record) if record.doc_id >= target => {
-                    return Ok(Some(record));
+            match self.decode(cursor, base, result) {
+                Ok(_) if result.doc_id >= target => {
+                    return Ok(true);
                 }
-                Ok(record) => {
-                    base = record.doc_id;
+                Ok(_) => {
+                    base = result.doc_id;
                     continue;
                 }
-                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
                 Err(err) => return Err(err),
             }
         }
@@ -499,8 +500,8 @@ impl<E: Encoder> InvertedIndex<E> {
 
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
-        IndexReader::new(self)
+    pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
+        IndexReaderCore::new(self)
     }
 }
 
@@ -594,7 +595,7 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
+    pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
         self.index.reader()
     }
 }
@@ -687,13 +688,16 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
 
 impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
-    pub fn reader(&self, mask: t_fieldMask) -> FilterMaskReader<IndexReader<'_, E, E::Decoder>> {
+    pub fn reader(
+        &self,
+        mask: t_fieldMask,
+    ) -> FilterMaskReader<IndexReaderCore<'_, E, E::Decoder>> {
         FilterMaskReader::new(mask, self.index.reader())
     }
 }
 
 /// Reader that is able to read the records from an [`InvertedIndex`]
-pub struct IndexReader<'index, E, D> {
+pub struct IndexReaderCore<'index, E, D> {
     /// The block of the inverted index that is being read from. This might be used to determine the
     /// base document ID for delta calculations.
     ii: &'index InvertedIndex<E>,
@@ -714,23 +718,64 @@ pub struct IndexReader<'index, E, D> {
     last_doc_id: t_docId,
 }
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> Iterator for IndexReader<'index, E, D> {
-    type Item = RSIndexResult<'index>;
+pub trait IndexReader<'index> {
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.next_record() {
-            Ok(Some(record)) => Some(record),
-            Ok(None) => None,
-            Err(error) => {
-                log_warning(format!("Decoding from inverted index failed: {error}"));
+    fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool>;
+}
 
-                None // In case of error, we stop the iteration
-            }
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
+    for IndexReaderCore<'index, E, D>
+{
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+        // Check if the current buffer is empty. The GC might clean out a block so we have to
+        // continue checking until we find a block with data.
+        while self.current_buffer.fill_buf()?.is_empty() {
+            if self.current_block_idx + 1 >= self.ii.blocks.len() {
+                // No more blocks to read from
+                return Ok(false);
+            };
+
+            self.set_current_block(self.current_block_idx + 1);
         }
+
+        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        let _ = self
+            .decoder
+            .decode(&mut self.current_buffer, base, result)?;
+
+        self.last_doc_id = result.doc_id;
+
+        Ok(true)
+    }
+
+    fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        if !self.skip_to(doc_id) {
+            return Ok(false);
+        }
+
+        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        let found = self
+            .decoder
+            .seek(&mut self.current_buffer, base, doc_id, result)?;
+
+        if found {
+            self.last_doc_id = result.doc_id;
+        }
+
+        Ok(found)
     }
 }
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E, D> {
     /// Create a new index reader that reads from the given [`InvertedIndex`].
     ///
     /// # Panic
@@ -750,47 +795,6 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index, E, D> {
             current_block_idx: 0,
             last_doc_id: first_block.first_doc_id,
         }
-    }
-
-    /// Read the next record from the index. If there are no more records to read, then `None` is returned.
-    pub fn next_record(&mut self) -> std::io::Result<Option<RSIndexResult<'index>>> {
-        // Check if the current buffer is empty. The GC might clean out a block so we have to
-        // continue checking until we find a block with data.
-        while self.current_buffer.fill_buf()?.is_empty() {
-            if self.current_block_idx + 1 >= self.ii.blocks.len() {
-                // No more blocks to read from
-                return Ok(None);
-            };
-
-            self.set_current_block(self.current_block_idx + 1);
-        }
-
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        let result = self.decoder.decode(&mut self.current_buffer, base)?;
-
-        self.last_doc_id = result.doc_id;
-
-        Ok(Some(result))
-    }
-
-    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
-    /// of the index is reached before finding the document ID, then `None` is returned.
-    pub fn seek_record(
-        &mut self,
-        doc_id: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
-        if !self.skip_to(doc_id) {
-            return Ok(None);
-        }
-
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        let result = self.decoder.seek(&mut self.current_buffer, base, doc_id)?;
-
-        if let Some(ref record) = result {
-            self.last_doc_id = record.doc_id;
-        }
-
-        Ok(result)
     }
 
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
@@ -905,43 +909,50 @@ pub struct FilterMaskReader<I> {
     inner: I,
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> FilterMaskReader<I> {
+impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
     /// Create a new filter mask reader with the given mask and inner iterator
-    pub fn new(mask: t_fieldMask, inner: I) -> Self {
+    pub fn new(mask: t_fieldMask, inner: IR) -> Self {
         Self { mask, inner }
     }
 }
 
-impl<'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator for FilterMaskReader<I> {
-    type Item = RSIndexResult<'index>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<IR> {
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
-            let next = self.inner.next()?;
+            let found = self.inner.next_record(result)?;
 
-            if next.field_mask & self.mask > 0 {
-                return Some(next);
+            if !found {
+                return Ok(false);
             }
+
+            if result.field_mask & self.mask > 0 {
+                return Ok(true);
+            }
+        }
+    }
+
+    fn seek_record(
+        &mut self,
+        doc_id: t_docId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let found = self.inner.seek_record(doc_id, result)?;
+
+        if found {
+            if result.field_mask & self.mask > 0 {
+                Ok(true)
+            } else {
+                self.next_record(result)
+            }
+        } else {
+            Ok(false)
         }
     }
 }
 
-impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader<'index, E, D>> {
-    /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
-    /// of the index is reached before finding the document ID, then `None` is returned.
-    pub fn seek_record(
-        &mut self,
-        doc_id: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
-        let candidate = self.inner.seek_record(doc_id)?;
-
-        match candidate {
-            Some(rec) if rec.field_mask & self.mask > 0 => Ok(Some(rec)),
-            Some(_) => Ok(self.next()), // Will need to find the first valid record bigger than doc_id
-            None => Ok(None),
-        }
-    }
-
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterMaskReader<IndexReaderCore<'index, E, D>>
+{
     /// Skip forward to the block containing the given document ID. Returns false if the end of the
     /// index was reached and true otherwise.
     pub fn skip_to(&mut self, doc_id: t_docId) -> bool {
@@ -1010,44 +1021,45 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterNumericRe
     }
 }
 
-impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
-    for FilterNumericReader<'filter, I>
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterNumericReader<'filter, IndexReaderCore<'index, E, D>>
 {
-    type Item = RSIndexResult<'index>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Read the next record from the index. If there are no more records to read, then `None` is returned.
+    pub fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
-            let next = self.inner.next()?;
-            let value = next.as_numeric()?;
+            let found = self.inner.next_record(result)?;
+
+            if !found {
+                return Ok(false);
+            }
+
+            let value = unsafe { result.as_numeric_unchecked() };
 
             if self.filter.value_in_range(value) {
-                return Some(next);
+                return Ok(true);
             }
         }
     }
-}
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterNumericReader<'filter, IndexReader<'index, E, D>>
-{
     /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
     /// of the index is reached before finding the document ID, then `None` is returned.
     pub fn seek_record(
         &mut self,
         doc_id: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
-        let candidate = self.inner.seek_record(doc_id)?;
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let found = self.inner.seek_record(doc_id, result)?;
 
-        match candidate {
-            Some(rec)
-                if rec
-                    .as_numeric()
-                    .is_some_and(|v| self.filter.value_in_range(v)) =>
-            {
-                Ok(Some(rec))
+        if found {
+            let value = unsafe { result.as_numeric_unchecked() };
+
+            if self.filter.value_in_range(value) {
+                Ok(true)
+            } else {
+                self.next_record(result)
             }
-            Some(_) => Ok(self.next()), // Will need to find the first valid record bigger than doc_id
-            None => Ok(None),
+        } else {
+            Ok(false)
         }
     }
 
@@ -1141,50 +1153,51 @@ impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> FilterGeoReader
     }
 }
 
-impl<'filter, 'index, I: Iterator<Item = RSIndexResult<'index>>> Iterator
-    for FilterGeoReader<'filter, I>
+impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
+    FilterGeoReader<'filter, IndexReaderCore<'index, E, D>>
 {
-    type Item = RSIndexResult<'index>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Read the next record from the index. If there are no more records to read, then `None` is returned.
+    pub fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
-            let mut next = self.inner.next()?;
-            let value = next.as_numeric_mut()?;
+            let found = self.inner.next_record(result)?;
+
+            if !found {
+                return Ok(false);
+            }
+
+            let value = unsafe { result.as_numeric_unchecked_mut() };
 
             // SAFETY: we know the filter is not a null pointer since we hold a reference to it
             let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
 
             if in_radius {
-                return Some(next);
+                return Ok(true);
             }
         }
     }
-}
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterGeoReader<'filter, IndexReader<'index, E, D>>
-{
     /// Seek to the first record whose ID is higher or equal to the given document ID. If the end
     /// of the index is reached before finding the document ID, then `None` is returned.
     pub fn seek_record(
         &mut self,
         doc_id: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
-        let candidate = self.inner.seek_record(doc_id)?;
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        let found = self.inner.seek_record(doc_id, result)?;
 
-        match candidate {
-            Some(mut rec) => {
-                if rec.as_numeric_mut().is_some_and(|v| {
-                    // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-                    unsafe { isWithinRadius(self.geo_filter, *v, v) }
-                }) {
-                    Ok(Some(rec))
-                } else {
-                    // Will need to find the first valid record bigger than doc_id
-                    Ok(self.next())
-                }
+        if found {
+            let value = unsafe { result.as_numeric_unchecked_mut() };
+
+            // SAFETY: we know the filter is not a null pointer since we hold a reference to it
+            let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
+
+            if in_radius {
+                Ok(true)
+            } else {
+                self.next_record(result)
             }
-            None => Ok(None),
+        } else {
+            Ok(false)
         }
     }
 

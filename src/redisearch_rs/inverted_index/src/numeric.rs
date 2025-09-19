@@ -403,7 +403,8 @@ impl Decoder for Numeric {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let mut header = [0; 1];
         cursor.read_exact(&mut header)?;
 
@@ -466,9 +467,13 @@ impl Decoder for Numeric {
         };
 
         let doc_id = base + delta;
-        let record = RSIndexResult::numeric(num).doc_id(doc_id);
 
-        Ok(record)
+        result.doc_id = doc_id;
+        unsafe {
+            *result.as_numeric_unchecked_mut() = num;
+        }
+
+        Ok(())
     }
 }
 
