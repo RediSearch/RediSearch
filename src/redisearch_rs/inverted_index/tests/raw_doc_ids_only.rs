@@ -60,8 +60,9 @@ fn test_encode_raw_doc_ids_only() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let record_decoded = RawDocIdsOnly::default()
-            .decode(&mut buf, prev_doc_id)
+        let mut record_decoded = RSIndexResult::term();
+        RawDocIdsOnly::default()
+            .decode(&mut buf, prev_doc_id, &mut record_decoded)
             .expect("to decode raw doc ids only record");
 
         assert_eq!(record_decoded, record);
@@ -86,8 +87,9 @@ fn test_decode_raw_doc_ids_only_input_too_small() {
     // Encoded data is too short.
     let buf = vec![0, 0];
     let mut cursor = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::term();
 
-    let res = RawDocIdsOnly::default().decode(&mut cursor, 100);
+    let res = RawDocIdsOnly::default().decode(&mut cursor, 100, &mut result);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -98,8 +100,9 @@ fn test_decode_raw_doc_ids_only_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
     let mut cursor = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::term();
 
-    let res = RawDocIdsOnly::default().decode(&mut cursor, 100);
+    let res = RawDocIdsOnly::default().decode(&mut cursor, 100, &mut result);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -118,24 +121,25 @@ fn test_seek_raw_doc_ids_only() {
     let mut buf = Cursor::new(buf.as_ref());
 
     let decoder = RawDocIdsOnly::default();
+    let mut record_decoded = RSIndexResult::term();
 
-    let record_decoded = decoder
-        .seek(&mut buf, 10, 16)
-        .expect("to decode raw docs ids only record")
-        .expect("to find the target record");
-
-    assert_eq!(record_decoded, RSIndexResult::term().doc_id(16));
-
-    let record_decoded = decoder
-        .seek(&mut buf, 10, 20)
-        .expect("to decode raw docs ids only record")
-        .expect("to find the target record");
-
-    assert_eq!(record_decoded, RSIndexResult::term().doc_id(22));
-
-    let record_decoded = decoder
-        .seek(&mut buf, 10, 50)
+    let found = decoder
+        .seek(&mut buf, 10, 16, &mut record_decoded)
         .expect("to decode raw docs ids only record");
 
-    assert_eq!(record_decoded, None);
+    assert!(found);
+    assert_eq!(record_decoded, RSIndexResult::term().doc_id(16));
+
+    let found = decoder
+        .seek(&mut buf, 10, 20, &mut record_decoded)
+        .expect("to decode raw docs ids only record");
+
+    assert!(found);
+    assert_eq!(record_decoded, RSIndexResult::term().doc_id(22));
+
+    let found = decoder
+        .seek(&mut buf, 10, 50, &mut record_decoded)
+        .expect("to decode raw docs ids only record");
+
+    assert!(!found);
 }

@@ -11,7 +11,7 @@ use std::io::Cursor;
 
 use ffi::t_fieldMask;
 use inverted_index::{
-    Decoder, Encoder,
+    Decoder, Encoder, RSIndexResult,
     freqs_fields::{FreqsFields, FreqsFieldsWide},
 };
 
@@ -47,7 +47,7 @@ fn test_encode_freqs_fields() {
     for (delta, freq, field_mask, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
 
-        let record = inverted_index::RSIndexResult::term()
+        let record = RSIndexResult::term()
             .doc_id(doc_id)
             .field_mask(field_mask)
             .frequency(freq);
@@ -64,8 +64,9 @@ fn test_encode_freqs_fields() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let record_decoded = FreqsFields
-            .decode(&mut buf, prev_doc_id)
+        let mut record_decoded = RSIndexResult::term();
+        FreqsFields
+            .decode(&mut buf, prev_doc_id, &mut record_decoded)
             .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
@@ -114,7 +115,7 @@ fn test_encode_freqs_fields_wide() {
     for (delta, freq, field_mask, expected_encoding) in tests {
         let mut buf = Cursor::new(Vec::new());
 
-        let record = inverted_index::RSIndexResult::term()
+        let record = RSIndexResult::term()
             .doc_id(doc_id)
             .field_mask(field_mask)
             .frequency(freq);
@@ -131,8 +132,9 @@ fn test_encode_freqs_fields_wide() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let record_decoded = FreqsFieldsWide
-            .decode(&mut buf, prev_doc_id)
+        let mut record_decoded = RSIndexResult::term();
+        FreqsFieldsWide
+            .decode(&mut buf, prev_doc_id, &mut record_decoded)
             .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
@@ -146,7 +148,7 @@ fn test_encode_freqs_fields_field_mask_overflow() {
     let buf = [0u8; 100];
     let mut cursor = Cursor::new(buf);
 
-    let record = inverted_index::RSIndexResult::term().field_mask(u32::MAX as t_fieldMask + 1);
+    let record = RSIndexResult::term().field_mask(u32::MAX as t_fieldMask + 1);
     let _res = FreqsFields.encode(&mut cursor, 0, &record);
 }
 
@@ -156,7 +158,7 @@ fn test_encode_freqs_fields_output_too_small() {
     let buf = [0u8; 3];
     let mut cursor = Cursor::new(buf);
 
-    let record = inverted_index::RSIndexResult::term().field_mask(10);
+    let record = RSIndexResult::term().field_mask(10);
 
     let res = FreqsFields.encode(&mut cursor, 0, &record);
     assert!(res.is_err());
@@ -174,13 +176,14 @@ fn test_decode_freqs_fields_input_too_small() {
     // Encoded data is too short.
     let buf = vec![0, 0];
     let mut buf = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::term();
 
-    let res = FreqsFields.decode(&mut buf, 100);
+    let res = FreqsFields.decode(&mut buf, 100, &mut result);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FreqsFieldsWide.decode(&mut buf, 100);
+    let res = FreqsFieldsWide.decode(&mut buf, 100, &mut result);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -191,13 +194,14 @@ fn test_decode_freqs_fields_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
     let mut buf = Cursor::new(buf.as_ref());
+    let mut result = RSIndexResult::term();
 
-    let res = FreqsFields.decode(&mut buf, 100);
+    let res = FreqsFields.decode(&mut buf, 100, &mut result);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FreqsFieldsWide.decode(&mut buf, 100);
+    let res = FreqsFieldsWide.decode(&mut buf, 100, &mut result);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
