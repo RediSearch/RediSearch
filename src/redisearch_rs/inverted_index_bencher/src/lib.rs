@@ -55,3 +55,8 @@ pub extern "C" fn isWithinRadius(
 ) -> bool {
     panic!("isWithinRadius should not be called by any of the benchmarks");
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn DocTable_Exists(_dt: *const ::ffi::DocTable, _d: ::ffi::t_docId) -> bool {
+    panic!("DocTable_Exists should not be called by any of the benchmarks");
+}
