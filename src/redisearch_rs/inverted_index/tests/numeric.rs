@@ -116,6 +116,15 @@ fn numeric_pos_int() {
 fn numeric_neg_int() {
     let inputs = [
         (
+            0,
+            -1.0,
+            2,
+            vec![
+                0b000_11_000, // INT_NEG type, value_bytes: 0 (+1), delta_bytes: 0
+                1,            // Value: 16
+            ],
+        ),
+        (
             1,
             -16.0,
             3,
