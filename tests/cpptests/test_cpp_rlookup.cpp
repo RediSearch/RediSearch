@@ -357,8 +357,8 @@ TEST_F(RLookupTest, testWriteFieldsBasic) {
 
   // Cleanup
   cleanup_values(values);
-  RLookupRow_Cleanup(&srcRow);
-  RLookupRow_Cleanup(&destRow);
+  RLookupRow_Reset(&srcRow);
+  RLookupRow_Reset(&destRow);
   RLookup_Cleanup(&source);
   RLookup_Cleanup(&dest);
 }
@@ -385,8 +385,8 @@ TEST_F(RLookupTest, testWriteFieldsEmptySource) {
   verify_fields_empty(&dest, &destRow, {"field1", "field2"});
 
   // Cleanup
-  RLookupRow_Cleanup(&srcRow);
-  RLookupRow_Cleanup(&destRow);
+  RLookupRow_Reset(&srcRow);
+  RLookupRow_Reset(&destRow);
   RLookup_Cleanup(&source);
   RLookup_Cleanup(&dest);
 }
@@ -436,8 +436,8 @@ TEST_F(RLookupTest, testWriteFieldsDifferentMapping) {
 
   // Cleanup
   cleanup_values(values);
-  RLookupRow_Cleanup(&srcRow);
-  RLookupRow_Cleanup(&destRow);
+  RLookupRow_Reset(&srcRow);
+  RLookupRow_Reset(&destRow);
   RLookup_Cleanup(&source);
   RLookup_Cleanup(&dest);
 }
@@ -476,9 +476,9 @@ TEST_F(RLookupTest, testMultipleSourcesNoOverlap) {
   // Cleanup
   cleanup_values(src1Values);
   cleanup_values(src2Values);
-  RLookupRow_Cleanup(&src1Row);
-  RLookupRow_Cleanup(&src2Row);
-  RLookupRow_Cleanup(&destRow);
+  RLookupRow_Reset(&src1Row);
+  RLookupRow_Reset(&src2Row);
+  RLookupRow_Reset(&destRow);
   RLookup_Cleanup(&src1);
   RLookup_Cleanup(&src2);
   RLookup_Cleanup(&dest);
@@ -570,7 +570,7 @@ TEST_F(RLookupTest, testMultipleSourcesPartialOverlap) {
   // Cleanup
   cleanup_values(s1_vals);
   cleanup_values(s2_vals);
-  RLookupRow_Cleanup(&src1Row); RLookupRow_Cleanup(&src2Row); RLookupRow_Cleanup(&destRow);
+  RLookupRow_Reset(&src1Row); RLookupRow_Reset(&src2Row); RLookupRow_Reset(&destRow);
   RLookup_Cleanup(&src1); RLookup_Cleanup(&src2); RLookup_Cleanup(&dest);
 }
 
@@ -661,7 +661,7 @@ TEST_F(RLookupTest, testMultipleSourcesFullOverlap) {
   // Cleanup
   cleanup_values(s1_vals);
   cleanup_values(s2_vals);
-  RLookupRow_Cleanup(&src1Row); RLookupRow_Cleanup(&src2Row); RLookupRow_Cleanup(&destRow);
+  RLookupRow_Reset(&src1Row); RLookupRow_Reset(&src2Row); RLookupRow_Reset(&destRow);
   RLookup_Cleanup(&src1); RLookup_Cleanup(&src2); RLookup_Cleanup(&dest);
 }
 
@@ -699,9 +699,9 @@ TEST_F(RLookupTest, testMultipleSourcesOneEmpty) {
 
   // Cleanup
   cleanup_values(src1Values);
-  RLookupRow_Cleanup(&src1Row);
-  RLookupRow_Cleanup(&src2Row);
-  RLookupRow_Cleanup(&destRow);
+  RLookupRow_Reset(&src1Row);
+  RLookupRow_Reset(&src2Row);
+  RLookupRow_Reset(&destRow);
   RLookup_Cleanup(&src1);
   RLookup_Cleanup(&src2);
   RLookup_Cleanup(&dest);
