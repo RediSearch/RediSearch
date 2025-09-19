@@ -14,10 +14,11 @@
 
 #define INITIAL_DEF_CAPACITY 16
 #define MAX_ERROR_MSG_LEN 512
+#define MAX_POSITIONAL_ARGS 20 // reasonable limit for number of expected positional arguments
 
 // Internal helper functions
 static ArgDefinition *find_definition(ArgParser *parser, const char *name);
-static ArgDefinition *find_positional_definition(ArgParser *parser, int position);
+static ArgDefinition *find_positional_definition(ArgParser *parser, uint16_t position);
 static int parse_single_arg(ArgParser *parser, ArgDefinition *def);
 static void set_error(ArgParser *parser, const char *message, const char *arg_name);
 static void apply_defaults(ArgParser *parser);
@@ -184,7 +185,7 @@ static ArgDefinition *find_definition(ArgParser *parser, const char *name) {
 }
 
 // Optimized lookup for positional arguments
-static ArgDefinition *find_positional_definition(ArgParser *parser, int position) {
+static ArgDefinition *find_positional_definition(ArgParser *parser, uint16_t position) {
     if (!parser || position < 1) return NULL;
 
     for (size_t i = 0; i < array_len(parser->definitions); i++) {
@@ -384,7 +385,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
     }
 
     // First pass: parse positional arguments in order
-    int current_position = 1;
+    uint16_t current_position = 1;
     while (!AC_IsAtEnd(parser->cursor)) {
         // Find positional argument for current position (optimized lookup)
         ArgDefinition *pos_def = find_positional_definition(parser, current_position);
@@ -430,7 +431,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
     }
 
     // Check for missing required positional arguments
-    int check_position = current_position;
+    uint16_t check_position = current_position;
     while (true) {
         ArgDefinition *pos_def = find_positional_definition(parser, check_position);
         if (!pos_def) break;
@@ -459,7 +460,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
             // Check if this could be a positional argument value
             // Find the next unparsed positional argument
             ArgDefinition *pos_def = NULL;
-            for (int pos = 1; pos <= 100; pos++) { // reasonable limit
+            for (uint16_t pos = 1; pos <= MAX_POSITIONAL_ARGS; pos++) { // reasonable limit
                 ArgDefinition *candidate = find_positional_definition(parser, pos);
                 if (!candidate) break;
 
