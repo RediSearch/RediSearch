@@ -21,13 +21,10 @@
 extern "C" {
 #endif
 
-arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
-
-    // Array to collect depleter processors from each individual request pipeline
-    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
 
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -40,14 +37,12 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
         int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
         if (rc != REDISMODULE_OK) {
             StrongRef_Release(sync_ref);
-            array_free(depleters);
-            return NULL;
+            return REDISMODULE_ERR;
         }
 
         // Obtain the query processing context for the current AREQ
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-
-        // Set the result limit for the current AREQ
+        // Set the result limit for the current AREQ - hack for now, should use window value
         if (IsHybridVectorSubquery(areq)){
           qctx->resultLimit = areq->maxAggregateResults;
         } else if (IsHybridSearchSubquery(areq)) {
@@ -58,13 +53,12 @@ arrayof(ResultProcessor*) HybridRequest_BuildDepletionPipeline(HybridRequest *re
         RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
         RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
         ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
-        array_ensure_append_1(depleters, depleter);
         QITR_PushRP(qctx, depleter);
     }
 
     // Release the sync reference as depleters now hold their own references
     StrongRef_Release(sync_ref);
-    return depleters;
+    return REDISMODULE_OK;
 }
 
 /**
@@ -94,7 +88,18 @@ static HybridLookupContext *InitializeHybridLookupContext(arrayof(AREQ*) request
     return lookupCtx;
 }
 
-int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params, arrayof(ResultProcessor*) depleters) {
+int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *params) {
+    // Array to collect depleter processors from each individual request pipeline
+    arrayof(ResultProcessor*) depleters = array_new(ResultProcessor *, req->nrequests);
+    for (size_t i = 0; i < req->nrequests; i++) {
+        AREQ *areq = req->requests[i];
+        if (areq->pipeline.qctx.endProc->type != RP_DEPLETER) {
+            array_free(depleters);
+            return REDISMODULE_ERR;
+        }
+        array_ensure_append_1(depleters, areq->pipeline.qctx.endProc);
+    }
+
     // Assumes all upstreams have non-null lookups
     // Init lookup since we dont call buildQueryPart
     RLookup *lookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
@@ -115,12 +120,11 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
     // Build the depletion pipeline for extracting results from individual search requests
-    arrayof(ResultProcessor*) depleters = HybridRequest_BuildDepletionPipeline(req, params);
-    if (!depleters) {
+    if (HybridRequest_BuildDepletionPipeline(req, params) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
     // Build the merge pipeline for combining and processing results from the depletion pipeline
-    return HybridRequest_BuildMergePipeline(req, params, depleters);
+    return HybridRequest_BuildMergePipeline(req, params);
 }
 
 /**
@@ -154,6 +158,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
+        initializeAREQ(requests[i]);
         QueryError_Init(&hybridReq->errors[i]);
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
@@ -239,22 +244,27 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 
     // Priority 1: Tail pipeline error (affects final result processing)
     if (hreq->tailPipelineError.code != QUERY_OK) {
-        QueryError_SetError(status, hreq->tailPipelineError.code,
-                           hreq->tailPipelineError.detail);
+        QueryError_CloneFrom(&hreq->tailPipelineError, status);
         return REDISMODULE_ERR;
     }
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
         if (hreq->errors[i].code != QUERY_OK) {
-            QueryError_SetError(status, hreq->errors[i].code,
-                               hreq->errors[i].detail);
+            QueryError_CloneFrom(&hreq->errors[i], status);
             return REDISMODULE_ERR;
         }
     }
 
     // No errors found
     return REDISMODULE_OK;
+}
+
+void HybridRequest_ClearErrors(HybridRequest *req) {
+  QueryError_ClearError(&req->tailPipelineError);
+  for (size_t i = 0; i < req->nrequests; i++) {
+    QueryError_ClearError(&req->errors[i]);
+  }
 }
 
 /**
@@ -268,9 +278,7 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
   AREQ *search = AREQ_New();
-  initializeAREQ(search);
   AREQ *vector = AREQ_New();
-  initializeAREQ(vector);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
   search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
   vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);

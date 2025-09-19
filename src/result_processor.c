@@ -19,6 +19,8 @@
 #include "rs_wall_clock.h"
 #include <stdatomic.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <time.h>
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"
@@ -1525,10 +1527,11 @@ typedef struct {
 typedef struct {
   pthread_cond_t cond;
   pthread_mutex_t mutex;
-  uint num_depleters;     // Number of depleters to sync
-  atomic_int num_locked;  // Number of depleters that have locked the index
-  bool index_released;    // Whether or not the index-spec has been released by the pipeline thread yet
-  bool take_index_lock;   // Whether or not the depleter should take the index lock
+  uint num_depleters;      // Number of depleters to sync
+  atomic_int num_locked;   // Number of depleters that have locked the index
+  atomic_int num_finished; // Number of depleters that have finished depleting
+  bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
+  bool take_index_lock;    // Whether or not the depleter should take the index lock
 } DepleterSync;
 
 // Free function for DepleterSync
@@ -1597,6 +1600,8 @@ static void RPDepleter_Deplete(void *arg) {
   self->done_depleting = true;
   pthread_cond_broadcast(&sync->cond);  // Wake up all waiting depleters
   pthread_mutex_unlock(&sync->mutex);
+  // mark as finished at the very end of the function
+  atomic_fetch_add(&sync->num_finished, 1);
 }
 
 /**
@@ -1619,6 +1624,59 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+// Adds a depletion job to the depleters thread pool
+static inline void RPDepleter_StartDepletionThread(RPDepleter *self) {
+    redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
+}
+
+// Can only succeed once, if called after RE_RESULT_OK was returned an error will be returned
+// Waits for all the depletion threads to take a read lock
+// After all of them took a lock it will release its own read lock which was previously obtained in the main query thread
+// This ensures all the depleters see a consistent index state across the board for their lifetime
+static inline int RPDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *nextThreadCtx) {
+  if (sync->take_index_lock && !sync->index_released) {
+    // Load the atomic counter
+    int num_locked = atomic_load(&sync->num_locked);
+    RS_ASSERT(num_locked <= sync->num_depleters);
+    if (num_locked == sync->num_depleters) {
+      // Release the index
+      RedisSearchCtx_UnlockSpec(nextThreadCtx);
+      // Mark the index as released
+      sync->index_released = true;
+      return RS_RESULT_OK;
+    } else {
+      // Not all depleter threads have taken the index lock yet. Wait for them
+      return RS_RESULT_DEPLETING;
+    }
+  }
+  // Depleting already started
+  return RS_RESULT_ERROR;
+}
+
+// Must be called after sync->mutex was locked by the thread
+static inline int RPDepleter_WaitForDepletionToComplete(RPDepleter *self, DepleterSync *sync) {
+  // Check if depleting is already done.
+  // We do this while holding the mutex so that we don't miss a signal.
+  if (self->done_depleting == true) {
+    self->base.Next = RPDepleter_Next_Yield;
+    return RS_RESULT_OK;
+  }
+
+  // Wait on condition variable for any depleter to signal completion
+  pthread_cond_wait(&sync->cond, &sync->mutex);
+
+  // Check if our specific thread is done after being woken up
+  if (self->done_depleting == true) {
+    // Our thread is done, switch to yield mode
+    self->base.Next = RPDepleter_Next_Yield;
+    return RS_RESULT_OK;
+  }
+
+  // Our thread is not done yet, but another depleter signaled completion
+  // Return DEPLETING so downstream can check other depleters
+  return RS_RESULT_DEPLETING;
+}
+
 /**
  * Next function for RPDepleter.
  * First call: starts background thread and returns `RS_RESULT_DEPLETING`.
@@ -1636,54 +1694,22 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   // The first call to next will start the depleting thread, and return `RS_RESULT_DEPLETING`.
   if (self->first_call) {
     self->first_call = false;
-    redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
+    RPDepleter_StartDepletionThread(self);
     return RS_RESULT_DEPLETING;
   }
 
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
-
-  if (sync->take_index_lock && !sync->index_released) {
-    // Load the atomic counter
-    int num_locked = atomic_load(&sync->num_locked);
-    RS_ASSERT(num_locked <= sync->num_depleters);
-    if (num_locked == sync->num_depleters) {
-      // Release the index
-      RedisSearchCtx_UnlockSpec(self->nextThreadCtx);
-      // Mark the index as released
-      sync->index_released = true;
-    } else {
-      // Not all depleter threads have taken the index lock yet. Wait for them
-      return RS_RESULT_DEPLETING;
-    }
+  if (RPDepleter_WaitForDepletionToStart(sync, self->nextThreadCtx) == RS_RESULT_DEPLETING) {
+    return RS_RESULT_DEPLETING;
   }
 
-  // On subsequent calls, wait on condition variable for any depleter to complete
   pthread_mutex_lock(&sync->mutex);
-
-  // Check if depleting is already done.
-  // We do this while holding the mutex so that we don't miss a signal.
-  if (self->done_depleting == true) {
-    pthread_mutex_unlock(&sync->mutex);
-    base->Next = RPDepleter_Next_Yield;
-    return base->Next(base, r);
-  }
-
-  // Wait on condition variable for any depleter to signal completion
-  pthread_cond_wait(&sync->cond, &sync->mutex);
-
-  // Check if our specific thread is done after being woken up
-  if (self->done_depleting == true) {
-    pthread_mutex_unlock(&sync->mutex);
-    // Our thread is done, switch to yield mode
-    base->Next = RPDepleter_Next_Yield;
-    return base->Next(base, r);
-  }
-
+  const int rc = RPDepleter_WaitForDepletionToComplete(self, sync);
   pthread_mutex_unlock(&sync->mutex);
-
-  // Our thread is not done yet, but another depleter signaled completion
-  // Return DEPLETING so downstream can check other depleters
-  return RS_RESULT_DEPLETING;
+  if (rc == RS_RESULT_OK) {
+    return base->Next(base, r);
+  }
+  return rc;
 }
 
 /**
@@ -1702,6 +1728,85 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
   return &ret->base;
+}
+
+static inline bool verifyInvariants(arrayof(ResultProcessor*) depleters, DepleterSync** outSync, RedisSearchCtx** outSearchCtx) {
+  DepleterSync *sync = NULL;
+  RedisSearchCtx *searchCtx = NULL;
+  size_t count = array_len(depleters);
+  for (size_t i = 0; i < count; i++) {
+    RPDepleter *depleter = (RPDepleter*)depleters[i];
+    DepleterSync *depleterSync = (DepleterSync *)StrongRef_Get(depleter->sync_ref);
+    if (sync && sync != depleterSync) {
+      return false;
+    }
+    if (searchCtx && searchCtx != depleter->nextThreadCtx) {
+      return false;
+    }
+    if (depleter->first_call == false) {
+      return false;
+    }
+    sync = depleterSync;
+    searchCtx = depleter->nextThreadCtx;
+  }
+  if (sync->num_depleters != count) {
+    return false;
+  }
+  *outSync = sync;
+  *outSearchCtx = searchCtx;
+  return true;
+}
+
+/*
+* This function will trigger the depeletion process for the depleters group
+* 0. Some sanity checks, will return an error if it detected an invalid state
+* 1. It will start a thread for every depleter
+* 2. Wait for all the threads to take their own read lock and then unlock the lock it held - we assume the lock was taken in the query thread
+* 3. Wait for the depletion to complete in all the depleters, there is no timeout handling here - we rely on each depleter to handle timeout and stop depleting.
+* 4. The function must return only after all the depletion threads finished running
+*/
+int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
+  DepleterSync *sync = NULL;
+  RedisSearchCtx *searchCtx = NULL;
+  // Verify we are in a sane state before starting the depletion process
+  if (!verifyInvariants(depleters, &sync, &searchCtx)) {
+    return RS_RESULT_ERROR;
+  }
+
+  const size_t count = array_len(depleters);
+  // Start all depleting threads
+  for (size_t i = 0; i < count; i++) {
+    RPDepleter* depleter = (RPDepleter*)depleters[i];
+    depleter->first_call = false;
+    RPDepleter_StartDepletionThread(depleter);
+  }
+
+  // Wait for depleting to start with configurable interval and timeout
+  while (RPDepleter_WaitForDepletionToStart(sync, searchCtx) == RS_RESULT_DEPLETING) {
+    usleep(1000);
+  }
+
+  for (size_t numDone = 0; numDone < count; ) {
+    pthread_mutex_lock(&sync->mutex);
+    for (size_t i = 0; i < count; i++) {
+      RPDepleter *depleter = (RPDepleter*)depleters[i];
+      // Can't rely on done_depleting since it is set by thread and it doesn't change its own Next function
+      // This way the behaviour is more predictable
+      if (depleter->base.Next == RPDepleter_Next_Yield) {
+        continue;
+      }
+      // Will internally wait on a condition variable until the depleter finishes depleting
+      if (RPDepleter_WaitForDepletionToComplete(depleter, sync) == RS_RESULT_OK) {
+        ++numDone;
+      }
+    }
+    pthread_mutex_unlock(&sync->mutex);
+    // Only sleep if we haven't completed all depleters
+    if (numDone < count) {
+      usleep(1000);
+    }
+  }
+  return RS_RESULT_OK;;
 }
 
 // Wrapper for HybridSearchResult destructor to match dictionary value destructor signature
