@@ -16,7 +16,7 @@ use criterion::{
 };
 use ffi::t_fieldMask;
 use inverted_index::{
-    Decoder, Encoder,
+    Decoder, Encoder, RSIndexResult,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     test_utils::TestTermRecord,
 };
@@ -211,10 +211,15 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
+                        let mut record = RSIndexResult::term();
                         let result = if self.wide {
-                            FieldsOffsetsWide::default().decode(buffer, 100).unwrap()
+                            FieldsOffsetsWide::default()
+                                .decode(buffer, 100, &mut record)
+                                .unwrap()
                         } else {
-                            FieldsOffsets::default().decode(buffer, 100).unwrap()
+                            FieldsOffsets::default()
+                                .decode(buffer, 100, &mut record)
+                                .unwrap()
                         };
 
                         let _ = black_box(result);

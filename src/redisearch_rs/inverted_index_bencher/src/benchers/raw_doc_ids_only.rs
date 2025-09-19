@@ -156,7 +156,10 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = RawDocIdsOnly::default().decode(buffer, 100).unwrap();
+                        let mut record = RSIndexResult::term();
+                        let result = RawDocIdsOnly::default()
+                            .decode(buffer, 100, &mut record)
+                            .unwrap();
 
                         let _ = black_box(result);
                     },
