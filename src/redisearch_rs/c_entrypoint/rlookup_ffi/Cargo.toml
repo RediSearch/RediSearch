@@ -16,3 +16,4 @@ build_utils = { path = "../../build_utils" }
 rlookup.workspace = true
 ffi.workspace = true
 value.workspace = true
+libc.workspace = true
