@@ -6,15 +6,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "rlookup_rs.h"
+#include "rlookup.h"
 #include "redisearch.h"
 #include "score_explain.h"
+#define ALIGNED(n) __attribute__((aligned(n)))
+
 /**
  * Forward declaration of ResultProcessor. It will be defined in `result_processor.h`
  */
-typedef struct ResultProcessor;
+typedef struct ResultProcessor ResultProcessor;
 
-#define ALIGNED(n) __attribute__((aligned(n)))
+/* SearchResult flags */
+static const uint8_t Result_ExpiredDoc = 1 << 0;
 
 
 typedef struct SearchResult SearchResult;
@@ -29,16 +32,6 @@ typedef struct ALIGNED(8) SearchResult {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Crate a new heap-allocated `Counter` result processor
- *
- * # Safety
- *
- * - The caller must never move the allocated result processor from its original allocation.
- * - The caller must ensure to call the `Free` VTable function to properly destroy the type.
- */
-ResultProcessor *RPCounter_New(void);
 
 /**
  * Construct a new [`SearchResult`].

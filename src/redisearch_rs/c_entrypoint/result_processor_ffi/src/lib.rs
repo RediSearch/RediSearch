@@ -7,5 +7,5 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod counter;
+// pub mod counter;
 pub mod search_result;

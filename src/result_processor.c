@@ -12,56 +12,13 @@
 #include "extension.h"
 #include <util/minmax_heap.h>
 #include "ext/default.h"
+#include "redisearch_rs/headers/result_processor_rs.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
 #include "iterators/empty_iterator.h"
 #include "rs_wall_clock.h"
-/*******************************************************************************************************************
- *  General Result Processor Helper functions
- *******************************************************************************************************************/
-
-SearchResult *SearchResult_MoveToHeap(SearchResult *r) {
-  SearchResult *ret = rm_malloc(sizeof(*ret));
-  *ret = *r;
-  return ret;
-}
-
-void SearchResult_Clear(SearchResult *r) {
-  // This won't affect anything if the result is null
-  r->__score = 0;
-  if (r->__scoreExplain) {
-    SEDestroy(r->__scoreExplain);
-    r->__scoreExplain = NULL;
-  }
-  if (r->__indexResult) {
-    // IndexResult_Free(r->indexResult);
-    r->__indexResult = NULL;
-  }
-
-  r->__flags = 0;
-  RLookupRow_Wipe(&r->__rowdata);
-  if (r->__dmd) {
-    DMD_Return(r->__dmd);
-    r->__dmd = NULL;
-  }
-}
-
-/* Free the search result object including the object itself */
-void SearchResult_Destroy(SearchResult *r) {
-  SearchResult_Clear(r);
-  RLookupRow_Reset(SearchResult_GetRowDataMut(r));
-}
-
-// Overwrites the contents of 'dst' with those from 'src'.
-// Ensures proper cleanup of any existing data in 'dst'.
-static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
-  if (!src) return;
-  RLookupRow oldrow = dst->__rowdata;
-  *dst = *src;
-  RLookupRow_Reset(&oldrow);
-}
-
+#include "result_processor_rs.h"
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
