@@ -481,8 +481,8 @@ def test_config():
     res = env.cmd(config_cmd(), "SET", "TIMEOUT", 501)
 
     res = env.cmd(config_cmd(), "GET", "*")
-    env.assertEqual(res['TIMEOUT'], '501') 
-    
+    env.assertEqual(res['TIMEOUT'], '501')
+
     res = env.cmd(config_cmd(), "GET", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': '501'})
 
@@ -1281,7 +1281,7 @@ def test_ft_info():
       #              = 72 + (1000 * 16) = 16072 bytes
       initial_doc_table_size_mb = 16072 / (1024 * 1024)
       # Size of an empty TrieMap
-      key_table_sz_mb = 16 / (1024 * 1024)
+      key_table_sz_mb = 24 / (1024 * 1024)
       total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))

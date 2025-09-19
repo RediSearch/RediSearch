@@ -176,16 +176,14 @@ fn buffer_advance_overflow() {
                         assert!(
                             message.contains("n <= self.remaining_capacity()"),
                             "Expected panic message to contain 'n <= self.remaining_capacity()',\
-                            got: {}",
-                            message
+                            got: {message}"
                         );
                     }
                     (None, Some(message)) => {
                         assert!(
                             message.contains("n <= self.remaining_capacity()"),
                             "Expected panic message to contain 'n <= self.remaining_capacity()',\
-                            got: {}",
-                            message
+                            got: {message}"
                         );
                     }
                     (None, None) => {

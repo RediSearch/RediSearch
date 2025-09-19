@@ -40,7 +40,7 @@ typedef struct RedisModule_Reply {
 
 //---------------------------------------------------------------------------------------------
 
-bool RedisModule_HasMap(RedisModule_Reply *reply);
+bool RedisModule_IsRESP3(RedisModule_Reply *reply);
 int RedisModule_Reply_LocalCount(RedisModule_Reply *reply);
 
 RedisModule_Reply RedisModule_NewReply(RedisModuleCtx *ctx);
@@ -75,8 +75,6 @@ int RedisModule_ReplyKV_String(RedisModule_Reply *reply, const char *key, const 
 int RedisModule_ReplyKV_Null(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Array(RedisModule_Reply *reply, const char *key);
 int RedisModule_ReplyKV_Map(RedisModule_Reply *reply, const char *key);
-
-void print_reply(RedisModule_Reply *reply);
 
 /*
  * This function is a workaround helper for replying with a string that may contain

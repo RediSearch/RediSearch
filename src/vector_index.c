@@ -7,13 +7,40 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
-#include "hybrid_reader.h"
-#include "metric_iterator.h"
+#include "iterators/hybrid_reader.h"
+#include "iterators/idlist_iterator.h"
 #include "query_param.h"
 #include "rdb.h"
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
 #include "redis_index.h"
+
+
+#if defined(__x86_64__) && defined(__GLIBC__)
+#include <cpuid.h>
+#define CPUID_AVAILABLE 1
+#endif
+
+static bool isLVQSupported() {
+
+#if defined(CPUID_AVAILABLE) && BUILD_INTEL_SVS_OPT
+  // Check if the machine is Intel based on the CPU vendor.
+  unsigned int eax, ebx, ecx, edx;
+  char vendor[13];
+
+  // Get vendor string
+  __cpuid(0, eax, ebx, ecx, edx);
+
+  // Intel vendor string is "GenuineIntel"
+  memcpy(vendor, &ebx, 4);
+  memcpy(vendor + 4, &edx, 4);
+  memcpy(vendor + 8, &ecx, 4);
+  vendor[12] = '\0';
+
+  return strcmp(vendor, "GenuineIntel") == 0;
+#endif
+  return false; // In which case we know that LVQ not supported.
+}
 
 VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
@@ -49,30 +76,36 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   return kdv->p;
 }
 
-IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, bool yields_metric) {
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, const bool yields_metric) {
   size_t res_num = VecSimQueryReply_Len(reply);
   if (res_num == 0) {
     VecSimQueryReply_Free(reply);
     return NULL;
   }
-  t_docId *docIdsList = array_new(t_docId, res_num);
-  double *metricList = array_new(double, res_num);
+  t_docId *docIdsList = rm_malloc(sizeof(*docIdsList) * res_num);
+  double *metricList = yields_metric ? rm_malloc(sizeof(*metricList) * res_num) : NULL;
 
   // Collect the results' id and distance and set it in the arrays.
   VecSimQueryReply_Iterator *iter = VecSimQueryReply_GetIterator(reply);
-  while (VecSimQueryReply_IteratorHasNext(iter)) {
+  for (size_t i = 0; i < res_num; i++) {
     VecSimQueryResult *res = VecSimQueryReply_IteratorNext(iter);
-    array_append(docIdsList, VecSimQueryResult_GetId(res));
-    array_append(metricList, VecSimQueryResult_GetScore(res));
+    docIdsList[i] = VecSimQueryResult_GetId(res);
+    if (yields_metric) {
+      metricList[i] = VecSimQueryResult_GetScore(res);
+    }
   }
   VecSimQueryReply_IteratorFree(iter);
   VecSimQueryReply_Free(reply);
 
-  // Move ownership on the arrays to the MetricIterator.
-  return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
+  // Move ownership on the arrays to the iterator.
+  if (yields_metric) {
+    return NewMetricIterator(docIdsList, metricList, res_num, VECTOR_DISTANCE);
+  } else {
+    return NewIdListIterator(docIdsList, res_num, 1.0);
+  }
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = IndexSpec_GetFormattedKey(ctx->spec, vq->field, INDEXFLD_T_VECTOR);
   VecSimIndex *vecsim = openVectorIndex(ctx->spec, key, DONT_CREATE_INDEX);
@@ -259,8 +292,48 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
     case VecSimAlgo_BF: return VECSIM_ALGORITHM_BF;
     case VecSimAlgo_HNSWLIB: return VECSIM_ALGORITHM_HNSW;
     case VecSimAlgo_TIERED: return VECSIM_ALGORITHM_TIERED;
+    case VecSimAlgo_SVS: return VECSIM_ALGORITHM_SVS;
   }
   return NULL;
+}
+
+bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
+  return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
+}
+
+
+const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
+  // If quantBits is not NONE, We need to check if we are running on intel machine,  and if not, we
+  // need to fall back to scalar quantization.
+  if (quantBits == VecSimSvsQuant_NONE) {
+    return VECSIM_NO_COMPRESSION;
+  }
+  // If we are running on non-intel machine, only scalar quantization is possible.
+  if (!isLVQSupported()) {
+    return VECSIM_LVQ_SCALAR;
+  }
+  // Otherwise, we are running on intel machine, and we return the appropriate quantization mode.
+  switch (quantBits) {
+    case VecSimSvsQuant_4: return VECSIM_LVQ_4;
+    case VecSimSvsQuant_8: return VECSIM_LVQ_8;
+    case VecSimSvsQuant_4x4: return VECSIM_LVQ_4X4;
+    case VecSimSvsQuant_4x8: return VECSIM_LVQ_4X8;
+    case VecSimSvsQuant_4x8_LeanVec: return VECSIM_LEANVEC_4X8;
+    case VecSimSvsQuant_8x8_LeanVec: return VECSIM_LEANVEC_8X8;
+    default:;
+  }
+  return NULL;
+
+}
+
+const char *VecSimSearchHistory_ToString(VecSimOptionMode option) {
+    if (option == VecSimOption_ENABLE)
+        return VECSIM_USE_SEARCH_HISTORY_ON;
+    else if (option == VecSimOption_DISABLE)
+        return VECSIM_USE_SEARCH_HISTORY_OFF;
+    else if (option == VecSimOption_AUTO)
+        return VECSIM_USE_SEARCH_HISTORY_DEFAULT;
+    return NULL;
 }
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
@@ -272,8 +345,6 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.bfParams.dim);
     RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.bfParams.metric);
     RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.bfParams.multi);
-    RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.bfParams.initialCapacity);
-    RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.bfParams.blockSize);
     break;
   case VecSimAlgo_TIERED:
     RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.tieredParams.primaryIndexParams->algo);
@@ -285,13 +356,29 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
       RedisModule_SaveUnsigned(rdb, primaryParams->dim);
       RedisModule_SaveUnsigned(rdb, primaryParams->metric);
       RedisModule_SaveUnsigned(rdb, primaryParams->multi);
-      RedisModule_SaveUnsigned(rdb, primaryParams->initialCapacity);
       RedisModule_SaveUnsigned(rdb, primaryParams->M);
       RedisModule_SaveUnsigned(rdb, primaryParams->efConstruction);
       RedisModule_SaveUnsigned(rdb, primaryParams->efRuntime);
+      RedisModule_SaveDouble(rdb, primaryParams->epsilon);
+    } else if (vecsimParams->algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_SVS) {
+      RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
+      SVSParams *primaryParams = &vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.svsParams;
+
+      RedisModule_SaveUnsigned(rdb, primaryParams->type);
+      RedisModule_SaveUnsigned(rdb, primaryParams->dim);
+      RedisModule_SaveUnsigned(rdb, primaryParams->metric);
+      RedisModule_SaveUnsigned(rdb, primaryParams->multi);
+      RedisModule_SaveUnsigned(rdb, primaryParams->quantBits);
+      RedisModule_SaveUnsigned(rdb, primaryParams->graph_max_degree);
+      RedisModule_SaveUnsigned(rdb, primaryParams->construction_window_size);
+      RedisModule_SaveUnsigned(rdb, primaryParams->leanvec_dim);
+      RedisModule_SaveUnsigned(rdb, primaryParams->search_window_size);
+      RedisModule_SaveDouble(rdb, primaryParams->epsilon);
     }
     break;
-  case VecSimAlgo_HNSWLIB: return; // Should not get here anymore.
+  case VecSimAlgo_HNSWLIB:
+  case VecSimAlgo_SVS:
+    return; // Should not get here anymore.
   }
 }
 
@@ -303,61 +390,69 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   // Checking if the loaded parameters fits the current server limits.
   rv = VecSimIndex_validate_params(ctx, vecsimParams, &status);
   if (REDISMODULE_OK != rv) {
-    size_t old_block_size = 0;
-    size_t old_initial_cap = 0;
-    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
-    // We change the initial size and block size to default and try again.
-    switch (vecsimParams->algo) {
-      case VecSimAlgo_BF:
-        old_block_size = vecsimParams->algoParams.bfParams.blockSize;
-        old_initial_cap = vecsimParams->algoParams.bfParams.initialCapacity;
-        vecsimParams->algoParams.bfParams.blockSize = 0;
-        vecsimParams->algoParams.bfParams.initialCapacity = SIZE_MAX;
-        break;
-      case VecSimAlgo_HNSWLIB:
-        old_block_size = vecsimParams->algoParams.hnswParams.blockSize;
-        old_initial_cap = vecsimParams->algoParams.hnswParams.initialCapacity;
-        vecsimParams->algoParams.hnswParams.blockSize = 0;
-        vecsimParams->algoParams.hnswParams.initialCapacity = SIZE_MAX;
-        break;
-      case VecSimAlgo_TIERED:
-        old_block_size = vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.blockSize;
-        old_initial_cap = vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.initialCapacity;
-        vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.blockSize = 0;
-        vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.initialCapacity = SIZE_MAX;
-    }
-    // We don't know yet what the block size will be (default value can be effected by memory limit),
-    // so we first validating the new parameters.
-    QueryError_ClearError(&status);
-    rv = VecSimIndex_validate_params(ctx, vecsimParams, &status);
-    // Now default block size is set. we can log this change now.
-    switch (vecsimParams->algo) {
-      case VecSimAlgo_BF:
-        if (vecsimParams->algoParams.bfParams.initialCapacity != old_initial_cap)
-          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing initial capacity from %zu to %zu", old_initial_cap, vecsimParams->algoParams.bfParams.initialCapacity);
-        if (vecsimParams->algoParams.hnswParams.blockSize != old_block_size)
-          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->algoParams.bfParams.blockSize);
-        break;
-      case VecSimAlgo_HNSWLIB:
-        if (vecsimParams->algoParams.hnswParams.initialCapacity != old_initial_cap)
-          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing initial capacity from %zu to %zu", old_initial_cap, vecsimParams->algoParams.hnswParams.initialCapacity);
-        if (vecsimParams->algoParams.hnswParams.blockSize != old_block_size)
-          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->algoParams.hnswParams.blockSize);
-        break;
-      case VecSimAlgo_TIERED:
-        if (vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.initialCapacity != old_initial_cap)
-          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing initial capacity from %zu to %zu", old_initial_cap, vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.initialCapacity);
-        if (vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.blockSize != old_block_size)
-          RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "WARNING: changing block size from %zu to %zu", old_block_size, vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.blockSize);
-        break;
-    }
-    // If the second validation failed, we fail.
-    if (REDISMODULE_OK != rv) {
-      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: second load with default parameters failed! %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
-    }
+    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: loading vector index failed! %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
   }
   QueryError_ClearError(&status);
   return rv;
+}
+
+int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                      const char *field_name) {
+  vecsimParams->algo = LoadUnsigned_IOError(rdb, goto fail);
+  VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
+  logCtx->index_field_name = field_name;
+  vecsimParams->logCtx = logCtx;
+
+  switch (vecsimParams->algo) {
+  case VecSimAlgo_BF:
+    vecsimParams->algoParams.bfParams.type = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->algoParams.bfParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->algoParams.bfParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+    vecsimParams->algoParams.bfParams.multi = LoadUnsigned_IOError(rdb, goto fail);
+    break;
+  case VecSimAlgo_TIERED:
+    VecSim_TieredParams_Init(&vecsimParams->algoParams.tieredParams, sp_ref);
+    VecSimParams *primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
+    primaryParams->logCtx = vecsimParams->logCtx;
+    primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
+
+    if (primaryParams->algo == VecSimAlgo_HNSWLIB) {
+      vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = LoadUnsigned_IOError(rdb, goto fail);
+
+      primaryParams->algoParams.hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.multi = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.epsilon = LoadDouble_IOError(rdb, goto fail);
+    } else if (primaryParams->algo == VecSimAlgo_SVS) {
+      vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = LoadUnsigned_IOError(rdb, goto fail);
+
+      primaryParams->algoParams.svsParams.type = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.multi = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.quantBits = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.graph_max_degree = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.construction_window_size = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.leanvec_dim = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.search_window_size = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.svsParams.epsilon = LoadDouble_IOError(rdb, goto fail);
+    } else {
+      goto fail; // Unsupported primary algorithm for tiered index
+    }
+    break;
+  case VecSimAlgo_HNSWLIB:
+  case VecSimAlgo_SVS:
+    goto fail; // We dont expect to see an HNSW/SVS index without a tiered index
+  }
+
+  return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
+
+fail:
+  return REDISMODULE_ERR;
 }
 
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
@@ -381,20 +476,27 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
     VecSimParams *primaryParams = vecsimParams->algoParams.tieredParams.primaryIndexParams;
     primaryParams->logCtx = vecsimParams->logCtx;
     primaryParams->algo = LoadUnsigned_IOError(rdb, goto fail);
-    RS_LOG_ASSERT(primaryParams->algo == VecSimAlgo_HNSWLIB,
-                  "Tiered index only supports HNSW as primary index in this version");
-    vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = LoadUnsigned_IOError(rdb, goto fail);
 
-    primaryParams->algoParams.hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
-    primaryParams->algoParams.hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
-    primaryParams->algoParams.hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
-    primaryParams->algoParams.hnswParams.multi = LoadUnsigned_IOError(rdb, goto fail);
-    primaryParams->algoParams.hnswParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
-    primaryParams->algoParams.hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
-    primaryParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
-    primaryParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
+    if (primaryParams->algo == VecSimAlgo_HNSWLIB) {
+      vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = LoadUnsigned_IOError(rdb, goto fail);
+
+      primaryParams->algoParams.hnswParams.type = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.dim = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.metric = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.multi = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.initialCapacity = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.M = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
+    } else {
+      RS_LOG_ASSERT(primaryParams->algo == VecSimAlgo_HNSWLIB,
+              "Tiered index only supports HNSW as primary index in this version");
+      goto fail;
+    }
     break;
-  case VecSimAlgo_HNSWLIB: goto fail; // We dont expect to see an HNSW index without a tiered index
+  case VecSimAlgo_HNSWLIB:
+  case VecSimAlgo_SVS:
+    goto fail; // We dont expect to see an HNSW index without a tiered index or SVS index.
   }
 
   return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
@@ -426,7 +528,9 @@ int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     vecsimParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
     vecsimParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
     break;
-  case VecSimAlgo_TIERED: goto fail; // Should not get here
+  case VecSimAlgo_TIERED:
+  case VecSimAlgo_SVS:
+    goto fail; // Should not get here
   }
 
   return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
@@ -459,7 +563,9 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
     vecsimParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
     vecsimParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
     break;
-  case VecSimAlgo_TIERED: goto fail; // Should not get here
+  case VecSimAlgo_TIERED:
+  case VecSimAlgo_SVS:
+    goto fail; // Should not get here
   }
 
   return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);

@@ -919,7 +919,7 @@ def test_unlimited_memory_thrs(env):
   # Wait for pause before scan
   waitForIndexStatus(env, 'NEW')
   # Set maxmemory to be equal to used memory
-  set_tight_maxmemory_for_oom(env, 1.0)
+  set_tight_maxmemory_for_oom(env)
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Verify that the indexing finished even though we reached OOM

@@ -14,7 +14,6 @@
 struct MetricRequest;
 
 typedef struct QueryEvalCtx {
-  ConcurrentSearchCtx *conc;
   RedisSearchCtx *sctx;
   const RSSearchOptions *opts;
   QueryError *status;
@@ -24,4 +23,5 @@ typedef struct QueryEvalCtx {
   DocTable *docTable;
   uint32_t reqFlags;
   IteratorsConfig *config;
+  bool notSubtree;
 } QueryEvalCtx;

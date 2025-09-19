@@ -219,7 +219,7 @@ class HybridMergerTest : public ::testing::Test {};
  * Expected behavior: Each document gets combined score from both upstreams using linear weights (0.3*2.0 + 0.7*4.0 = 3.4)
  */
 TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with same documents (full intersection)
   MockUpstream upstream1(0, {2.0, 2.0, 2.0}, {1, 2, 3});
@@ -275,7 +275,7 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
  * Expected behavior: Each document gets weighted score from only its contributing upstream (0.4*1.0=0.4 or 0.6*3.0=1.8)
  */
 TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with different documents (no intersection)
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -336,7 +336,7 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
  * Expected behavior: Only documents from second upstream with weighted score (0.5*5.0=2.5)
  */
 TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams: first empty, second with documents
   MockUpstream upstream1(0, {}, {}); // Empty scores and docIds
@@ -393,7 +393,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
  * Expected behavior: Only documents from first upstream with weighted score (0.5*7.0=3.5)
  */
 TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams: first with documents, second empty
   MockUpstream upstream1(0, {7.0, 7.0, 7.0}, {1, 2, 3});
@@ -450,7 +450,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
  * Expected behavior: No documents returned
  */
 TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create both upstreams empty
   MockUpstream upstream1(0, {}, {}); // Empty scores and docIds
@@ -498,7 +498,7 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
  * Expected behavior: Window size limits results to 2 docs per upstream (4 total), each with RRF score
  */
 TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create RRF upstreams with custom score arrays (already sorted descending for ranking)
   std::vector<double> scores1 = {0.9, 0.5, 0.1, 0.05, 0.01};
@@ -570,7 +570,7 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
  * Expected behavior: All documents from both upstreams (3 total), each with RRF score combining ranks from both upstreams
  */
 TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with same documents (full intersection) but different rankings
   // Upstream1 yields: doc1=0.9(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
@@ -646,7 +646,7 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
  * Expected behavior: Handle asymmetric depletion (upstream1 depletes 3 times, upstream2 depletes 1 time), then return all documents with weighted scores
  */
 TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with different depletion counts
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 3); // depletionCount = 3
@@ -708,7 +708,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
  * Expected behavior: Handle asymmetric depletion (upstream1 depletes 1 time, upstream2 depletes 3 times), then return all documents with weighted scores
  */
 TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with different depletion counts
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 1); // depletionCount = 1
@@ -759,7 +759,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
 }
 
 // Helper function to setup timeout test environment
-void SetupTimeoutTest(QueryIterator* qitr, RSTimeoutPolicy policy, RedisSearchCtx* sctx) {
+void SetupTimeoutTest(QueryProcessingCtx* qitr, RSTimeoutPolicy policy, RedisSearchCtx* sctx) {
   memset(sctx, 0, sizeof(RedisSearchCtx));
   sctx->redisCtx = NULL;
   qitr->timeoutPolicy = policy;
@@ -776,7 +776,7 @@ void SetupTimeoutTest(QueryIterator* qitr, RSTimeoutPolicy policy, RedisSearchCt
  * Expected behavior: Collect anything available from all upstreams, score based on {1,2,11,12,13,14,15}
  */
 TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   RedisSearchCtx sctx;
   SetupTimeoutTest(&qitr, TimeoutPolicy_Return, &sctx);
@@ -843,7 +843,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
  * Expected behavior: Return no results and immediate timeout (fail fast)
  */
 TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   RedisSearchCtx sctx;
   SetupTimeoutTest(&qitr, TimeoutPolicy_Fail, &sctx);
@@ -897,7 +897,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
  * Expected behavior: Each document gets RRF score combining ranks from both upstreams: 1/(constant+rank1) + 1/(constant+rank2)
  */
 TEST_F(HybridMergerTest, testRRFScoring) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create RRF upstreams with custom score arrays for intersection test
   // Upstream1 yields: doc1=0.7(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
@@ -974,7 +974,7 @@ TEST_F(HybridMergerTest, testRRFScoring) {
  * Expected behavior: Each document gets weighted score from only its contributing upstream (0.2*1.0=0.2, 0.3*2.0=0.6, 0.5*3.0=1.5)
  */
 TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with different documents (no intersection)
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -1039,7 +1039,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
  * Expected behavior: Documents 2,3 get combined scores from both upstreams
  */
 TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with partial intersection: {1,2,3} and {2,3,4,5}, all with score 1
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -1089,7 +1089,7 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
  * Expected behavior: Documents 2,3 get combined RRF scores from both upstreams, others get single upstream RRF scores
  */
 TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with partial intersection: {1,2,3} and {2,3,4,5}
   // Using different scores to create different rankings
@@ -1150,7 +1150,7 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
  * Expected behavior: Each document gets RRF score combining ranks from all 3 upstreams: 1/(k+rank1) + 1/(k+rank2) + 1/(k+rank3)
  */
 TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create RRF upstreams with custom score arrays for intersection test
   // Upstream1 yields: doc1=0.9(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
@@ -1278,7 +1278,7 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
  * Focus: Flag merging functionality and basic linear scoring
  */
 TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with same documents (full intersection)
   // Set Result_ExpiredDoc flag on upstream1 to test flag merging
@@ -1330,7 +1330,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinearFlagMerging) {
  * Focus: Flag merging functionality and basic RRF scoring
  */
 TEST_F(HybridMergerTest, testHybridMergerRRFFlagMerging) {
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   // Create upstreams with same documents but different rankings
   // Upstream1: no flags

@@ -316,6 +316,10 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
       type = params->algoParams.bfParams.type;
       dim = params->algoParams.bfParams.dim;
       break;
+    case VecSimAlgo_SVS:
+      type = params->algoParams.svsParams.type;
+      dim = params->algoParams.svsParams.dim;
+      break;
     default: {
       QueryError_SetError(status, QUERY_EGENERIC, "Invalid vector similarity algorithm");
       return REDISMODULE_ERR;
@@ -368,6 +372,12 @@ switch (params->algo) {
       dim = params->algoParams.bfParams.dim;
       multi = params->algoParams.bfParams.multi;
       break;
+    case VecSimAlgo_SVS:
+      type = params->algoParams.svsParams.type;
+      dim = params->algoParams.svsParams.dim;
+      multi = params->algoParams.svsParams.multi;
+      break;
+  break;
     default: goto fail;
   }
 
@@ -599,14 +609,17 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
           break;
         case INDEXFLD_T_GEOMETRY:
           rv = REDISMODULE_ERR; // TODO: GEOMETRY = JSON_StoreGeometryInDocFieldFromArr(json, df);
+          QueryError_SetError(status, QUERY_EGENERIC, "GEOMETRY field does not support array type");
           break;
         default:
           rv = REDISMODULE_ERR;
+          QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
           break;
       }
       break;
     case JSONType_Object:
       rv = REDISMODULE_ERR;
+      QueryError_SetError(status, QUERY_EGENERIC, "Object type is not supported");
       break;
     case JSONType__EOF:
       RS_ABORT("Should not happen");
@@ -650,6 +663,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
         break;
       default:
         rv = REDISMODULE_ERR;
+        QueryError_SetError(status, QUERY_EGENERIC, "Unsupported field type");
         break;
     }
   }
@@ -668,6 +682,7 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       df->multisv = rsv;
     } else {
       rv = REDISMODULE_ERR;
+      QueryError_SetError(status, QUERY_EGENERIC, "Failed to get value from iterator");
     }
   }
   return rv;

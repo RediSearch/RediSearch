@@ -24,3 +24,6 @@ void MockIterator_Rewind(QueryIterator *base) {
 void MockIterator_Free(QueryIterator *base) {
     delete reinterpret_cast<MockIterator *>(base);
 }
+ValidateStatus MockIterator_Revalidate(QueryIterator *base) {
+    return reinterpret_cast<MockIterator *>(base)->Revalidate();
+}

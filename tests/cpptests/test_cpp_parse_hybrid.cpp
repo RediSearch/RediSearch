@@ -19,7 +19,7 @@
 #include "src/search_ctx.h"
 #include "src/query_error.h"
 #include "src/rmalloc.h"
-#include "src/index.h"
+// #include "src/index.h"
 #include "src/aggregate/aggregate.h"
 #include "src/vector_index.h"
 #include "VecSim/query_results.h"

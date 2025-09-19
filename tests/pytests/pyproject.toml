@@ -1,0 +1,17 @@
+[project]
+name = "rspytests"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "gevent<=24.11.1",
+    "packaging<=24.2",
+    "deepdiff<=8.3.0",
+    "redis>=5.2.1",
+    "RLTest<=0.7.16",
+    "numpy<=2.2.4",
+    "scipy<=1.15.2",
+    "faker<=37.1.0",
+    "distro<=1.9.0",
+    "orderly-set<=5.3.0", # Update pin once Python 3.8 is not used in CI
+    "ml_dtypes <= 0.5.3"
+]

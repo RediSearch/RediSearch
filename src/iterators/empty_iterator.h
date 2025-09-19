@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-QueryIterator *IT_V2(NewEmptyIterator)(void);
+QueryIterator *NewEmptyIterator(void);
 
 #ifdef __cplusplus
 }

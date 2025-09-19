@@ -10,6 +10,7 @@
 #include "util/arr.h"
 #include "dictionary.h"
 #include "reply.h"
+#include "iterators/inverted_index_iterator.h"
 #include <stdbool.h>
 
 /** Forward declaration **/
@@ -93,17 +94,15 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
     goto end;
   }
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = true, .value.mask = fieldMask};
-  IndexReader *reader = NewTermIndexReaderEx(invidx, NULL, fieldMaskOrIndex, NULL, 1);
-  IndexIterator *iter = NewReadIterator(reader);
-  RSIndexResult *r;
-  if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
+  QueryIterator *iter = NewInvIndIterator_TermQuery(invidx, scCtx->sctx, fieldMaskOrIndex, NULL, 1);
+  if (iter->Read(iter) == ITERATOR_OK) {
     // we have at least one result, the suggestion is relevant.
-    retVal = invidx->numDocs;
+    retVal = InvertedIndex_NumDocs(invidx);
   } else {
     // fieldMask has filtered all docs, this suggestions should not be returned
     retVal = -1;
   }
-  ReadIterator_Free(iter);
+  iter->Free(iter);
 
 end:
   return retVal;
@@ -172,7 +171,7 @@ RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
 
 void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len, RS_Suggestions *s,
                                 uint64_t totalDocNumber) {
-  bool resp3 = RedisModule_HasMap(reply);
+  bool resp3 = RedisModule_IsRESP3(reply);
 
   if (totalDocNumber == 0) { // Can happen with FT.DICTADD
     totalDocNumber = 1;

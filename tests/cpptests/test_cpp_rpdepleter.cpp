@@ -71,7 +71,7 @@ TEST_P(RPDepleterTest, RPDepleter_Basic) {
 
   // Mock upstream processor: yields 3 results, then EOF
   const size_t n_docs = 3;
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   struct MockUpstream : public ResultProcessor {
     int count = 0;
@@ -128,7 +128,7 @@ TEST_P(RPDepleterTest, RPDepleter_Timeout) {
 
   // Mock upstream processor: yields 3 results, then timeout.
   const size_t n_docs = 3;
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   struct MockUpstream : public ResultProcessor {
     int count = 0;
@@ -188,7 +188,7 @@ TEST_P(RPDepleterTest, RPDepleter_CrossWakeup) {
   bool take_index_lock = GetParam();
 
   const size_t n_docs = 2;
-  QueryIterator qitr1 = {0}, qitr2 = {0};
+  QueryProcessingCtx qitr1 = {0}, qitr2 = {0};
 
   // Mock upstream that finishes quickly.
   struct FastUpstream : public ResultProcessor {
@@ -296,7 +296,7 @@ TEST_P(RPDepleterTest, RPDepleter_Error) {
 
   bool take_index_lock = GetParam();
 
-  QueryIterator qitr = {0};
+  QueryProcessingCtx qitr = {0};
 
   struct MockUpstream : public ResultProcessor {
     int count = 0;

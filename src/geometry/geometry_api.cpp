@@ -56,7 +56,7 @@ namespace {
   auto Index_##variant##_Query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, \
                                const GeometryIndex *idx, QueryType query_type,              \
                                GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
-                               RedisModuleString **err_msg) -> IndexIterator * {            \
+                               RedisModuleString **err_msg) -> QueryIterator * {            \
     switch (format) {                                                                       \
       case GEOMETRY_FORMAT_WKT:                                                             \
         return std::get<rtree_ptr<variant>>(idx->index)                                     \

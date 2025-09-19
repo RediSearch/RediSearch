@@ -355,75 +355,76 @@ def testArrayCommands_withVector(env):
     conn = getConnectionByEnv(env)
     dim = 2
 
-    for data_type in ['FLOAT32', 'FLOAT64']:
-        conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
-                            'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2')
+    for data_type in ['FLOAT32', 'FLOAT16']:
+        for algo in VECSIM_ALGOS:
+            conn.execute_command('FT.CREATE', 'idx', 'ON', 'JSON',
+                                'SCHEMA', '$.v', 'AS', 'vec', 'VECTOR', algo, '6', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2')
 
-        env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"v":[1]}'))
-        env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.v', '2'), [2])
-        env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v'), '[[1,2]]')
-        env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,2]')
-        env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
-        res = [1, 'doc:1', ['$', '{"v":[1,2]}']]
-        waitForIndex(env, 'idx')
-        env.expect('FT.SEARCH', 'idx', '*').equal(res)
-        query_vec = create_np_array_typed([1]*dim, data_type)
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal(res)
+            env.assertOk(conn.execute_command('JSON.SET', 'doc:1', '$', '{"v":[1]}'))
+            env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.v', '2'), [2])
+            env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v'), '[[1,2]]')
+            env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,2]')
+            env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+            res = [1, 'doc:1', ['$', '{"v":[1,2]}']]
+            waitForIndex(env, 'idx')
+            env.expect('FT.SEARCH', 'idx', '*').equal(res)
+            query_vec = create_np_array_typed([1]*dim, data_type)
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal(res)
 
-        # use JSON.ARRINSERT
-        env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '2', '3'), [3])
-        env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,2,3]')
-        env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [3])
-        waitForIndex(env, 'idx')
-        # Index should be empty as the vector length doesn't match the dimension of the field.
-        env.expect('FT.SEARCH', 'idx', '*').equal([0])
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal([0])
+            # use JSON.ARRINSERT
+            env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '2', '3'), [3])
+            env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,2,3]')
+            env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [3])
+            waitForIndex(env, 'idx')
+            # Index should be empty as the vector length doesn't match the dimension of the field.
+            env.expect('FT.SEARCH', 'idx', '*').equal([0])
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal([0])
 
-        # use JSON.ARRPOP
-        env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.v', '1'), ['2'])
-        env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
-        env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
-        res = [1, 'doc:1', ['$', '{"v":[1,3]}']]
-        waitForIndex(env, 'idx')
-        # Index should have one doc as the vector length now matches the dimension of the field.
-        env.expect('FT.SEARCH', 'idx', '*').equal(res)
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal(res)
+            # use JSON.ARRPOP
+            env.assertEqual(conn.execute_command('JSON.ARRPOP', 'doc:1', '$.v', '1'), ['2'])
+            env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
+            env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+            res = [1, 'doc:1', ['$', '{"v":[1,3]}']]
+            waitForIndex(env, 'idx')
+            # Index should have one doc as the vector length now matches the dimension of the field.
+            env.expect('FT.SEARCH', 'idx', '*').equal(res)
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal(res)
 
-        # use JSON.ARRTRIM
-        env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '0', '"a"'), [3])
-        env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '0', '"b"'), [4])
-        env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.v', '"c"', '"d"'), [6])
-        env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [6])
-        waitForIndex(env, 'idx')
-        # Index should be empty again as the vector length doesn't match the dimension of the field.
-        env.expect('FT.SEARCH', 'idx', '*').equal([0])
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal([0])
+            # use JSON.ARRTRIM
+            env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '0', '"a"'), [3])
+            env.assertEqual(conn.execute_command('JSON.ARRINSERT', 'doc:1', '$.v', '0', '"b"'), [4])
+            env.assertEqual(conn.execute_command('JSON.ARRAPPEND', 'doc:1', '$.v', '"c"', '"d"'), [6])
+            env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [6])
+            waitForIndex(env, 'idx')
+            # Index should be empty again as the vector length doesn't match the dimension of the field.
+            env.expect('FT.SEARCH', 'idx', '*').equal([0])
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal([0])
 
-        env.assertEqual(conn.execute_command('JSON.ARRTRIM', 'doc:1', '$.v', '2', '3'), [2])
-        env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
-        env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
-        waitForIndex(env, 'idx')
-        # Index should have one doc again as the vector length now matches the dimension of the field.
-        env.expect('FT.SEARCH', 'idx', '*').equal(res)
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal(res)
+            env.assertEqual(conn.execute_command('JSON.ARRTRIM', 'doc:1', '$.v', '2', '3'), [2])
+            env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[1,3]')
+            env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+            waitForIndex(env, 'idx')
+            # Index should have one doc again as the vector length now matches the dimension of the field.
+            env.expect('FT.SEARCH', 'idx', '*').equal(res)
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal(res)
 
-        env.assertEqual(conn.execute_command('JSON.NUMINCRBY', 'doc:1', '$.v[0]', '1'), '[2]')
-        env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[2,3]')
-        env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
-        res = [1, 'doc:1', ['$', '{"v":[2,3]}']]
-        waitForIndex(env, 'idx')
-        # Index should have one doc, and its vector should be updated.
-        env.expect('FT.SEARCH', 'idx', '*').equal(res)
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal(res)
+            env.assertEqual(conn.execute_command('JSON.NUMINCRBY', 'doc:1', '$.v[0]', '1'), '[2]')
+            env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[2,3]')
+            env.assertEqual(conn.execute_command('JSON.ARRLEN', 'doc:1', '$.v'), [2])
+            res = [1, 'doc:1', ['$', '{"v":[2,3]}']]
+            waitForIndex(env, 'idx')
+            # Index should have one doc, and its vector should be updated.
+            env.expect('FT.SEARCH', 'idx', '*').equal(res)
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal(res)
 
-        env.assertEqual(conn.execute_command('JSON.SET', 'doc:1', '$.v[1]', 'true'), 'OK')
-        env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[2,true]')
-        waitForIndex(env, 'idx')
-        # Index should be empty as some of the vector's elements are not numeric.
-        env.expect('FT.SEARCH', 'idx', '*').equal([0])
-        env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal([0])
+            env.assertEqual(conn.execute_command('JSON.SET', 'doc:1', '$.v[1]', 'true'), 'OK')
+            env.assertEqual(conn.execute_command('JSON.GET', 'doc:1', '$.v[*]'), '[2,true]')
+            waitForIndex(env, 'idx')
+            # Index should be empty as some of the vector's elements are not numeric.
+            env.expect('FT.SEARCH', 'idx', '*').equal([0])
+            env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $B]', 'PARAMS', '2', 'B', query_vec.tobytes(), 'RETURN', '1', '$').equal([0])
 
-        conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+            conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 @skip(msan=True, no_json=True)
 def testRootValues(env):

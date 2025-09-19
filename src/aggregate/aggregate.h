@@ -114,7 +114,7 @@ typedef enum {
   // The query is a Vector Subquery of a Hybrid Request (aggregate equivalent)
   QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY = 0x2000000,
 
-  // The query has an explicit SORT BY 0 step - no sorting at all 
+  // The query has an explicit SORT BY 0 step - no sorting at all
   // Currently only used in when QEXEC_F_IS_HYBRID_TAIL is set - i.e this is the tail part
   QEXEC_F_NO_SORT = 0x4000000,
 
@@ -195,15 +195,15 @@ typedef struct AREQ {
   QueryAST ast;
 
   /** Root iterator. This is owned by the request */
-  IndexIterator *rootiter;
+  QueryIterator *rootiter;
 
   /** Context, owned by request */
   RedisSearchCtx *sctx;
 
-  /** Resumable context */
-  ConcurrentSearchCtx conc;
+  /** Context for iterating over the queries themselves */
+  QueryProcessingCtx qiter;
 
-  /** The pipeline for this request */
+    /** The pipeline for this request */
   Pipeline pipeline;
 
   /** Flags controlling query output */
@@ -231,10 +231,10 @@ typedef struct AREQ {
   CursorConfig cursorConfig;
 
   /** Profile variables */
-  clock_t initClock;         // Time of start. Reset for each cursor call
-  clock_t totalTime;         // Total time. Used to accumulate cursors times
-  clock_t parseTime;         // Time for parsing the query
-  clock_t pipelineBuildTime; // Time for creating the pipeline
+  rs_wall_clock initClock;                      // Time of start. Reset for each cursor call
+  rs_wall_clock_ns_t profileTotalTime;          // Total time. Used to accumulate cursors times
+  rs_wall_clock_ns_t profileParseTime;          // Time for parsing the query
+  rs_wall_clock_ns_t profilePipelineBuildTime;  // Time for creating the pipeline
 
   const char** requiredFields;
 

@@ -79,17 +79,12 @@ typedef struct QueryPipelineParams {
      *  This is the top-level iterator in the search iterator tree, typically a union
      *  or intersection iterator that coordinates child iterators for different
      *  search terms and filters. It produces the initial set of candidate documents. */
-    const IndexIterator *rootiter;
+    const QueryIterator *rootiter;
 
     /** Name of the scoring function to use for document relevance calculation.
      *  Examples include "BM25", "TFIDF", or custom scorer names. This determines
      *  how documents are ranked by relevance. If NULL, the default scorer is used. */
     const char *scorerName;
-
-    /** Concurrent search context for thread-safe index access during queries.
-     *  Manages read locks, thread-local state, and coordination when multiple
-     *  search threads are accessing the same index data structures concurrently. */
-    ConcurrentSearchCtx *conc;
 
     /** Request configuration containing timeout policies and execution settings.
      *  Determines how the search query behaves under timeout conditions and other

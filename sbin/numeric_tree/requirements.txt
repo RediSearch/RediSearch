@@ -1,0 +1,9 @@
+# Core dependencies for data generation and testing
+redis>=4.0.0
+
+# Dependencies for tree parsing and visualization
+networkx>=2.5
+plotly>=5.0.0
+
+# Optional: for better graph layouts in visualization
+# pygraphviz>=1.7  # Uncomment if you want graphviz layouts

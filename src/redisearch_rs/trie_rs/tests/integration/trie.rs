@@ -73,6 +73,7 @@ fn test_trie_insertions() {
     assert_debug_snapshot!(trie, @r###""bike" (0)"###);
     assert_eq!(trie.find(b"bike"), Some(&0));
     assert_eq!(trie.find(b"cool"), None);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 
     trie.insert(b"biker", 1);
     assert_debug_snapshot!(trie, @r###"
@@ -82,6 +83,7 @@ fn test_trie_insertions() {
     assert_eq!(trie.find(b"bike"), Some(&0));
     assert_eq!(trie.find(b"biker"), Some(&1));
     assert_eq!(trie.find(b"cool"), None);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 
     trie.insert(b"bis", 2);
     assert_debug_snapshot!(trie, @r###"
@@ -94,6 +96,7 @@ fn test_trie_insertions() {
     assert_eq!(trie.find(b"biker"), Some(&1));
     assert_eq!(trie.find(b"bis"), Some(&2));
     assert_eq!(trie.find(b"cool"), None);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 
     trie.insert(b"cool", 3);
     assert_debug_snapshot!(trie, @r###"
@@ -108,6 +111,7 @@ fn test_trie_insertions() {
     assert_eq!(trie.find(b"biker"), Some(&1));
     assert_eq!(trie.find(b"bis"), Some(&2));
     assert_eq!(trie.find(b"cool"), Some(&3));
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 
     trie.insert(b"bi", 4);
     assert_debug_snapshot!(trie, @r###"
@@ -123,6 +127,7 @@ fn test_trie_insertions() {
     assert_eq!(trie.find(b"bis"), Some(&2));
     assert_eq!(trie.find(b"cool"), Some(&3));
     assert_eq!(trie.find(b"bi"), Some(&4));
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 
     assert_eq!(trie.n_nodes(), 6);
 
@@ -133,28 +138,40 @@ fn test_trie_insertions() {
                 ↳r–––"r" (1)
           ↳s–––"s" (2)
         "###);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
+
     assert_eq!(trie.remove(b"cool"), None);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 
     assert_eq!(trie.remove(b"bike"), Some(0));
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
     assert_debug_snapshot!(trie, @r###"
         "bi" (4)
           ↳k–––"ker" (1)
           ↳s–––"s" (2)
         "###);
+
     assert_eq!(trie.remove(b"bike"), None);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 
     assert_eq!(trie.remove(b"biker"), Some(1));
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
     assert_debug_snapshot!(trie, @r###"
         "bi" (4)
           ↳s–––"s" (2)
         "###);
+
     assert_eq!(trie.remove(b"biker"), None);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 
     assert_eq!(trie.remove(b"bi"), Some(4));
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
     assert_debug_snapshot!(trie, @r#"
         "bis" (2)
         "#);
+
     assert_eq!(trie.remove(b"bi"), None);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 }
 
 #[test]
@@ -276,6 +293,8 @@ proptest::proptest! {
                     btreemap.remove(&k);
                 },
             }
+            assert_eq!(triemap.n_unique_keys(), triemap.iter().count());
+            assert_eq!(triemap.mem_usage(), triemap.recursive_mem_usage());
         }
 
         let trie_entries = triemap.iter().collect::<Vec<_>>();

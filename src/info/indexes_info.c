@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "spec.h"
 #include "field_spec_info.h"
+#include <string.h>  // Add this for strerror
 
 // Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {
@@ -30,17 +31,23 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
       continue;
     }
     // Lock for read
-    pthread_rwlock_rdlock(&sp->rwlock);
-    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0);
-    info.total_mem += cur_mem;
-    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
-    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
-    info.indexing_time += sp->stats.totalIndexTime;
+    int rc = pthread_rwlock_rdlock(&sp->rwlock);
+    if (rc != 0) {
+      RedisModule_Log(RSDummyContext, "warning", "Failed to acquire read lock on index %s: rc=%d (%s). Cannot continue getting Index info", HiddenString_GetUnsafe(sp->specName, NULL), rc, strerror(rc));
+      continue;
+    }
 
     // Vector indexes stats
     VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
     info.fields_stats.total_vector_idx_mem += vec_info.memory;
     info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
+
+    size_t cur_mem = IndexSpec_TotalMemUsage(sp, 0, 0, 0, vec_info.memory);
+    info.total_mem += cur_mem;
+
+    if (info.min_mem > cur_mem) info.min_mem = cur_mem;
+    if (info.max_mem < cur_mem) info.max_mem = cur_mem;
+    info.indexing_time += sp->stats.totalIndexTime;
 
     if (sp->gc) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;

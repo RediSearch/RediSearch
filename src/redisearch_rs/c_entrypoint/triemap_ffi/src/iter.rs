@@ -208,7 +208,9 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
         if *counter == 100 || cfg!(debug_assertions) {
             let now = timespec_monotonic_now();
 
-            if now.tv_sec > deadline.tv_sec && now.tv_nsec > deadline.tv_nsec {
+            if now.tv_sec > deadline.tv_sec
+                || (now.tv_sec == deadline.tv_sec && now.tv_nsec > deadline.tv_nsec)
+            {
                 return 0;
             }
 

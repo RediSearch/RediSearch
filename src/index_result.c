@@ -8,185 +8,36 @@
 */
 #include "index_result.h"
 #include "varint.h"
+#include "types_rs.h"
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
 #include "src/util/arr.h"
 #include "value.h"
 
-/* Allocate a new aggregate result of a given type with a given capacity*/
-RSIndexResult *__newAggregateResult(size_t cap, RSResultType t, double weight) {
-  RSIndexResult *res = rm_new(RSIndexResult);
 
-  *res = (RSIndexResult){
-      .type = t,
-      .docId = 0,
-      .freq = 0,
-      .fieldMask = 0,
-      .isCopy = 0,
-      .weight = weight,
-      .metrics = NULL,
-      .data.agg = (RSAggregateResult){.numChildren = 0,
-                                 .childrenCap = cap,
-                                 .typeMask = 0x0000,
-                                 .children = rm_calloc(cap, sizeof(RSIndexResult *))}};
-  return res;
-}
-
-/* Allocate a new intersection result with a given capacity*/
-RSIndexResult *NewIntersectResult(size_t cap, double weight) {
-  return __newAggregateResult(cap, RSResultType_Intersection, weight);
-}
-
-/* Allocate a new union result with a given capacity*/
-RSIndexResult *NewUnionResult(size_t cap, double weight) {
-  return __newAggregateResult(cap, RSResultType_Union, weight);
-}
-
-/* Allocate a new hybrid result with a given capacity (currently relevant for
- * hybrid vector similarity queries)*/
-RSIndexResult *NewHybridResult() {
-  return __newAggregateResult(2, RSResultType_HybridMetric, 1);
-}
-
-/* Allocate a new token record result for a given term */
-RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight) {
-  RSIndexResult *res = rm_new(RSIndexResult);
-
-  *res = (RSIndexResult){.type = RSResultType_Term,
-                         .docId = 0,
-                         .fieldMask = 0,
-                         .isCopy = 0,
-                         .freq = 0,
-                         .weight = weight,
-                         .metrics = NULL,
-                         .data.term = (RSTermRecord){
-                             .term = term,
-                             .offsets = (RSOffsetVector){},
-                         }};
-  return res;
-}
-
-RSIndexResult *NewNumericResult() {
-  RSIndexResult *res = rm_new(RSIndexResult);
-
-  *res = (RSIndexResult){.type = RSResultType_Numeric,
-                         .docId = 0,
-                         .isCopy = 0,
-                         .fieldMask = RS_FIELDMASK_ALL,
-                         .freq = 1,
-                         .weight = 1,
-                         .metrics = NULL,
-                         .data.num = (RSNumericRecord){.value = 0}};
-  return res;
-}
-
-RSIndexResult *NewVirtualResult(double weight, t_fieldMask fieldMask) {
-  RSIndexResult *res = rm_new(RSIndexResult);
-
-  *res = (RSIndexResult){
-      .type = RSResultType_Virtual,
-      .docId = 0,
-      .fieldMask = fieldMask,
-      .freq = 0,
-      .weight = weight,
-      .metrics = NULL,
-      .isCopy = 0,
-  };
-  return res;
-}
-
-RSIndexResult *NewMetricResult() {
-  RSIndexResult *res = rm_new(RSIndexResult);
-
-  *res = (RSIndexResult){.type = RSResultType_Metric,
-                         .docId = 0,
-                         .isCopy = 0,
-                         .fieldMask = RS_FIELDMASK_ALL,
-                         .freq = 0,
-                         .weight = 1,
-                         .metrics = NULL,
-                         .data.num = (RSNumericRecord){.value = 0}};
-  return res;
-}
-
-RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *src) {
-  RSIndexResult *ret = rm_new(RSIndexResult);
-  *ret = *src;
-  ret->isCopy = 1;
-
-  if (src->metrics) {
-    // Create a copy of the array and increase the refcount for each element's value
-    ret->metrics = NULL;
-    ret->metrics = array_ensure_append_n(ret->metrics, src->metrics, array_len(src->metrics));
-    for (size_t i = 0; i < array_len(ret->metrics); i++)
-      RSValue_IncrRef(ret->metrics[i].value);
+void RSYieldableMetric_Concat(RSYieldableMetric **parent, RSYieldableMetric *child) {
+  if (child) {
+    // Passing ownership over the RSValues in the child metrics, but not on the array itself
+    *parent = array_ensure_append_n(*parent, child, array_len(child));
+    array_clear(child);
   }
-
-  switch (src->type) {
-    // copy aggregate types
-    case RSResultType_Intersection:
-    case RSResultType_Union:
-    case RSResultType_HybridMetric:
-      // allocate a new child pointer array
-      ret->data.agg.children = rm_malloc(src->data.agg.numChildren * sizeof(RSIndexResult *));
-      ret->data.agg.childrenCap = src->data.agg.numChildren;
-      // deep copy recursively all children
-      for (int i = 0; i < src->data.agg.numChildren; i++) {
-        ret->data.agg.children[i] = IndexResult_DeepCopy(src->data.agg.children[i]);
-      }
-      break;
-
-    // copy term results
-    case RSResultType_Term:
-      // copy the offset vectors
-      if (src->data.term.offsets.data) {
-        ret->data.term.offsets.data = rm_malloc(ret->data.term.offsets.len);
-        memcpy(ret->data.term.offsets.data, src->data.term.offsets.data, ret->data.term.offsets.len);
-      }
-      break;
-
-    // the rest have no dynamic stuff, we can just copy the base result
-    default:
-      break;
-  }
-  return ret;
 }
 
-void IndexResult_Print(RSIndexResult *r, int depth) {
-  for (int i = 0; i < depth; i++) printf("  ");
+/* Free the metrics */
+void ResultMetrics_Free(RSYieldableMetric *metrics) {
+  // array_free_ex is NULL safe
+  array_free_ex(metrics, RSValue_Decref(((RSYieldableMetric *)ptr)->value));
+}
 
-  if (r->type == RSResultType_Term) {
-    printf("Term{%llu: %s},\n", (unsigned long long)r->docId,
-           r->data.term.term ? r->data.term.term->str : "nil");
-    return;
-  }
-  if (r->type == RSResultType_Virtual) {
-    printf("Virtual{%llu},\n", (unsigned long long)r->docId);
-    return;
-  }
-  if (r->type == RS_RESULT_NUMERIC) {
-    printf("Numeric{%llu:%f},\n", (unsigned long long)r->docId, r->data.num.value);
-    return;
-  }
-  printf("%s => %llu{ \n", r->type == RSResultType_Intersection ? "Inter" : "Union",
-         (unsigned long long)r->docId);
+RSYieldableMetric* RSYieldableMetrics_Clone(RSYieldableMetric *src) {
+   // Create a copy of the array and increase the refcount for each element's value
+    RSYieldableMetric* ret = NULL;
+    ret = array_ensure_append_n(ret, src, array_len(src));
+    for (size_t i = 0; i < array_len(ret); i++)
+      RSValue_IncrRef(ret[i].value);
 
-  for (int i = 0; i < r->data.agg.numChildren; i++) {
-
-    IndexResult_Print(r->data.agg.children[i], depth + 1);
-  }
-  for (int i = 0; i < depth; i++) printf("  ");
-
-  printf("},\n");
-
-  // printf("docId: %d, finalScore: %f, flags %x. Terms:\n", r->docId, r->finalScore, r->fieldMask);
-
-  // for (int i = 0; i < r->numRecords; i++) {
-  //   printf("\t%s, %d tf %d, flags %x\n", r->records[i].term->str, r->records[i].docId,
-  //          r->records[i].freq, r->records[i].fieldMask);
-  // }
-  // printf("----------\n");
+    return ret;
 }
 
 RSQueryTerm *NewQueryTerm(RSToken *tok, int id) {
@@ -206,68 +57,28 @@ void Term_Free(RSQueryTerm *t) {
   }
 }
 
-void IndexResult_Init(RSIndexResult *h) {
-
-  h->docId = 0;
-  h->fieldMask = 0;
-  h->freq = 0;
-  h->metrics = NULL;
-
-  if (h->type == RSResultType_Intersection || h->type == RSResultType_Union) {
-    h->data.agg.numChildren = 0;
-  }
-}
-
 int RSIndexResult_HasOffsets(const RSIndexResult *res) {
-  switch (res->type) {
-    case RSResultType_Term:
-      return res->data.term.offsets.len > 0;
-    case RSResultType_Intersection:
-    case RSResultType_Union:
+  switch (res->data.tag) {
+    case RSResultData_Term:
+      return RSOffsetVector_Len(IndexResult_TermOffsetsRef(res)) > 0;
+    case RSResultData_Intersection:
+    case RSResultData_Union:
+    {
+      const RSAggregateResult *agg = IndexResult_AggregateRef(res);
+
       // the intersection and union aggregates can have offsets if they are not purely made of
       // virtual results
-      return res->data.agg.typeMask != RSResultType_Virtual && res->data.agg.typeMask != RS_RESULT_NUMERIC;
-
+      return AggregateResult_KindMask(agg) != RSResultData_Virtual && AggregateResult_KindMask(agg) != RS_RESULT_NUMERIC;
+    }
     // a virtual result doesn't have offsets!
-    case RSResultType_Virtual:
-    case RSResultType_Numeric:
-    case RSResultType_Metric:
+    case RSResultData_Virtual:
+    case RSResultData_Numeric:
+    case RSResultData_Metric:
     default:
       return 0;
   }
 }
 
-void IndexResult_Free(RSIndexResult *r) {
-  if (!r) return;
-  ResultMetrics_Free(r);
-  if (r->type == RSResultType_Intersection || r->type == RSResultType_Union || r->type == RSResultType_HybridMetric) {
-    // for deep-copy results we also free the children
-    if (r->isCopy && r->data.agg.children) {
-      for (int i = 0; i < r->data.agg.numChildren; i++) {
-        IndexResult_Free(r->data.agg.children[i]);
-      }
-    }
-    rm_free(r->data.agg.children);
-    r->data.agg.children = NULL;
-  } else if (r->type == RSResultType_Term) {
-    if (r->isCopy) {
-      rm_free(r->data.term.offsets.data);
-
-    } else {  // non copy result...
-
-      // we only free up terms for non copy results
-      if (r->data.term.term != NULL) {
-        Term_Free(r->data.term.term);
-      }
-    }
-  }
-
-  rm_free(r);
-}
-
-inline int RSIndexResult_IsAggregate(const RSIndexResult *r) {
-  return (r->type & RS_RESULT_AGGREGATE) != 0;
-}
 #define __absdelta(x, y) (x > y ? x - y : y - x)
 /**
 Find the minimal distance between members of the vectos.
@@ -276,27 +87,27 @@ e.g. if V1 is {2,4,8} and V2 is {0,5,12}, the distance is 1 - abs(4-5)
 @param num the size of the list
 */
 int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
-  if (!RSIndexResult_IsAggregate(r) || r->data.agg.numChildren <= 1) {
+  const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+  if (!agg || AggregateResult_NumChildren(agg) <= 1) {
     return 1;
   }
 
-  const RSAggregateResult *agg = &r->data.agg;
   int dist = 0;
-  int num = agg->numChildren;
+  size_t num = AggregateResult_NumChildren(agg);
 
   RSOffsetIterator v1, v2;
   int i = 0;
   while (i < num) {
     // if either
-    while (i < num && !RSIndexResult_HasOffsets(agg->children[i])) {
+    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_Get(agg, i))) {
       i++;
       continue;
     }
     if (i == num) break;
-    v1 = RSIndexResult_IterateOffsets(agg->children[i]);
+    v1 = RSIndexResult_IterateOffsets(AggregateResult_Get(agg, i));
     i++;
 
-    while (i < num && !RSIndexResult_HasOffsets(agg->children[i])) {
+    while (i < num && !RSIndexResult_HasOffsets(AggregateResult_Get(agg, i))) {
       i++;
       continue;
     }
@@ -304,7 +115,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
       v1.Free(v1.ctx);
       break;
     }
-    v2 = RSIndexResult_IterateOffsets(agg->children[i]);
+    v2 = RSIndexResult_IterateOffsets(AggregateResult_Get(agg, i));
 
     uint32_t p1 = v1.Next(v1.ctx, NULL);
     uint32_t p2 = v2.Next(v2.ctx, NULL);
@@ -325,30 +136,39 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
   }
 
   // we return 1 if distance could not be calculate, to avoid division by zero
-  return dist ? sqrt(dist) : agg->numChildren - 1;
+  return dist ? sqrt(dist) : AggregateResult_NumChildren(agg) - 1;
 }
 
 void result_GetMatchedTerms(RSIndexResult *r, RSQueryTerm *arr[], size_t cap, size_t *len) {
   if (*len == cap) return;
 
-  switch (r->type) {
-    case RSResultType_Intersection:
-    case RSResultType_Union:
+  switch (r->data.tag) {
+    case RSResultData_Intersection:
+    case RSResultData_Union:
+    {
+      const RSAggregateResult *agg = IndexResult_AggregateRef(r);
+      RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+      RSIndexResult *child = NULL;
 
-      for (int i = 0; i < r->data.agg.numChildren; i++) {
-        result_GetMatchedTerms(r->data.agg.children[i], arr, cap, len);
+      while (AggregateResultIter_Next(iter, &child)) {
+        result_GetMatchedTerms(child, arr, cap, len);
       }
+
+      AggregateResultIter_Free(iter);
+
       break;
-    case RSResultType_Term:
-      if (r->data.term.term) {
-        const char *s = r->data.term.term->str;
+    }
+    case RSResultData_Term:
+    {
+      RSQueryTerm *term = IndexResult_QueryTermRef(r);
+      if (term) {
+        const char *s = term->str;
         // make sure we have a term string and it's not an expansion
         if (s) {
-          arr[(*len)++] = r->data.term.term;
+          arr[(*len)++] = term;
         }
-
-        // fprintf(stderr, "Term! %zd\n", *len);
       }
+    }
     default:
       return;
   }
@@ -371,14 +191,11 @@ int __indexResult_withinRangeInOrder(RSOffsetIterator *iters, uint32_t *position
       // For the first iterator we always advance once
       uint32_t pos = i ? positions[i] : iters[i].Next(iters[i].ctx, NULL);
       uint32_t lastPos = i ? positions[i - 1] : 0;
-      // printf("Before: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // read while we are not in order
       while (pos != RS_OFFSETVECTOR_EOF && pos < lastPos) {
         pos = iters[i].Next(iters[i].ctx, NULL);
-        // printf("Reading: i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
       }
-      // printf("i=%d, pos=%d, lastPos %d\n", i, pos, lastPos);
 
       // we've read through the entire list and it's not in order relative to the last pos
       if (pos == RS_OFFSETVECTOR_EOF) {
@@ -446,8 +263,6 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
     if (min != max) {
       // calculate max - min
       int span = (int)max - (int)min - (num - 1);
-      // printf("maxslop %d min %d, max %d, minPos %d, maxPos %d, span %d\n", maxSlop, min, max,
-      //        minPos, maxPos, span);
       // if it matches the condition - just return success
       if (span <= maxSlop) {
         return 1;
@@ -477,27 +292,31 @@ int __indexResult_withinRangeUnordered(RSOffsetIterator *iters, uint32_t *positi
  * e.g. for an exact match, the slop allowed is 0.
  */
 int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
-
+  const RSAggregateResult *agg = IndexResult_AggregateRef(ir);
   // check if calculation is even relevant here...
-  if ((ir->type & (RSResultType_Term | RSResultType_Virtual | RS_RESULT_NUMERIC)) ||
-      ir->data.agg.numChildren <= 1) {
+  if (!agg || AggregateResult_NumChildren(agg) <= 1) {
     return 1;
   }
-  RSAggregateResult *r = &ir->data.agg;
-  int num = r->numChildren;
+  size_t num = AggregateResult_NumChildren(agg);
 
   // Fill a list of iterators and the last read positions
   RSOffsetIterator iters[num];
   uint32_t positions[num];
   int n = 0;
-  for (int i = 0; i < num; i++) {
+
+  RSAggregateResultIter *iter = AggregateResult_Iter(agg);
+  RSIndexResult *child = NULL;
+
+  while (AggregateResultIter_Next(iter, &child)) {
     // collect only iterators for nodes that can have offsets
-    if (RSIndexResult_HasOffsets(r->children[i])) {
-      iters[n] = RSIndexResult_IterateOffsets(r->children[i]);
+    if (RSIndexResult_HasOffsets(child)) {
+      iters[n] = RSIndexResult_IterateOffsets(child);
       positions[n] = 0;
       n++;
     }
   }
+
+  AggregateResultIter_Free(iter);
 
   // No applicable offset children - just return 1
   if (n == 0) {
@@ -510,7 +329,6 @@ int IndexResult_IsWithinRange(RSIndexResult *ir, int maxSlop, int inOrder) {
     rc = __indexResult_withinRangeInOrder(iters, positions, n, maxSlop);
   else
     rc = __indexResult_withinRangeUnordered(iters, positions, n, maxSlop);
-  // printf("slop result for %d: %d\n", ir->docId, rc);
   for (int i = 0; i < n; i++) {
     iters[i].Free(iters[i].ctx);
   }

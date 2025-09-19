@@ -13,6 +13,8 @@
 #include "common.h"
 #include "src/redis_index.h"
 #include "src/info/indexes_info.h"
+#include "src/config.h"
+#include "src/numeric_index.h"
 
 #include <set>
 #include <string>
@@ -28,8 +30,8 @@
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 #define INITIAL_DOC_TABLE_SIZE 1000
-// 2 `uintptr_t` fields
-#define EMPTY_TRIE_SIZE 16
+// 3 `uintptr_t` fields
+#define EMPTY_TRIE_SIZE 24
 
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
@@ -1284,7 +1286,7 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.maxDocId, 2);
   ASSERT_EQ(info.docTableSize, 140 + doc_table_size);
   ASSERT_EQ(info.sortablesSize, 48);
-  ASSERT_EQ(info.docTrieSize, 112);
+  ASSERT_EQ(info.docTrieSize, 120);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
   ASSERT_EQ(info.invertedSize, 682);

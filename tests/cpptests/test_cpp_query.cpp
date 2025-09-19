@@ -651,6 +651,54 @@ TEST_F(QueryTest, testPureNegative) {
   IndexSpec_RemoveFromGlobals(ref, false);
 }
 
+TEST_F(QueryTest, testDoubleNegationOptimization) {
+  // Test that NOT(NOT(A)) = A optimization works
+  static const char *args[] = {"SCHEMA", "title", "text", "weight", "0.1", "body", "text", "weight", "2.0"};
+  QueryError err = {QueryErrorCode(0)};
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
+  RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
+
+  // Test v1 parser
+  {
+    QASTCXX ast;
+    ast.setContext(&ctx);
+    ASSERT_TRUE(ast.parse("--hello", 1)) << ast.getError();
+    QueryNode *n = ast.root;
+    ASSERT_TRUE(n != NULL);
+    // Should be optimized to just a token node, not a double NOT
+    ASSERT_EQ(n->type, QN_TOKEN);
+    ASSERT_STREQ("hello", n->tn.str);
+  }
+
+  // Test v2 parser
+  {
+    QASTCXX ast;
+    ast.setContext(&ctx);
+    ASSERT_TRUE(ast.parse("--hello", 2)) << ast.getError();
+    QueryNode *n = ast.root;
+    ASSERT_TRUE(n != NULL);
+    // Should be optimized to just a token node, not a double NOT
+    ASSERT_EQ(n->type, QN_TOKEN);
+    ASSERT_STREQ("hello", n->tn.str);
+  }
+
+  // Test triple negation: ---hello should be -hello
+  {
+    QASTCXX ast;
+    ast.setContext(&ctx);
+    ASSERT_TRUE(ast.parse("---hello", 2)) << ast.getError();
+    QueryNode *n = ast.root;
+    ASSERT_TRUE(n != NULL);
+    // Should be optimized to a single NOT node
+    ASSERT_EQ(n->type, QN_NOT);
+    ASSERT_TRUE(QueryNode_GetChild(n, 0) != NULL);
+    ASSERT_EQ(QueryNode_GetChild(n, 0)->type, QN_TOKEN);
+    ASSERT_STREQ("hello", QueryNode_GetChild(n, 0)->tn.str);
+  }
+
+  IndexSpec_RemoveFromGlobals(ref, false);
+}
+
 TEST_F(QueryTest, testGeoQuery_v1) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
@@ -751,8 +799,8 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   ASSERT_EQ(n->type, QN_NUMERIC);
   ASSERT_EQ(n->nn.nf->min, 0.4);
   ASSERT_EQ(n->nn.nf->max, 500.0);
-  ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
-  ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
+  ASSERT_EQ(n->nn.nf->minInclusive, 1);
+  ASSERT_EQ(n->nn.nf->maxInclusive, 0);
   IndexSpec_RemoveFromGlobals(ref, false);
 }
 
@@ -810,8 +858,8 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(n->type, QN_NUMERIC);
   ASSERT_EQ(n->nn.nf->min, 0.4);
   ASSERT_EQ(n->nn.nf->max, 500.0);
-  ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
-  ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
+  ASSERT_EQ(n->nn.nf->minInclusive, 1);
+  ASSERT_EQ(n->nn.nf->maxInclusive, 0);
   IndexSpec_RemoveFromGlobals(ref, false);
 }
 

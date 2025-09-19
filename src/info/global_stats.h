@@ -9,6 +9,7 @@
 #pragma once
 
 #include "spec.h"
+#include "rs_wall_clock.h"
 
 #define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
 #define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
@@ -34,12 +35,14 @@ typedef struct {
   size_t numVectorFields;
   size_t numVectorFieldsFlat;
   size_t numVectorFieldsHNSW;
+  size_t numVectorFieldsSvsVamana;
+  size_t numVectorFieldsSvsVamanaCompressed;
 } FieldsGlobalStats;
 
 typedef struct {
   size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
   size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
-  clock_t total_query_execution_time;   // Total time spent on queries (in clock ticks)
+  rs_wall_clock_ns_t total_query_execution_time;   // Total time spent on queries, aggregated in ns and reported in ms
 } QueriesGlobalStats;
 
 typedef struct {
@@ -77,8 +80,9 @@ size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type);
 
 /**
  * Increase all relevant counters in the global stats object.
+ * Note that duration is aggregated in nanoseconds but later converted to milliseconds.
  */
-void TotalGlobalStats_CountQuery(uint32_t reqflags, clock_t duration);
+void TotalGlobalStats_CountQuery(uint32_t reqflags, rs_wall_clock_ns_t duration);
 
 /**
  * Safely reads and returns a copy of the global queries stats.

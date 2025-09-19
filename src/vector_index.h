@@ -9,7 +9,7 @@
 #pragma once
 #include "search_ctx.h"
 #include "VecSim/vec_sim.h"
-#include "index_iterator.h"
+#include "iterators/iterator_api.h"
 #include "query_node.h"
 #include "query_ctx.h"
 #include "field_spec.h"
@@ -30,6 +30,7 @@
 #define VECSIM_ALGORITHM_BF "FLAT"
 #define VECSIM_ALGORITHM_HNSW "HNSW"
 #define VECSIM_ALGORITHM_TIERED "TIERED"
+#define VECSIM_ALGORITHM_SVS "SVS-VAMANA"
 
 #define VECSIM_INITIAL_CAP "INITIAL_CAP"
 #define VECSIM_BLOCKSIZE "BLOCK_SIZE"
@@ -39,9 +40,32 @@
 #define VECSIM_EPSILON "EPSILON"
 #define VECSIM_HYBRID_POLICY "HYBRID_POLICY"
 #define VECSIM_BATCH_SIZE "BATCH_SIZE"
+#define VECSIM_SHARD_WINDOW_RATIO "SHARD_WINDOW_RATIO"
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
+#define VECSIM_GRAPH_DEGREE "GRAPH_MAX_DEGREE"
+#define VECSIM_WINDOW_SIZE "CONSTRUCTION_WINDOW_SIZE"
+#define VECSIM_NUM_THREADS "NUM_THREADS"
+#define VECSIM_WSSEARCH "SEARCH_WINDOW_SIZE"
+#define VECSIM_MAX_CANDIDATE_POOL_SIZE "MAX_CANDIDATE_POOL_SIZE"
+#define VECSIM_PRUNE_TO "PRUNE_TO"
+#define VECSIM_ALPHA "ALPHA"
+#define VECSIM_USE_SEARCH_HISTORY "USE_SEARCH_HISTORY"
+#define VECSIM_USE_SEARCH_HISTORY_ON "ON"
+#define VECSIM_USE_SEARCH_HISTORY_OFF "OFF"
+#define VECSIM_USE_SEARCH_HISTORY_DEFAULT "DEFAULT"
+#define VECSIM_COMPRESSION "COMPRESSION"
+#define VECSIM_NO_COMPRESSION "NO_COMPRESSION"
+#define VECSIM_LVQ_SCALAR "GlobalSQ8"
+#define VECSIM_LVQ_4 "LVQ4"
+#define VECSIM_LVQ_8 "LVQ8"
+#define VECSIM_LVQ_4X4 "LVQ4x4"
+#define VECSIM_LVQ_4X8 "LVQ4x8"
+#define VECSIM_LEANVEC_4X8 "LeanVec4x8"
+#define VECSIM_LEANVEC_8X8 "LeanVec8x8"
+#define VECSIM_TRAINING_THRESHOLD "TRAINING_THRESHOLD"
+#define VECSIM_REDUCED_DIM "REDUCE"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
@@ -71,6 +95,13 @@ typedef struct {
   size_t vecLen;                 // vector length
   size_t k;                      // number of vectors to return
   VecSimQueryReply_Order order;  // specify the result order.
+  double shardWindowRatio;       // shard window ratio for distributed queries
+
+  // Position tracking for K value modification (shard ratio optimization)
+  // For literal K (e.g., "KNN 10"): stores position and length of numeric value
+  // For parameter K (e.g., "KNN $k"): stores position and length INCLUDING the '$' prefix
+  size_t k_token_pos;            // Byte offset where K token starts in original query
+  size_t k_token_len;            // Length of K token
 } KNNVectorQuery;
 
 typedef struct {
@@ -118,7 +149,7 @@ typedef struct VecSimLogCtx {
 
 VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
@@ -132,6 +163,9 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
+const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
+bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits);
 
 VecSimMetric getVecSimMetricFromVectorField(const FieldSpec *vectorField);
 
@@ -142,6 +176,8 @@ int VecSim_RdbLoad(RedisModuleIO *rdb, VecSimParams *vecsimParams);
 int VecSim_RdbLoad_v2(RedisModuleIO *rdb, VecSimParams *vecsimParams); // includes multi flag
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
                       const char *field_name); // includes tiered index
+int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
+                      const char *field_name); // includes SVS algorithm support
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);
@@ -152,7 +188,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef);
 extern "C" {
 #endif
 
-IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
+QueryIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply,
                                                           bool yields_metric);
 #ifdef __cplusplus
 }

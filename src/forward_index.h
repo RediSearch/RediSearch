@@ -53,14 +53,14 @@ typedef struct ForwardIndex {
 
 typedef struct {
   const char *doc;
-  VarintVectorWriter *allOffsets;
+  ByteOffsetWriter *allOffsets;
   ForwardIndex *idx;
   t_fieldId fieldId;
   float fieldScore;
 } ForwardIndexTokenizerCtx;
 
 static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, ForwardIndex *idx,
-                                                 const char *doc, VarintVectorWriter *vvw,
+                                                 const char *doc, ByteOffsetWriter *vvw,
                                                  t_fieldId fieldId, float score) {
   ctx->idx = idx;
   ctx->fieldId = fieldId;
@@ -87,12 +87,9 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 // Find an existing entry within the index
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash);
 
-void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
-
 /* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
  */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
-                                            ForwardIndexEntry *ent);
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
 
 #ifdef __cplusplus
 }

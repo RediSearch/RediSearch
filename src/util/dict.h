@@ -195,6 +195,7 @@ dictEntry **dictFindEntryRefByPtrAndHash(dict *d, const void *oldptr, uint64_t h
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapHiddenStrings;
 extern dictType dictTypeHeapRedisStrings;
+extern dictType dictTypeHeapStringsListVal;
 
 /* Dict type functions */
 uint64_t stringsHashFunction(const void *key);

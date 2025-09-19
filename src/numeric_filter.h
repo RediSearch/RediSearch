@@ -20,20 +20,6 @@
 extern "C" {
 #endif
 
-typedef struct NumericFilter {
-  const FieldSpec *fieldSpec;
-  double min;               // beginning of range
-  double max;               // end of range
-  const void *geoFilter;    // geo filter
-  bool inclusiveMin;        // range includes min value
-  bool inclusiveMax;        // range includes max val
-
-  // used by optimizer
-  bool asc;                 // order of SORTBY asc/desc
-  size_t limit;             // minimum number of result needed
-  size_t offset;            // record number of documents in iterated ranges. used to skip them
-} NumericFilter;
-
 // LegacyNumericFilter is a numeric filter that is used in the legacy query syntax
 // it is a wrapper around the NumericFilter struct
 // it is used to parse the legacy query syntax and convert it to the new query syntax
@@ -46,8 +32,6 @@ typedef struct LegacyNumericFilter {
   HiddenString *field;    // the numeric field name
 } LegacyNumericFilter;
 
-#define NumericFilter_IsNumeric(f) (!(f)->geoFilter)
-
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
                                 bool asc, const FieldSpec *fs);
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
@@ -57,23 +41,6 @@ void LegacyNumericFilter_Free(LegacyNumericFilter *nf);
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                      int sign, QueryError *status);
-
-/*
-A numeric index allows indexing of documents by numeric ranges, and intersection
-of them with fulltext indexes.
-*/
-static inline int NumericFilter_Match(const NumericFilter *f, double score) {
-
-  int rc = 0;
-  // match min - -inf or x >/>= score
-  int matchMin = (f->inclusiveMin ? score >= f->min : score > f->min);
-
-  if (matchMin) {
-    // match max - +inf or x </<= score
-    rc = (f->inclusiveMax ? score <= f->max : score < f->max);
-  }
-  return rc;
-}
 
 #ifdef __cplusplus
 }

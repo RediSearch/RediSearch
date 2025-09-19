@@ -51,7 +51,7 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
 int Trie_InsertRune(Trie *t, const rune *s, size_t len, double score, int incr,
                             RSPayload *payload);
 
-/* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len 
+/* Get the payload from the node. if `exact` is 0, the payload is return even if local offset!=len
    Use for debug only! */
 void *Trie_GetValueStringBuffer(Trie *t, const char *s, size_t len, bool exact);
 void *Trie_GetValueRune(Trie *t, const rune *runes, size_t len, bool exact);
@@ -79,7 +79,6 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, int loadPayloads);
 void TrieType_GenericSave(RedisModuleIO *rdb, Trie *t, int savePayloads);
 void *TrieType_RdbLoad(RedisModuleIO *rdb, int encver);
 void TrieType_RdbSave(RedisModuleIO *rdb, void *value);
-void TrieType_Digest(RedisModuleDigest *digest, void *value);
 size_t TrieType_MemUsage(const void *value);
 void TrieType_Free(void *value);
 

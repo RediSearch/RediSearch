@@ -15,6 +15,7 @@
 #include "info/info_redis/block_client.h"
 #include "query_error.h"
 #include "spec.h"
+#include "module.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,7 +30,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
     for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), &areq->conc, areq->reqflags, &req->errors[i]);
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation

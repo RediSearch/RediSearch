@@ -94,10 +94,10 @@ where
                     }
                 }
 
-                if filter_outcome.yield_current {
-                    if let Some(data) = node.data() {
-                        return Some(data);
-                    }
+                if filter_outcome.yield_current
+                    && let Some(data) = node.data()
+                {
+                    return Some(data);
                 }
             } else {
                 self.key

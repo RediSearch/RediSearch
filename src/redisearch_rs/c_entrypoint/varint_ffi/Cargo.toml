@@ -1,0 +1,18 @@
+[package]
+name = "varint_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true
+build_utils = { path = "../../build_utils" }
+
+[dependencies]
+ffi = { workspace = true }
+buffer = { workspace = true }
+varint = { workspace = true }

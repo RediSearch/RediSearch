@@ -59,14 +59,12 @@ def testProfileSearch(env):
 
   # test PREFIX
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hel*', 'nocontent')
-  expected_res = ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 1, 'Child iterators', [
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  expected_res = ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
   # test FUZZY
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'nocontent') # codespell:ignore hel
-  expected_res = ['Type', 'UNION', 'Query type', 'FUZZY - hel', 'Counter', 1, 'Child iterators', [
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  expected_res = ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
   # test ID LIST iter with INKEYS
@@ -79,14 +77,14 @@ def testProfileSearch(env):
   # test no crash on reaching deep reply array
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'hello(hello(hello(hello(hello))))', 'nocontent')
   expected_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                  ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                   ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                     ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
-                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                        ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                            ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                                ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                                ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]]]]]]]
   expected_res_d2 = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
@@ -100,16 +98,16 @@ def testProfileSearch(env):
 
   actual_res = env.cmd('ft.profile', 'idx', 'search', 'query',  'hello(hello(hello(hello(hello(hello)))))', 'nocontent')
   expected_res = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                  ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                   ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                     ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                     ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
-                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
-                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
-                  ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+                        ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                        ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                            ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                            ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                                ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                                ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]]]]]]]]]
   expected_res_d2 = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
@@ -427,11 +425,8 @@ def testNotIterator(env):
   res = [[1, '1', ['t', 'foo']],
          ['Shards', [[
             'Warning', 'None',
-            'Iterators profile',
-            ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
-              [['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1],
-               ['Type', 'NOT', 'Counter', 1, 'Child iterator',
-                ['Type', 'EMPTY', 'Counter', 0]]]],
+            'Iterators profile', # Static query optimization: foo && -@t:baz => foo && -(EMPTY) => foo && ALL => foo
+            ['Type', 'TEXT', 'Term', 'foo', 'Counter', 1, 'Size', 1],
             'Result processors profile',
              [['Type', 'Index',  'Counter', 1],
               ['Type', 'Scorer', 'Counter', 1],
@@ -667,25 +662,22 @@ def testPofileGILTime():
   # ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
   # ['Total GIL time', ANY]
 
-  try:
-    # env.assertTrue(recursive_contains(res, 'Threadsafe-Loader'), message=f"res: {res}")
-    # env.assertTrue(recursive_contains(res, 'Total GIL time'), message=f"res: {res}")
+  env.assertTrue(recursive_contains(res, 'Threadsafe-Loader'), message=f"res: {res}")
+  env.assertTrue(recursive_contains(res, 'Total GIL time'), message=f"res: {res}")
 
-    # extract the GIL time of the threadsafe loader result processor
-    rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
-    rp_record = access_nested_list(res, rp_index)
-    rp_GIL_time = rp_record[rp_record.index('GIL-Time') + 1]
+  # extract the GIL time of the threadsafe loader result processor
+  rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
+  rp_record = access_nested_list(res, rp_index)
+  rp_GIL_time = rp_record[rp_record.index('GIL-Time') + 1]
 
-    # extract the total GIL time
-    total_GIL_index = recursive_index(res, 'Total GIL time')
-    total_GIL_index[-1] += 1
-    total_GIL_time = access_nested_list(res, total_GIL_index)
+  # extract the total GIL time
+  total_GIL_index = recursive_index(res, 'Total GIL time')
+  total_GIL_index[-1] += 1
+  total_GIL_time = access_nested_list(res, total_GIL_index)
 
-    env.assertGreaterEqual(float(total_GIL_time), 0)
-    env.assertGreaterEqual(float(rp_GIL_time), 0)
-    env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
-  except Exception:
-    print(f"::error title=GIL report test failure:: res: {res}")
+  env.assertGreaterEqual(float(total_GIL_time), 0)
+  env.assertGreaterEqual(float(rp_GIL_time), 0)
+  env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
 
 def testProfileBM25NormMax(env):
   #create index

@@ -11,22 +11,33 @@
 #include "value.h"
 #include "aggregate/aggregate.h"
 #include "util/timeout.h"
+#include "iterators/profile_iterator.h"
 
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
-#define printProfileCounter(vcounter) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcounter))
+#define printProfileCounter(vcount) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcount))
+// For now we only print the total counter in order to avoid breaking the response format of profile
+// If we get a chance to break it then consider splitting the count into separate fields
+#define printProfileCounters(counters) printProfileCounter(counters->read + counters->skipTo - counters->eof)
+
 #define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (rs_timer_ms(&(vtime))))
 #define printProfileNumBatches(hybrid_reader) \
   RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
 #define printProfileOptimizationType(oi) \
   RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
 
+/**
+ * @brief Add profile iterators to all nodes in the iterator tree
+ *
+ * This recursively adds profile iterators to all nodes in the iterator tree.
+ *
+ * @param root The root iterator
+ */
+void Profile_AddIters(QueryIterator **root);
+
 // Print the profile of a single shard
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
 // Print the profile of a single shard, in full format
-
-void printReadIt(RedisModule_Reply *reply, const IndexIterator *root, size_t counter, double cpuTime,
-                PrintProfileConfig *config);
 
 #define PROFILE_STR "Profile"
 #define PROFILE_SHARDS_STR "Shards"

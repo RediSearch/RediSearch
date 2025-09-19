@@ -22,13 +22,13 @@ function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+    set(CMAKE_C_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-fPIC -g -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
     elseif(PROFILE)
         set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
         set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
@@ -153,6 +153,10 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+if(BUILD_INTEL_SVS_OPT)
+    add_compile_definitions("BUILD_INTEL_SVS_OPT=1")
+endif()
+
 if(MAX_WORKER_THREADS)
     set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
@@ -208,6 +212,7 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 
 include_directories(
     ${root}/src
+    ${root}/src/buffer
     ${root}/src/coord
     ${root}/src/inverted_index
     ${root}/src/redisearch_rs/headers
@@ -234,7 +239,9 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/buffer)
 add_subdirectory(src/inverted_index)
+add_subdirectory(src/iterators)
 add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
@@ -256,7 +263,6 @@ file(GLOB SOURCES
     "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
-    "src/iterators/*.c"
     "src/info/*.c"
     "src/info/info_redis/*.c"
     "src/info/info_redis/threads/*.c"
@@ -272,18 +278,14 @@ file(GLOB SOURCES
     "deps/geohash/*.c")
 
 #----------------------------------------------------------------------------------------------
-# Standalone libraries for Rust benchmarking
-# Build the `varint` module as a standalone static library
-# This allows benchmarking the Rust implementation against the C implementation
-file(GLOB VARINT_SOURCES "src/varint.c" "src/buffer.c")
-add_library(varint STATIC ${VARINT_SOURCES})
-target_include_directories(varint PRIVATE src deps/RedisModulesSDK)
 
 add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
+    $<TARGET_OBJECTS:buffer>
     $<TARGET_OBJECTS:inverted_index>
+    $<TARGET_OBJECTS:iterators>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
@@ -314,7 +316,9 @@ target_link_libraries(redisearch
         VectorSimilarity
         redisearch-coord
         arr
+        buffer
         inverted_index
+        iterators
         wildcard
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
