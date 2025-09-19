@@ -393,8 +393,10 @@ fn test_numeric_encode_decode(
     let prev_doc_id = u64::MAX - delta;
     let buf = buf.into_inner();
     let mut buf = Cursor::new(buf.as_ref());
-    let record_decoded = numeric
-        .decode(&mut buf, prev_doc_id)
+
+    let mut record_decoded = RSIndexResult::numeric(0.0);
+    numeric
+        .decode(&mut buf, prev_doc_id, &mut record_decoded)
         .expect("to decode numeric record");
 
     assert_eq!(record_decoded, record, "failed for value: {}", value);
@@ -426,8 +428,10 @@ fn encode_f64_with_compression() {
 
     let buf = buf.into_inner();
     let mut buf = Cursor::new(buf.as_ref());
-    let record_decoded = numeric
-        .decode(&mut buf, 0)
+
+    let mut record_decoded = RSIndexResult::numeric(0.0);
+    numeric
+        .decode(&mut buf, 0, &mut record_decoded)
         .expect("to decode numeric record");
 
     let diff = record_decoded.as_numeric().unwrap() - record.as_numeric().unwrap();
@@ -441,7 +445,8 @@ fn test_empty_buffer() {
     let buffer = Vec::new();
     let mut buffer = Cursor::new(buffer.as_ref());
     let decoder = Numeric::new();
-    let res = decoder.decode(&mut buffer, 0);
+    let mut result = RSIndexResult::numeric(0.0);
+    let res = decoder.decode(&mut buffer, 0, &mut result);
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
@@ -599,9 +604,9 @@ mod property_based {
             let buf = buf.into_inner();
             let mut buf = Cursor::new(buf.as_ref());
 
-            let record_decoded = numeric
-                .decode(&mut buf, prev_doc_id)
-                .expect("to decode numeric record");
+            let mut record_decoded = RSIndexResult::numeric(0.0);
+            numeric.decode(&mut buf, prev_doc_id, &mut record_decoded)
+                   .expect("to decode numeric record");
 
             assert_eq!(record_decoded, record, "failed for value: {}", value);
         }
@@ -623,9 +628,9 @@ mod property_based {
             let buf = buf.into_inner();
             let mut buf = Cursor::new(buf.as_ref());
 
-            let record_decoded = numeric
-                .decode(&mut buf, prev_doc_id)
-                .expect("to decode numeric record");
+            let mut record_decoded = RSIndexResult::numeric(0.0);
+            numeric.decode(&mut buf, prev_doc_id, &mut record_decoded)
+                   .expect("to decode numeric record");
 
             assert_eq!(record_decoded, record, "failed for value: {}", value);
         }
