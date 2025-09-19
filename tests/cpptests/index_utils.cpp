@@ -10,7 +10,7 @@
 #include "index_utils.h"
 #include "common.h"
 #include "src/forward_index.h"
-#include "src/inverted_index/inverted_index.h"
+#include "inverted_index.h"
 #include "src/redis_index.h"
 
 std::string numToDocStr(unsigned id) {

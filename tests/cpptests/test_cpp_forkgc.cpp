@@ -228,10 +228,10 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  // The buffer's initial capacity is INDEX_BLOCK_INITIAL_CAP, the function
+  // The buffer's initial capacity is 6 bytes, the function
   // IndexBlock_Repair() shrinks the buffer to the number of valid entries in
   // the block, collecting the remaining memory.
-  ASSERT_EQ(INDEX_BLOCK_INITIAL_CAP - 1, fgc->stats.totalCollected);
+  ASSERT_EQ(6 - 1, fgc->stats.totalCollected);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.
@@ -402,7 +402,8 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(1, sctx.spec->stats.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  ASSERT_EQ(lastBlockMemory + sizeof_InvertedIndex(InvertedIndex_Flags(iv)), sctx.spec->stats.invertedSize);
+  // 32 bytes is the base size of an inverted index
+  ASSERT_EQ(lastBlockMemory + 32, sctx.spec->stats.invertedSize);
   ASSERT_EQ(1, TotalIIBlocks() - startValue);
 }
 
@@ -661,7 +662,7 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
 
 TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   const auto startValue = TotalIIBlocks();
-  constexpr size_t docs_per_block = INDEX_BLOCK_SIZE;
+  constexpr size_t docs_per_block = 100;
   constexpr size_t first_split_card = 16; // from `numeric_index.c`
   size_t cur_cardinality = 0;
   size_t cur_id = 1;

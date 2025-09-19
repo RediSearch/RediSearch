@@ -33,7 +33,7 @@ typedef enum IndexIteratorType {
 
 class IndexIteratorTest : public ::testing::TestWithParam<std::tuple<IndexIteratorType, bool>> {
 protected:
-    static constexpr size_t n_docs = 2.45 * std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
+    static constexpr size_t n_docs = 2.45 * 1000;
     std::array<t_docId, n_docs> resultSet;
     InvertedIndex *idx;
     QueryIterator *it_base;
@@ -322,7 +322,7 @@ TEST_F(IndexIteratorTestWithSeeker, EOFAfterFiltering) {
 
 class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> {
   protected:
-      static constexpr size_t n_docs = std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
+      static constexpr size_t n_docs = 1000;
       InvertedIndex *idx;
       QueryIterator *it_base;
       MockQueryEvalCtx q_mock;
@@ -346,6 +346,11 @@ class IndexIteratorTestExpiration : public ::testing::TestWithParam<IndexFlags> 
               .fieldMask = fieldMask,
               .data = {.term_tag = RSResultData_Term},
           };
+
+          if (flags & Index_StoreNumeric) {
+              res.data.tag = RSResultData_Numeric;
+          }
+
           for (size_t i = 1; i <= n_docs; ++i) {
               res.docId = i;
               InvertedIndex_WriteEntryGeneric(idx, &res);
