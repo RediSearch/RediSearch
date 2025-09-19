@@ -90,7 +90,6 @@ typedef struct {
   ResultProcessor base;
   QueryIterator *iterator;
   size_t timeoutLimiter;    // counter to limit number of calls to TimedOut_WithCounter()
-  // ConcurrentSearchCtx *conc; // was added by Jonathan PR#6399
   RedisSearchCtx *sctx;
 } RPQueryIterator;
 
@@ -99,9 +98,8 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
-  // DocTable* docs = &RP_SPEC(base)->docs;  // Added by Guy PR#6572
   DocTable* docs = &self->sctx->spec->docs;
-  const RSDocumentMetadata *dmd;          // Added by Guy PR#6572
+  const RSDocumentMetadata *dmd;
   if (sctx->flags == RS_CTX_UNSET) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)

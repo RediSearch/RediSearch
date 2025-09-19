@@ -84,9 +84,6 @@ typedef struct QueryProcessingCtx {
   // Last processor
   struct ResultProcessor *endProc;
 
-  // Contains our spec
-  // RedisSearchCtx *sctx;  // removed by Jonathan https://github.com/RediSearch/RediSearch/pull/6399/
-
   rs_wall_clock initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
   rs_wall_clock_ns_t GILTime;  //Time accumulated in nanoseconds
 
