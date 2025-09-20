@@ -50,7 +50,6 @@ jobs:
 
   run-on-intel:
     needs: get-latest-redis-tag
-    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false'}}
     uses: ./.github/workflows/flow-intel.yml
     secrets: inherit
 

@@ -38,7 +38,11 @@ jobs:
       env: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
       test-config: QUICK=1
       get-redis: unstable
-
+      pre-steps-script: |
+        echo "Setting HOME environment variable"
+        echo "HOME=/home/ubuntu" >> $GITHUB_ENV
+        echo "Current HOME: $HOME"
+        echo "New HOME will be: /home/ubuntu"
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:
