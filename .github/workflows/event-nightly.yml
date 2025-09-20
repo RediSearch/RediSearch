@@ -33,6 +33,12 @@ jobs:
       test-config: QUICK=1
       get-redis: unstable
 
+  run-on-intel:
+    secrets: inherit
+    uses: ./.github/workflows/flow-intel.yml
+    with:
+      get-redis: unstable
+
   sanitize:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
@@ -48,7 +54,7 @@ jobs:
 
 
   notify-failure:
-    needs: [test-linux, test-macos, coverage, sanitize, micro-benchmarks]
+    needs: [test-linux, test-macos, coverage, run-on-intel, sanitize, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
