@@ -4,6 +4,9 @@ name: Intel self-hosted flow # 1. Change the name of the workflow
 # TODO: get tests config from calling flow!
 on:
   workflow_call:
+    inputs:
+      get-redis:
+        type: string
 
 jobs:
   start-runner:
@@ -37,12 +40,13 @@ jobs:
     with:
       env: ${{ needs.start-runner.outputs.label }} # run the job on the newly created runner
       test-config: QUICK=1
-      get-redis: unstable
+      get-redis: ${{ inputs.get-redis }}
       pre-steps-script: |
-        echo "Setting HOME environment variable"
         echo "HOME=/home/ubuntu" >> $GITHUB_ENV
-        echo "Current HOME: $HOME"
-        echo "New HOME will be: /home/ubuntu"
+        echo "Print runner info"
+        printf "Runner lscpu:\n$(lscpu)\n"
+        printf "Runner uname:\n$(uname -a)\n"
+        printf "Runner arch:\n$(arch)\n"
   stop-runner:
     name: Stop self-hosted EC2 runner
     needs:

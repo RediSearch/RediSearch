@@ -50,8 +50,10 @@ jobs:
 
   run-on-intel:
     needs: get-latest-redis-tag
-    uses: ./.github/workflows/flow-intel.yml
     secrets: inherit
+    uses: ./.github/workflows/flow-intel.yml
+    with:
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
 
   sanitize:
     needs: get-latest-redis-tag
@@ -70,6 +72,7 @@ jobs:
       - test-linux
       - test-macos
       - coverage
+      - run-on-intel
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
