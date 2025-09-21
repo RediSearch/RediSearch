@@ -156,8 +156,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     ArgsCursor *pauseArgs = before ? &pauseBeforeArgs : &pauseAfterArgs;
     const char *invalidStr = before ? "PAUSE_BEFORE_RP_N" : "PAUSE_AFTER_RP_N";
     const char *rp_type_str = NULL;
-
-    if (! isClusterCoord(debug_req) && !(debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
+    if (!isClusterCoord(debug_req) && !(debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Query %s is only supported with WORKERS", invalidStr);
       return REDISMODULE_ERR;
     }
