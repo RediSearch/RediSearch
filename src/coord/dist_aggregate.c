@@ -543,11 +543,11 @@ static void rpnetFree(ResultProcessor *rp) {
 static RPNet *RPNet_New(const MRCommand *cmd) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd; // Take ownership of the command's internal allocations
-  nc->cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
+  // nc->cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Next = rpnetNext_StartDispatcher;
+  nc->base.Next = rpnetNext_Start;
   nc->base.type = RP_NETWORK;
   return nc;
 }
