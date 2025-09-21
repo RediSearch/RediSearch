@@ -1944,7 +1944,7 @@ DEBUG_COMMAND(printRPStream) {
   }
 
   if (!QueryDebugCtx_HasDebugRP()) {
-    return RedisModule_ReplyWithNull(ctx);
+    return RedisModule_ReplyWithError(ctx, "No debug RP is set");
   }
 
   ResultProcessor* root = QueryDebugCtx_GetDebugRP()->parent->endProc;

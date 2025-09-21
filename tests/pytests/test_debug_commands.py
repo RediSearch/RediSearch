@@ -1063,6 +1063,10 @@ def test_query_controller_pause_and_resume(env):
     env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME').error()\
     .contains('Query is not paused')
 
+    # Test error when trying to print RP stream when no debug RP is set
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'PRINT_RP_STREAM').error()\
+    .contains('No debug RP is set')
+
     # Set workers to 2 to make sure the query can be paused
     # 1 worker is for testing we can't debug multiple queries
     env.expect('FT.CONFIG', 'SET', 'WORKERS', 2).ok()
@@ -1257,6 +1261,10 @@ def test_cluster_query_controller_pause_and_resume_coord(env):
     for i in range(n_docs):
         res = conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
         env.assertEqual(res, 1)
+
+    # Check error when insert after Network RP
+    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'PAUSE_AFTER_RP_N', 'Network', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
+    .contains("Network RP type not found in stream or tried to insert after last RP")
 
     # Helper to call a function and push its return value into a list
     def _call_and_store(fn, args, out_list):

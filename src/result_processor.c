@@ -1330,15 +1330,12 @@ static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultPro
 
     if (cur->type == target_type) {
       rp->parent = &r->qiter;
-
-      // Checking edge case: we are the first RP in the stream
-      if (downstream) {
-        downstream->upstream = rp;
-      }
       rp->upstream = cur;
-      // If we inserted before the current endProc,
+      // Checking edge case: we are the first RP in the stream
       if (cur == r->qiter.endProc) {
         r->qiter.endProc = rp;
+      } else {
+        downstream->upstream = rp;
       }
       return true;
     }
@@ -1489,7 +1486,6 @@ void PipelineAddCrash(struct AREQ *r) {
  *
  * Pauses the query after N results, N >= 0.
  *******************************************************************************************************************/
-extern DebugCTX globalDebugCtx;
 
 typedef struct {
   ResultProcessor base;
