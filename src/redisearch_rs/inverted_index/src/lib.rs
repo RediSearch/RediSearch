@@ -10,6 +10,7 @@
 use std::{
     ffi::c_void,
     io::{BufRead, Cursor, Seek, Write},
+    sync::atomic::{self, AtomicUsize},
 };
 
 use debug::{BlockSummary, Summary};
@@ -252,6 +253,8 @@ pub struct IndexBlock {
     buffer: Vec<u8>,
 }
 
+static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
+
 impl IndexBlock {
     const SIZE: usize = std::mem::size_of::<Self>();
 
@@ -259,7 +262,7 @@ impl IndexBlock {
     /// the block should be for this doc ID else the block will contain incoherent data.
     ///
     /// This returns the block and how much memory grew by.
-    pub fn new(doc_id: t_docId) -> (Self, usize) {
+    fn new(doc_id: t_docId) -> (Self, usize) {
         let this = Self {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
@@ -267,6 +270,8 @@ impl IndexBlock {
             buffer: Vec::new(),
         };
         let buf_cap = this.buffer.capacity();
+
+        TOTAL_BLOCKS.fetch_add(1, atomic::Ordering::Relaxed);
 
         (this, Self::SIZE + buf_cap)
     }
@@ -278,6 +283,17 @@ impl IndexBlock {
         buffer.set_position(pos as u64);
 
         buffer
+    }
+
+    /// Returns the total number of index blocks in existence.
+    pub fn total_blocks() -> usize {
+        TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
+    }
+}
+
+impl Drop for IndexBlock {
+    fn drop(&mut self) {
+        TOTAL_BLOCKS.fetch_sub(1, atomic::Ordering::Relaxed);
     }
 }
 
