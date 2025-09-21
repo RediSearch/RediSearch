@@ -89,26 +89,14 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_SORTBY;
 
-    // Replicate exact original logic: lines 299-301
-    if (AC_NumRemaining(ac) < 1) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "SORTBY requires at least 1 argument");
+    // We managed to get a valid arg cursor
+    if (AC_IsAtEnd(ac)) {
+        // We essentially got SORTBY 0
+        *ctx->reqFlags |= QEXEC_F_NO_SORT;
         return;
     }
 
-    // Replicate exact original logic: lines 303-323
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(ctx->plan);
-    // Handle special case: SORTBY 0 (no sorting)
-    if (AC_NumRemaining(ac) == 1) {
-        const char *first = AC_GetStringNC(ac, NULL);
-        if (strcmp(first, "0") == 0) {
-            // SORTBY 0 means no sorting - just return success
-            *ctx->reqFlags |= QEXEC_F_NO_SORT;
-            return;
-        }
-        // Reset cursor to parse normally
-        ac->offset = 0;
-    }
-
     // Parse field/direction pairs
     while (!AC_IsAtEnd(ac)) {
         const char *field = AC_GetStringNC(ac, NULL);

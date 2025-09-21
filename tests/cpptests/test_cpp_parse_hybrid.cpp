@@ -863,7 +863,7 @@ TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
       "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
       "COMBINE", "RRF", "2", "CONSTANT", "invalid",
       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
+  testErrorCode(args, QUERY_EPARSEARGS, "CONSTANT: Could not convert argument to expected type");
 }
 
 TEST_F(ParseHybridTest, testDefaultTextScorerForLinear) {
