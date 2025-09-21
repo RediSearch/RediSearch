@@ -400,9 +400,6 @@ void handleFilter(ArgParser *parser, const void *value, void *user_data) {
 void handleTimeout(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     ctx->specifiedArgs |= SPECIFIED_ARG_TIMEOUT;
-    int timeout = *(int*)value;
-    // assign from int to long long
-    ctx->reqConfig->queryTimeoutMS = timeout;
 }
 
 // WITHSCORES callback - implements EXACT original logic from handleWithScores

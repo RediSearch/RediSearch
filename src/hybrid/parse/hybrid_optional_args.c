@@ -55,12 +55,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                          ARG_OPT_END);
 
     // TIMEOUT timeout - query timeout in milliseconds
-    // TIMEOUT timeout - query timeout in milliseconds
-    // Note: We need to use a temporary int and copy to long long later
-    // since ArgParser_AddIntV expects int*, not long long*
-    int tempTimeout = 0;
-    ArgParser_AddIntV(parser, "TIMEOUT", "Query timeout in milliseconds",
-                      &tempTimeout, sizeof(tempTimeout),
+    ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
+                      &ctx->reqConfig->queryTimeoutMS,
                       ARG_OPT_OPTIONAL, 
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
