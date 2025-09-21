@@ -65,36 +65,40 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   ArgParser_Free(parser);
 }
 
-static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError *status) {
-  // RRF 4 CONSTANT 6 WINDOW 20 ...
-  //     ^
-
-  // Variables to hold parsed values
-  int constantValue = 0;
-  int windowValue = 0;
-
+int parseRRFArgs(ArgsCursor *ac, int *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
+  *hasExplicitWindow = false;
   ArgsCursor rrf;
   int rc = AC_GetVarArgs(ac, &rrf);
-  if (rc != AC_OK) {
+  if (rc == AC_ERR_NOARG) {
+    // Apparently we allow no arguments for RRF
+    *constant = HYBRID_DEFAULT_RRF_CONSTANT;
+    *window = HYBRID_DEFAULT_WINDOW;
+    return AC_OK;
+  } else if (rc == AC_ERR_PARSE) {
+    // We also allow a different keyword after it, e.g LIMIT
+    // This means if it a different keyword the error will be more ambigious
+    *constant = HYBRID_DEFAULT_RRF_CONSTANT;
+    *window = HYBRID_DEFAULT_WINDOW;
+    return AC_OK;
+  } else if (rc != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for RRF: %s", AC_Strerror(rc));
-    return;
+    return rc;
   }
 
-  // Create ArgParser for clean argument parsing
   ArgParser *parser = ArgParser_New(&rrf, "RRF");
   if (!parser) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create RRF argument parser");
-    return;
+    return AC_ERR_PARSE;
   }
 
   // Define the optional arguments with validation
   ArgParser_AddIntV(parser, "CONSTANT", "RRF constant value (must be positive)", 
-                      &constantValue, ARG_OPT_OPTIONAL,
+                      constant, ARG_OPT_OPTIONAL,
                       ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_RRF_CONSTANT,
                       ARG_OPT_RANGE, 1LL, LLONG_MAX,
                       ARG_OPT_END);
   ArgParser_AddIntV(parser, "WINDOW", "RRF window size (must be positive)", 
-                     &windowValue, ARG_OPT_OPTIONAL,
+                     window, ARG_OPT_OPTIONAL,
                      ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
                      ARG_OPT_RANGE, 1LL, LLONG_MAX,
                      ARG_OPT_END);
@@ -104,15 +108,33 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   if (!result.success) {
     QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
+    return AC_ERR_PARSE;
+  }
+  *hasExplicitWindow = ArgParser_WasParsed(parser, "WINDOW");
+  ArgParser_Free(parser);
+  return AC_OK;
+}
+
+
+static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError *status) {
+  // RRF 4 CONSTANT 6 WINDOW 20 ...
+  //     ^
+  // RRF LIMIT
+
+  // Variables to hold parsed values
+  int constantValue = HYBRID_DEFAULT_RRF_CONSTANT;
+  int windowValue = HYBRID_DEFAULT_WINDOW;
+  bool hasExplicitWindow = false;
+
+  if (parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status) != AC_OK) {
     return;
   }
-
+  
   // Store the parsed values
   rrfCtx->constant = constantValue;
-  rrfCtx->window = (size_t)windowValue;
-  rrfCtx->hasExplicitWindow = ArgParser_WasParsed(parser, "WINDOW");
+  rrfCtx->window = windowValue;
+  rrfCtx->hasExplicitWindow = hasExplicitWindow;
 
-  ArgParser_Free(parser);
 }
 
 // COMBINE callback - implements exact ParseCombine behavior from hybrid_args.c
@@ -136,6 +158,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
 
+    combineCtx->scoringType = parsedScoringType;
     ArgsCursor *ac = parser->cursor;
     if (parsedScoringType == HYBRID_SCORING_LINEAR) {
         combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
