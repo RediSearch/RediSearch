@@ -125,18 +125,18 @@ ArgParser *ArgParser_AddInt(ArgParser *parser, const char *name, const char *des
     return parser;
 }
 
-ArgParser *ArgParser_AddLong(ArgParser *parser, const char *name, const char *description,
+ArgParser *ArgParser_AddLongLong(ArgParser *parser, const char *name, const char *description,
                             long long *target) {
-    ArgDefinition *def = add_definition(parser, name, description, ARG_TYPE_LONG, target);
+    ArgDefinition *def = add_definition(parser, name, description, ARG_TYPE_LONG_LONG, target);
     if (def && target) {
         *target = 0;  // Initialize to 0
     }
     return parser;
 }
 
-ArgParser *ArgParser_AddULong(ArgParser *parser, const char *name, const char *description,
+ArgParser *ArgParser_AddULongLong(ArgParser *parser, const char *name, const char *description,
                              unsigned long long *target) {
-    ArgDefinition *def = add_definition(parser, name, description, ARG_TYPE_ULONG, target);
+    ArgDefinition *def = add_definition(parser, name, description, ARG_TYPE_ULONG_LONG, target);
     if (def && target) {
         *target = 0;  // Initialize to 0
     }
@@ -279,7 +279,7 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             break;
         }
 
-        case ARG_TYPE_LONG: {
+        case ARG_TYPE_LONG_LONG: {
             long long long_val;
             rv = AC_GetLongLong(parser->cursor, &long_val, 0);
             if (rv == AC_OK && def->target) {
@@ -297,7 +297,7 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             break;
         }
 
-        case ARG_TYPE_ULONG: {
+        case ARG_TYPE_ULONG_LONG: {
             unsigned long long ulong_val;
             rv = AC_GetUnsignedLongLong(parser->cursor, &ulong_val, 0);
             if (rv == AC_OK && def->target) {
@@ -619,7 +619,7 @@ static void apply_defaults(ArgParser *parser) {
             case ARG_TYPE_INT:
                 *(int*)def->target = (int)def->defaults.int_default;
                 break;
-            case ARG_TYPE_LONG:
+            case ARG_TYPE_LONG_LONG:
                 *(long long*)def->target = def->defaults.int_default;
                 break;
             case ARG_TYPE_DOUBLE:
@@ -662,8 +662,8 @@ static void apply_variadic_options(ArgParser *parser, va_list args) {
             }
 
             case ARG_OPT_RANGE:
-                if (def->type == ARG_TYPE_INT || def->type == ARG_TYPE_LONG ||
-                    def->type == ARG_TYPE_ULONG) {  // Removed ARG_TYPE_UINT (doesn't exist)
+                if (def->type == ARG_TYPE_INT || def->type == ARG_TYPE_LONG_LONG ||
+                    def->type == ARG_TYPE_ULONG_LONG) {
                     def->options.numeric.min_val = va_arg(args, long long);
                     def->options.numeric.max_val = va_arg(args, long long);
                     def->options.numeric.has_min = true;
@@ -685,7 +685,7 @@ static void apply_variadic_options(ArgParser *parser, va_list args) {
                 break;
 
             case ARG_OPT_DEFAULT_INT:
-                if (def->type == ARG_TYPE_INT || def->type == ARG_TYPE_LONG) {
+                if (def->type == ARG_TYPE_INT || def->type == ARG_TYPE_LONG_LONG) {
                     def->defaults.int_default = va_arg(args, long long);
                     def->has_default = true;
                 }
@@ -775,9 +775,9 @@ ArgParser *ArgParser_AddIntV(ArgParser *parser, const char *name, const char *de
     return parser;
 }
 
-ArgParser *ArgParser_AddLongV(ArgParser *parser, const char *name, const char *description,
+ArgParser *ArgParser_AddLongLongV(ArgParser *parser, const char *name, const char *description,
                              long long *target, ...) {
-    ArgParser_AddLong(parser, name, description, target);
+    ArgParser_AddLongLong(parser, name, description, target);
 
     va_list args;
     va_start(args, target);
@@ -787,9 +787,9 @@ ArgParser *ArgParser_AddLongV(ArgParser *parser, const char *name, const char *d
     return parser;
 }
 
-ArgParser *ArgParser_AddULongV(ArgParser *parser, const char *name, const char *description,
+ArgParser *ArgParser_AddULongLongV(ArgParser *parser, const char *name, const char *description,
                               unsigned long long *target, ...) {
-    ArgParser_AddULong(parser, name, description, target);
+    ArgParser_AddULongLong(parser, name, description, target);
 
     va_list args;
     va_start(args, target);

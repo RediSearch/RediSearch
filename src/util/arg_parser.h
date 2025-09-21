@@ -44,8 +44,8 @@ typedef enum {
     ARG_TYPE_BITFLAG,       // Bitwise flag (ORs mask into target)
     ARG_TYPE_STRING,        // String argument
     ARG_TYPE_INT,           // Integer argument
-    ARG_TYPE_LONG,          // Long long integer
-    ARG_TYPE_ULONG,         // Unsigned long long
+    ARG_TYPE_LONG_LONG,     // Long long integer
+    ARG_TYPE_ULONG_LONG,    // Unsigned long long
     ARG_TYPE_DOUBLE,        // Double precision float
     ARG_TYPE_SUBARGS,       // Variable number of sub-arguments
 } ArgType;
@@ -135,9 +135,9 @@ ArgParser *ArgParser_AddString(ArgParser *parser, const char *name, const char *
                               const char **target);
 ArgParser *ArgParser_AddInt(ArgParser *parser, const char *name, const char *description,
                            int *target);
-ArgParser *ArgParser_AddLong(ArgParser *parser, const char *name, const char *description,
+ArgParser *ArgParser_AddLongLong(ArgParser *parser, const char *name, const char *description,
                             long long *target);
-ArgParser *ArgParser_AddULong(ArgParser *parser, const char *name, const char *description,
+ArgParser *ArgParser_AddULongLong(ArgParser *parser, const char *name, const char *description,
                              unsigned long long *target);
 ArgParser *ArgParser_AddDouble(ArgParser *parser, const char *name, const char *description,
                               double *target);
@@ -171,9 +171,9 @@ ArgParser *ArgParser_AddStringV(ArgParser *parser, const char *name, const char 
                                const char **target, ...);
 ArgParser *ArgParser_AddIntV(ArgParser *parser, const char *name, const char *description,
                             int *target, ...);
-ArgParser *ArgParser_AddLongV(ArgParser *parser, const char *name, const char *description,
+ArgParser *ArgParser_AddLongLongV(ArgParser *parser, const char *name, const char *description,
                              long long *target, ...);
-ArgParser *ArgParser_AddULongV(ArgParser *parser, const char *name, const char *description,
+ArgParser *ArgParser_AddULongLongV(ArgParser *parser, const char *name, const char *description,
                               unsigned long long *target, ...);
 ArgParser *ArgParser_AddDoubleV(ArgParser *parser, const char *name, const char *description,
                                double *target, ...);
