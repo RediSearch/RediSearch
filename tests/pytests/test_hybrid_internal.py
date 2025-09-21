@@ -85,7 +85,6 @@ def read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback=None
 
     while current_cursor != 0:
         cursor_response = env.cmd('FT.CURSOR', 'READ', index_name, current_cursor)
-        print(f"DEBUG: cursor_response = {cursor_response}")
 
         # RESP 2 format: [[count, result1, result2, ...], next_cursor_id]
         results_array = cursor_response[0]
