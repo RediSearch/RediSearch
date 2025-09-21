@@ -1,7 +1,5 @@
+name: Intel self-hosted flow
 
-#################################################################################
-name: Intel self-hosted flow # 1. Change the name of the workflow
-# TODO: get tests config from calling flow!
 on:
   workflow_call:
     inputs:
