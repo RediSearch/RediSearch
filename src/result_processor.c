@@ -1595,10 +1595,10 @@ static void RPDepleter_Deplete(void *arg) {
   // Signal completion under mutex protection
   pthread_mutex_lock(&sync->mutex);
   self->done_depleting = true;
-  // Mark as finished while still holding the mutex to prevent race conditions
-  atomic_fetch_add(&sync->num_finished, 1);
   pthread_cond_broadcast(&sync->cond);  // Wake up all waiting depleters
   pthread_mutex_unlock(&sync->mutex);
+  // mark as finished at the very end of the function
+  atomic_fetch_add(&sync->num_finished, 1);
 }
 
 /**
