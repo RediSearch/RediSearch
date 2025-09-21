@@ -23,12 +23,14 @@
   ],
   "exclude_directories": [
     "bin",
+    "build",
     "deps",
     "tests",
     "scripts",
     "venv",
     ".github",
     ".git",
+    ".install",
     "__pycache__",
     ".pytest_cache"
   ],

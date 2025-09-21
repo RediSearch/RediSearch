@@ -5,7 +5,6 @@ Creates sample markdown files and tests the link checker functionality.
 """
 
 import tempfile
-import os
 from pathlib import Path
 from check_links import LinkChecker
 

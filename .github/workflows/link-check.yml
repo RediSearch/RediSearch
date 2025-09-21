@@ -37,10 +37,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip uv
         uv pip install --system -r scripts/requirements-linkcheck.txt
-        
-    - name: Make script executable
-      run: chmod +x scripts/check_links.py
-      
+
     - name: Check links in documentation
       run: |
         python scripts/check_links.py . \
