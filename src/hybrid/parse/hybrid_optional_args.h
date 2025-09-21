@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #include "aggregate/aggregate_plan.h"
@@ -11,16 +19,21 @@ extern "C" {
 #endif
 
 typedef enum {
-    SPECIFIED_ARG_NONE,
-    SPECIFIED_ARG_LIMIT,
-    SPECIFIED_ARG_SORTBY,
-    SPECIFIED_ARG_WITHCURSOR,
-    SPECIFIED_ARG_PARAMS,
-    SPECIFIED_ARG_DIALECT,
-    SPECIFIED_ARG_FORMAT,
-    SPECIFIED_ARG_WITHSCORES,
-    SPECIFIED_ARG_EXPLAINSCORE,
-    SPECIFIED_ARG_COMBINE,
+    SPECIFIED_ARG_NONE = 0,
+    SPECIFIED_ARG_LIMIT = 1 << 0,
+    SPECIFIED_ARG_SORTBY = 1 << 1,
+    SPECIFIED_ARG_WITHCURSOR = 1 << 2,
+    SPECIFIED_ARG_PARAMS = 1 << 3,
+    SPECIFIED_ARG_DIALECT = 1 << 4,
+    SPECIFIED_ARG_FORMAT = 1 << 5,
+    SPECIFIED_ARG_WITHSCORES = 1 << 6,
+    SPECIFIED_ARG_EXPLAINSCORE = 1 << 7,
+    SPECIFIED_ARG_GROUPBY = 1 << 8,
+    SPECIFIED_ARG_TIMEOUT = 1 << 9,    
+    SPECIFIED_ARG_COMBINE = 1 << 10,
+    SPECIFIED_ARG_APPLY = 1 << 11,
+    SPECIFIED_ARG_LOAD = 1 << 1,
+    SPECIFIED_ARG_FILTER = 1 << 12
 } SpecifiedArg;
 
 /**
@@ -34,7 +47,6 @@ typedef struct {
     size_t numSubqueries;                   // Number of subqueries for weight validation
 
     AGGPlan *plan;                          // Aggregate plan for LIMIT/SORTBY
-    uint32_t *reqflags;                     // Request flags
     RSSearchOptions *searchopts;            // Search options for PARAMS
     CursorConfig *cursorConfig;             // Cursor configuration
     RequestConfig *reqConfig;               // Request configuration for DIALECT/TIMEOUT

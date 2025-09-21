@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "hybrid/parse/hybrid_optional_args.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "config.h"
@@ -34,7 +42,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
 
     // WITHCURSOR [COUNT count] [MAXIDLE maxidle] - enables cursor-based pagination
     ArgParser_AddBitflagV(parser, "WITHCURSOR", "Enable cursor-based pagination",
-                         ctx->reqflags, sizeof(*ctx->reqflags), QEXEC_F_IS_CURSOR,
+                         ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_IS_CURSOR,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleWithCursor, ctx,
                          ARG_OPT_END);
@@ -50,10 +58,12 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
     // TIMEOUT timeout - query timeout in milliseconds
     // Note: We need to use a temporary int and copy to long long later
     // since ArgParser_AddIntV expects int*, not long long*
-    static int tempTimeout = 0;
+    int tempTimeout = 0;
     ArgParser_AddIntV(parser, "TIMEOUT", "Query timeout in milliseconds",
                       &tempTimeout, sizeof(tempTimeout),
-                      ARG_OPT_OPTIONAL, ARG_OPT_END);
+                      ARG_OPT_OPTIONAL, 
+                      ARG_OPT_CALLBACK, handleTimeout, ctx,
+                      ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
     ArgParser_AddIntV(parser, "DIALECT", "Query dialect version",
@@ -75,18 +85,20 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
 
     // WITHSCORES flag - sets QEXEC_F_SEND_SCORES
     ArgParser_AddBitflagV(parser, "WITHSCORES", "Include scores in results",
-                          ctx->reqflags, sizeof(*ctx->reqflags), QEXEC_F_SEND_SCORES,
+                          ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_SEND_SCORES,
+                          ARG_OPT_CALLBACK, handleWithScores, ctx,
                           ARG_OPT_OPTIONAL, ARG_OPT_END);
 
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
-                          ctx->reqflags, sizeof(*ctx->reqflags), QEXEC_F_SEND_SCOREEXPLAIN,
+                          ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_SEND_SCOREEXPLAIN,
+                          ARG_OPT_CALLBACK, handleExplainScore, ctx,
                           ARG_OPT_OPTIONAL, ARG_OPT_END);
 
     // Local variable to store the selected method for the lifetime of this function
     const char *methodTarget = NULL;
     static const char *allowedCombineMethods[] = {"RRF", "LINEAR", NULL};
-    // COMBINE [RRF [K k] [WINDOW window]] | [LINEAR weight1 weight2 ...] - hybrid fusion method
+    // COMBINE [RRF [K k] [WINDOW window]] | [LINEAR count ALPHA alpha BETA beta] - hybrid fusion method
     ArgParser_AddStringV(parser, "COMBINE", "Fusion method for hybrid search",
                          &methodTarget, 1, -1,
                          ARG_OPT_OPTIONAL,
@@ -152,9 +164,19 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
 
     // Handle dialect-specific validation (replicated from original)
     if (ctx->specifiedArgs & SPECIFIED_ARG_DIALECT && ctx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST &&
-        (*(ctx->reqflags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
+        (*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not supported in this dialect version");
-        return -1;
+        return REDISMODULE_ERR;
+    }
+
+      if (!(*ctx->reqFlags & QEXEC_F_SEND_HIGHLIGHT) &&
+            !(*ctx->reqFlags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) &&
+            (!(*ctx->reqFlags & QEXEC_F_IS_SEARCH) || hasQuerySortby(ctx->plan))) {
+        // We can skip collecting full results structure and metadata from the iterators if:
+        // 1. We don't have a highlight/summarize step,
+        // 2. We are not required to return scores explicitly,
+        // 3. This is not a search query with implicit sorting by query score.
+        ctx->searchopts->flags |= Search_CanSkipRichResults;
     }
 
     return parseResult.success ? REDISMODULE_OK : REDISMODULE_ERR;

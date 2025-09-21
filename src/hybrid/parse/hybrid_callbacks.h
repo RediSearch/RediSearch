@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #include "hybrid_optional_args.h"
@@ -77,6 +85,22 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data);
  * Sets up PLN_MapFilterStep with FILTER type for result filtering
  */
 void handleFilter(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * TIMEOUT callback - handles TIMEOUT timeout
+ * Sets the query timeout in milliseconds
+ */
+void handleTimeout(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * WITHSCORES callback - handles WITHSCORES
+ */
+void handleWithScores(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * EXPLAINSCORE callback - handles EXPLAINSCORE
+ */
+void handleExplainScore(ArgParser *parser, const void *value, void *user_data);
 
 #ifdef __cplusplus
 }

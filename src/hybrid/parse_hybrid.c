@@ -579,7 +579,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       .hybridScoringCtx = hybridParams->scoringCtx,
       .numSubqueries = HYBRID_REQUEST_NUM_SUBQUERIES,
       .plan = parsedCmdCtx->tailPlan,
-      .reqflags = mergeReqflags,
+      .reqFlags = mergeReqflags,
       .searchopts = &mergeSearchopts,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
@@ -609,7 +609,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
-  // Save the current position to determine remaining arguments for the merge part
   if (hybridParseCtx.specifiedArgs != 0) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
     if (mergeSearchopts.params) {

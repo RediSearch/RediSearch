@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "hybrid_callbacks.h"
 #include "config.h"
 #include "param.h"
@@ -61,7 +69,7 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
         //(SEARCH / AGGREGATE)
     } else if (num > *ctx->maxResults) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
-                             ctx->maxResults);
+                             *ctx->maxResults);
         return;
     } else if (offset > LLONG_MAX - num) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT offset + count overflow");
@@ -218,6 +226,7 @@ void handleDialect(ArgParser *parser, const void *value, void *user_data) {
 // FORMAT callback - implements EXACT original logic from lines 359-366
 void handleFormat(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
     const char *format = *(char**)value;
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
@@ -243,10 +252,11 @@ static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *
 // GROUPBY callback - implements EXACT original logic from parseGroupby
 void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_GROUPBY;
     ArgsCursor *ac = (ArgsCursor*)value;
     QueryError *status = ctx->status;
 
-    if (!ensureExtendedMode(ctx->reqflags, "GROUPBY", status)) {
+    if (!ensureExtendedMode(ctx->reqFlags, "GROUPBY", status)) {
         return;
     }
 
@@ -293,6 +303,7 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
 // APPLY callback - implements EXACT original logic from handleApplyOrFilter with isApply=1
 void handleApply(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_APPLY;
     ArgsCursor *ac = parser->cursor;  // Get remaining args from parser cursor
     QueryError *status = ctx->status;
 
@@ -329,6 +340,7 @@ error:
 // LOAD callback - implements EXACT original logic from handleLoad
 void handleLoad(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_LOAD;
     ArgsCursor *ac = parser->cursor;  // Get remaining args from parser cursor
     QueryError *status = ctx->status;
 
@@ -337,7 +349,7 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
     ArgsCursor loadfields = {0};
     if (strcmp(firstArg, "*") == 0) {
         // Successfully got a '*', load all fields
-        REQFLAGS_AddFlags(ctx->reqflags, QEXEC_AGG_LOAD_ALL);
+        REQFLAGS_AddFlags(ctx->reqFlags, QEXEC_AGG_LOAD_ALL);
     } else {
         // Try to parse the first argument as a number of fields to load
         char *end = NULL;
@@ -361,7 +373,7 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
         lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
     }
 
-    if (*ctx->reqflags & QEXEC_AGG_LOAD_ALL) {
+    if (*ctx->reqFlags & QEXEC_AGG_LOAD_ALL) {
         lstp->base.flags |= PLN_F_LOAD_ALL;
     }
 
@@ -372,6 +384,7 @@ void handleLoad(ArgParser *parser, const void *value, void *user_data) {
 void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
     QueryError *status = ctx->status;
+    ctx->specifiedArgs |= SPECIFIED_ARG_FILTER;
 
     // Get the expression from the string value
     const char *expr = *(const char**)value;
@@ -382,3 +395,25 @@ void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     HiddenString_Free(expression, false);
     AGPLN_AddStep(ctx->plan, &stp->base);
 }
+
+// TIMEOUT callback - implements EXACT original logic from handleTimeout
+void handleTimeout(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_TIMEOUT;
+    int timeout = *(int*)value;
+    // assign from int to long long
+    ctx->reqConfig->queryTimeoutMS = timeout;
+}
+
+// WITHSCORES callback - implements EXACT original logic from handleWithScores
+void handleWithScores(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_WITHSCORES;
+}
+
+// EXPLAINSCORE callback - implements EXACT original logic from handleExplainScore
+void handleExplainScore(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ctx->specifiedArgs |= SPECIFIED_ARG_EXPLAINSCORE;
+}
+
