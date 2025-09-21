@@ -18,7 +18,7 @@
 
 // Internal helper functions
 static ArgDefinition *find_definition(ArgParser *parser, const char *name);
-static ArgDefinition *find_positional_definition(ArgParser *parser, uint16_t position);
+static ArgDefinition *find_positional_definition(ArgParser *parser, uint16_t position, const char *name);
 static int parse_single_arg(ArgParser *parser, ArgDefinition *def);
 static void set_error(ArgParser *parser, const char *message, const char *arg_name);
 static void apply_defaults(ArgParser *parser);
@@ -185,12 +185,12 @@ static ArgDefinition *find_definition(ArgParser *parser, const char *name) {
 }
 
 // Optimized lookup for positional arguments
-static ArgDefinition *find_positional_definition(ArgParser *parser, uint16_t position) {
+static ArgDefinition *find_positional_definition(ArgParser *parser, uint16_t position, const char *name) {
     if (!parser || position < 1) return NULL;
 
     for (size_t i = 0; i < array_len(parser->definitions); i++) {
         ArgDefinition *def = &parser->definitions[i];
-        if (def->has_position && def->position == position) {
+        if (def->has_position && def->position == position && (name == NULL || strcasecmp(def->name, name) == 0)) {
             return def;
         }
     }
@@ -373,24 +373,23 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
     // First pass: parse positional arguments in order
     uint16_t current_position = 1;
     while (!AC_IsAtEnd(parser->cursor)) {
-        // Find positional argument for current position (optimized lookup)
-        ArgDefinition *pos_def = find_positional_definition(parser, current_position);
-
-        if (!pos_def) {
-            // No more positional arguments, break to named argument parsing
-            break;
-        }
-
         // Check if the current argument is a known named argument
-        const char *arg_name;
-        int rv = AC_GetString(parser->cursor, &arg_name, NULL, AC_F_NOADVANCE);
+        const char *def_name;
+        int rv = AC_GetString(parser->cursor, &def_name, NULL, AC_F_NOADVANCE);
         if (rv != AC_OK) {
             set_error(parser, "Failed to read argument", NULL);
             break;
         }
 
+        // Find positional argument for current position (optimized lookup)
+        ArgDefinition *pos_def = find_positional_definition(parser, current_position, def_name);
+        if (!pos_def) {
+            // No more positional arguments, break to named argument parsing
+            break;
+        }
+
         // Check if this is a named argument (not positional)
-        ArgDefinition *named_def = find_definition(parser, arg_name);
+        ArgDefinition *named_def = find_definition(parser, def_name);
         if (named_def && !named_def->has_position) {
             // This is a named argument, stop positional parsing
             break;
@@ -425,7 +424,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
     // Check for missing required positional arguments
     uint16_t check_position = current_position;
     while (true) {
-        ArgDefinition *pos_def = find_positional_definition(parser, check_position);
+        ArgDefinition *pos_def = find_positional_definition(parser, check_position, NULL);
         if (!pos_def) break;
 
         if (pos_def->required) {
@@ -453,7 +452,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
             // Find the next unparsed positional argument
             ArgDefinition *pos_def = NULL;
             for (uint16_t pos = 1; pos <= MAX_POSITIONAL_ARGS; pos++) { // reasonable limit
-                ArgDefinition *candidate = find_positional_definition(parser, pos);
+                ArgDefinition *candidate = find_positional_definition(parser, pos, NULL);
                 if (!candidate) break;
 
                 if (!candidate->parsed) {

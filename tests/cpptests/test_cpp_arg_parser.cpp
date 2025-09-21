@@ -229,7 +229,7 @@ TEST_F(ArgParserTest, DefaultValues) {
 }
 
 TEST_F(ArgParserTest, PositionalArguments) {
-    SetupCustomArgs({"COMMAND", "first_pos", "second_pos", "TIMEOUT", "5000"});
+    SetupCustomArgs({"COMMAND", "FIRST", "first_pos_value", "SECOND", "second_pos_value", "TIMEOUT", "5000"});
 
     const char *first_arg = nullptr;
     const char *second_arg = nullptr;
@@ -254,8 +254,8 @@ TEST_F(ArgParserTest, PositionalArguments) {
     ArgParseResult result = ArgParser_Parse(parser);
     ASSERT_TRUE(result.success) << "Parse failed: " << ArgParser_GetErrorString(parser);
 
-    ASSERT_STREQ(first_arg, "first_pos");
-    ASSERT_STREQ(second_arg, "second_pos");
+    ASSERT_STREQ(first_arg, "first_pos_value");
+    ASSERT_STREQ(second_arg, "second_pos_value");
     ASSERT_EQ(timeout, 5000LL);
 }
 
