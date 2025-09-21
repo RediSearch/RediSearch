@@ -68,6 +68,12 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 } MRCtx;
 
+// Data structure to pass iterator and private data to callback
+typedef struct {
+  MRIterator *it;
+  void *privateData;
+} IteratorData;
+
 void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
   ctx->mastersOnly = mastersOnly;
 }
@@ -548,8 +554,10 @@ void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
 }
 
-void iterStartCb(void *p) {
-  MRIterator *it = p;
+// Takes ownership of the IteratorData structure, but not its internal components: iterator and private data
+static void iterStartCb(void *p) {
+  IteratorData *data = (IteratorData *)p;
+  MRIterator *it = data->it;
 
   size_t len = cluster_g->topo->numShards;
   it->len = len;
@@ -573,6 +581,9 @@ void iterStartCb(void *p) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
+
+  // Clean up the data structure
+  rm_free(data);
 }
 
 void iterManualNextCb(void *p) {
@@ -620,7 +631,10 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
 }
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
+  return MR_IterateWithPrivateData(cmd, cb, NULL);
+}
 
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -647,7 +661,13 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
     .it = ret,
   };
 
-  RQ_Push(rq_g, iterStartCb, ret);
+  // Create data structure with iterator and private data (on heap)
+  IteratorData *data = rm_malloc(sizeof(IteratorData));
+  data->it = ret;
+  data->privateData = cbPrivateData;
+
+  // Use start callback that can access private data
+  RQ_Push(rq_g, iterStartCb, data);
   return ret;
 }
 

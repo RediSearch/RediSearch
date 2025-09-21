@@ -81,6 +81,8 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData);
+
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
