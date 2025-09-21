@@ -546,6 +546,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RS_ASSERT(*mergeReqflags == 0);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
   RSSearchOptions mergeSearchopts = {0};
+  RSSearchOptions_Init(&mergeSearchopts);
   size_t maxHybridResults = RSGlobalConfig.maxSearchResults;
 
   AREQ *vectorRequest = parsedCmdCtx->vector;
@@ -611,8 +612,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Save the current position to determine remaining arguments for the merge part
   if (hybridParseCtx.specifiedArgs != 0) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
-    RSSearchOptions_Init(&mergeSearchopts);
-
     if (mergeSearchopts.params) {
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);

@@ -33,13 +33,11 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_LIMIT;
 
-    // Replicate exact original logic: lines 260-262
     if (AC_NumRemaining(ac) < 2) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT requires 2 arguments");
         return;
     }
 
-    // Replicate exact original logic: lines 264-270
     long long offset, num;
     if (AC_GetLongLong(ac, &offset, AC_F_GE0) != AC_OK) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT offset must be a non-negative integer");
@@ -50,17 +48,26 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
 
-    // Replicate exact original logic: lines 272-296
-    if (ctx->maxResults) {
-        if (offset > LLONG_MAX - num) {
-            QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT offset + count overflow");
-            return;
-        }
-        long long total = offset + num;
-        if (total > *ctx->maxResults) {
-            *ctx->maxResults = total;
-        }
+    if (num == 0 && offset != 0) {
+        QueryError_SetError(status, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+        return;
     }
+
+    if (num == 0) {
+        // LIMIT 0 0 - only count
+        REQFLAGS_AddFlags(ctx->reqFlags, QEXEC_F_NOROWS);
+        REQFLAGS_AddFlags(ctx->reqFlags, QEXEC_F_SEND_NOFIELDS);
+        // TODO: unify if when req holds only maxResults according to the query type.
+        //(SEARCH / AGGREGATE)
+    } else if (num > *ctx->maxResults) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+                             ctx->maxResults);
+        return;
+    } else if (offset > LLONG_MAX - num) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT offset + count overflow");
+        return;
+    }
+
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(ctx->plan);
     arng->isLimited = 1;
     arng->offset = offset;
@@ -87,10 +94,11 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
         const char *first = AC_GetStringNC(ac, NULL);
         if (strcmp(first, "0") == 0) {
             // SORTBY 0 means no sorting - just return success
+            *ctx->reqFlags |= QEXEC_F_NO_SORT;
             return;
         }
         // Reset cursor to parse normally
-        ac->offset = 0;  // Reset cursor to beginning
+        ac->offset = 0;
     }
 
     // Parse field/direction pairs
@@ -101,9 +109,14 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
             return;
         }
 
+        // Remove '@' prefix if present (same logic as parseSortby)
+        if (*field == '@') {
+            field++;  // Skip the '@' prefix
+        }
+
         // Default to ascending
         int ascending = 1;
-        
+
         // Check for optional direction
         if (!AC_IsAtEnd(ac)) {
             const char *direction = NULL;
@@ -209,6 +222,163 @@ void handleFormat(ArgParser *parser, const void *value, void *user_data) {
     QueryError *status = ctx->status;
     ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
     if (strcasecmp(format, "STRING") == 0) {
-        *ctx->reqFlags |= QEXEC_F_SEND_NOFIELDS;
+        *ctx->reqFlags &= ~QEXEC_FORMAT_EXPAND;
+    } else if (strcasecmp(format, "EXPAND") == 0) {
+        *ctx->reqFlags |= QEXEC_FORMAT_EXPAND;
     }
+}
+
+// Helper function to ensure extended mode for aggregation operations
+static int ensureExtendedMode(uint32_t *reqflags, const char *name, QueryError *status) {
+    if (*reqflags & QEXEC_F_IS_SEARCH) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+                               "option `%s` is mutually exclusive with simple (i.e. search) options",
+                               name);
+        return 0;
+    }
+    REQFLAGS_AddFlags(reqflags, QEXEC_F_IS_AGGREGATE);
+    return 1;
+}
+
+// GROUPBY callback - implements EXACT original logic from parseGroupby
+void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ArgsCursor *ac = (ArgsCursor*)value;
+    QueryError *status = ctx->status;
+
+    if (!ensureExtendedMode(ctx->reqflags, "GROUPBY", status)) {
+        return;
+    }
+
+    const long long nproperties = AC_NumRemaining(ac);
+    const char **properties = array_newlen(const char *, nproperties);
+    for (size_t i = 0; i < nproperties; ++i) {
+        const char *property;
+        size_t propertyLen;
+        int rv = AC_GetString(ac, &property, &propertyLen, 0);
+        if (rv != AC_OK) {
+            const size_t oneBasedIndex = i + 1;
+            QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY: Failed to parse property %zu, %s", oneBasedIndex, AC_Strerror(rv));
+            array_free(properties);
+            return;
+        }
+        if (property[0] != '@') {
+            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
+                               property, property);
+            array_free(properties);
+            return;
+        }
+        properties[i] = property;
+    }
+
+    // Number of fields.. now let's see the reducers
+    StrongRef properties_ref = StrongRef_New((void *)properties, (RefManager_Free)array_free);
+    PLN_GroupStep *gstp = PLNGroupStep_New(properties_ref);
+    AGPLN_AddStep(ctx->plan, &gstp->base);
+
+    ArgsCursor *reduce = parser->cursor;
+    while (AC_AdvanceIfMatch(reduce, "REDUCE")) {
+        const char *name;
+        const int rv = AC_GetString(reduce, &name, NULL, 0);
+        if (rv != AC_OK) {
+            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for REDUCE", ": %s", AC_Strerror(rv));
+            return;
+        }
+        if (PLNGroupStep_AddReducer(gstp, name, reduce, status) != REDISMODULE_OK) {
+            return;
+        }
+    }
+}
+
+// APPLY callback - implements EXACT original logic from handleApplyOrFilter with isApply=1
+void handleApply(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ArgsCursor *ac = parser->cursor;  // Get remaining args from parser cursor
+    QueryError *status = ctx->status;
+
+    // Get the expression from the string value
+    const char *expr = *(const char**)value;
+    size_t exprLen = strlen(expr);
+
+    HiddenString* expression = NewHiddenString(expr, exprLen, false);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_APPLY);
+    HiddenString_Free(expression, false);
+    AGPLN_AddStep(ctx->plan, &stp->base);
+
+    // Check for optional AS alias in remaining arguments
+    if (AC_AdvanceIfMatch(ac, "AS")) {
+        const char *alias;
+        size_t aliasLen;
+        if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
+            QueryError_SetError(status, QUERY_EPARSEARGS, "AS needs argument");
+            goto error;
+        }
+        stp->base.alias = rm_strndup(alias, aliasLen);
+    } else {
+        stp->base.alias = rm_strndup(expr, exprLen);
+    }
+    return;
+
+error:
+    if (stp) {
+        AGPLN_PopStep(&stp->base);
+        stp->base.dtor(&stp->base);
+    }
+}
+
+// LOAD callback - implements EXACT original logic from handleLoad
+void handleLoad(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    ArgsCursor *ac = parser->cursor;  // Get remaining args from parser cursor
+    QueryError *status = ctx->status;
+
+    // Get the first argument from the string value
+    const char *firstArg = *(const char**)value;
+    ArgsCursor loadfields = {0};
+    if (strcmp(firstArg, "*") == 0) {
+        // Successfully got a '*', load all fields
+        REQFLAGS_AddFlags(ctx->reqflags, QEXEC_AGG_LOAD_ALL);
+    } else {
+        // Try to parse the first argument as a number of fields to load
+        char *end = NULL;
+        long long numFields = strtoll(firstArg, &end, 10);
+        if (*end != '\0' || numFields <= 0) {
+            QueryError_SetError(status, QUERY_EPARSEARGS, "Bad arguments for LOAD: Expected number of fields or `*`");
+            return;
+        }
+        // Successfully got a number, slice that many fields
+        if (AC_GetSlice(ac, &loadfields, numFields) != AC_OK) {
+            QueryError_SetError(status, QUERY_EPARSEARGS, "Not enough arguments for LOAD");
+            return;
+        }
+    }
+
+    PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
+    lstp->base.type = PLN_T_LOAD;
+    lstp->base.dtor = loadDtor;
+    if (loadfields.argc > 0) {
+        lstp->args = loadfields;
+        lstp->keys = rm_calloc(loadfields.argc, sizeof(*lstp->keys));
+    }
+
+    if (*ctx->reqflags & QEXEC_AGG_LOAD_ALL) {
+        lstp->base.flags |= PLN_F_LOAD_ALL;
+    }
+
+    AGPLN_AddStep(ctx->plan, &lstp->base);
+}
+
+// FILTER callback - implements EXACT original logic from handleApplyOrFilter with isApply=0
+void handleFilter(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    QueryError *status = ctx->status;
+
+    // Get the expression from the string value
+    const char *expr = *(const char**)value;
+    size_t exprLen = strlen(expr);
+
+    HiddenString* expression = NewHiddenString(expr, exprLen, false);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_FILTER);
+    HiddenString_Free(expression, false);
+    AGPLN_AddStep(ctx->plan, &stp->base);
 }

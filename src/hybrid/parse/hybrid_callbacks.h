@@ -54,6 +54,30 @@ void handleFormat(ArgParser *parser, const void *value, void *user_data);
  */
 void handleCombine(ArgParser *parser, const void *value, void *user_data);
 
+/**
+ * GROUPBY callback - handles GROUPBY nproperties property [property ...] [REDUCE function nargs arg [arg ...] [AS alias]] [...]
+ * Sets up PLN_GroupStep with grouping properties and reducers
+ */
+void handleGroupby(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * APPLY callback - handles APPLY expression [AS alias]
+ * Sets up PLN_MapFilterStep with APPLY type for expression evaluation
+ */
+void handleApply(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * LOAD callback - handles LOAD nfields field [field ...] | LOAD *
+ * Sets up PLN_LoadStep to load specified fields or all fields
+ */
+void handleLoad(ArgParser *parser, const void *value, void *user_data);
+
+/**
+ * FILTER callback - handles FILTER expression
+ * Sets up PLN_MapFilterStep with FILTER type for result filtering
+ */
+void handleFilter(ArgParser *parser, const void *value, void *user_data);
+
 #ifdef __cplusplus
 }
 #endif

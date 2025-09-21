@@ -62,8 +62,8 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   //     ^
 
   // Variables to hold parsed values
-  double constantValue = HYBRID_DEFAULT_RRF_CONSTANT;  // Default from hybrid_scoring.h
-  long long windowValue = HYBRID_DEFAULT_WINDOW;       // Default from hybrid_scoring.h
+  int constantValue = 0;
+  int windowValue = 0;
 
   ArgsCursor rrf;
   int rc = AC_GetVarArgs(ac, &rrf);
@@ -80,26 +80,21 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   }
 
   // Define the optional arguments with validation
-  ArgParser_AddDouble(parser, "CONSTANT", "RRF constant value (must be positive)", &constantValue);
-  ArgParser_AddLong(parser, "WINDOW", "RRF window size (must be positive)", &windowValue);
+  ArgParser_AddIntV(parser, "CONSTANT", "RRF constant value (must be positive)", 
+                      &constantValue, ARG_OPT_OPTIONAL,
+                      ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_RRF_CONSTANT,
+                      ARG_OPT_RANGE, 1LL, LLONG_MAX,
+                      ARG_OPT_END);
+  ArgParser_AddIntV(parser, "WINDOW", "RRF window size (must be positive)", 
+                     &windowValue, ARG_OPT_OPTIONAL,
+                     ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
+                     ARG_OPT_RANGE, 1LL, LLONG_MAX,
+                     ARG_OPT_END);
 
   // Parse the arguments
   ArgParseResult result = ArgParser_Parse(parser);
   if (!result.success) {
     QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
-    ArgParser_Free(parser);
-    return;
-  }
-
-  // Validate the parsed values
-  if (ArgParser_WasParsed(parser, "CONSTANT") && constantValue <= 0) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF (must be positive)");
-    ArgParser_Free(parser);
-    return;
-  }
-
-  if (ArgParser_WasParsed(parser, "WINDOW") && windowValue <= 0) {
-    QueryError_SetError(status, QUERY_ESYNTAX, "Invalid WINDOW value in RRF (must be positive)");
     ArgParser_Free(parser);
     return;
   }

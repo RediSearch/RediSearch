@@ -20,7 +20,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
     ArgsCursor subArgs = {0};
     // LIMIT offset count - handles result limiting
     ArgParser_AddSubArgsV(parser, "LIMIT", "Limit results",
-                         NULL, 2, 2,
+                         &subArgs, 2, 2,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleLimit, ctx,
                          ARG_OPT_END);
@@ -65,7 +65,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
 
     // FORMAT format - output format
     const char *formatTarget = NULL;
-    static const char *allowedFormats[] = {"STRING", NULL};
+    static const char *allowedFormats[] = {"STRING", "EXPAND", NULL};
     ArgParser_AddStringV(parser, "FORMAT", "Output format",
                          &formatTarget, 1, 1,
                          ARG_OPT_OPTIONAL,
@@ -93,6 +93,38 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                          ARG_OPT_ALLOWED_VALUES, allowedCombineMethods,
                          ARG_OPT_CALLBACK, handleCombine, ctx,
                          ARG_OPT_POSITION, 1,
+                         ARG_OPT_END);
+
+    // GROUPBY nproperties property [property ...] [REDUCE function nargs arg [arg ...] [AS alias]] [...]
+    ArgParser_AddSubArgsV(parser, "GROUPBY", "Group results by properties with reducers",
+                         &subArgs, 1, -1,
+                         ARG_OPT_OPTIONAL,
+                         ARG_OPT_CALLBACK, handleGroupby, ctx,
+                         ARG_OPT_END);
+
+    // APPLY expression [AS alias] - apply expression to each result
+    const char *applyTarget = NULL;
+    ArgParser_AddStringV(parser, "APPLY", "Apply expression to each result",
+                         &applyTarget, 1, -1,
+                         ARG_OPT_OPTIONAL,
+                         ARG_OPT_REPEATABLE,
+                         ARG_OPT_CALLBACK, handleApply, ctx,
+                         ARG_OPT_END);
+
+    // LOAD nfields field [field ...] | LOAD * - load specific fields or all fields
+    const char *loadTarget = NULL;
+    ArgParser_AddStringV(parser, "LOAD", "Load specific fields or all fields",
+                         &loadTarget, 1, -1,
+                         ARG_OPT_OPTIONAL,
+                         ARG_OPT_CALLBACK, handleLoad, ctx,
+                         ARG_OPT_END);
+
+    // FILTER expression - filter results by expression
+    const char *filterTarget = NULL;
+    ArgParser_AddStringV(parser, "FILTER", "Filter results by expression",
+                         &filterTarget, 1, 1,
+                         ARG_OPT_OPTIONAL,
+                         ARG_OPT_CALLBACK, handleFilter, ctx,
                          ARG_OPT_END);
 
     // TODO: Add YIELD_SCORE_AS support for score aliasing
