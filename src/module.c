@@ -3779,6 +3779,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
     SafeCmd(RSClientHybridCommand), "readonly", 0, 0, -1, "read", false))
+    // Forward declaration for HybridTestCursorsCommand, implemented in the bottom of the file
+  int HybridTestCursorsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+  RM_TRY(RMCreateSearchCommand(ctx, "_FT.TEST.CURSORS", SafeCmd(HybridTestCursorsCommand), "readonly", 0, 0, 0, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
@@ -3945,4 +3948,20 @@ void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx) 
   cleanup->sctx = sctx;
 
   ConcurrentSearch_ThreadPoolRun(freeContextsCallback, cleanup, DIST_THREADPOOL);
+}
+
+
+// Shard-side command: _FT.TEST.CURSORS
+// This command replies with hardcoded cursor maps for testing purposes.
+int HybridTestCursorsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  // Generate random cursor IDs
+
+  // Reply with a map containing SEARCH and VSIM cursors
+  RedisModule_ReplyWithMap(ctx, 2); // Map with 2 key-value pairs
+  RedisModule_ReplyWithCString(ctx, "SEARCH");
+  RedisModule_ReplyWithLongLong(ctx, 10); // Random SEARCH cursor ID
+  RedisModule_ReplyWithCString(ctx, "VSIM");
+  RedisModule_ReplyWithLongLong(ctx, 20); // Random VSIM cursor ID
+
+  return REDISMODULE_OK;
 }

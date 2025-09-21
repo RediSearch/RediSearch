@@ -21,6 +21,7 @@
 #include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "coord/hybrid/hybrid_dispatcher.h"
 
 #include <err.h>
 
@@ -75,64 +76,8 @@ static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRIteratorCallback_Done(ctx, 0);
 }
 
-static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-
-  RedisModule_Log(RSDummyContext, "warning", "nopCallback");
-  RedisModule_Log(RSDummyContext, "warning", "rep string: %s", MRReply_String(rep, NULL));
-  RedisModule_Log(RSDummyContext, "warning", "rep type: %d", MRReply_Type(rep));
-  CursorMappingData *mappingData = MRIteratorCallback_GetPrivateData(ctx);
-
-  RedisModule_Log(RSDummyContext, "warning", "mappingData: %p", mappingData);
-
-
-  RedisModule_Log(RSDummyContext, "warning", "rep length: %zu", MRReply_Length(rep));
-  for (size_t i = 0; i < 4; i += 2) {
-
-    RedisModule_Log(RSDummyContext, "warning", "i: %zu", i);
-
-    CursorMapping *mapping = rm_calloc(1, sizeof(CursorMapping));
-    mapping->targetSlot = MRIteratorCallback_GetCommand(ctx)->targetSlot;;
-
-    RedisModule_Log(RSDummyContext, "warning", "mapping->targetSlot: %d", mapping->targetSlot);
-
-    MRReply *key_reply = MRReply_ArrayElement(rep, i);
-    MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
-
-    const char *key = MRReply_String(key_reply, NULL);
-
-    RedisModule_Log(RSDummyContext, "warning", "key: %s", key);
-
-    long long value;
-    MRReply_ToInteger(value_reply, &value);
-
-    bool isSearch = false;
-    if (strcmp(key, "SEARCH") == 0) {
-      mapping->cursorId = value;
-      isSearch = true;
-    } else if (strcmp(key, "VSIM") == 0) {
-      mapping->cursorId = value;
-      isSearch = true;
-    } else {
-      RS_ABORT("Unknown key");
-    }
-
-    pthread_mutex_lock(&mappingData->mutex);
-    if (isSearch) {
-      array_append(mappingData->searchMappings, mapping);
-    } else {
-      array_append(mappingData->vsimMappings, mapping);
-    }
-    pthread_mutex_unlock(&mappingData->mutex);
-  }
-
-  MRIteratorCallback_Done(ctx, 0);
-  MRReply_Free(rep);
-}
-
 static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  // usleep(100000000000);
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
-  RedisModule_Log(RSDummyContext, "warning", "newCmd.targetSlot: %d", cmd->targetSlot);
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
   if (cmd->rootCommand == C_DEL) {
@@ -541,57 +486,36 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
-// static int rpnetNext_Start2(ResultProcessor *rp, SearchResult *r) {
-//   RPNet *nc = (RPNet *)rp;
-//   CursorMappingData *mappingData = rm_malloc(sizeof(CursorMappingData));
-//   mappingData->indexName = "myindex";
-//   mappingData->mappings = (CursorMapping *)rm_malloc(sizeof(CursorMapping) * 4);
-//   mappingData->numMappings = 4;
 
-//   mappingData->mappings[0].targetSlot = 0;
-//   mappingData->mappings[0].cursorId = 1;
-//   mappingData->mappings[1].targetSlot = 4097;
-//   mappingData->mappings[1].cursorId = 2;
-//   mappingData->mappings[2].targetSlot = 8194;
-//   mappingData->mappings[2].cursorId = 3;
-//   mappingData->mappings[3].targetSlot = 12291;
-//   mappingData->mappings[3].cursorId = 4;
-
-//   // Use MR_IterateWithPrivateData - it will automatically choose the right callback
-//   MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, mappingData);
-//   if (!it) {
-//     return RS_RESULT_ERROR;
-//   }
-//   // usleep(100000000000);
-//   nc->it = it;
-//   nc->base.Next = rpnetNext;
-//   return rpnetNext(rp, r);
-// }
-
-
-static int rpnetNext_Start3(ResultProcessor *rp, SearchResult *r) {
+static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
+  MRCommand cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
 
+  StrongRef dispatcher_ref = HybridDispatcher_New(&cmd);
+  HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
 
-  CursorMappingData *mappingData = rm_calloc(1, sizeof(CursorMappingData));
-  pthread_mutex_init(&mappingData->mutex, NULL);
-  mappingData->indexName = "myindex";
-  mappingData->searchMappings = array_new(CursorMapping*,0);
-  mappingData->vsimMappings = array_new(CursorMapping*,0);
+  //len is number of shards
+  arrayof(CursorMapping *) searchMappings = array_new(CursorMapping* ,10);
+  arrayof(CursorMapping *) vsimMappings = array_new(CursorMapping*, 10);
 
-  // Use MR_IterateWithPrivateData - it will automatically choose the right callback
-  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, processCursorMappingCallback, mappingData, iterStartCb, NULL);
-  if (!it) {
-    return RS_RESULT_ERROR;
+  HybridDispatcher_SetMappingArray(dispatcher, searchMappings, true);
+  HybridDispatcher_SetMappingArray(dispatcher, vsimMappings, false);
+
+  if (!HybridDispatcher_IsStarted(dispatcher)) {
+    HybridDispatcher_Dispatch(dispatcher);
   }
+
+  while (!HybridDispatcher_IsDone(dispatcher)) {
+    usleep(1000);
+  }
+  usleep(100000);
 
   // use logic like in getCursorCommand
   // MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, cursorStr);
-  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, mappingData);
+  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, searchMappings);
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
-
 
 static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
@@ -623,7 +547,7 @@ static RPNet *RPNet_New(const MRCommand *cmd) {
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Next = rpnetNext_Start3;
+  nc->base.Next = rpnetNext_StartDispatcher;
   nc->base.type = RP_NETWORK;
   return nc;
 }

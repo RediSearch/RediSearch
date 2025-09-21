@@ -596,18 +596,14 @@ void iterStartCb(void *p) {
 void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
-  CursorMappingData *mappingData = (CursorMappingData *)data->privateData;
-  CursorMapping *searchMappings = mappingData->searchMappings;
-
-  RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb");
-
+  arrayof(CursorMapping *) searchMappings = (arrayof(CursorMapping *))data->privateData;
 
   if (!searchMappings || array_len(searchMappings) == 0) {
     // Fallback to regular behavior if no mapping data
     RS_ABORT("iterCursorMappingCb: no mapping data");
   }
 
-  size_t len = array_len(searchMappings);
+  uint32_t len = array_len(searchMappings);
   it->len = len;
   it->ctx.pending = len;
   it->ctx.inProcess = len;
@@ -620,19 +616,17 @@ void iterCursorMappingCb(void *p) {
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
 
     char cursorStr[256];
-    sprintf(cursorStr, "%lld", searchMappings[i].cursorId);
-    RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb: targetSlot: %d, cursorStr: %s", searchMappings[i].targetSlot, cursorStr);
+    sprintf(cursorStr, "%lld", searchMappings[i]->cursorId);
     // it->cbxs[i].cmd = MR_NewCommand(4, "_FT.CURSOR", "READ",
     //                                mappingData->indexName, cursorStr);
     it->cbxs[i].cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
-    it->cbxs[i].cmd.targetSlot = searchMappings[i].targetSlot;
+    it->cbxs[i].cmd.targetSlot = searchMappings[i]->targetSlot;
     it->cbxs[i].cmd.protocol = 3;
     it->cbxs[i].cmd.forCursor = true;
     it->cbxs[i].cmd.rootCommand = C_READ;
     it->cbxs[i].cmd.depleted = false;
   }
 
-  RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb: sending commands to all shards");
   // Send commands to all shards
   for (size_t i = 0; i < it->len; i++) {
     if (MRCluster_SendCommand(cluster_g, true, &it->cbxs[i].cmd,

@@ -9,16 +9,42 @@
 
 #include "hybrid_dispatcher.h"
 #include "rmr/rmr.h"
-#include "rmalloc.h"
+#include "../../rmalloc.h"
 #include "redismodule.h"
-#include "rmutil/rm_assert.h"
+#include "../../../deps/rmutil/rm_assert.h"
 #include <string.h>
 #include <unistd.h>
+
+static void HybridDispatcher_MarkStarted(HybridDispatcher *dispatcher) {
+    atomic_store(&dispatcher->started, true);
+}
+
+static void HybridDispatcher_MarkDone(HybridDispatcher *dispatcher) {
+    atomic_store(&dispatcher->done, true);
+}
+
+bool HybridDispatcher_IsStarted(HybridDispatcher *dispatcher) {
+    return atomic_load(&dispatcher->started);
+}
+
+static int HybridDispatcher_AddMapping(HybridDispatcher *dispatcher, CursorMapping *mapping, bool isSearch) {
+    pthread_mutex_lock(&dispatcher->data_mutex);
+
+    if (isSearch) {
+        array_append(dispatcher->searchMappings, mapping);
+    } else {
+        array_append(dispatcher->vsimMappings, mapping);
+    }
+
+    pthread_mutex_unlock(&dispatcher->data_mutex);
+    return 0; // RS_RESULT_OK
+}
+
 
 // Callback implementation for processing cursor mappings
 static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
-    HybridDispatcher *dispatcher = MRIteratorCallback_GetPrivateData(ctx);
+    HybridDispatcher *dispatcher = (HybridDispatcher *)MRIteratorCallback_GetPrivateData(ctx);
 
     for (size_t i = 0; i < 4; i += 2) {
 
@@ -39,12 +65,13 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
             isSearch = true;
         } else if (strcmp(key, "VSIM") == 0) {
             mapping->cursorId = value;
-            isSearch = true;
+            isSearch = false;
         } else {
             RS_ABORT("Unknown key");
         }
-
-        HybridDispatcher_AddMapping(dispatcher, mapping, isSearch);
+        if (isSearch) {
+            HybridDispatcher_AddMapping(dispatcher, mapping, isSearch);
+        }
     }
 
     MRIteratorCallback_Done(ctx, 0);
@@ -61,6 +88,14 @@ static void HybridDispatcher_Free(void *obj) {
     pthread_mutex_destroy(&dispatcher->data_mutex);
 
     rm_free(dispatcher);
+}
+
+
+static arrayof(CursorMapping *) HybridDispatcher_GetSearchMappings(HybridDispatcher *dispatcher) {
+    pthread_mutex_lock(&dispatcher->data_mutex);
+    arrayof(CursorMapping *) result = dispatcher->searchMappings;
+    pthread_mutex_unlock(&dispatcher->data_mutex);
+    return result;
 }
 
 StrongRef HybridDispatcher_New(const MRCommand *cmd) {
@@ -99,10 +134,9 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher) {
         return -1; // RS_RESULT_ERROR
     }
 
-    // Wait until there are no pending replies in the iterator
-    while (MRIterator_GetPending(it) > 0) {
-        // Sleep briefly to avoid busy waiting
-        usleep(1000); // 1ms
+    // 4 is the number of shards
+    while (array_len(HybridDispatcher_GetSearchMappings(dispatcher)) < 4 ) {
+        usleep(1000);
     }
 
     // Mark as done
@@ -111,14 +145,8 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher) {
     // Release the iterator
     MRIterator_Release(it);
 
+    // todo: should it return rc?
     return 0; // RS_RESULT_OK
-}
-
-static arrayof(CursorMapping *) HybridDispatcher_GetSearchMappings(HybridDispatcher *dispatcher) {
-    pthread_mutex_lock(&dispatcher->data_mutex);
-    arrayof(CursorMapping *) result = dispatcher->searchMappings;
-    pthread_mutex_unlock(&dispatcher->data_mutex);
-    return result;
 }
 
 static arrayof(CursorMapping *) HybridDispatcher_GetVsimMappings(HybridDispatcher *dispatcher) {
@@ -128,18 +156,6 @@ static arrayof(CursorMapping *) HybridDispatcher_GetVsimMappings(HybridDispatche
     return result;
 }
 
-static int HybridDispatcher_AddMapping(HybridDispatcher *dispatcher, CursorMapping *mapping, bool isSearch) {
-    pthread_mutex_lock(&dispatcher->data_mutex);
-
-    if (isSearch) {
-        array_append(dispatcher->searchMappings, mapping);
-    } else {
-        array_append(dispatcher->vsimMappings, mapping);
-    }
-
-    pthread_mutex_unlock(&dispatcher->data_mutex);
-    return 0; // RS_RESULT_OK
-}
 
 static size_t HybridDispatcher_GetTotalMappings(HybridDispatcher *dispatcher) {
     pthread_mutex_lock(&dispatcher->data_mutex);
@@ -147,18 +163,6 @@ static size_t HybridDispatcher_GetTotalMappings(HybridDispatcher *dispatcher) {
     size_t vsimCount = array_len(dispatcher->vsimMappings);
     pthread_mutex_unlock(&dispatcher->data_mutex);
     return searchCount + vsimCount;
-}
-
-static void HybridDispatcher_MarkStarted(HybridDispatcher *dispatcher) {
-    atomic_store(&dispatcher->started, true);
-}
-
-static void HybridDispatcher_MarkDone(HybridDispatcher *dispatcher) {
-    atomic_store(&dispatcher->done, true);
-}
-
-bool HybridDispatcher_IsStarted(HybridDispatcher *dispatcher) {
-    return atomic_load(&dispatcher->started);
 }
 
 void HybridDispatcher_SetMappingArray(HybridDispatcher *dispatcher, arrayof(CursorMapping *) mappings, bool isSearch) {

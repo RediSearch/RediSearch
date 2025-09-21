@@ -11,7 +11,7 @@
 
 #include <stdatomic.h>
 #include <pthread.h>
-#include "references.h"
+#include "../../util/references.h"
 #include "rmr/rmr.h"
 
 #ifdef __cplusplus
