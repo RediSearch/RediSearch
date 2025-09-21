@@ -70,10 +70,17 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   return true;
 }
 
+static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  RedisModule_Log(RSDummyContext, "warning", "rep: %p", rep);
+  RedisModule_Log(RSDummyContext, "warning", "rep string: %s", MRReply_String(rep, NULL));
+  MRIteratorCallback_Done(ctx, 0);
+  MRReply_Free(rep);
+}
 
 static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  // usleep(100000000000);
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
-
+  RedisModule_Log(RSDummyContext, "warning", "newCmd.targetSlot: %d", cmd->targetSlot);
   // If the root command of this reply is a DEL command, we don't want to
   // propagate it up the chain to the client
   if (cmd->rootCommand == C_DEL) {
@@ -482,6 +489,35 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
+static int rpnetNext_Start2(ResultProcessor *rp, SearchResult *r) {
+  RPNet *nc = (RPNet *)rp;
+  CursorMappingData *mappingData = rm_malloc(sizeof(CursorMappingData));
+  mappingData->indexName = "myindex";
+  mappingData->mappings = (CursorMapping *)rm_malloc(sizeof(CursorMapping) * 4);
+  mappingData->numMappings = 4;
+
+  mappingData->mappings[0].targetSlot = 0;
+  mappingData->mappings[0].cursorId = 1;
+  mappingData->mappings[1].targetSlot = 4097;
+  mappingData->mappings[1].cursorId = 2;
+  mappingData->mappings[2].targetSlot = 8194;
+  mappingData->mappings[2].cursorId = 3;
+  mappingData->mappings[3].targetSlot = 12291;
+  mappingData->mappings[3].cursorId = 4;
+
+  // Use MR_IterateWithPrivateData - it will automatically choose the right callback
+  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, iterCursorMappingCb, mappingData);
+  if (!it) {
+    return RS_RESULT_ERROR;
+  }
+  // usleep(100000000000);
+  nc->it = it;
+  nc->base.Next = rpnetNext;
+  return rpnetNext(rp, r);
+}
+
+
+
 static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
@@ -511,7 +547,7 @@ static RPNet *RPNet_New(const MRCommand *cmd) {
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Next = rpnetNext_Start;
+  nc->base.Next = rpnetNext_Start2;
   nc->base.type = RP_NETWORK;
   return nc;
 }

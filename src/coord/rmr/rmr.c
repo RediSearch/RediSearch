@@ -586,6 +586,57 @@ static void iterStartCb(void *p) {
   rm_free(data);
 }
 
+// Separate callback for cursor mapping that creates FT.CURSOR READ commands for each shard
+void iterCursorMappingCb(void *p) {
+  IteratorData *data = (IteratorData *)p;
+  MRIterator *it = data->it;
+  CursorMappingData *mappingData = (CursorMappingData *)data->privateData;
+
+  RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb");
+  RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb: mappingData->numMappings: %zu", mappingData->numMappings);
+
+  if (!mappingData || !mappingData->mappings || mappingData->numMappings == 0) {
+    // Fallback to regular behavior if no mapping data
+    RS_ABORT("iterCursorMappingCb: no mapping data");
+  }
+
+  size_t len = mappingData->numMappings;
+  it->len = len;
+  it->ctx.pending = len;
+  it->ctx.inProcess = len;
+
+  it->cbxs = rm_realloc(it->cbxs, len * sizeof(*it->cbxs));
+
+  // Create FT.CURSOR READ commands for each mapping
+  for (size_t i = 0; i < len; i++) {
+    it->cbxs[i].it = it;
+
+    char cursorStr[256];
+    sprintf(cursorStr, "%lld", mappingData->mappings[i].cursorId);
+    RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb: targetSlot: %d, cursorStr: %s", mappingData->mappings[i].targetSlot, cursorStr);
+    // it->cbxs[i].cmd = MR_NewCommand(4, "_FT.CURSOR", "READ",
+    //                                mappingData->indexName, cursorStr);
+    it->cbxs[i].cmd = MR_NewCommand(1, "PING");
+    it->cbxs[i].cmd.targetSlot = mappingData->mappings[i].targetSlot;
+    it->cbxs[i].cmd.protocol = 3;
+    it->cbxs[i].cmd.forCursor = true;
+    it->cbxs[i].cmd.rootCommand = C_READ;
+    it->cbxs[i].cmd.depleted = false;
+  }
+
+  RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb: sending commands to all shards");
+  // Send commands to all shards
+  for (size_t i = 0; i < it->len; i++) {
+    if (MRCluster_SendCommand(cluster_g, true, &it->cbxs[i].cmd,
+                              mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+      MRIteratorCallback_Done(&it->cbxs[i], 1);
+    }
+  }
+
+  // Clean up the data structure
+  rm_free(data);
+}
+
 void iterManualNextCb(void *p) {
   MRIterator *it = p;
   for (size_t i = 0; i < it->len; i++) {
@@ -631,10 +682,10 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
 }
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
-  return MR_IterateWithPrivateData(cmd, cb, NULL);
+  return MR_IterateWithPrivateData(cmd, cb, iterStartCb, NULL);
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData) {
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void (*iterStartCb)(void *) ,void *cbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -666,7 +717,6 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
   data->it = ret;
   data->privateData = cbPrivateData;
 
-  // Use start callback that can access private data
   RQ_Push(rq_g, iterStartCb, data);
   return ret;
 }
