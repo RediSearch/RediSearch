@@ -6,12 +6,12 @@
 
 [![Latest Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?label=latest%20release)](https://github.com/RediSearch/RediSearch/releases/latest)
 
-[![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8*&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
-[![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6*&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
+[![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8%2A&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
+[![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6%2A&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
 
 # RediSearch
 
-<img src="https://redis.io/docs/interact/search-and-query/img/logo.svg" title="RediSearch's Logo" width="300">
+<img src="docs/images/logo.svg" title="RediSearch's Logo" width="300">
 
 > [!NOTE]
 > Starting with Redis 8, Redis Query Engine (RediSearch) is integral to Redis. You don't need to install this module separately.
@@ -34,11 +34,11 @@ If you're just getting started with RediSearch, check out the [official RediSear
 
 ## Documentation
 
-The [RediSearch documentation](https://redis.io/docs/interact/search-and-query/) provides a complete overview of RediSearch. Helpful sections include:
+The [RediSearch documentation](https://redis.io/docs/latest/develop/ai/search-and-query/) provides a complete overview of RediSearch. Helpful sections include:
 
 * The [RediSearch quick start](https://redis.io/docs/latest/develop/get-started/document-database/)
-* The [RediSearch command reference](https://redis.io/commands/?group=search)
-* References on features such as [aggregations](https://redis.io/docs/interact/search-and-query/search/aggregations/), [highlights](https://redis.io/docs/interact/search-and-query/advanced-concepts/highlight/), [stemming](https://redis.io/docs/interact/search-and-query/advanced-concepts/stemming/), and [spelling correction](https://redis.io/docs/interact/search-and-query/advanced-concepts/spellcheck/).
+* The [RediSearch command reference](https://redis.io/docs/latest/commands/?group=search)
+* References on features such as [aggregations](https://redis.io/docs/latest/develop/ai/search-and-query/advanced-concepts/aggregations/), [highlights](https://redis.io/docs/latest/develop/ai/search-and-query/advanced-concepts/highlight/), [stemming](https://redis.io/docs/latest/develop/ai/search-and-query/advanced-concepts/stemming/), and [spelling correction](https://redis.io/docs/latest/develop/ai/search-and-query/advanced-concepts/spellcheck/).
 * [Vector search] (https://redis.io/docs/latest/develop/interact/search-and-query/query/vector-search/)
 
 ## Questions?
@@ -53,12 +53,12 @@ Got questions? Join us in [#redisearch on the Redis Discord](https://discord.gg/
 * Field weighting
 * Complex boolean queries with AND, OR, and NOT operators
 * Prefix matching, fuzzy matching, and exact-phrase queries
-* Support for [double-metaphone phonetic matching](https://redis.io/docs/interact/search-and-query/advanced-concepts/phonetic_matching/)
+* Support for [double-metaphone phonetic matching](https://redis.io/docs/latest/develop/ai/search-and-query/advanced-concepts/phonetic_matching/)
 * Auto-complete suggestions (with fuzzy prefix suggestions)
-* Stemming-based query expansion in [many languages](https://redis.io/docs/stack/search/reference/stemming/) (using [Snowball](http://snowballstem.org/))
+* Stemming-based query expansion in [many languages](https://redis.io/docs/latest/develop/ai/search-and-query/advanced-concepts/stemming/) (using [Snowball](http://snowballstem.org/))
 * Support for Chinese-language tokenization and querying (using [Friso](https://github.com/lionsoul2014/friso))
 * Numeric filters and ranges
-* Geospatial searches using [Redis geospatial indexing](/commands/georadius)
+* Geospatial searches using [Redis geospatial indexing](https://redis.io/docs/latest/develop/ai/search-and-query/indexing/geoindex/)
 * A powerful aggregations engine
 * Supports for all utf-8 encoded text
 * Retrieve full documents, selected fields, or only the document IDs

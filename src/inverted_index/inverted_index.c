@@ -21,13 +21,19 @@
 #include "rmutil/rm_assert.h"
 #include "geo_index.h"
 
-uint64_t TotalIIBlocks = 0;
+uint64_t TotalBlocks = 0;
+
+// This is a temporary wrapper around `TotalBlocks`. When we switch over to Rust it won't be possible to access `TotalBlocks` directly. So
+// this aligns the usage with the incoming Rust code.
+size_t TotalIIBlocks() {
+  return TotalBlocks;
+}
 
 // The last block of the index
 #define INDEX_LAST_BLOCK(idx) (InvertedIndex_BlockRef(idx, InvertedIndex_NumBlocks(idx) - 1))
 
 IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *memsize) {
-  TotalIIBlocks++;
+  TotalBlocks++;
   idx->size++;
   idx->blocks = rm_realloc(idx->blocks, idx->size * sizeof(IndexBlock));
   IndexBlock *last = idx->blocks + (idx->size - 1);
@@ -203,7 +209,7 @@ void IndexBlock_SetBuffer(IndexBlock *b, Buffer buf) {
 
 void InvertedIndex_Free(InvertedIndex *idx) {
   size_t numBlocks = InvertedIndex_NumBlocks(idx);
-  TotalIIBlocks -= numBlocks;
+  TotalBlocks -= numBlocks;
   for (uint32_t i = 0; i < numBlocks; i++) {
     indexBlock_Free(&idx->blocks[i]);
   }
@@ -1495,7 +1501,7 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
   for (size_t i = 0; i < d->deleted_len; ++i) {
     rm_free(d->deleted[i].ptr);
   }
-  TotalIIBlocks -= d->deleted_len;
+  TotalBlocks -= d->deleted_len;
   rm_free(d->deleted);
   d->deleted = NULL;
 
