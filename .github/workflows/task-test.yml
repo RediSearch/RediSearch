@@ -177,12 +177,14 @@ jobs:
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
                              ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
+      - name: Enable Intel's Optimiztions
+        run: echo "BUILD_INTEL_SVS_OPT=yes" >> $GITHUB_ENV
       - name: Build
         env:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-          BUILD_INTEL_SVS_OPT: 1
+          # BUILD_INTEL_SVS_OPT: 1
         run: make build TESTS=1
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
