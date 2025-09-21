@@ -71,6 +71,11 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
 }
 
 static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  MRIteratorCallback_AddReply(ctx, rep);
+  MRIteratorCallback_Done(ctx, 0);
+}
+
+static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
   RedisModule_Log(RSDummyContext, "warning", "nopCallback");
   RedisModule_Log(RSDummyContext, "warning", "rep string: %s", MRReply_String(rep, NULL));
@@ -567,8 +572,6 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 static int rpnetNext_Start3(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
 
-  //pthread lock
-
 
   CursorMappingData *mappingData = rm_calloc(1, sizeof(CursorMappingData));
   pthread_mutex_init(&mappingData->mutex, NULL);
@@ -577,12 +580,14 @@ static int rpnetNext_Start3(ResultProcessor *rp, SearchResult *r) {
   mappingData->vsimMappings = array_new(CursorMapping*,0);
 
   // Use MR_IterateWithPrivateData - it will automatically choose the right callback
-  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, mappingData, iterStartCb, NULL);
+  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, processCursorMappingCallback, mappingData, iterStartCb, NULL);
   if (!it) {
     return RS_RESULT_ERROR;
   }
-  // usleep(100000000000);
-  nc->it = it;
+
+  // use logic like in getCursorCommand
+  // MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, cursorStr);
+  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, mappingData);
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
