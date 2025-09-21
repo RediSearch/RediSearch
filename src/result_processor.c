@@ -1526,7 +1526,6 @@ typedef struct {
   pthread_mutex_t mutex;
   uint num_depleters;      // Number of depleters to sync
   atomic_int num_locked;   // Number of depleters that have locked the index
-  atomic_int num_finished; // Number of depleters that have finished depleting
   bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
   bool take_index_lock;    // Whether or not the depleter should take the index lock
 } DepleterSync;
@@ -1597,8 +1596,6 @@ static void RPDepleter_Deplete(void *arg) {
   self->done_depleting = true;
   pthread_cond_broadcast(&sync->cond);  // Wake up all waiting depleters
   pthread_mutex_unlock(&sync->mutex);
-  // mark as finished at the very end of the function
-  atomic_fetch_add(&sync->num_finished, 1);
 }
 
 /**
