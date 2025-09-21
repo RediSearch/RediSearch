@@ -41,14 +41,6 @@ void QueryDebugCtx_SetPause(bool pause) {
   globalDebugCtx.query.pause = pause;
 }
 
-bool QueryDebugCtx_GetPauseOnOOM(void) {
-  return globalDebugCtx.query.pauseOnOOM;
-}
-
-void QueryDebugCtx_SetPauseOnOOM(bool pauseOnOOM) {
-  globalDebugCtx.query.pauseOnOOM = pauseOnOOM;
-}
-
 ResultProcessor* QueryDebugCtx_GetDebugRP(void) {
   return globalDebugCtx.query.debugRP;
 }

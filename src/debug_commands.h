@@ -38,7 +38,6 @@ typedef struct BgIndexingDebugCtx {
 // Note: unrelated to timeout debugging
 typedef struct QueryDebugCtx {
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
-  bool pauseOnOOM; // Whether to pause on OOM
   ResultProcessor *debugRP; // Result processor for debugging, supports debugging one query at a time
 } QueryDebugCtx;
 
@@ -56,8 +55,6 @@ void validateDebugMode(DebugCTX *debugCtx);
 // QueryDebugCtx API function declarations
 bool QueryDebugCtx_IsPaused(void);
 void QueryDebugCtx_SetPause(bool pause);
-bool QueryDebugCtx_GetPauseOnOOM(void);
-void QueryDebugCtx_SetPauseOnOOM(bool pauseOnOOM);
 ResultProcessor* QueryDebugCtx_GetDebugRP(void);
 void QueryDebugCtx_SetDebugRP(ResultProcessor* debugRP);
 bool QueryDebugCtx_HasDebugRP(void);
