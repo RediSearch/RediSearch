@@ -76,7 +76,7 @@ int parseRRFArgs(ArgsCursor *ac, int *constant, int *window, bool *hasExplicitWi
     return AC_OK;
   } else if (rc == AC_ERR_PARSE) {
     // We also allow a different keyword after it, e.g LIMIT
-    // This means if it a different keyword the error will be more ambigious
+    // This means if it a different keyword the error will be more ambiguous
     *constant = HYBRID_DEFAULT_RRF_CONSTANT;
     *window = HYBRID_DEFAULT_WINDOW;
     return AC_OK;
