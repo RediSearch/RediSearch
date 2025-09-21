@@ -30,7 +30,7 @@ impl Wildcard {
         Wildcard {
             top_id,
             current_id: 0,
-            result: RSIndexResult::virt(),
+            result: RSIndexResult::virt().frequency(1),
         }
     }
 }
