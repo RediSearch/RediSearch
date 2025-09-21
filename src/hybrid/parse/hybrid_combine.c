@@ -65,7 +65,7 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   ArgParser_Free(parser);
 }
 
-int parseRRFArgs(ArgsCursor *ac, int *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
+int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
   *hasExplicitWindow = false;
   ArgsCursor rrf;
   int rc = AC_GetVarArgs(ac, &rrf);
@@ -91,17 +91,18 @@ int parseRRFArgs(ArgsCursor *ac, int *constant, int *window, bool *hasExplicitWi
     return AC_ERR_PARSE;
   }
 
+  double defaultConstant = HYBRID_DEFAULT_RRF_CONSTANT;
   // Define the optional arguments with validation
-  ArgParser_AddIntV(parser, "CONSTANT", "RRF constant value (must be positive)", 
-                      constant, ARG_OPT_OPTIONAL,
-                      ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_RRF_CONSTANT,
-                      ARG_OPT_RANGE, 1LL, LLONG_MAX,
-                      ARG_OPT_END);
+  ArgParser_AddDoubleV(parser, "CONSTANT", "RRF constant value (must be positive)", 
+                       constant, ARG_OPT_OPTIONAL,
+                       ARG_OPT_DEFAULT_DOUBLE, defaultConstant,
+                       ARG_OPT_RANGE, 0.0, LLONG_MAX,
+                       ARG_OPT_END);
   ArgParser_AddIntV(parser, "WINDOW", "RRF window size (must be positive)", 
-                     window, ARG_OPT_OPTIONAL,
-                     ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
-                     ARG_OPT_RANGE, 1LL, LLONG_MAX,
-                     ARG_OPT_END);
+                    window, ARG_OPT_OPTIONAL,
+                    ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
+                    ARG_OPT_RANGE, 1LL, LLONG_MAX,
+                    ARG_OPT_END);
 
   // Parse the arguments
   ArgParseResult result = ArgParser_Parse(parser);
@@ -122,7 +123,7 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   // RRF LIMIT
 
   // Variables to hold parsed values
-  int constantValue = HYBRID_DEFAULT_RRF_CONSTANT;
+  double constantValue = HYBRID_DEFAULT_RRF_CONSTANT;
   int windowValue = HYBRID_DEFAULT_WINDOW;
   bool hasExplicitWindow = false;
 
