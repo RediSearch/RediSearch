@@ -321,27 +321,13 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
         }
 
         case ARG_TYPE_SUBARGS: {
-            // For SubArgs, we need to determine how many arguments to consume
-            int args_to_consume = def->options.subargs.max_args;
-
-            // If max_args is -1, it means variable length - try to consume remaining args
-            if (args_to_consume == -1) {
-                args_to_consume = AC_NumRemaining(parser->cursor);
+            if (def->options.subargs.max_args && def->options.subargs.min_args == def->options.subargs.max_args) {
+                // Single argument slice
+                rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, def->options.subargs.max_args);
+            } else {
+                // Variable arguments
+                rv = AC_GetVarArgs(parser->cursor, (ArgsCursor*)def->target);
             }
-
-            // Ensure we don't consume more than available or less than minimum
-            int remaining = AC_NumRemaining(parser->cursor);
-            if (args_to_consume > remaining) {
-                args_to_consume = remaining;
-            }
-
-            // Check minimum requirement
-            if (args_to_consume < def->options.subargs.min_args) {
-                set_error(parser, "Not enough arguments provided", def->name);
-                return AC_ERR_NOARG;
-            }
-
-            rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, args_to_consume);
             break;
         }
 
