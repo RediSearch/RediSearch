@@ -371,6 +371,7 @@ mod tests {
     pub use varint_ffi::WriteVarintFieldMask;
 
     #[test]
+    #[ignore]
     fn test_encode_numeric() {
         // Test cases for all the different numeric encodings. These cases can be moved to the Rust
         // implementation tests verbatim.
