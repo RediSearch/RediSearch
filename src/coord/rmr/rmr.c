@@ -463,6 +463,7 @@ struct MRIteratorCtx {
 struct MRIteratorCallbackCtx {
   MRIterator *it;
   MRCommand cmd;
+  void *privateData;
 };
 
 struct MRIterator {
@@ -554,8 +555,12 @@ void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
 }
 
+void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
+  return ctx->privateData;
+}
+
 // Takes ownership of the IteratorData structure, but not its internal components: iterator and private data
-static void iterStartCb(void *p) {
+void iterStartCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
 
@@ -572,6 +577,7 @@ static void iterStartCb(void *p) {
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[i].cmd.targetSlot = cluster_g->topo->shards[i].startSlot;
+    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
   for (size_t i = 0; i < it->len; i++) {
@@ -591,16 +597,17 @@ void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
   CursorMappingData *mappingData = (CursorMappingData *)data->privateData;
+  CursorMapping *searchMappings = mappingData->searchMappings;
 
   RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb");
-  RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb: mappingData->numMappings: %zu", mappingData->numMappings);
 
-  if (!mappingData || !mappingData->mappings || mappingData->numMappings == 0) {
+
+  if (!searchMappings || array_len(searchMappings) == 0) {
     // Fallback to regular behavior if no mapping data
     RS_ABORT("iterCursorMappingCb: no mapping data");
   }
 
-  size_t len = mappingData->numMappings;
+  size_t len = array_len(searchMappings);
   it->len = len;
   it->ctx.pending = len;
   it->ctx.inProcess = len;
@@ -610,14 +617,15 @@ void iterCursorMappingCb(void *p) {
   // Create FT.CURSOR READ commands for each mapping
   for (size_t i = 0; i < len; i++) {
     it->cbxs[i].it = it;
+    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
 
     char cursorStr[256];
-    sprintf(cursorStr, "%lld", mappingData->mappings[i].cursorId);
-    RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb: targetSlot: %d, cursorStr: %s", mappingData->mappings[i].targetSlot, cursorStr);
+    sprintf(cursorStr, "%lld", searchMappings[i].cursorId);
+    RedisModule_Log(RSDummyContext, "warning", "iterCursorMappingCb: targetSlot: %d, cursorStr: %s", searchMappings[i].targetSlot, cursorStr);
     // it->cbxs[i].cmd = MR_NewCommand(4, "_FT.CURSOR", "READ",
     //                                mappingData->indexName, cursorStr);
-    it->cbxs[i].cmd = MR_NewCommand(1, "PING");
-    it->cbxs[i].cmd.targetSlot = mappingData->mappings[i].targetSlot;
+    it->cbxs[i].cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
+    it->cbxs[i].cmd.targetSlot = searchMappings[i].targetSlot;
     it->cbxs[i].cmd.protocol = 3;
     it->cbxs[i].cmd.forCursor = true;
     it->cbxs[i].cmd.rootCommand = C_READ;
@@ -682,10 +690,10 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
 }
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
-  return MR_IterateWithPrivateData(cmd, cb, iterStartCb, NULL);
+  return MR_IterateWithPrivateData(cmd, cb, NULL, iterStartCb, NULL);
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void (*iterStartCb)(void *) ,void *cbPrivateData) {
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,void *iterStartCbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -710,12 +718,13 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback c
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = MRCommand_Copy(cmd),
     .it = ret,
+    .privateData = cbPrivateData,
   };
 
   // Create data structure with iterator and private data (on heap)
   IteratorData *data = rm_malloc(sizeof(IteratorData));
   data->it = ret;
-  data->privateData = cbPrivateData;
+  data->privateData = iterStartCbPrivateData;
 
   RQ_Push(rq_g, iterStartCb, data);
   return ret;

@@ -71,8 +71,55 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
 }
 
 static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  RedisModule_Log(RSDummyContext, "warning", "rep: %p", rep);
+
+  RedisModule_Log(RSDummyContext, "warning", "nopCallback");
   RedisModule_Log(RSDummyContext, "warning", "rep string: %s", MRReply_String(rep, NULL));
+  RedisModule_Log(RSDummyContext, "warning", "rep type: %d", MRReply_Type(rep));
+  CursorMappingData *mappingData = MRIteratorCallback_GetPrivateData(ctx);
+
+  RedisModule_Log(RSDummyContext, "warning", "mappingData: %p", mappingData);
+
+
+  RedisModule_Log(RSDummyContext, "warning", "rep length: %zu", MRReply_Length(rep));
+  for (size_t i = 0; i < 4; i += 2) {
+
+    RedisModule_Log(RSDummyContext, "warning", "i: %zu", i);
+
+    CursorMapping *mapping = rm_calloc(1, sizeof(CursorMapping));
+    mapping->targetSlot = MRIteratorCallback_GetCommand(ctx)->targetSlot;;
+
+    RedisModule_Log(RSDummyContext, "warning", "mapping->targetSlot: %d", mapping->targetSlot);
+
+    MRReply *key_reply = MRReply_ArrayElement(rep, i);
+    MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
+
+    const char *key = MRReply_String(key_reply, NULL);
+
+    RedisModule_Log(RSDummyContext, "warning", "key: %s", key);
+
+    long long value;
+    MRReply_ToInteger(value_reply, &value);
+
+    bool isSearch = false;
+    if (strcmp(key, "SEARCH") == 0) {
+      mapping->cursorId = value;
+      isSearch = true;
+    } else if (strcmp(key, "VSIM") == 0) {
+      mapping->cursorId = value;
+      isSearch = true;
+    } else {
+      RS_ABORT("Unknown key");
+    }
+
+    pthread_mutex_lock(&mappingData->mutex);
+    if (isSearch) {
+      array_append(mappingData->searchMappings, mapping);
+    } else {
+      array_append(mappingData->vsimMappings, mapping);
+    }
+    pthread_mutex_unlock(&mappingData->mutex);
+  }
+
   MRIteratorCallback_Done(ctx, 0);
   MRReply_Free(rep);
 }
@@ -489,24 +536,48 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
-static int rpnetNext_Start2(ResultProcessor *rp, SearchResult *r) {
-  RPNet *nc = (RPNet *)rp;
-  CursorMappingData *mappingData = rm_malloc(sizeof(CursorMappingData));
-  mappingData->indexName = "myindex";
-  mappingData->mappings = (CursorMapping *)rm_malloc(sizeof(CursorMapping) * 4);
-  mappingData->numMappings = 4;
+// static int rpnetNext_Start2(ResultProcessor *rp, SearchResult *r) {
+//   RPNet *nc = (RPNet *)rp;
+//   CursorMappingData *mappingData = rm_malloc(sizeof(CursorMappingData));
+//   mappingData->indexName = "myindex";
+//   mappingData->mappings = (CursorMapping *)rm_malloc(sizeof(CursorMapping) * 4);
+//   mappingData->numMappings = 4;
 
-  mappingData->mappings[0].targetSlot = 0;
-  mappingData->mappings[0].cursorId = 1;
-  mappingData->mappings[1].targetSlot = 4097;
-  mappingData->mappings[1].cursorId = 2;
-  mappingData->mappings[2].targetSlot = 8194;
-  mappingData->mappings[2].cursorId = 3;
-  mappingData->mappings[3].targetSlot = 12291;
-  mappingData->mappings[3].cursorId = 4;
+//   mappingData->mappings[0].targetSlot = 0;
+//   mappingData->mappings[0].cursorId = 1;
+//   mappingData->mappings[1].targetSlot = 4097;
+//   mappingData->mappings[1].cursorId = 2;
+//   mappingData->mappings[2].targetSlot = 8194;
+//   mappingData->mappings[2].cursorId = 3;
+//   mappingData->mappings[3].targetSlot = 12291;
+//   mappingData->mappings[3].cursorId = 4;
+
+//   // Use MR_IterateWithPrivateData - it will automatically choose the right callback
+//   MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, mappingData);
+//   if (!it) {
+//     return RS_RESULT_ERROR;
+//   }
+//   // usleep(100000000000);
+//   nc->it = it;
+//   nc->base.Next = rpnetNext;
+//   return rpnetNext(rp, r);
+// }
+
+
+static int rpnetNext_Start3(ResultProcessor *rp, SearchResult *r) {
+  RPNet *nc = (RPNet *)rp;
+
+  //pthread lock
+
+
+  CursorMappingData *mappingData = rm_calloc(1, sizeof(CursorMappingData));
+  pthread_mutex_init(&mappingData->mutex, NULL);
+  mappingData->indexName = "myindex";
+  mappingData->searchMappings = array_new(CursorMapping*,0);
+  mappingData->vsimMappings = array_new(CursorMapping*,0);
 
   // Use MR_IterateWithPrivateData - it will automatically choose the right callback
-  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, iterCursorMappingCb, mappingData);
+  MRIterator *it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, mappingData, iterStartCb, NULL);
   if (!it) {
     return RS_RESULT_ERROR;
   }
@@ -515,7 +586,6 @@ static int rpnetNext_Start2(ResultProcessor *rp, SearchResult *r) {
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
-
 
 
 static void rpnetFree(ResultProcessor *rp) {
@@ -544,10 +614,11 @@ static void rpnetFree(ResultProcessor *rp) {
 static RPNet *RPNet_New(const MRCommand *cmd) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd; // Take ownership of the command's internal allocations
+  nc->cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Next = rpnetNext_Start2;
+  nc->base.Next = rpnetNext_Start3;
   nc->base.type = RP_NETWORK;
   return nc;
 }

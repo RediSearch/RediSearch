@@ -28,10 +28,15 @@ typedef struct {
 
 // Data structure to hold cursor mapping data for iterator
 typedef struct {
+  //pthread lock
+  pthread_mutex_t mutex;
   const char *indexName;
-  CursorMapping *mappings;
+  arrayof(CursorMapping *) searchMappings;
+  arrayof(CursorMapping *) vsimMappings;
   size_t numMappings;
 } CursorMappingData;
+
+void iterStartCb(void *p);
 
 void iterCursorMappingCb(void *p);
 
@@ -98,11 +103,13 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void (*func)(void *), void *cbPrivateData);
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,void *iterStartCbPrivateData);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
+
+void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx);
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
