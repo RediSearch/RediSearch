@@ -153,11 +153,6 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
 
     ArgParser_Free(parser);
 
-    // Copy temporary timeout value to actual config
-    if (tempTimeout > 0) {
-        ctx->reqConfig->queryTimeoutMS = tempTimeout;
-    }
-
     // Handle dialect-specific validation (replicated from original)
     if (ctx->specifiedArgs & SPECIFIED_ARG_DIALECT && ctx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST &&
         (*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
