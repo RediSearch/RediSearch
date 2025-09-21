@@ -20,10 +20,24 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   double alphaValue = 0.0;
   double betaValue = 0.0;
 
+  
+  unsigned int count = 0; 
+  int rc = AC_GetUnsigned(ac, &count, 0);
+  if (rc == AC_ERR_NOARG) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing LINEAR argument count");
+    return;
+  } else if (rc != AC_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid LINEAR argument count");
+    return;
+  }
+
   ArgsCursor linear;
-  int rc = AC_GetVarArgs(ac, &linear);
-  if (rc != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for LINEAR: %s", AC_Strerror(rc));
+  rc = AC_GetSlice(ac, &linear, count);
+  if (rc == AC_ERR_NOARG) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments in LINEAR", ", specified %u but only %u provided", count, AC_NumRemaining(ac));
+    return;
+  } else if (rc != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments in LINEAR", ": %s", AC_Strerror(rc));
     return;
   }
 

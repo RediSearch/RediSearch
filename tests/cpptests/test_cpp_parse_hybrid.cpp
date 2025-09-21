@@ -326,7 +326,7 @@ TEST_F(ParseHybridTest, testExplicitWindowAndLimitWithImplicitK) {
 
 TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
   // Test SORTBY 0 to disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "SORTBY", "0");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "0");
 
   parseCommand(args);
 
@@ -337,7 +337,7 @@ TEST_F(ParseHybridTest, testSortBy0DisablesImplicitSort) {
 
 TEST_F(ParseHybridTest, testSortByFieldDoesNotDisableImplicitSort) {
   // Test SORTBY with actual field (not 0) - should not disable implicit sorting
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "SORTBY", "1", "@score");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY", "1", "@score");
 
   parseCommand(args);
 
@@ -654,9 +654,9 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
 
   // Create a fresh sctx for this test
   int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status);
-  ASSERT_TRUE(rc == REDISMODULE_ERR);
-  ASSERT_EQ(status.code, expected_code);
-  ASSERT_STREQ(status.detail, expected_detail);
+  ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
+  ASSERT_EQ(status.code, expected_code) << "parsing error: " << QueryError_GetUserError(&status);
+  ASSERT_STREQ(status.detail, expected_detail) << "parsing error: " << QueryError_GetUserError(&status);
 
   // Clean up
   QueryError_ClearError(&status);
@@ -910,7 +910,7 @@ TEST_F(ParseHybridTest, testLinearPartialWeightsAlpha) {
 
 TEST_F(ParseHybridTest, testLinearMissingArgs) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "4", "ALPHA", "0.6");
-  testErrorCode(args, QUERY_ESYNTAX, "Expected arguments 4, but 2 were provided");
+  testErrorCode(args, QUERY_ESYNTAX, "Not enough arguments in LINEAR, specified 4 but only 2 provided");
 }
 
 TEST_F(ParseHybridTest, testLinearPartialWeightsBeta) {
@@ -920,12 +920,12 @@ TEST_F(ParseHybridTest, testLinearPartialWeightsBeta) {
 
 TEST_F(ParseHybridTest, testLinearNegativeArgumentCount) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "-2", "ALPHA", "0.6", "BETA", "0.4");
-  testErrorCode(args, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
+  testErrorCode(args, QUERY_EPARSEARGS, "Invalid LINEAR argument count");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingArgumentCount) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument count");
+  testErrorCode(args, QUERY_EPARSEARGS, "Missing LINEAR argument count");
 }
 
 // Missing parameter value tests
@@ -956,13 +956,13 @@ TEST_F(ParseHybridTest, testRangeMissingEpsilonValue) {
 TEST_F(ParseHybridTest, testLinearMissingAlphaValue) {
   // Test LINEAR with missing ALPHA value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "ALPHA");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for ALPHA");
+  testErrorCode(args, QUERY_ESYNTAX, "Not enough arguments in LINEAR, specified 2 but only 1 provided");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingBetaValue) {
   // Test LINEAR with missing BETA value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "BETA");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for BETA");
+  testErrorCode(args, QUERY_ESYNTAX,"Not enough arguments in LINEAR, specified 2 but only 1 provided");
 }
 
 TEST_F(ParseHybridTest, testKNNMissingYieldScoreAsValue) {
