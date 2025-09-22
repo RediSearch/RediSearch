@@ -245,4 +245,3 @@ int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
   int rv = isWithinRadiusLonLat(gf->lon, gf->lat, xy[0], xy[1], radius_meters, distance);
   return rv;
 }
-

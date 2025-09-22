@@ -1241,7 +1241,7 @@ static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, Red
     clock_gettime(CLOCK_MONOTONIC_RAW, &now);
     sctx->time.timeout = now;
 
-    // search upstream for rpidxNext to set timeout limiter
+    // search upstream for rpQueryItNext to set timeout limiter
     ResultProcessor *cur = rp_timeout->upstream;
     while (cur && cur->type != RP_INDEX) {
         cur = cur->upstream;
