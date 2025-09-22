@@ -346,8 +346,19 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
   fi
 
+  # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_DYN_CRT=1"
+    # Add the dynamic C runtime flag to RUSTFLAGS
+    if [[ "$RUSTFLAGS" == "" ]]; then
+      RUSTFLAGS="-C target-feature=-crt-static"
+    else
+      RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
+    fi
+  fi
+
+  # Forward RUSTFLAGS to CMake if set
+  if [[ "$RUSTFLAGS" != "" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUSTFLAGS=$RUSTFLAGS"
   fi
 
   if [[ "$RUST_PROFILE" != "" ]]; then
