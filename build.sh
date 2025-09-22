@@ -181,8 +181,7 @@ setup_build_environment() {
     FLAVOR="release"
   fi
 
-  # Determine Rust profile for tests (keep this logic for rust_tests functionality)
-  # This is separate from the CMake RUST_PROFILE forwarding
+  # Determine the correct Rust profile for both build and tests
   # Only set RUST_PROFILE if it wasn't already set by the user
   if [[ -z "$RUST_PROFILE" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then

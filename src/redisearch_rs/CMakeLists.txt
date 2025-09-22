@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-# Find Rust and Cargo
+# Find Cargo
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
 
 if(NOT CARGO_EXECUTABLE)
