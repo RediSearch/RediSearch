@@ -1223,7 +1223,9 @@ fn index_block_repair_delete() {
         ![10, 11].contains(&doc_id)
     }
 
-    assert_eq!(block.repair(cb, Dummy), Some(RepairType::Delete));
+    let repair_status = block.repair(cb, Dummy).unwrap();
+
+    assert_eq!(repair_status, Some(RepairType::Delete));
 }
 
 #[test]
@@ -1240,7 +1242,9 @@ fn index_block_repair_with_empty_block() {
         true
     }
 
-    assert_eq!(block.repair(cb, Dummy), Some(RepairType::Delete));
+    let repair_status = block.repair(cb, Dummy).unwrap();
+
+    assert_eq!(repair_status, Some(RepairType::Delete));
 }
 
 #[test]
@@ -1257,7 +1261,9 @@ fn index_block_repair_unchanged() {
         true
     }
 
-    assert_eq!(block.repair(cb, Dummy), None);
+    let repair_status = block.repair(cb, Dummy).unwrap();
+
+    assert_eq!(repair_status, None);
 }
 
 #[test]
@@ -1274,8 +1280,10 @@ fn index_block_repair_some_deletions() {
         [11].contains(&doc_id)
     }
 
+    let repair_status = block.repair(cb, Dummy).unwrap();
+
     assert_eq!(
-        block.repair(cb, Dummy),
+        repair_status,
         Some(RepairType::Split {
             blocks: vec![IndexBlock {
                 first_doc_id: 11,
@@ -1363,8 +1371,10 @@ fn index_block_repair_delta_too_big() {
         ![41].contains(&doc_id)
     }
 
+    let repair_status = block.repair(cb, SmallDeltaDummy).unwrap();
+
     assert_eq!(
-        block.repair(cb, SmallDeltaDummy),
+        repair_status,
         Some(RepairType::Split {
             blocks: vec![
                 IndexBlock {

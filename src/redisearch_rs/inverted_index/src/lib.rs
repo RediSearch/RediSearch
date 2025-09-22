@@ -342,7 +342,7 @@ impl IndexBlock {
         &'index self,
         doc_exist_cb: fn(doc_id: t_docId) -> bool,
         encoder: E,
-    ) -> Option<RepairType> {
+    ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
         let mut last_doc_id = self.first_doc_id;
         let decoder = E::decoder();
@@ -350,26 +350,26 @@ impl IndexBlock {
 
         let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
 
-        while !cursor.fill_buf().unwrap().is_empty() {
+        while !cursor.fill_buf()?.is_empty() {
             let base = D::base_id(self, last_doc_id);
-            decoder.decode(&mut cursor, base, &mut result).unwrap();
+            decoder.decode(&mut cursor, base, &mut result)?;
             last_doc_id = result.doc_id;
 
             if doc_exist_cb(result.doc_id) {
-                tmp_inverted_index.add_record(&result).unwrap();
+                tmp_inverted_index.add_record(&result)?;
             }
         }
 
         if tmp_inverted_index.blocks.is_empty() {
-            Some(RepairType::Delete)
+            Ok(Some(RepairType::Delete))
         } else if tmp_inverted_index.blocks.len() == 1
             && tmp_inverted_index.blocks[0].num_entries == self.num_entries
         {
-            None
+            Ok(None)
         } else {
-            Some(RepairType::Split {
+            Ok(Some(RepairType::Split {
                 blocks: tmp_inverted_index.blocks,
-            })
+            }))
         }
     }
 }
