@@ -24,9 +24,6 @@ if(DEFINED RUST_DYN_CRT AND RUST_DYN_CRT)
     set(RUST_FLAGS "${RUST_FLAGS} -C target-feature=-crt-static")
 endif()
 
-# Exclude benchmarking crates that link C code
-set(EXCLUDE_ARGS "--exclude" "inverted_index_bencher" "--exclude" "rqe_iterators_bencher")
-
 # Map Rust profile names to their corresponding artifact directory names
 if(RUST_PROFILE STREQUAL "dev")
     set(RUST_ARTIFACT_DIR "debug")
