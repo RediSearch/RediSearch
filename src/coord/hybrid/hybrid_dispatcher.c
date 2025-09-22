@@ -98,6 +98,9 @@ static void processHybridResp3(HybridDispatcher *dispatcher, MRReply *rep, MRCom
 
 // Callback implementation for processing cursor mappings
 static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+
+    // TODO: add response validation (see netCursorCallback)
+    // TODO implement error handling
     HybridDispatcher *dispatcher = (HybridDispatcher *)MRIteratorCallback_GetPrivateData(ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
@@ -173,7 +176,7 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher) {
     // Release the iterator
     MRIterator_Release(it);
 
-    // todo: should it return rc?
+    // TODO: should it return rc?
     return 0; // RS_RESULT_OK
 }
 
