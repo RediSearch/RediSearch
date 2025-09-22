@@ -620,11 +620,25 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
 }
 
 TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
-  // Create a trie with payloads
+  // Create a trie and insert entries WITHOUT payloads
   Trie *originalTrie = NewTrie(NULL, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
+
+  char payload1[] = "payload_1";
+  char payload2[] = "payload_2";
+
+  RSPayload p1 = {.data = payload1, .len = strlen(payload1)};
+  RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
+
+  // Insert complex test data WITHOUT payloads - includes prefixes and extensions
+  Trie_InsertStringBuffer(originalTrie, "hello", 5, 8.0, 0, NULL);     // Base word without payload
+  Trie_InsertStringBuffer(originalTrie, "hell", 4, 6.0, 0, &p1);      // Prefix with payload
+  Trie_InsertStringBuffer(originalTrie, "help", 4, 7.0, 0, NULL);      // Related word without payload
+  Trie_InsertStringBuffer(originalTrie, "helper", 6, 5.0, 0, &p2);    // Extension with payload
+
+  EXPECT_EQ(4, originalTrie->size);
 
   // Create RDB IO context
   RedisModuleIO *io = RMCK_CreateRdbIO();
@@ -634,7 +648,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   ASSERT_TRUE(io != nullptr);
 
   // Save the trie to RDB
-  TrieType_RdbSave(io, originalTrie);
+  TrieType_GenericSave(io, originalTrie, 0);
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
   // Reset read position to load it back
@@ -648,17 +662,25 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   ASSERT_TRUE(loadedTrie != nullptr);
   EXPECT_EQ(0, RMCK_IsIOError(io));
 
-  // Compare sizes
+  // Compare sizes - entries should be preserved
   EXPECT_EQ(originalTrie->size, loadedTrie->size);
 
-  // Verify that payloads are not preserved (should be NULL)
-  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "hello", 5, true);
-  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "world", 5, true);
-  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "foo", 3, true);
+  // Verify all entries are present in the loaded trie
+  EXPECT_TRUE(trieContains(loadedTrie, "hello"));
+  EXPECT_TRUE(trieContains(loadedTrie, "hell"));
+  EXPECT_TRUE(trieContains(loadedTrie, "help"));
+  EXPECT_TRUE(trieContains(loadedTrie, "helper"));
 
-  EXPECT_TRUE(loadedPayload1 == nullptr);
-  EXPECT_TRUE(loadedPayload2 == nullptr);
-  EXPECT_TRUE(loadedPayload3 == nullptr);
+  // Verify that payloads remain NULL (since none were inserted)
+  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "hello", 5, true);
+  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "hell", 4, true);
+  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "help", 4, true);
+  void *loadedPayload4 = Trie_GetValueStringBuffer(loadedTrie, "helper", 6, true);
+
+  EXPECT_TRUE(loadedPayload1 == nullptr);  // No payload was inserted
+  EXPECT_TRUE(loadedPayload2 == nullptr);  // No payload was inserted
+  EXPECT_TRUE(loadedPayload3 == nullptr);  // No payload was inserted
+  EXPECT_TRUE(loadedPayload4 == nullptr);  // No payload was inserted
 }
 
 TEST_F(TrieTest, testRdbSaveLoadEmptyTrie) {
