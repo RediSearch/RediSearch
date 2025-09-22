@@ -354,6 +354,8 @@ prepare_cmake_arguments() {
     else
       RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
     fi
+    # Export RUSTFLAGS so it's available to the Rust build process
+    export RUSTFLAGS
   fi
 
   # Forward RUSTFLAGS to CMake if set
