@@ -1276,11 +1276,110 @@ fn index_block_repair_some_deletions() {
 
     assert_eq!(
         block.repair(cb, Dummy),
-        Some(RepairType::Rebuild {
-            first_doc_id: 11,
-            last_doc_id: 11,
-            num_entries: 1,
-            buffer: vec![0, 0, 0, 0]
+        Some(RepairType::Split {
+            blocks: vec![IndexBlock {
+                first_doc_id: 11,
+                last_doc_id: 11,
+                num_entries: 1,
+                buffer: vec![0, 0, 0, 0]
+            }]
+        })
+    );
+}
+
+#[test]
+fn index_block_repair_delta_too_big() {
+    struct SmallDeltaDummy;
+
+    struct U5Delta(u32);
+
+    impl IdDelta for U5Delta {
+        fn from_u64(delta: u64) -> Option<Self> {
+            if delta < 32 {
+                Some(Self(delta as u32))
+            } else {
+                None
+            }
+        }
+
+        fn zero() -> Self {
+            Self(0)
+        }
+    }
+
+    impl Encoder for SmallDeltaDummy {
+        type Delta = U5Delta;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            &self,
+            mut writer: W,
+            delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&delta.0.to_be_bytes())?;
+
+            Ok(8)
+        }
+    }
+
+    impl DecodedBy for SmallDeltaDummy {
+        type Decoder = Self;
+
+        fn decoder() -> Self::Decoder {
+            Self
+        }
+    }
+
+    impl Decoder for SmallDeltaDummy {
+        fn decode<'index>(
+            &self,
+            cursor: &mut Cursor<&'index [u8]>,
+            base: t_docId,
+            result: &mut RSIndexResult<'index>,
+        ) -> std::io::Result<()> {
+            let mut buffer = [0; 4];
+            cursor.read_exact(&mut buffer)?;
+
+            let delta = u32::from_be_bytes(buffer);
+            result.doc_id = base + (delta as u64);
+
+            Ok(())
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
+        }
+    }
+
+    // Create an index block with three entries - the middle entry will be deleted creating a delta that is too big
+    let block = IndexBlock {
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 31, 0, 0, 0, 1],
+        num_entries: 3,
+        first_doc_id: 10,
+        last_doc_id: 42,
+    };
+
+    fn cb(doc_id: t_docId) -> bool {
+        ![41].contains(&doc_id)
+    }
+
+    assert_eq!(
+        block.repair(cb, SmallDeltaDummy),
+        Some(RepairType::Split {
+            blocks: vec![
+                IndexBlock {
+                    buffer: vec![0, 0, 0, 0],
+                    num_entries: 1,
+                    first_doc_id: 10,
+                    last_doc_id: 10,
+                },
+                IndexBlock {
+                    buffer: vec![0, 0, 0, 0],
+                    num_entries: 1,
+                    first_doc_id: 42,
+                    last_doc_id: 42,
+                }
+            ]
         })
     );
 }

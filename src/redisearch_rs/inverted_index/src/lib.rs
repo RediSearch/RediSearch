@@ -15,7 +15,7 @@ use std::{
 
 use debug::{BlockSummary, Summary};
 use ffi::{
-    FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_HasMultiValue,
+    FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue,
     IndexFlags_Index_StoreFieldFlags,
 };
 pub use ffi::{t_docId, t_fieldMask};
@@ -280,12 +280,7 @@ static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 #[derive(Debug, Eq, PartialEq)]
 enum RepairType {
     Delete,
-    Rebuild {
-        first_doc_id: t_docId,
-        last_doc_id: t_docId,
-        num_entries: usize,
-        buffer: Vec<u8>,
-    },
+    Split { blocks: Vec<IndexBlock> },
 }
 
 impl IndexBlock {
@@ -350,12 +345,10 @@ impl IndexBlock {
     ) -> Option<RepairType> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
         let mut last_doc_id = self.first_doc_id;
-        let mut new_buffer = Vec::with_capacity(self.buffer.len());
-        let mut new_cursor = Cursor::new(&mut new_buffer);
         let decoder = E::decoder();
         let mut result = D::base_result();
 
-        let mut new_block = None;
+        let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
 
         while !cursor.fill_buf().unwrap().is_empty() {
             let base = D::base_id(self, last_doc_id);
@@ -363,31 +356,20 @@ impl IndexBlock {
             last_doc_id = result.doc_id;
 
             if doc_exist_cb(result.doc_id) {
-                let tmp_block = new_block.get_or_insert(IndexBlock {
-                    first_doc_id: result.doc_id,
-                    last_doc_id: result.doc_id,
-                    num_entries: 0,
-                    buffer: Vec::with_capacity(self.buffer.len()),
-                });
-
-                let delta_base = E::delta_base(tmp_block);
-                let delta = result.doc_id.wrapping_sub(delta_base);
-                let delta = E::Delta::from_u64(delta).unwrap();
-
-                encoder.encode(&mut new_cursor, delta, &result).unwrap();
-                tmp_block.num_entries += 1;
+                tmp_inverted_index.add_record(&result).unwrap();
             }
         }
 
-        match new_block {
-            Some(block) if block.num_entries == self.num_entries => None,
-            Some(block) => Some(RepairType::Rebuild {
-                first_doc_id: block.first_doc_id,
-                last_doc_id: block.last_doc_id,
-                num_entries: block.num_entries,
-                buffer: new_buffer,
-            }),
-            None => Some(RepairType::Delete),
+        if tmp_inverted_index.blocks.is_empty() {
+            Some(RepairType::Delete)
+        } else if tmp_inverted_index.blocks.len() == 1
+            && tmp_inverted_index.blocks[0].num_entries == self.num_entries
+        {
+            None
+        } else {
+            Some(RepairType::Split {
+                blocks: tmp_inverted_index.blocks,
+            })
         }
     }
 }
