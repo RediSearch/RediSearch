@@ -591,6 +591,7 @@ impl<E: Encoder> InvertedIndex<E> {
 }
 
 /// Result of scanning a block for garbage collection
+#[derive(Debug, Eq, PartialEq)]
 pub struct BlockGcScanResult {
     /// The index of the block in the inverted index
     index: usize,
