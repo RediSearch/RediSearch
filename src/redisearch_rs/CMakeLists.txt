@@ -12,12 +12,9 @@ if(NOT DEFINED RUST_PROFILE)
     set(RUST_PROFILE "release")
 endif()
 
-# Set RUSTFLAGS (use CMake variable if provided, otherwise use environment variable)
-if(DEFINED RUSTFLAGS)
-    set(RUST_FLAGS "${RUSTFLAGS}")
-else()
-    set(RUST_FLAGS "$ENV{RUSTFLAGS}")
-endif()
+# Set RUSTFLAGS from environment variable
+# This avoids CMake argument parsing issues with complex flag values
+set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 
 # Map Rust profile names to their corresponding artifact directory names
 if(RUST_PROFILE STREQUAL "dev")

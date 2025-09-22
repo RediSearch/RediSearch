@@ -358,10 +358,8 @@ prepare_cmake_arguments() {
     export RUSTFLAGS
   fi
 
-  # Forward RUSTFLAGS to CMake if set
-  if [[ "$RUSTFLAGS" != "" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUSTFLAGS=\"$RUSTFLAGS\""
-  fi
+  # RUSTFLAGS will be passed as environment variable to avoid quoting issues
+  # This prevents CMake argument parsing from truncating complex flag values
 
   if [[ "$RUST_PROFILE" != "" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
@@ -403,9 +401,9 @@ run_cmake() {
     # If verbose, dump all CMake variables before and after configuration
     if [[ "$VERBOSE" == "1" ]]; then
       echo "Running CMake with verbose output..."
-      $CMAKE_CMD --trace-expand
+      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
     else
-      $CMAKE_CMD
+      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
     fi
   fi
 }
