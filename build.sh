@@ -360,7 +360,7 @@ prepare_cmake_arguments() {
 
   # Forward RUSTFLAGS to CMake if set
   if [[ "$RUSTFLAGS" != "" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUSTFLAGS=$RUSTFLAGS"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUSTFLAGS=\"$RUSTFLAGS\""
   fi
 
   if [[ "$RUST_PROFILE" != "" ]]; then

@@ -12,11 +12,11 @@ if(NOT DEFINED RUST_PROFILE)
     set(RUST_PROFILE "release")
 endif()
 
-# Set up RUSTFLAGS - use CMake variable if provided, otherwise use environment variable, default to empty
+# Set RUSTFLAGS (use CMake variable if provided, otherwise use environment variable)
 if(DEFINED RUSTFLAGS)
     set(RUST_FLAGS "${RUSTFLAGS}")
 else()
-    set(RUST_FLAGS "")
+    set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 endif()
 
 # Map Rust profile names to their corresponding artifact directory names
@@ -50,6 +50,7 @@ if(NOT TARGET redisearch_rs_build)
             --profile=${RUST_PROFILE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
+        VERBATIM
     )
 endif()
 
@@ -82,3 +83,5 @@ message(STATUS "Rust configuration:")
 message(STATUS "  Cargo: ${CARGO_EXECUTABLE}")
 message(STATUS "  Profile: ${RUST_PROFILE}")
 message(STATUS "  RUSTFLAGS: ${RUST_FLAGS}")
+message(STATUS "  Target Dir: ${RUST_TARGET_DIR}")
+message(STATUS "  Library Path: ${RUST_LIB_PATH}")
