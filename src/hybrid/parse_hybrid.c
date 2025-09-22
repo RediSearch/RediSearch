@@ -615,6 +615,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       Param_DictFree(mergeSearchopts.params);
+      mergeSearchopts.params = NULL;
     }
 
     if (*mergeReqflags & QEXEC_F_IS_CURSOR) {
