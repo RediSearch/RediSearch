@@ -277,9 +277,13 @@ pub struct IndexBlock {
 
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 
+/// The type of repair needed for a block after a garbage collection scan.
 #[derive(Debug, Eq, PartialEq)]
 enum RepairType {
+    /// This block can be deleted completely.
     Delete,
+
+    /// The block contains GCed entries, and might need to be split into the following blocks.
     Split { blocks: Vec<IndexBlock> },
 }
 
@@ -338,6 +342,8 @@ impl IndexBlock {
         TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
     }
 
+    /// Repair a block by removing records which no longer exists according to `doc_exists_cb`. If
+    /// there is nothing to repair in this block then `None` is returned.
     fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
         doc_exist_cb: fn(doc_id: t_docId) -> bool,
@@ -584,8 +590,12 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 }
 
+/// Result of scanning a block for garbage collection
 pub struct BlockGcScanResult {
+    /// The index of the block in the inverted index
     index: usize,
+
+    /// The type of repair needed for this block
     repair: RepairType,
 }
 
@@ -595,6 +605,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         IndexReaderCore::new(self)
     }
 
+    /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
+    /// if any of its records point to documents that no longer exist. The `doc_exist_cb`
+    /// callback is used to check if a document exists. It should return `true` if the document
+    /// exists and `false` otherwise.
+    ///
+    /// This function returns a vector of all the blocks which should be repaired or deleted.
     pub fn scan_gc(
         &self,
         doc_exist_cb: fn(doc_id: t_docId) -> bool,
