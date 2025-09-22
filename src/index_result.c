@@ -65,6 +65,8 @@ int RSIndexResult_HasOffsets(const RSIndexResult *res) {
     case RSResultData_Intersection:
     case RSResultData_Union:
     {
+      // SAFETY: We checked the tag above, so we can safely assume that res is an aggregate result
+      // and skip the tag check on the next line.
       const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(res);
 
       const uint8_t mask = AggregateResult_KindMask(agg);
@@ -151,6 +153,8 @@ void result_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm *arr[], size_t c
     case RSResultData_Intersection:
     case RSResultData_Union:
     {
+      // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+      // and skip the tag check on the next line.
       const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
       for (int i = 0; i < children.len; i++) {

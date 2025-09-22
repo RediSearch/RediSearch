@@ -60,15 +60,16 @@ static double tfidfRecursive(const RSIndexResult *r, const RSDocumentMetadata *d
   }
   if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
     double ret = 0;
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
 
       for (int i = 0; i < children.len; i++) {
         ret += tfidfRecursive(children.ptr[i], dmd, NULL);
       }
     } else {
-      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
@@ -159,14 +160,15 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
             ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
 
   } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
       for (int i = 0; i < children.len; i++) {
         ret += bm25Recursive(ctx, children.ptr[i], dmd, NULL);
       }
     } else {
-      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
@@ -244,14 +246,15 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
                            term->str);
   } else if (r->data.tag & (RSResultData_Intersection | RSResultData_Union | RSResultData_HybridMetric)) {
+    // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+    // and skip the tag check on the next line.
+    const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
     if (!scrExp) {
-      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
       for (int i = 0; i < children.len; i++) {
         ret += bm25StdRecursive(ctx, children.ptr[i], dmd, NULL);
       }
     } else {
-      const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       size_t numChildren = AggregateResult_NumChildren(agg);
       scrExp->numChildren = numChildren;
       scrExp->children = rm_calloc(numChildren, sizeof(RSScoreExplain));
@@ -369,12 +372,16 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
     // for intersections - we sum up the term scores
     case RSResultData_Intersection:
       if (!scrExp) {
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
         const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
         AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
         for (int i = 0; i < children.len; i++) {
           ret += dismaxRecursive(ctx, children.ptr[i], NULL);
         }
       } else {
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
         const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
         size_t numChildren = AggregateResult_NumChildren(agg);
         scrExp->numChildren = numChildren;
@@ -392,12 +399,16 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
     // for unions - we take the max frequency
     case RSResultData_Union:
       if (!scrExp) {
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
         const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
         AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
         for (int i = 0; i < children.len; i++) {
           ret = MAX(ret, dismaxRecursive(ctx, children.ptr[i], NULL));
         }
       } else {
+        // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+        // and skip the tag check on the next line.
         const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
         size_t numChildren = AggregateResult_NumChildren(agg);
         scrExp->numChildren = numChildren;
@@ -415,6 +426,8 @@ static double dismaxRecursive(const ScoringFunctionArgs *ctx, const RSIndexResul
     // for hybrid - just take the non-vector child score (the second one).
     case RSResultData_HybridMetric:
     {
+      // SAFETY: We checked the tag above, so we can safely assume that r is an aggregate result
+      // and skip the tag check on the next line.
       const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(r);
       return dismaxRecursive(ctx, AggregateResult_Get(agg, 1), scrExp);
     }

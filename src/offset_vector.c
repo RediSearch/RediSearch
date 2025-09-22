@@ -127,7 +127,6 @@ static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
     it->terms = rm_calloc(numChildren, sizeof(RSQueryTerm *));
   }
 
-  int i = 0;
   AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
 
   for (int i = 0; i < numChildren; i++) {
@@ -172,6 +171,9 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     default:
     {
       // if we only have one sub result, just iterate that...
+
+      // SAFETY: We checked the tag above, so we can safely assume that res is an aggregate result
+      // and skip the tag check on the next line.
       const RSAggregateResult *agg = IndexResult_AggregateRefUnchecked(res);
       size_t numChildren = AggregateResult_NumChildren(agg);
 
