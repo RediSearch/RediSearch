@@ -9,18 +9,10 @@ endif()
 
 # Determine Rust profile - allow invoker to set it, but have fallback logic if not set
 if(NOT DEFINED RUST_PROFILE)
-    set(RUST_PROFILE "release")
-    if(DEFINED BUILD_SEARCH_UNIT_TESTS AND BUILD_SEARCH_UNIT_TESTS)
-        if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DEFINED SAN OR DEFINED COV)
-            set(RUST_PROFILE "dev")
-        else()
-            set(RUST_PROFILE "optimised_test")
-        endif()
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DEFINED SAN OR DEFINED COV)
+        set(RUST_PROFILE "dev")
     else()
-        # For non-test builds, only use dev profile for Debug builds (not SAN/COV)
-        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-            set(RUST_PROFILE "dev")
-        endif()
+         set(RUST_PROFILE "release")
     endif()
 endif()
 
@@ -66,8 +58,7 @@ if(NOT TARGET redisearch_rs_build)
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
             ${CARGO_EXECUTABLE} build
-            --workspace
-            ${EXCLUDE_ARGS}
+            --package redisearch_rs
             --profile=${RUST_PROFILE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
