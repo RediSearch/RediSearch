@@ -246,6 +246,7 @@ add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
+add_subdirectory(src/redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -296,7 +297,29 @@ set(FINAL_OBJECTS
 
 #----------------------------------------------------------------------------------------------
 # Build the shared library
-add_library(redisearch SHARED ${FINAL_OBJECTS})
+# Build as static library for integration with disk storage
+# Allow overriding library type via option
+
+
+# Default behavior: SHARED when main project, STATIC when subdirectory
+if(NOT DEFINED REDISEARCH_BUILD_SHARED)
+    if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+        set(REDISEARCH_BUILD_SHARED ON)
+    else()
+        set(REDISEARCH_BUILD_SHARED OFF)
+    endif()
+endif()
+
+option(REDISEARCH_BUILD_SHARED "Build RediSearch as shared library" OFF)
+
+# Create library with determined type
+if(REDISEARCH_BUILD_SHARED)
+    add_library(redisearch SHARED ${FINAL_OBJECTS})
+    message(STATUS "Building RediSearch as SHARED library")
+else()
+    add_library(redisearch STATIC ${FINAL_OBJECTS})
+    message(STATUS "Building RediSearch as STATIC library")
+endif()
 
 if(COORD_TYPE STREQUAL "rlec")
     set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
@@ -306,7 +329,8 @@ set_target_properties(redisearch
     PROPERTIES
     LINKER_LANGUAGE CXX
     C_STANDARD 17
-    C_STANDARD_REQUIRED ON)
+    C_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON)
 setup_shared_object_target(redisearch "")
 target_link_libraries(redisearch
         redisearch-geometry
@@ -319,7 +343,7 @@ target_link_libraries(redisearch
         iterators
         wildcard
         uv_a
-        ${BINDIR}/redisearch_rs/libredisearch_rs.a
+        redisearch_rs
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
@@ -327,7 +351,7 @@ target_link_libraries(redisearch
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
-
+add_dependencies(redisearch redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration
