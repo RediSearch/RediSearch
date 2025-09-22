@@ -1088,6 +1088,11 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 }
 
 impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReader<'index, IR> {
+    /// Get the next record from the inner reader that matches the numeric filter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true when this function is called.
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
@@ -1096,6 +1101,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
                 return Ok(false);
             }
 
+            // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked() };
 
             if self.filter.value_in_range(value) {
@@ -1104,6 +1110,11 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
         }
     }
 
+    /// Seek to the record with the given document ID in the inner reader that matches the numeric filter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true when this function is called.
     fn seek_record(
         &mut self,
         doc_id: t_docId,
@@ -1112,6 +1123,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
         let success = self.inner.seek_record(doc_id, result)?;
 
         if success {
+            // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked() };
 
             if self.filter.value_in_range(value) {
@@ -1229,6 +1241,11 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 }
 
 impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'index, IR> {
+    /// Get the next record from the inner reader that matches the geo filter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true when this function is called.
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
             let success = self.inner.next_record(result)?;
@@ -1237,6 +1254,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
                 return Ok(false);
             }
 
+            // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked_mut() };
 
             // SAFETY: we know the filter is not a null pointer since we hold a reference to it
@@ -1248,6 +1266,11 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
         }
     }
 
+    /// Seek to the record with the given document ID in the inner reader that matches the geo filter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true when this function is called.
     fn seek_record(
         &mut self,
         doc_id: t_docId,
@@ -1256,6 +1279,7 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
         let success = self.inner.seek_record(doc_id, result)?;
 
         if success {
+            // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked_mut() };
 
             // SAFETY: we know the filter is not a null pointer since we hold a reference to it
