@@ -78,6 +78,10 @@ impl DecodedBy for Full {
 }
 
 /// Create a [`RSIndexResult`] from the given parameters and read its offsets from the reader.
+///
+/// # Safety
+///
+/// 1. `result.is_term()` must be true when this function is called.
 #[inline(always)]
 pub fn decode_term_record_offsets<'index>(
     cursor: &mut Cursor<&'index [u8]>,
@@ -113,7 +117,8 @@ pub fn decode_term_record_offsets<'index>(
     result.field_mask = field_mask;
     result.freq = freq;
 
-    let term = result.as_term_unchecked_mut();
+    // SAFETY: caller must ensure `result` is a term record.
+    let term = unsafe { result.as_term_unchecked_mut() };
     term.set_offsets(offsets);
 
     Ok(())

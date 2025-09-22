@@ -587,6 +587,21 @@ pub enum RSResultKind {
     HybridMetric = 64,
 }
 
+impl std::fmt::Display for RSResultKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let k = match self {
+            RSResultKind::Union => "Union",
+            RSResultKind::Intersection => "Intersection",
+            RSResultKind::Term => "Term",
+            RSResultKind::Virtual => "Virtual",
+            RSResultKind::Numeric => "Numeric",
+            RSResultKind::Metric => "Metric",
+            RSResultKind::HybridMetric => "HybridMetric",
+        };
+        write!(f, "{k}")
+    }
+}
+
 /// Holds the actual data of an ['IndexResult']
 ///
 /// These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
@@ -787,25 +802,58 @@ impl<'index> RSIndexResult<'index> {
         self.data.kind()
     }
 
+    /// Get the numeric value of this record without checking its kind. The caller must ensure
+    /// that this is a numeric record, else invoking this method will cause undefined behavior.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_numeric()` must return `true` for `self`.
     pub unsafe fn as_numeric_unchecked(&self) -> f64 {
+        debug_assert!(
+            self.is_numeric(),
+            "Invariant violation: `as_numeric_unchecked` was invoked on a non-numeric `RSIndexResult` \
+             instance that didn't actually contain a numeric. It was a {}",
+            self.data.kind()
+        );
+
         match &self.data {
             RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => *numeric,
             RSResultData::Union(_)
             | RSResultData::Intersection(_)
             | RSResultData::Term(_)
             | RSResultData::Virtual
-            | RSResultData::HybridMetric(_) => unsafe { std::hint::unreachable_unchecked() },
+            | RSResultData::HybridMetric(_) => {
+                // SAFETY: unreachable because of safety condition 1
+                unsafe { std::hint::unreachable_unchecked() }
+            }
         }
     }
 
+    /// Get a mutable reference to the numeric value of this record without checking its kind.
+    /// The caller must ensure that this is a numeric record, else invoking this method will cause
+    /// undefined behavior.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_numeric()` must return `true` for `self`.
     pub unsafe fn as_numeric_unchecked_mut(&mut self) -> &mut f64 {
+        debug_assert!(
+            self.is_numeric(),
+            "Invariant violation: `as_numeric_unchecked_mut` was invoked on a non-numeric `RSIndexResult` \
+             instance that didn't actually contain a numeric. It was a {}",
+            self.data.kind()
+        );
+
         match &mut self.data {
             RSResultData::Numeric(numeric) | RSResultData::Metric(numeric) => numeric,
             RSResultData::Union(_)
             | RSResultData::Intersection(_)
             | RSResultData::Term(_)
             | RSResultData::Virtual
-            | RSResultData::HybridMetric(_) => unsafe { std::hint::unreachable_unchecked() },
+            | RSResultData::HybridMetric(_) => {
+                // SAFETY: unreachable because of safety condition 1
+                unsafe { std::hint::unreachable_unchecked() }
+            }
         }
     }
 
@@ -835,7 +883,21 @@ impl<'index> RSIndexResult<'index> {
         }
     }
 
-    pub fn as_term_unchecked_mut(&mut self) -> &mut RSTermRecord<'index> {
+    /// Get a reference to the term record of this index result without checking its kind. The caller
+    /// must ensure that this is a term record, else invoking this method will cause undefined
+    /// behavior.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_term()` must return `true` for `self`.
+    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RSTermRecord<'index> {
+        debug_assert!(
+            self.is_term(),
+            "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RSIndexResult` \
+             instance that didn't actually contain a term. It was a {}",
+            self.data.kind()
+        );
+
         match &mut self.data {
             RSResultData::Term(term) => term,
             RSResultData::Union(_)
@@ -843,7 +905,10 @@ impl<'index> RSIndexResult<'index> {
             | RSResultData::Virtual
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_)
-            | RSResultData::HybridMetric(_) => unsafe { std::hint::unreachable_unchecked() },
+            | RSResultData::HybridMetric(_) => {
+                // SAFETY: unreachable because of safety condition 1
+                unsafe { std::hint::unreachable_unchecked() }
+            }
         }
     }
 
@@ -909,6 +974,19 @@ impl<'index> RSIndexResult<'index> {
             self.data,
             RSResultData::Intersection(_) | RSResultData::Union(_) | RSResultData::HybridMetric(_)
         )
+    }
+
+    /// True if this is a numeric kind
+    fn is_numeric(&self) -> bool {
+        matches!(
+            self.data,
+            RSResultData::Numeric(_) | RSResultData::Metric(_)
+        )
+    }
+
+    /// True if this is a term kind
+    fn is_term(&self) -> bool {
+        matches!(self.data, RSResultData::Term(_))
     }
 
     /// Is this result some copy type

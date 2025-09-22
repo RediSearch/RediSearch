@@ -399,6 +399,12 @@ impl DecodedBy for Numeric {
 }
 
 impl Decoder for Numeric {
+    /// Decode a numeric record from the given cursor, using the provided base document ID.
+    /// The result is written into the provided `RSIndexResult` instance.
+    ///
+    /// # Safety
+    ///
+    /// 1. `result.is_numeric()` must be true to ensure `result` is holding numeric data.
     fn decode<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -469,6 +475,7 @@ impl Decoder for Numeric {
         let doc_id = base + delta;
 
         result.doc_id = doc_id;
+        // SAFETY: Caller must ensure `result` is numeric
         unsafe {
             *result.as_numeric_unchecked_mut() = num;
         }
