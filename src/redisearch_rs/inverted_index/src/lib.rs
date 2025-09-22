@@ -363,22 +363,19 @@ impl IndexBlock {
             last_doc_id = result.doc_id;
 
             if doc_exist_cb(result.doc_id) {
-                if new_block.is_none() {
-                    new_block = Some(IndexBlock {
-                        first_doc_id: result.doc_id,
-                        last_doc_id: result.doc_id,
-                        num_entries: 0,
-                        buffer: Vec::with_capacity(self.buffer.len()),
-                    });
-                }
-                let new_block = new_block.as_mut().unwrap();
+                let tmp_block = new_block.get_or_insert(IndexBlock {
+                    first_doc_id: result.doc_id,
+                    last_doc_id: result.doc_id,
+                    num_entries: 0,
+                    buffer: Vec::with_capacity(self.buffer.len()),
+                });
 
-                let delta_base = E::delta_base(new_block);
+                let delta_base = E::delta_base(tmp_block);
                 let delta = result.doc_id.wrapping_sub(delta_base);
                 let delta = E::Delta::from_u64(delta).unwrap();
 
                 encoder.encode(&mut new_cursor, delta, &result).unwrap();
-                new_block.num_entries += 1;
+                tmp_block.num_entries += 1;
             }
         }
 
