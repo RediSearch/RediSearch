@@ -46,6 +46,7 @@ pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
 }
 
 /// Dummy encoder which allows defaults for testing, encoding only the delta
+#[derive(Clone)]
 struct Dummy;
 
 impl Encoder for Dummy {
@@ -136,6 +137,7 @@ fn adding_same_record_twice() {
     assert_eq!(ii.flags(), IndexFlags_Index_DocIdsOnly);
 
     /// Dummy encoder which allows duplicates for testing
+    #[derive(Clone)]
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
@@ -187,6 +189,7 @@ fn adding_same_record_twice() {
 #[test]
 fn adding_creates_new_blocks_when_entries_is_reached() {
     /// Dummy encoder which only allows 2 entries per block for testing
+    #[derive(Clone)]
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -464,6 +467,7 @@ fn reading_over_empty_blocks() {
 
 #[test]
 fn read_using_the_first_block_id_as_the_base() {
+    #[derive(Clone)]
     struct FirstBlockIdDummy;
 
     impl Encoder for FirstBlockIdDummy {
@@ -768,6 +772,7 @@ fn reader_unique_docs() {
 #[test]
 fn reader_has_duplicates() {
     /// Dummy encoder which allows duplicates for testing
+    #[derive(Clone)]
     struct AllowDupsDummy;
 
     impl Encoder for AllowDupsDummy {
@@ -1104,6 +1109,7 @@ fn summary_store_numeric() {
 #[test]
 fn blocks_summary() {
     /// Dummy encoder which only allows 2 entries per block for testing
+    #[derive(Clone)]
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -1158,6 +1164,7 @@ fn blocks_summary() {
 #[test]
 fn blocks_summary_store_numeric() {
     /// Dummy encoder which only allows 2 entries per block for testing
+    #[derive(Clone)]
     struct SmallBlocksDummy;
 
     impl Encoder for SmallBlocksDummy {
@@ -1297,6 +1304,7 @@ fn index_block_repair_some_deletions() {
 
 #[test]
 fn index_block_repair_delta_too_big() {
+    #[derive(Clone)]
     struct SmallDeltaDummy;
 
     struct U5Delta(u32);

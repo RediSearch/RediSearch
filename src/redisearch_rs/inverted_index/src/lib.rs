@@ -123,7 +123,7 @@ impl NumericFilter {
 }
 
 /// Encoder to write a record into an index
-pub trait Encoder {
+pub trait Encoder: Clone {
     /// Document ids are represented as `u64`s and stored using delta-encoding.
     ///
     /// Some encoders can't encode arbitrarily large id deltas—e.g. they might be limited to `u32::MAX` or
@@ -584,10 +584,42 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 }
 
+pub struct BlockGcScanResult {
+    index: usize,
+    repair: RepairType,
+}
+
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
     pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
         IndexReaderCore::new(self)
+    }
+
+    pub fn scan_gc(
+        &self,
+        doc_exist_cb: fn(doc_id: t_docId) -> bool,
+    ) -> std::io::Result<Vec<BlockGcScanResult>> {
+        let mut results = Vec::new();
+
+        for (i, block) in self.blocks.iter().enumerate() {
+            if block.num_entries == 0 {
+                results.push(BlockGcScanResult {
+                    index: i,
+                    repair: RepairType::Delete,
+                });
+                continue;
+            }
+
+            let encoder = self.encoder.clone();
+
+            let repair = block.repair(doc_exist_cb, encoder)?;
+
+            if let Some(repair) = repair {
+                results.push(BlockGcScanResult { index: i, repair });
+            }
+        }
+
+        Ok(results)
     }
 }
 
