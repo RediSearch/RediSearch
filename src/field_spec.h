@@ -168,24 +168,4 @@ static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *quer
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 
-//---------------------------------------------------------------------------------------------
-// FieldSpec Replication Functions
-//---------------------------------------------------------------------------------------------
-
-// Field iteration is handled within IndexSpec-level functions
-
-/**
- * Freeze a specific field
- * @param field The FieldSpec to freeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int FieldSpec_Freeze(FieldSpec *field);
-
-/**
- * Unfreeze a field
- * @param field The FieldSpec to unfreeze
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
- */
-int FieldSpec_Unfreeze(FieldSpec *field);
-
 #endif /* SRC_FIELD_SPEC_H_ */

@@ -3906,23 +3906,7 @@ int IndexSpec_Freeze(IndexSpec *spec) {
                 "RediSearch: Preparing IndexSpec '%s' for fork",
                 IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
 
-
-  // make sure GC will not change now
   pthread_rwlock_rdlock(&spec->rwlock);
-
-  // Freeze all fields.
-  if (spec->fields) {
-    RedisModule_Log(RSDummyContext, "debug",
-                  "RediSearch: Preparing %d fields for fork in spec '%s'",
-                  spec->numFields, IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
-
-    for (int i = 0; i < spec->numFields; i++) {
-      int ret = FieldSpec_Freeze(&spec->fields[i]);
-      if (ret != REDISMODULE_OK) {
-        return ret;
-      }
-    }
-  }
 
   RedisModule_Log(RSDummyContext, "debug",
                 "RediSearch: Successfully prepared IndexSpec '%s' for fork",
@@ -3932,22 +3916,8 @@ int IndexSpec_Freeze(IndexSpec *spec) {
 }
 
 int IndexSpec_Unfreeze(IndexSpec *spec) {
-  RedisModule_Log(RSDummyContext, "debug",
-                "RediSearch: Handling fork creation for IndexSpec '%s'",
-                IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
 
-  // make sure GC can change now
   pthread_rwlock_unlock(&spec->rwlock);
-
-  // Unfreeze all fields.
-  if (spec->fields) {
-    for (int i = 0; i < spec->numFields; i++) {
-      int ret = FieldSpec_Unfreeze(&spec->fields[i]);
-      if (ret != REDISMODULE_OK) {
-        return ret;
-      }
-    }
-  }
 
   return REDISMODULE_OK;
 }

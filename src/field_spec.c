@@ -80,25 +80,3 @@ char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate) {
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate) {
   return FormatFieldNameOrPath(fs->index, fs->fieldPath, Obfuscate_FieldPath, obfuscate);
 }
-
-//---------------------------------------------------------------------------------------------
-// FieldSpec Replication Functions
-//---------------------------------------------------------------------------------------------
-
-int FieldSpec_Freeze(FieldSpec *field) {
-  if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
-    //TODO: Call specific API to stop/pause/handle potential background indexing
-    return REDISMODULE_OK;
-  }
-
-  return REDISMODULE_OK;
-}
-
-int FieldSpec_Unfreeze(FieldSpec *field) {
-  if (FIELD_IS(field, INDEXFLD_T_VECTOR)) {
-    //TODO: Call specific API to stop/pause/handle potential background indexing
-    return REDISMODULE_OK;
-  }
-
-  return REDISMODULE_OK;
-}
