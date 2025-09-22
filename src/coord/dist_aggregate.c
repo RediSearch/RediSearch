@@ -486,12 +486,11 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   return rpnetNext(rp, r);
 }
 
-
 static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  MRCommand cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
+  // MRCommand cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
 
-  StrongRef dispatcher_ref = HybridDispatcher_New(&cmd);
+  StrongRef dispatcher_ref = HybridDispatcher_New(&nc->cmd, 4);
   HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
 
   //len is number of shards
@@ -508,10 +507,10 @@ static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
   while (!HybridDispatcher_IsDone(dispatcher)) {
     usleep(1000);
   }
-  usleep(100000);
-
+  // for hybrid commands, the index name is at position 1
+  const char *idx = MRCommand_ArgStringPtrLen(&dispatcher->cmd, 1, NULL);
   // use logic like in getCursorCommand
-  // MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx, cursorStr);
+  MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx);
   nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, searchMappings);
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);

@@ -596,35 +596,33 @@ void iterStartCb(void *p) {
 void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
-  arrayof(CursorMapping *) searchMappings = (arrayof(CursorMapping *))data->privateData;
+  arrayof(CursorMapping *) mappings = (arrayof(CursorMapping *))data->privateData;
+  RS_ASSERT(!mappings || array_len(mappings) == 0);
 
-  if (!searchMappings || array_len(searchMappings) == 0) {
-    // Fallback to regular behavior if no mapping data
-    RS_ABORT("iterCursorMappingCb: no mapping data");
-  }
-
-  uint32_t len = array_len(searchMappings);
+  uint32_t len = cluster_g->topo->numShards;
   it->len = len;
   it->ctx.pending = len;
   it->ctx.inProcess = len;
 
   it->cbxs = rm_realloc(it->cbxs, len * sizeof(*it->cbxs));
+  MRCommand *cmd = &it->cbxs->cmd;
+  cmd->targetSlot = mappings[0]->targetSlot;
+  char buf[128];
+  sprintf(buf, "%lld", mappings[0]->cursorId);
+  MRCommand_Append(cmd, buf, strlen(buf));
+
 
   // Create FT.CURSOR READ commands for each mapping
-  for (size_t i = 0; i < len; i++) {
+  for (size_t i = 1; i < len; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
 
-    char cursorStr[256];
-    sprintf(cursorStr, "%lld", searchMappings[i]->cursorId);
-    // it->cbxs[i].cmd = MR_NewCommand(4, "_FT.CURSOR", "READ",
-    //                                mappingData->indexName, cursorStr);
-    it->cbxs[i].cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
-    it->cbxs[i].cmd.targetSlot = searchMappings[i]->targetSlot;
-    it->cbxs[i].cmd.protocol = 3;
-    it->cbxs[i].cmd.forCursor = true;
-    it->cbxs[i].cmd.rootCommand = C_READ;
-    it->cbxs[i].cmd.depleted = false;
+    it->cbxs[i].cmd = MRCommand_Copy(cmd);
+    it->cbxs[i].cmd.targetSlot = mappings[i]->targetSlot;
+    it->cbxs[i].cmd.num = 4;
+    char buf[128];
+    sprintf(buf, "%lld", mappings[i]->cursorId);
+    MRCommand_Append(&it->cbxs[i].cmd, buf, strlen(buf));
   }
 
   // Send commands to all shards

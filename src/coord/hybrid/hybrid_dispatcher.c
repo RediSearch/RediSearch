@@ -15,6 +15,9 @@
 #include <string.h>
 #include <unistd.h>
 
+#define INTERNAL_HYBRID_RESP3_LENGTH 2
+#define INTERNAL_HYBRID_RESP2_LENGTH 4
+
 static void HybridDispatcher_MarkStarted(HybridDispatcher *dispatcher) {
     atomic_store(&dispatcher->started, true);
 }
@@ -23,7 +26,7 @@ static void HybridDispatcher_MarkDone(HybridDispatcher *dispatcher) {
     atomic_store(&dispatcher->done, true);
 }
 
-bool HybridDispatcher_IsStarted(HybridDispatcher *dispatcher) {
+bool HybridDispatcher_IsStarted(const HybridDispatcher *dispatcher) {
     return atomic_load(&dispatcher->started);
 }
 
@@ -41,21 +44,15 @@ static int HybridDispatcher_AddMapping(HybridDispatcher *dispatcher, CursorMappi
 }
 
 
-// Callback implementation for processing cursor mappings
-static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-
-    HybridDispatcher *dispatcher = (HybridDispatcher *)MRIteratorCallback_GetPrivateData(ctx);
-
-    for (size_t i = 0; i < 4; i += 2) {
-
+// Process cursor mappings for RESP2 protocol
+static void processHybridResp2(HybridDispatcher *dispatcher, MRReply *rep, MRCommand *cmd) {
+    for (size_t i = 0; i < INTERNAL_HYBRID_RESP2_LENGTH; i += 2) {
         CursorMapping *mapping = rm_calloc(1, sizeof(CursorMapping));
-        mapping->targetSlot = MRIteratorCallback_GetCommand(ctx)->targetSlot;;
+        mapping->targetSlot = cmd->targetSlot;
 
         MRReply *key_reply = MRReply_ArrayElement(rep, i);
         MRReply *value_reply = MRReply_ArrayElement(rep, i + 1);
-
         const char *key = MRReply_String(key_reply, NULL);
-
         long long value;
         MRReply_ToInteger(value_reply, &value);
 
@@ -69,9 +66,43 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
         } else {
             RS_ABORT("Unknown key");
         }
-        if (isSearch) {
-            HybridDispatcher_AddMapping(dispatcher, mapping, isSearch);
-        }
+        HybridDispatcher_AddMapping(dispatcher, mapping, isSearch);
+    }
+}
+
+// Process cursor mappings for RESP3 protocol
+static void processHybridResp3(HybridDispatcher *dispatcher, MRReply *rep, MRCommand *cmd) {
+    // RESP3 uses a map structure instead of array pairs
+    const char *keys[] = {"SEARCH", "VSIM"};
+    const bool isSearch[] = {true, false};
+
+    for (int i = 0; i < INTERNAL_HYBRID_RESP3_LENGTH; i++) {
+        MRReply *cursorId = MRReply_MapElement(rep, keys[i]);
+        RS_ASSERT(cursorId);
+
+        CursorMapping *mapping = rm_calloc(1, sizeof(CursorMapping));
+        mapping->targetSlot = cmd->targetSlot;
+        long long cid;
+        MRReply_ToInteger(cursorId, &cid);
+        mapping->cursorId = cid;
+        HybridDispatcher_AddMapping(dispatcher, mapping, isSearch[i]);
+    }
+}
+
+// Callback implementation for processing cursor mappings
+static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+    HybridDispatcher *dispatcher = (HybridDispatcher *)MRIteratorCallback_GetPrivateData(ctx);
+    MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+
+    // Detect protocol version based on reply type
+    bool isResp3 = MRReply_Type(rep) == MR_REPLY_MAP;
+
+    if (isResp3) {
+        RS_ASSERT(MRReply_Type(rep) == MR_REPLY_MAP && MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
+        processHybridResp3(dispatcher, rep, cmd);
+    } else {
+        RS_ASSERT(MRReply_Type(rep) == MR_REPLY_ARRAY && MRReply_Length(rep) == INTERNAL_HYBRID_RESP2_LENGTH);
+        processHybridResp2(dispatcher, rep, cmd);
     }
 
     MRIteratorCallback_Done(ctx, 0);
@@ -91,15 +122,11 @@ static void HybridDispatcher_Free(void *obj) {
 }
 
 
-static arrayof(CursorMapping *) HybridDispatcher_GetSearchMappings(HybridDispatcher *dispatcher) {
-    pthread_mutex_lock(&dispatcher->data_mutex);
-    arrayof(CursorMapping *) result = dispatcher->searchMappings;
-    pthread_mutex_unlock(&dispatcher->data_mutex);
-    return result;
-}
 
-StrongRef HybridDispatcher_New(const MRCommand *cmd) {
+StrongRef HybridDispatcher_New(const MRCommand *cmd,const size_t numShards) {
     HybridDispatcher *dispatcher = rm_calloc(1, sizeof(HybridDispatcher));
+
+    dispatcher->numShards = numShards;
 
     // Initialize fields
     dispatcher->cmd = *cmd;
@@ -134,8 +161,7 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher) {
         return -1; // RS_RESULT_ERROR
     }
 
-    // 4 is the number of shards
-    while (array_len(HybridDispatcher_GetSearchMappings(dispatcher)) < 4 ) {
+    while (array_len(dispatcher->searchMappings) < dispatcher->numShards ) {
         usleep(1000);
     }
 
@@ -177,6 +203,6 @@ void HybridDispatcher_SetMappingArray(HybridDispatcher *dispatcher, arrayof(Curs
     pthread_mutex_unlock(&dispatcher->data_mutex);
 }
 
-bool HybridDispatcher_IsDone(HybridDispatcher *dispatcher) {
+bool HybridDispatcher_IsDone(const HybridDispatcher *dispatcher) {
     return atomic_load(&dispatcher->done);
 }

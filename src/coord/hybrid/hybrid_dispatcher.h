@@ -41,6 +41,8 @@ typedef struct HybridDispatcher {
 
     // Reference counting (via StrongRef)
     StrongRef self_ref;                       // Self-reference for sharing
+
+    size_t numShards;
 } HybridDispatcher;
 
 /**
@@ -48,7 +50,7 @@ typedef struct HybridDispatcher {
  * @param cmd The MRCommand to execute
  * @return StrongRef to the new HybridDispatcher instance
  */
-StrongRef HybridDispatcher_New(const MRCommand *cmd);
+StrongRef HybridDispatcher_New(const MRCommand *cmd, size_t numShards);
 
 /**
  * Complete dispatch workflow: start processing, wait for completion, and finish
@@ -62,7 +64,7 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher);
  * @param dispatcher The dispatcher instance
  * @return true if started, false otherwise
  */
-bool HybridDispatcher_IsStarted(HybridDispatcher *dispatcher);
+bool HybridDispatcher_IsStarted(const HybridDispatcher *dispatcher);
 
 /**
  * Sets the mapping array for search or vector similarity (thread-safe)
@@ -77,7 +79,8 @@ void HybridDispatcher_SetMappingArray(HybridDispatcher *dispatcher, arrayof(Curs
  * @param dispatcher The dispatcher instance
  * @return true if done, false otherwise
  */
-bool HybridDispatcher_IsDone(HybridDispatcher *dispatcher);
+bool HybridDispatcher_IsDone(const HybridDispatcher *dispatcher);
+
 
 #ifdef __cplusplus
 }
