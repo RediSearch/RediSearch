@@ -2972,8 +2972,8 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
 
   if (sp->diskSpec) {
     // Need to serialize the Trie.
-    TrieType_RdbSave(rdb, (void*)sp->terms);
-    TrieType_RdbSave(rdb, (void*)sp->suffix);
+    TrieType_GenericSave(rdb, sp->terms, 0); // we do not need to save payload, the index will be got from the term
+    TrieType_GenericSave(rdb, sp->suffix, 0); // we do not need to save payload, the index will be got from the term
 
     // Need to ask the Disk API for the Index to serialize the RAM info (deletedIDs, maxDocId, etc...)
   }
