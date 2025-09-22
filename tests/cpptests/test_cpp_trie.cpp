@@ -11,9 +11,12 @@
 #include "gtest/gtest.h"
 #include "trie/trie.h"
 #include "trie/trie_type.h"
+#include "redismock/redismock.h"
 
 #include <set>
 #include <string>
+#include <memory>
+#include <functional>
 
 typedef std::set<std::string> ElemSet;
 
@@ -303,6 +306,18 @@ bool trieInsertByScore(Trie *t, const char *s, float score) {
   return Trie_InsertStringBuffer(t, s, strlen(s), score, 1, NULL);
 }
 
+bool trieContains(Trie *t, const char *s) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  if (!runes) {
+    return false;
+  }
+  float score = TrieNode_Find(t->root, runes, len);
+  runeBufFree(&buf);
+  return score != 0; // TrieNode_Find returns 0 if not found, actual score if found
+}
+
 TEST_F(TrieTest, testScoreOrder) {
   Trie *t = NewTrie(trieFreeCb, Trie_Sort_Score);
 
@@ -348,3 +363,334 @@ TEST_F(TrieTest, testbenchmark) {
 
   TrieType_Free(t);
 }*/
+
+// Helper function to compare two tries for equality
+static bool compareTrieContents(Trie *original, Trie *loaded) {
+  if (original->size != loaded->size) {
+    return false;
+  }
+
+  // Compare all entries using iterators
+  TrieIterator *origIter = Trie_Iterate(original, "", 0, 0, 1);
+  TrieIterator *loadedIter = Trie_Iterate(loaded, "", 0, 0, 1);
+
+  std::unique_ptr<TrieIterator, std::function<void(TrieIterator *)>> origIterPtr(origIter, [](TrieIterator *iter) {
+    TrieIterator_Free(iter);
+  });
+  std::unique_ptr<TrieIterator, std::function<void(TrieIterator *)>> loadedIterPtr(loadedIter, [](TrieIterator *iter) {
+    TrieIterator_Free(iter);
+  });
+
+  rune *origRstr, *loadedRstr;
+  t_len origLen, loadedLen;
+  float origScore, loadedScore;
+  RSPayload origPayload, loadedPayload;
+
+  while (true) {
+    int origHasNext = TrieIterator_Next(origIter, &origRstr, &origLen, &origPayload, &origScore, NULL);
+    int loadedHasNext = TrieIterator_Next(loadedIter, &loadedRstr, &loadedLen, &loadedPayload, &loadedScore, NULL);
+
+    if (origHasNext != loadedHasNext) {
+      return false;
+    }
+
+    if (!origHasNext) {
+      break; // Both iterators finished
+    }
+
+    // Compare strings
+    if (origLen != loadedLen) {
+      return false;
+    }
+
+    size_t origStrLen, loadedStrLen;
+    char *origStr = runesToStr(origRstr, origLen, &origStrLen);
+    char *loadedStr = runesToStr(loadedRstr, loadedLen, &loadedStrLen);
+
+    std::unique_ptr<char, std::function<void(char *)>> origStrPtr(origStr, [](char *str) { rm_free(str); });
+    std::unique_ptr<char, std::function<void(char *)>> loadedStrPtr(loadedStr, [](char *str) { rm_free(str); });
+
+    if (origStrLen != loadedStrLen || strncmp(origStr, loadedStr, origStrLen) != 0) {
+      return false;
+    }
+
+    // Compare scores
+    if (origScore != loadedScore) {
+      return false;
+    }
+
+    // Compare payloads
+    if (origPayload.len != loadedPayload.len) {
+      return false;
+    }
+
+    if (origPayload.len > 0 && loadedPayload.len > 0) {
+      if (memcmp(origPayload.data, loadedPayload.data, origPayload.len) != 0) {
+        return false;
+      }
+    } else if ((origPayload.data == NULL) != (loadedPayload.data == NULL)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+TEST_F(TrieTest, testBasicRdbSaveLoad) {
+  // Create a trie with some test data
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  // Insert test data with different scores
+  trieInsertByScore(originalTrie, "hello", 5.0);
+  trieInsertByScore(originalTrie, "world", 3.0);
+  trieInsertByScore(originalTrie, "foo", 7.0);
+  trieInsertByScore(originalTrie, "bar", 1.0);
+  trieInsertByScore(originalTrie, "test", 4.0);
+
+  ASSERT_EQ(5, originalTrie->size);
+
+  // Create RDB IO context
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // Save the trie to RDB
+  TrieType_RdbSave(io, originalTrie);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Reset read position to load it back
+  io->read_pos = 0;
+
+  // Load the trie from RDB
+  Trie *loadedTrie = (Trie *)TrieType_RdbLoad(io, TRIE_ENCVER_CURRENT);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(loadedTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Compare the original and loaded tries
+  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_TRUE(compareTrieContents(originalTrie, loadedTrie));
+}
+
+TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
+  // Create a trie with payloads
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  // Insert test data with payloads
+  char payload1[] = "payload_hello";
+  char payload2[] = "payload_world";
+  char payload3[] = "payload_foo";
+
+  RSPayload p1 = {.data = payload1, .len = strlen(payload1)};
+  RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
+  RSPayload p3 = {.data = payload3, .len = strlen(payload3)};
+
+  Trie_InsertStringBuffer(originalTrie, "hello", 5, 5.0, 0, &p1);
+  Trie_InsertStringBuffer(originalTrie, "world", 5, 3.0, 0, &p2);
+  Trie_InsertStringBuffer(originalTrie, "foo", 3, 7.0, 0, &p3);
+
+  ASSERT_EQ(3, originalTrie->size);
+
+  // Create RDB IO context
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // Save the trie to RDB (with payloads)
+  TrieType_GenericSave(io, originalTrie, 1);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Reset read position to load it back
+  io->read_pos = 0;
+
+  // Load the trie from RDB (with payloads)
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 1);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(loadedTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Compare the original and loaded tries
+  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+  EXPECT_TRUE(compareTrieContents(originalTrie, loadedTrie));
+
+  // Verify specific payloads are preserved
+  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "hello", 5, true);
+  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "world", 5, true);
+  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "foo", 3, true);
+
+  ASSERT_TRUE(loadedPayload1 != nullptr);
+  ASSERT_TRUE(loadedPayload2 != nullptr);
+  ASSERT_TRUE(loadedPayload3 != nullptr);
+
+  EXPECT_STREQ(payload1, (char *)loadedPayload1);
+  EXPECT_STREQ(payload2, (char *)loadedPayload2);
+  EXPECT_STREQ(payload3, (char *)loadedPayload3);
+}
+
+TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
+  // Create a trie with payloads
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  // Insert test data with payloads
+  char payload1[] = "payload_hello";
+  char payload2[] = "payload_world";
+
+  RSPayload p1 = {.data = payload1, .len = strlen(payload1)};
+  RSPayload p2 = {.data = payload2, .len = strlen(payload2)};
+
+  Trie_InsertStringBuffer(originalTrie, "hello", 5, 5.0, 0, &p1);
+  Trie_InsertStringBuffer(originalTrie, "world", 5, 3.0, 0, &p2);
+  trieInsertByScore(originalTrie, "foo", 7.0); // No payload
+
+  ASSERT_EQ(3, originalTrie->size);
+
+  // Create RDB IO context
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // Save the trie to RDB (without payloads)
+  TrieType_GenericSave(io, originalTrie, 0);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Reset read position to load it back
+  io->read_pos = 0;
+
+  // Load the trie from RDB (without payloads)
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(loadedTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Compare sizes
+  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+
+  // Verify that payloads are not preserved (should be NULL)
+  void *loadedPayload1 = Trie_GetValueStringBuffer(loadedTrie, "hello", 5, true);
+  void *loadedPayload2 = Trie_GetValueStringBuffer(loadedTrie, "world", 5, true);
+  void *loadedPayload3 = Trie_GetValueStringBuffer(loadedTrie, "foo", 3, true);
+
+  EXPECT_TRUE(loadedPayload1 == nullptr);
+  EXPECT_TRUE(loadedPayload2 == nullptr);
+  EXPECT_TRUE(loadedPayload3 == nullptr);
+}
+
+TEST_F(TrieTest, testRdbSaveLoadEmptyTrie) {
+  // Create an empty trie
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  ASSERT_EQ(0, originalTrie->size);
+
+  // Create RDB IO context
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // Save the empty trie to RDB
+  TrieType_RdbSave(io, originalTrie);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Reset read position to load it back
+  io->read_pos = 0;
+
+  // Load the trie from RDB
+  Trie *loadedTrie = (Trie *)TrieType_RdbLoad(io, TRIE_ENCVER_CURRENT);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(loadedTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Compare the original and loaded tries
+  EXPECT_EQ(0, loadedTrie->size);
+  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+}
+
+TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
+  // Create a trie with lexical sorting - this is the only difference from testBasicRdbSaveLoad
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  // Insert test data with different scores - same as testBasicRdbSaveLoad
+  trieInsertByScore(originalTrie, "hello", 5.0);
+  trieInsertByScore(originalTrie, "world", 3.0);
+  trieInsertByScore(originalTrie, "foo", 7.0);
+  trieInsertByScore(originalTrie, "bar", 1.0);
+  trieInsertByScore(originalTrie, "test", 4.0);
+
+  ASSERT_EQ(5, originalTrie->size);
+
+  // Verify all entries exist in the original trie
+  EXPECT_TRUE(trieContains(originalTrie, "hello"));
+  EXPECT_TRUE(trieContains(originalTrie, "world"));
+  EXPECT_TRUE(trieContains(originalTrie, "foo"));
+  EXPECT_TRUE(trieContains(originalTrie, "bar"));
+  EXPECT_TRUE(trieContains(originalTrie, "test"));
+
+  // Create RDB IO context
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(io != nullptr);
+
+  // Save the trie to RDB
+  TrieType_RdbSave(io, originalTrie);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Reset read position to load it back
+  io->read_pos = 0;
+
+  // Load the trie from RDB
+  Trie *loadedTrie = (Trie *)TrieType_RdbLoad(io, TRIE_ENCVER_CURRENT);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(loadedTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(io));
+
+  // Compare the original and loaded tries
+  EXPECT_EQ(originalTrie->size, loadedTrie->size);
+
+  // Note: The loaded trie will have Trie_Sort_Score (default from TrieType_GenericLoad)
+  // but all the entries should still be present, even though the sorting mode changed
+
+  // Verify all entries are present in the loaded trie
+  EXPECT_TRUE(trieContains(loadedTrie, "hello"));
+  EXPECT_TRUE(trieContains(loadedTrie, "world"));
+  EXPECT_TRUE(trieContains(loadedTrie, "foo"));
+  EXPECT_TRUE(trieContains(loadedTrie, "bar"));
+  EXPECT_TRUE(trieContains(loadedTrie, "test"));
+
+  // Since the sorting mode changes during RDB load, we can't use compareTrieContents
+  // which expects the same iteration order. Instead, we verify that all entries exist
+  // and the size matches.
+}

@@ -2969,6 +2969,14 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
+
+  if (sp->diskSpec) {
+    // Need to serialize the Trie.
+    TrieType_RdbSave(rdb, (void*)sp->terms);
+    TrieType_RdbSave(rdb, (void*)sp->suffix);
+
+    // Need to ask the Disk API for the Index to serialize the RAM info (deletedIDs, maxDocId, etc...)
+  }
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
