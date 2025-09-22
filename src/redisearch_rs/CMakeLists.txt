@@ -7,13 +7,9 @@ if(NOT CARGO_EXECUTABLE)
     message(FATAL_ERROR "Cargo not found. Please install Rust and Cargo.")
 endif()
 
-# Determine Rust profile - allow invoker to set it, but have fallback logic if not set
+# Use RUST_PROFILE if provided, otherwise default to release
 if(NOT DEFINED RUST_PROFILE)
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DEFINED SAN OR DEFINED COV)
-        set(RUST_PROFILE "dev")
-    else()
-         set(RUST_PROFILE "release")
-    endif()
+    set(RUST_PROFILE "release")
 endif()
 
 # Set up RUSTFLAGS - respect existing environment variable and default to empty
