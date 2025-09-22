@@ -698,6 +698,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   return REDISMODULE_OK;
 
 error:
+  if (mergeSearchopts.params) {
+    Param_DictFree(mergeSearchopts.params);
+  }
   if (hybridParams->scoringCtx) {
     HybridScoringContext_Free(hybridParams->scoringCtx);
     hybridParams->scoringCtx = NULL;
