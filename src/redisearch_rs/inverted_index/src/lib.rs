@@ -343,22 +343,45 @@ impl IndexBlock {
         TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
     }
 
-    fn repair<'index, D: Decoder>(
+    fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
         doc_exist_cb: fn(doc_id: t_docId) -> bool,
-        decoder: D,
+        encoder: E,
     ) -> Option<RepairType> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
-        let last_doc_id = self.first_doc_id;
+        let mut last_doc_id = self.first_doc_id;
         let mut num_deletes = 0;
+        let mut new_buffer = Vec::with_capacity(self.buffer.len());
+        let mut new_cursor = Cursor::new(&mut new_buffer);
+        let decoder = E::decoder();
         let mut result = D::base_result();
+
+        let mut new_block = None;
 
         while !cursor.fill_buf().unwrap().is_empty() {
             let base = D::base_id(self, last_doc_id);
             decoder.decode(&mut cursor, base, &mut result).unwrap();
+            last_doc_id = result.doc_id;
 
             if !doc_exist_cb(result.doc_id) {
                 num_deletes += 1;
+            } else {
+                if new_block.is_none() {
+                    new_block = Some(IndexBlock {
+                        first_doc_id: result.doc_id,
+                        last_doc_id: result.doc_id,
+                        num_entries: 0,
+                        buffer: Vec::with_capacity(self.buffer.len()),
+                    });
+                }
+                let new_block = new_block.as_mut().unwrap();
+
+                let delta_base = E::delta_base(new_block);
+                let delta = result.doc_id.wrapping_sub(delta_base);
+                let delta = E::Delta::from_u64(delta).unwrap();
+
+                encoder.encode(&mut new_cursor, delta, &result).unwrap();
+                new_block.num_entries += 1;
             }
         }
 
@@ -367,7 +390,12 @@ impl IndexBlock {
         } else if num_deletes == 0 {
             None
         } else {
-            todo!("What did we repair")
+            Some(RepairType::Rebuild {
+                first_doc_id: new_block.as_ref().unwrap().first_doc_id,
+                last_doc_id: new_block.as_ref().unwrap().last_doc_id,
+                num_entries: new_block.as_ref().unwrap().num_entries,
+                buffer: new_buffer,
+            })
         }
     }
 }

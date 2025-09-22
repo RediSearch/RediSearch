@@ -1259,3 +1259,28 @@ fn index_block_repair_unchanged() {
 
     assert_eq!(block.repair(cb, Dummy), None);
 }
+
+#[test]
+fn index_block_repair_some_deletions() {
+    // Create an index block with three entries. The second one will be deleted
+    let block = IndexBlock {
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+        num_entries: 3,
+        first_doc_id: 10,
+        last_doc_id: 12,
+    };
+
+    fn cb(doc_id: t_docId) -> bool {
+        [11].contains(&doc_id)
+    }
+
+    assert_eq!(
+        block.repair(cb, Dummy),
+        Some(RepairType::Rebuild {
+            first_doc_id: 11,
+            last_doc_id: 11,
+            num_entries: 1,
+            buffer: vec![0, 0, 0, 0]
+        })
+    );
+}
