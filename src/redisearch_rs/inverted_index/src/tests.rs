@@ -1242,3 +1242,20 @@ fn index_block_repair_with_empty_block() {
 
     assert_eq!(block.repair(cb, Dummy), Some(RepairType::Delete));
 }
+
+#[test]
+fn index_block_repair_unchanged() {
+    // Create an index block with two entries. None of which were deleted
+    let block = IndexBlock {
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+        num_entries: 2,
+        first_doc_id: 10,
+        last_doc_id: 11,
+    };
+
+    fn cb(_doc_id: t_docId) -> bool {
+        true
+    }
+
+    assert_eq!(block.repair(cb, Dummy), None);
+}

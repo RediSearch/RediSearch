@@ -350,18 +350,25 @@ impl IndexBlock {
     ) -> Option<RepairType> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
         let last_doc_id = self.first_doc_id;
+        let mut num_deletes = 0;
         let mut result = D::base_result();
 
         while !cursor.fill_buf().unwrap().is_empty() {
             let base = D::base_id(self, last_doc_id);
             decoder.decode(&mut cursor, base, &mut result).unwrap();
 
-            if doc_exist_cb(result.doc_id) {
-                todo!()
+            if !doc_exist_cb(result.doc_id) {
+                num_deletes += 1;
             }
         }
 
-        Some(RepairType::Delete)
+        if num_deletes == self.num_entries {
+            Some(RepairType::Delete)
+        } else if num_deletes == 0 {
+            None
+        } else {
+            todo!("What did we repair")
+        }
     }
 }
 
