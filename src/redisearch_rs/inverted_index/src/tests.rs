@@ -1475,3 +1475,120 @@ fn ii_gc_scan() {
         ]
     );
 }
+
+#[test]
+fn ii_gc_apply() {
+    // Create 5 blocks:
+    // - One which is empty
+    // - One which will be completely deleted
+    // - One which will be partially deleted
+    // - One which will be unchanged
+    // - One which will be split into multiple blocks
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![],
+            num_entries: 0,
+            first_doc_id: 5,
+            last_doc_id: 5,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 31, 0, 0, 0, 1],
+            num_entries: 3,
+            first_doc_id: 40,
+            last_doc_id: 72,
+        },
+    ];
+    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+
+    let gc_result = vec![
+        BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete,
+        },
+        BlockGcScanResult {
+            index: 1,
+            repair: RepairType::Delete,
+        },
+        BlockGcScanResult {
+            index: 2,
+            repair: RepairType::Split {
+                blocks: vec![IndexBlock {
+                    buffer: vec![0, 0, 0, 0],
+                    num_entries: 1,
+                    first_doc_id: 21,
+                    last_doc_id: 21,
+                }],
+            },
+        },
+        BlockGcScanResult {
+            index: 4,
+            repair: RepairType::Split {
+                blocks: vec![
+                    IndexBlock {
+                        buffer: vec![0, 0, 0, 0],
+                        num_entries: 1,
+                        first_doc_id: 40,
+                        last_doc_id: 40,
+                    },
+                    IndexBlock {
+                        buffer: vec![0, 0, 0, 0],
+                        num_entries: 1,
+                        first_doc_id: 72,
+                        last_doc_id: 72,
+                    },
+                ],
+            },
+        },
+    ];
+
+    ii.apply_gc(gc_result);
+
+    assert_eq!(ii.unique_docs(), 4);
+    assert_eq!(
+        ii.blocks,
+        vec![
+            IndexBlock {
+                buffer: vec![0, 0, 0, 0],
+                num_entries: 1,
+                first_doc_id: 21,
+                last_doc_id: 21,
+            },
+            IndexBlock {
+                buffer: vec![0, 0, 0, 0],
+                num_entries: 1,
+                first_doc_id: 30,
+                last_doc_id: 30,
+            },
+            IndexBlock {
+                buffer: vec![0, 0, 0, 0],
+                num_entries: 1,
+                first_doc_id: 40,
+                last_doc_id: 40,
+            },
+            IndexBlock {
+                buffer: vec![0, 0, 0, 0],
+                num_entries: 1,
+                first_doc_id: 72,
+                last_doc_id: 72,
+            },
+        ]
+    )
+}

@@ -638,6 +638,32 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
         Ok(results)
     }
+
+    /// Apply the results of a garbage collection scan to the index. This will modify the index
+    /// by deleting or repairing blocks as needed.
+    pub fn apply_gc(&mut self, results: Vec<BlockGcScanResult>) {
+        // We apply the repairs in reverse order so that the indices of the blocks to be repaired
+        // remain valid as we modify the blocks vector.
+        for result in results.into_iter().rev() {
+            match result.repair {
+                RepairType::Delete => {
+                    let block = self.blocks.remove(result.index);
+                    self.n_unique_docs -= block.num_entries;
+                }
+                RepairType::Split { mut blocks } => {
+                    let old_block = self.blocks.remove(result.index);
+                    self.n_unique_docs -= old_block.num_entries;
+
+                    blocks.reverse();
+
+                    for block in blocks {
+                        self.n_unique_docs += block.num_entries;
+                        self.blocks.insert(result.index, block);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// A wrapper around the inverted index to track the total number of entries in the index.
