@@ -250,6 +250,17 @@ pub struct IndexBlock {
     buffer: Vec<u8>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum RepairType {
+    Delete,
+    Rebuild {
+        first_doc_id: t_docId,
+        last_doc_id: t_docId,
+        num_entries: usize,
+        buffer: Vec<u8>,
+    },
+}
+
 impl IndexBlock {
     const SIZE: usize = std::mem::size_of::<Self>();
 
@@ -276,6 +287,26 @@ impl IndexBlock {
         buffer.set_position(pos as u64);
 
         buffer
+    }
+
+    fn repair<'index, D: Decoder>(
+        &'index self,
+        doc_exist_cb: fn(doc_id: t_docId) -> bool,
+        decoder: D,
+    ) -> Option<RepairType> {
+        let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
+        let last_doc_id = self.first_doc_id;
+
+        while !cursor.fill_buf().unwrap().is_empty() {
+            let base = D::base_id(self, last_doc_id);
+            let result = decoder.decode(&mut cursor, base).unwrap();
+
+            if doc_exist_cb(result.doc_id) {
+                todo!()
+            }
+        }
+
+        Some(RepairType::Delete)
     }
 }
 
