@@ -181,16 +181,21 @@ setup_build_environment() {
     FLAVOR="release"
   fi
 
-  # If unset, determine the Rust build profile
-  if [[ "$RUST_PROFILE" == "" ]]; then
+  # Determine the correct Rust profile for both build and tests
+  # Only set RUST_PROFILE if it wasn't already set by the user
+  if [[ -z "$RUST_PROFILE" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then
-      if [[ "$DEBUG" == "1" || "$COV" == "1" ]]; then
+      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" ]]; then
         RUST_PROFILE="dev"
       else
         RUST_PROFILE="optimised_test"
       fi
     else
-      RUST_PROFILE="release"
+      if [[ "$DEBUG" == "1" ]]; then
+        RUST_PROFILE="dev"
+      else
+        RUST_PROFILE="release"
+      fi
     fi
   fi
 
@@ -344,6 +349,10 @@ prepare_cmake_arguments() {
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_DYN_CRT=1"
   fi
+
+  if [[ "$RUST_PROFILE" != "" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -393,6 +402,7 @@ run_cmake() {
 # Build the RediSearch project using Make
 #-----------------------------------------------------------------------------
 build_project() {
+  # redisearch_rs is now built automatically by CMake
   # Determine number of parallel jobs for make
   if command -v nproc &> /dev/null; then
     NPROC=$(nproc)

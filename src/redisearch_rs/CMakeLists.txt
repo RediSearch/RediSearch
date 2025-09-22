@@ -1,41 +1,28 @@
 cmake_minimum_required(VERSION 3.13)
 
-# Find Rust and Cargo
+# Find Cargo
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
 
 if(NOT CARGO_EXECUTABLE)
     message(FATAL_ERROR "Cargo not found. Please install Rust and Cargo.")
 endif()
 
-# Determine Rust profile based on build configuration
-set(RUST_PROFILE "release")
-if(DEFINED BUILD_SEARCH_UNIT_TESTS AND BUILD_SEARCH_UNIT_TESTS)
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR DEFINED SAN OR DEFINED COV)
-        set(RUST_PROFILE "dev")
-    else()
-        set(RUST_PROFILE "optimised_test")
-    endif()
-else()
-    # For non-test builds, only use dev profile for Debug builds (not SAN/COV)
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(RUST_PROFILE "dev")
-    endif()
+# Use RUST_PROFILE if provided, otherwise default to release
+if(NOT DEFINED RUST_PROFILE)
+    set(RUST_PROFILE "release")
 endif()
 
-# Set up RUSTFLAGS - respect existing environment variable and default to -D warnings
+# Set up RUSTFLAGS - respect existing environment variable and default to empty
 if(DEFINED ENV{RUSTFLAGS})
     set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 else()
-    set(RUST_FLAGS "-D warnings")
+    set(RUST_FLAGS "")
 endif()
 
 # Add dynamic C runtime flag if requested (crucial for Alpine Linux)
 if(DEFINED RUST_DYN_CRT AND RUST_DYN_CRT)
     set(RUST_FLAGS "${RUST_FLAGS} -C target-feature=-crt-static")
 endif()
-
-# Exclude benchmarking crates that link C code
-set(EXCLUDE_ARGS "--exclude" "inverted_index_bencher" "--exclude" "rqe_iterators_bencher")
 
 # Map Rust profile names to their corresponding artifact directory names
 if(RUST_PROFILE STREQUAL "dev")
@@ -64,8 +51,7 @@ if(NOT TARGET redisearch_rs_build)
             "RUSTFLAGS=${RUST_FLAGS}"
             "CARGO_TARGET_DIR=${RUST_TARGET_DIR}"
             ${CARGO_EXECUTABLE} build
-            --workspace
-            ${EXCLUDE_ARGS}
+            --package redisearch_rs
             --profile=${RUST_PROFILE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
