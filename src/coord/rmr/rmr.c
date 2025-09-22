@@ -597,7 +597,7 @@ void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
   arrayof(CursorMapping *) mappings = (arrayof(CursorMapping *))data->privateData;
-  RS_ASSERT(!mappings || array_len(mappings) == 0);
+  RS_ASSERT(!mappings || array_len(mappings) > 0);
 
   uint32_t len = cluster_g->topo->numShards;
   it->len = len;

@@ -488,28 +488,27 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 
 static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  // MRCommand cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
-
   StrongRef dispatcher_ref = HybridDispatcher_New(&nc->cmd, 4);
   HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
 
-  //len is number of shards
+  //TODO:len is number of shards
   arrayof(CursorMapping *) searchMappings = array_new(CursorMapping* ,10);
   arrayof(CursorMapping *) vsimMappings = array_new(CursorMapping*, 10);
 
+
+  // TODO: better initialization of the mappings (pipeline building flow dependent)
   HybridDispatcher_SetMappingArray(dispatcher, searchMappings, true);
   HybridDispatcher_SetMappingArray(dispatcher, vsimMappings, false);
 
   if (!HybridDispatcher_IsStarted(dispatcher)) {
     HybridDispatcher_Dispatch(dispatcher);
-  }
-
-  while (!HybridDispatcher_IsDone(dispatcher)) {
-    usleep(1000);
+  } else {
+    // Wait for completion - this can be called from multiple threads
+    HybridDispatcher_WaitForMappingsComplete(dispatcher);
   }
   // for hybrid commands, the index name is at position 1
   const char *idx = MRCommand_ArgStringPtrLen(&dispatcher->cmd, 1, NULL);
-  // use logic like in getCursorCommand
+
   MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx);
   nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, searchMappings);
   nc->base.Next = rpnetNext;
@@ -542,11 +541,11 @@ static void rpnetFree(ResultProcessor *rp) {
 static RPNet *RPNet_New(const MRCommand *cmd) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd; // Take ownership of the command's internal allocations
-  // nc->cmd = MR_NewCommand(1, "_FT.TEST.CURSORS");
+  nc->cmd = MR_NewCommand(2, "_FT.TEST.CURSORS", "myindex");
   nc->areq = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
-  nc->base.Next = rpnetNext_Start;
+  nc->base.Next = rpnetNext_StartDispatcher;
   nc->base.type = RP_NETWORK;
   return nc;
 }

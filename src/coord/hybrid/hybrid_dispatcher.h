@@ -31,13 +31,13 @@ typedef struct HybridDispatcher {
     arrayof(CursorMapping *) searchMappings;  // Search cursor mappings
     arrayof(CursorMapping *) vsimMappings;    // Vector similarity cursor mappings
     pthread_mutex_t data_mutex;               // Thread safety for data access
+    pthread_cond_t mapping_ready_cond;        // Signals when mappings are added
 
     // Command and context
     MRCommand cmd;                            // The command to execute
 
     // State management - using atomics for efficiency
     atomic_bool started;                      // Whether the dispatcher has started processing
-    atomic_bool done;                         // Whether processing is complete
 
     // Reference counting (via StrongRef)
     StrongRef self_ref;                       // Self-reference for sharing
@@ -75,11 +75,10 @@ bool HybridDispatcher_IsStarted(const HybridDispatcher *dispatcher);
 void HybridDispatcher_SetMappingArray(HybridDispatcher *dispatcher, arrayof(CursorMapping *) mappings, bool isSearch);
 
 /**
- * Checks if the dispatcher is done (thread-safe)
+ * Waits for both search and vsim mappings to be complete (thread-safe)
  * @param dispatcher The dispatcher instance
- * @return true if done, false otherwise
  */
-bool HybridDispatcher_IsDone(const HybridDispatcher *dispatcher);
+void HybridDispatcher_WaitForMappingsComplete(HybridDispatcher *dispatcher);
 
 
 #ifdef __cplusplus
