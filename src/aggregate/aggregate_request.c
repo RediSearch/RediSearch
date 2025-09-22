@@ -1331,14 +1331,21 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 }
 
 void AREQ_Free(AREQ *req) {
+  // Check if rootiter exists but pipeline was never built (no result processors)
+  // In this case, we need to free the rootiter manually since no RPQueryIterator
+  // was created to take ownership of it.
+  bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
+
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
 
-  // NOTE: req->rootiter is already freed by
-  // Pipeline_Clean() -> QITR_FreeChain() -> rpQueryItFree()
-  // The RPQueryIterator owns the rootiter and frees it when the result
-  // processor chain is cleaned up.
-  // Attempting to free it again here would cause a double-free error.
+  // Free the rootiter if it wasn't transferred to the pipeline.
+  // The RPQueryIterator takes ownership of rootiter when the pipeline is built,
+  // but in cases like RS_GetExplainOutput or pipeline build failures,
+  // the rootiter may exist without being owned by any result processor.
+  if (rootiterNeedsFreeing) {
+    req->rootiter->Free(req->rootiter);
+  }
   req->rootiter = NULL;
   if (req->optimizer) {
     QOptimizer_Free(req->optimizer);
