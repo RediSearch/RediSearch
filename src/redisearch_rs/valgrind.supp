@@ -1,0 +1,51 @@
+# Valgrind suppression file discarding false positives when running the Rust tests suite with valgrind.
+# Can be used by installing https://crates.io/crates/cargo-valgrind and then running:
+#   VALGRINDFLAGS=--suppressions=$PWD/valgrind.supp cargo valgrind test
+
+{
+   False positive from Rust std lib, see https://github.com/jfrimmel/cargo-valgrind/issues/126
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:alloc
+   fun:alloc_impl
+   fun:allocate
+   fun:{closure#0}<std::thread::Inner>
+   fun:allocate_for_layout<core::mem::maybe_uninit::MaybeUninit<std::thread::Inner>, alloc::sync::{impl#14}::new_uninit::{closure_env#0}<std::thread::Inner>, fn(*mut u8) -> *mut alloc::sync::ArcInner<core::mem::maybe_uninit::MaybeUninit<std::thread::Inner>>>
+}
+
+{
+   reader_position_must_be_in_bounds buffer test panic so its memory is not properly cleaned up
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   ...
+   fun:_ZN5tests33reader_position_must_be_in_bounds*
+}
+
+{
+   cannot_overflow_usize buffer test panic so its memory is not properly cleaned up
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   ...
+   fun:_ZN5tests21cannot_overflow_usize*
+}
+
+{
+   cannot_overflow_isize buffer test panic so its memory is not properly cleaned up
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   ...
+   fun:_ZN5tests21cannot_overflow_isize*
+}
+
+{
+   writer_position_must_be_in_bounds buffer test panic so its memory is not properly cleaned up
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   ...
+   fun:_ZN5tests33writer_position_must_be_in_bounds*
+}

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include "low_memory_thin_vec.h"
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -45,23 +46,10 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 typedef void (*freeCB)(void*);
 
 /**
- * The type used to represent the capacity of a `LowMemoryThinVec`.
- */
-typedef uint16_t SizeType;
-
-/**
- * The header of a LowMemoryThinVec.
- */
-typedef struct Header {
-  SizeType len;
-  SizeType cap;
-} Header;
-
-/**
  * See the crate's top level documentation for a description of this type.
  */
 typedef struct LowMemoryThinVecCVoid {
-  struct Header *ptr;
+  Header *ptr;
 } LowMemoryThinVecCVoid;
 
 /**

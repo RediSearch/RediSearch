@@ -67,6 +67,10 @@ jobs:
           printf "Runner nproc:\n$(nproc)\n"
           printf "Runner uname:\n$(uname -a)\n"
           printf "Runner arch:\n$(arch)\n"
+      - name: Install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
       - name: Install benchmark dependencies
         run: |
           export HOME=/home/ubuntu
@@ -74,8 +78,7 @@ jobs:
           ./install_script.sh sudo
           cd ..
           # Then install Python dependencies
-          sudo apt install python3-pip -y
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin>=0.11.37
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.11.51
         env:
           DEBIAN_FRONTEND: noninteractive
       - name: Run Micro Benchmark
@@ -85,7 +88,7 @@ jobs:
         run: |
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
-          ./build.sh run_microbenchmarks
+          make micro-benchmarks
       - name: Collect results
         run: |
           # Determine OS name

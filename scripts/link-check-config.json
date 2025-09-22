@@ -1,0 +1,41 @@
+{
+  "exclude_urls": [
+    "https://example.com/placeholder",
+    "https://localhost",
+    "http://localhost",
+    "url",
+    "link",
+    "path",
+    "file"
+  ],
+  "exclude_link_patterns": [
+    ".*\\.local.*",
+    ".*127\\.0\\.0\\.1.*",
+    ".*\\$\\{.*\\}.*",
+    "^/.*\\.git(/.*)?$",
+    "^/.*/\\.git/.*",
+    "^/.*/node_modules/.*",
+    "^/.*/target/.*",
+    "^/.*/build/.*",
+    "^/.*/bin/.*",
+    "^/.*\\.tmp$",
+    "^/.*\\.log$"
+  ],
+  "exclude_directories": [
+    "bin",
+    "build",
+    "deps",
+    "tests",
+    "scripts",
+    "venv",
+    ".github",
+    ".git",
+    ".install",
+    "__pycache__",
+    ".pytest_cache"
+  ],
+  "timeout": 15,
+  "max_workers": 5,
+  "delay": 0.2,
+  "user_agent": "Mozilla/5.0 (compatible; RediSearch-LinkChecker/1.0)"
+}

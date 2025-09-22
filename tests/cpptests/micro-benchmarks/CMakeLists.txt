@@ -8,6 +8,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/micro-benchmarks)
 include_directories("${gtest_SOURCE_DIR}/include")
 include_directories(${root}/src)
 include_directories(${root}/deps)
+include_directories(${root}/src/redisearch_rs/headers)
 include_directories(..)
 include_directories(.)
 

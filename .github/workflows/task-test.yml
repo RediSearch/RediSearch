@@ -46,9 +46,7 @@ env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
   COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
-  # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
-  # flags, and therefore reuse the same intermediate build artifacts.
-  RUSTFLAGS: "-D warnings"
+  # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
 
 jobs:
@@ -80,7 +78,7 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
-          for platform in meiravgrimberg937/gcc12-amzn2:slim alpine:3; do
+          for platform in amazonlinux:2 alpine:3; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -98,7 +96,7 @@ jobs:
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            meiravgrimberg937/gcc12-amzn2:slim | alpine:3)
+            amazonlinux:2 | alpine:3)
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
@@ -184,7 +182,8 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-        run: ./build.sh TESTS
+          BUILD_INTEL_SVS_OPT: 1
+        run: make build TESTS=1
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
@@ -194,7 +193,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_UNIT_TESTS RUN_RUST_TESTS
+        run: make unit-tests rust-tests
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -208,7 +207,7 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -222,7 +221,7 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)

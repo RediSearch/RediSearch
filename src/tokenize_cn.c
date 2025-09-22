@@ -76,7 +76,6 @@ static int appendToEscbuf(cnTokenizer *cn, const char *s, size_t n) {
   size_t toCp = Min(n, CNTOKENIZE_BUF_MAX - cn->nescapebuf);
   memcpy(cn->escapebuf + cn->nescapebuf, s, toCp);
   cn->nescapebuf += toCp;
-  // printf("Added %.*s to escbuf\n", (int)n, s);
   return toCp == n;
 }
 
@@ -103,7 +102,6 @@ static int appendEscapedChars(cnTokenizer *self, friso_token_t ftok, int mode) {
   }
 
   if (appendToEscbuf(self, escbegin, 1)) {
-    // printf("appending %.*s\n", 1, escbegin);
     self->fTask->idx += skipBy;
 
     // if there are more tokens...
@@ -152,7 +150,6 @@ static uint32_t cnTokenizer_Next(RSTokenizer *base, Token *t) {
     if (ctx->stopwords && StopWordList_Contains(ctx->stopwords, tok->word, tok->length)) {
       continue;
     }
-    // printf("Type: %d\n", tok->type);
 
     switch (tok->type) {
         // Skip words we know we don't care about.

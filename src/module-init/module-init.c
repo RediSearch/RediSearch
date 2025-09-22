@@ -32,6 +32,7 @@
 #include "info/info_command.h"
 #include "profile.h"
 #include "info/info_redis/info_redis.h"
+#include "util/logging.h"
 
 #define DEPLETER_POOL_SIZE 4
 

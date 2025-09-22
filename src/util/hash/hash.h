@@ -16,8 +16,8 @@ extern "C" {
 #endif
 
 typedef struct {
-  // SHA-1 produces a 160-bit hash, i.e., 5 32-bit words
-  uint32_t hash[5];
+  // SHA-1 produces a 160-bit hash
+  unsigned char hash[20];
 } Sha1;
 
 #define SHA1_TEXT_MAX_LENGTH 40

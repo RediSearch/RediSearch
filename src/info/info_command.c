@@ -14,6 +14,7 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
+#include "module.h"
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
@@ -101,7 +102,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
 }
 
 void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool obfuscate, bool withTimes) {
-  const bool has_map = RedisModule_HasMap(reply);
+  const bool has_map = RedisModule_IsRESP3(reply);
 
   RedisModule_Reply_Map(reply); // top
 
@@ -120,8 +121,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attributes
   size_t geom_idx_sz = 0;
-  
-  
+
+
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
@@ -188,6 +189,21 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+        } else if (primary_params->algo == VecSimAlgo_SVS) {
+          REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
+          SVSParams svs_params = primary_params->algoParams.svsParams;
+          REPLY_KVSTR("data_type", VecSimType_ToString(svs_params.type));
+          REPLY_KVINT("dim", svs_params.dim);
+          REPLY_KVSTR("distance_metric", VecSimMetric_ToString(svs_params.metric));
+          REPLY_KVINT("graph_max_degree", svs_params.graph_max_degree);
+          REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
+          REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
+          if (svs_params.quantBits != VecSimSvsQuant_NONE) {
+            REPLY_KVINT("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
+            if (VecSim_IsLeanVecCompressionType(svs_params.quantBits)) {
+              REPLY_KVINT("reduced_dim", svs_params.leanvec_dim);
+            }
+          }
         }
       } else if (field_algo == VecSimAlgo_BF) {
         REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));
@@ -196,7 +212,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
         REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
       }
     }
-
     if (has_map) {
       RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
     }
@@ -239,8 +254,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_terms", sp->stats.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexesSize(specForOpeningIndexes) / (float)0x100000);
-  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
+  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
+  REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
+  REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks());
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
 
@@ -254,7 +270,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
-    tags_overhead, text_overhead) / (float)0x100000);
+    tags_overhead, text_overhead, vector_indexes_size) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
               (float)sp->stats.numRecords / (float)sp->stats.numDocuments);
@@ -267,7 +283,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   // TODO: remove this once "hash_indexing_failures" is deprecated
   // Legacy for not breaking changes
   REPLY_KVINT("hash_indexing_failures", sp->stats.indexError.error_count);
-  REPLY_KVNUM("total_indexing_time", (float)(sp->stats.totalIndexTime / (float)CLOCKS_PER_MILLISEC));
+  REPLY_KVNUM("total_indexing_time", rs_wall_clock_convert_ns_to_ms_d(sp->stats.totalIndexTime));
   REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;

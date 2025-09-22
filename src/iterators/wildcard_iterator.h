@@ -27,22 +27,25 @@ typedef struct {
  * @param maxId - The maxID to return
  * @param numDocs - the number of docs to return
  */
-QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t numDocs);
+QueryIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs, double weight);
 
 /**
  * Create a new optimized wildcard iterator.
  * This iterator can only be used when the index is configured to index all documents.
  * @param sctx - The search context
  */
-QueryIterator *IT_V2(NewWildcardIterator_Optimized)(const RedisSearchCtx *sctx);
+QueryIterator *NewWildcardIterator_Optimized(const RedisSearchCtx *sctx, double weight);
 
 /**
  * Create a new wildcard iterator.
  * If possible, it will use the optimized wildcard iterator,
  * otherwise it will fall back to the non-optimized version.
  * @param q - The query evaluation context
+ * @param weight - The weight of the iterator
  */
-QueryIterator *IT_V2(NewWildcardIterator)(const QueryEvalCtx *q);
+QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
+
+bool IsWildcardIterator(QueryIterator *it);
 
 #ifdef __cplusplus
 }

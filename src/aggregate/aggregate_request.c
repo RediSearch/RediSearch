@@ -1331,13 +1331,22 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 }
 
 void AREQ_Free(AREQ *req) {
+  // Check if rootiter exists but pipeline was never built (no result processors)
+  // In this case, we need to free the rootiter manually since no RPQueryIterator
+  // was created to take ownership of it.
+  bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
+
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
 
-  if (req->rootiter) {
+  // Free the rootiter if it wasn't transferred to the pipeline.
+  // The RPQueryIterator takes ownership of rootiter when the pipeline is built,
+  // but in cases like RS_GetExplainOutput or pipeline build failures,
+  // the rootiter may exist without being owned by any result processor.
+  if (rootiterNeedsFreeing) {
     req->rootiter->Free(req->rootiter);
-    req->rootiter = NULL;
   }
+  req->rootiter = NULL;
   if (req->optimizer) {
     QOptimizer_Free(req->optimizer);
   }
@@ -1347,8 +1356,6 @@ void AREQ_Free(AREQ *req) {
   if (req->searchopts.stopwords) {
     StopWordList_Unref((StopWordList *)req->searchopts.stopwords);
   }
-
-  ConcurrentSearchCtx_Free(&req->conc);
 
   // Finally, free the context. If we are a cursor or have multi workers threads,
   // we need also to detach the ("Thread Safe") context.
@@ -1414,7 +1421,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .ast = &req->ast,
       .rootiter = req->rootiter,
       .scorerName = req->searchopts.scorerName,
-      .conc = &req->conc,
       .reqConfig = &req->reqConfig,
     };
     Pipeline_BuildQueryPart(&req->pipeline, &params);

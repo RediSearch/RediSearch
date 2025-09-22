@@ -77,7 +77,6 @@ static void testAverage() {
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
   rc = AREQ_BuildPipeline(r, &status);
   dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
-  printf("Built pipeline.. rc=%d\n", rc);
   if (rc != REDISMODULE_OK) {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(plan);
