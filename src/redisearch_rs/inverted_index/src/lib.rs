@@ -350,7 +350,6 @@ impl IndexBlock {
     ) -> Option<RepairType> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
         let mut last_doc_id = self.first_doc_id;
-        let mut num_deletes = 0;
         let mut new_buffer = Vec::with_capacity(self.buffer.len());
         let mut new_cursor = Cursor::new(&mut new_buffer);
         let decoder = E::decoder();
@@ -363,9 +362,7 @@ impl IndexBlock {
             decoder.decode(&mut cursor, base, &mut result).unwrap();
             last_doc_id = result.doc_id;
 
-            if !doc_exist_cb(result.doc_id) {
-                num_deletes += 1;
-            } else {
+            if doc_exist_cb(result.doc_id) {
                 if new_block.is_none() {
                     new_block = Some(IndexBlock {
                         first_doc_id: result.doc_id,
@@ -385,17 +382,15 @@ impl IndexBlock {
             }
         }
 
-        if num_deletes == self.num_entries {
-            Some(RepairType::Delete)
-        } else if num_deletes == 0 {
-            None
-        } else {
-            Some(RepairType::Rebuild {
-                first_doc_id: new_block.as_ref().unwrap().first_doc_id,
-                last_doc_id: new_block.as_ref().unwrap().last_doc_id,
-                num_entries: new_block.as_ref().unwrap().num_entries,
+        match new_block {
+            Some(block) if block.num_entries == self.num_entries => None,
+            Some(block) => Some(RepairType::Rebuild {
+                first_doc_id: block.first_doc_id,
+                last_doc_id: block.last_doc_id,
+                num_entries: block.num_entries,
                 buffer: new_buffer,
-            })
+            }),
+            None => Some(RepairType::Delete),
         }
     }
 }
