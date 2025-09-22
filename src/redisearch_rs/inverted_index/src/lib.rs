@@ -994,14 +994,14 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterMaskReader<I
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
 
-        if success {
-            if result.field_mask & self.mask > 0 {
-                Ok(true)
-            } else {
-                self.next_record(result)
-            }
+        if !success {
+            return Ok(false);
+        }
+
+        if result.field_mask & self.mask > 0 {
+            Ok(true)
         } else {
-            Ok(false)
+            self.next_record(result)
         }
     }
 }
@@ -1122,17 +1122,17 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterNumericReade
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
 
-        if success {
-            // SAFETY: the caller must ensure the result is numeric
-            let value = unsafe { result.as_numeric_unchecked() };
+        if !success {
+            return Ok(false);
+        }
 
-            if self.filter.value_in_range(value) {
-                Ok(true)
-            } else {
-                self.next_record(result)
-            }
+        // SAFETY: the caller must ensure the result is numeric
+        let value = unsafe { result.as_numeric_unchecked() };
+
+        if self.filter.value_in_range(value) {
+            Ok(true)
         } else {
-            Ok(false)
+            self.next_record(result)
         }
     }
 }
@@ -1278,20 +1278,20 @@ impl<'index, IR: IndexReader<'index>> IndexReader<'index> for FilterGeoReader<'i
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
 
-        if success {
-            // SAFETY: the caller must ensure the result is numeric
-            let value = unsafe { result.as_numeric_unchecked_mut() };
+        if !success {
+            return Ok(false);
+        }
 
-            // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
+        // SAFETY: the caller must ensure the result is numeric
+        let value = unsafe { result.as_numeric_unchecked_mut() };
 
-            if in_radius {
-                Ok(true)
-            } else {
-                self.next_record(result)
-            }
+        // SAFETY: we know the filter is not a null pointer since we hold a reference to it
+        let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
+
+        if in_radius {
+            Ok(true)
         } else {
-            Ok(false)
+            self.next_record(result)
         }
     }
 }
