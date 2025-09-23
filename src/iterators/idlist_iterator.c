@@ -175,8 +175,3 @@ QueryIterator *NewMetricIterator(t_docId *docIds, double *metric_list, size_t nu
   ret->Revalidate = Default_Revalidate;
   return ret;
 }
-
-Metric GetMetric(const QueryIterator *it) {
-  const MetricIterator *mr = (const MetricIterator *)it;
-  return mr->type;
-}

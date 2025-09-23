@@ -189,7 +189,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_ReplyKV_Map(reply, "required_fields"); // >required_fields
     }
     for(; currentField < requiredFieldsCount; currentField++) {
-      const RLookupKey *rlk = RLookup_GetKey_Read(cv->lastLk, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
+      const RLookupKey *rlk = RLookup_GetKey_Read(cv->lastLookup, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
       const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
       if (v && v->t == RSValue_Duo) {
         // For duo value, we use the value here (not the other value)
@@ -213,7 +213,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
-    const RLookup *lk = cv->lastLk;
+    const RLookup *lk = cv->lastLookup;
     if (has_map) {
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
@@ -639,7 +639,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
   AGGPlan *plan = AREQ_AGGPlan(req);
   cachedVars cv = {
-    .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+    .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
     .lastAstp = AGPLN_GetArrangeStep(plan)
   };
 

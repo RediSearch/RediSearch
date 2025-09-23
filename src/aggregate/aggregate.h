@@ -32,7 +32,7 @@ extern "C" {
 
 /** Cached variables to avoid serializeResult retrieving these each time */
 typedef struct {
-  RLookup *lastLk;
+  RLookup *lastLookup;
   const PLN_ArrangeStep *lastAstp;
 } cachedVars;
 
@@ -125,8 +125,8 @@ typedef enum {
 
 // Configuration parameters for cursor behavior
 typedef struct {
-  unsigned maxIdle;     // Maximum idle time for the cursor (from MAXIDLE parameter)
-  unsigned chunkSize;   // Number of results per cursor read (from COUNT parameter)
+  uint32_t maxIdle;     // Maximum idle time for the cursor (from MAXIDLE parameter)
+  uint32_t chunkSize;   // Number of results per cursor read (from COUNT parameter)
 } CursorConfig;
 
 // Context structure for parseAggPlan to reduce parameter count

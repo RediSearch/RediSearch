@@ -287,6 +287,17 @@ typedef enum {
  */
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode);
 
+/**
+ * @brief Dumps the contents of an aggregation plan to stdout for debugging.
+ *
+ * This function iterates through all steps in the given AGGPlan and prints
+ * detailed information about each step, including step type, pointers, lookup
+ * keys, expressions, sorting, grouping, and reducer details. It is useful for
+ * inspecting the structure and configuration of an aggregation plan during
+ * development or troubleshooting.
+ *
+ * @param pln Pointer to the AGGPlan to be dumped.
+ */
 void AGPLN_Dump(const AGGPlan *pln);
 
 /**

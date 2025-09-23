@@ -44,8 +44,6 @@ QueryIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 
 QueryIterator *NewMetricIterator(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type);
 
-Metric GetMetric(const QueryIterator *it);
-
 #ifdef __cplusplus
 }
 #endif

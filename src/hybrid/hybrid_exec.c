@@ -96,7 +96,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   }
 
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
-    const RLookup *lk = cv->lastLk;
+    const RLookup *lk = cv->lastLookup;
 
     RedisModule_ReplyKV_Map(reply, "attributes"); // >attributes
 
@@ -314,7 +314,7 @@ static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
 void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx) {
     AGGPlan *plan = &hreq->tailPipeline->ap;
     cachedVars cv = {
-        .lastLk = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+        .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
         .lastAstp = AGPLN_GetArrangeStep(plan)
     };
 
@@ -405,7 +405,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Failed to deplete set of results, rc=%d", rc);
       }
       return REDISMODULE_ERR;
-    }    
+    }
     replyWithCursors(replyCtx, cursors);
     array_free(cursors);
     return REDISMODULE_OK;
@@ -439,8 +439,8 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  
-  if (!isCursor) { 
+
+  if (!isCursor) {
     HybridRequest_Execute(hreq, ctx, sctx);
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;

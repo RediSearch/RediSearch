@@ -36,7 +36,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
 
 // Return True if we are in a cluster environment running the coordinator
 static bool isClusterCoord(AREQ_Debug *debug_req) {
-  if ((GetNumShards_UnSafe() > 1) && !(AREQ_RequestFlags(&debug_req->r) & QEXEC_F_INTERNAL)) {
+  if ((GetNumShards_UnSafe() > 1) && !IsInternal(&debug_req->r)) {
     return true;
   }
 
