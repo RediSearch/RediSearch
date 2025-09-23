@@ -2267,11 +2267,6 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveUnsigned(rdb, f->options);
   RedisModule_SaveSigned(rdb, f->sortIdx);
 
-  // After https://github.com/RediSearch/RediSearch/pull/6573, we will see how to know if we are in disk.
-  // if (InDisk) {
-  //   RedisModule_SaveUnsigned(rdb, f->ftId);
-  // }
-  // else {
   // Save text specific options
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->ftId);
@@ -2288,7 +2283,6 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   if (FIELD_IS(f, INDEXFLD_T_GEOMETRY) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->geometryOpts.geometryCoords);
   }
-  // }
 }
 
 static const FieldType fieldTypeMap[] = {[IDXFLD_LEGACY_FULLTEXT] = INDEXFLD_T_FULLTEXT,
@@ -2970,7 +2964,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
     RedisModule_SaveUnsigned(rdb, 0);
   }
 
-  if (sp->diskSpec) {
+  if (isFlex) {
     // Need to serialize the Trie.
     TrieType_GenericSave(rdb, sp->terms, 0); // we do not need to save payload, the index will be got from the term
     TrieType_GenericSave(rdb, sp->suffix, 0); // we do not need to save payload, the index will be got from the term
@@ -3062,8 +3056,12 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   if (isFlex) {
     // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
     // we add the `Index_StoreInRAM` flag to the rdb file.
-    RS_ASSERT(disk_db);
-    sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+    sp->terms = TrieType_GenericLoad(rdb, 0);
+    sp->suffix = TrieType_GenericLoad(rdb, 0);
+
+    // TODO:DiskSpec should be actually open when we receive the signal that DB is transfered to the replica.
+    // sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+    // RS_LOG_ASSERT(sp->diskSpec, "Failed to open disk spec")
   }
 
   return sp;
