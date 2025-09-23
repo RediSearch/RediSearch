@@ -808,8 +808,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         }
 
         let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        let _ = self
-            .decoder
+        self.decoder
             .decode(&mut self.current_buffer, base, result)?;
 
         self.last_doc_id = result.doc_id;
