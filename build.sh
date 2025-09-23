@@ -346,9 +346,20 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
   fi
 
+  # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_DYN_CRT=1"
+    # Add the dynamic C runtime flag to RUSTFLAGS
+    if [[ "$RUSTFLAGS" == "" ]]; then
+      RUSTFLAGS="-C target-feature=-crt-static"
+    else
+      RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
+    fi
+    # Export RUSTFLAGS so it's available to the Rust build process
+    export RUSTFLAGS
   fi
+
+  # RUSTFLAGS will be passed as environment variable to avoid quoting issues
+  # This prevents CMake argument parsing from truncating complex flag values
 
   if [[ "$RUST_PROFILE" != "" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
@@ -390,9 +401,9 @@ run_cmake() {
     # If verbose, dump all CMake variables before and after configuration
     if [[ "$VERBOSE" == "1" ]]; then
       echo "Running CMake with verbose output..."
-      $CMAKE_CMD --trace-expand
+      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
     else
-      $CMAKE_CMD
+      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
     fi
   fi
 }
