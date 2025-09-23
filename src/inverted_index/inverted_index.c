@@ -1646,10 +1646,8 @@ void InvertedIndex_GcDelta_Free(InvertedIndexGcDelta *d, II_GCScanStats *info) {
     d->deleted_len = 0;
   }
   if (d->repaired) {
-    if (info != NULL) {
-        for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
-            IndexBlock_DataFree(&d->repaired[ii].blk);
-        }
+    for (size_t ii = 0; ii < info->nblocksRepaired; ++ii) {
+        IndexBlock_DataFree(&d->repaired[ii].blk);
     }
     rm_free(d->repaired);
     d->repaired = NULL;
