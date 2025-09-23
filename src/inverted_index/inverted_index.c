@@ -1566,7 +1566,7 @@ void InvertedIndex_ApplyGcDelta(InvertedIndex *idx,
   d->deleted = NULL;
 
   // Ensure the old index is at least as big as the new index' size
-  RS_LOG_ASSERT(idx->size >= nblocks_orig, "Current index size should be larger or equal to original index size");
+  RS_LOG_ASSERT(idx->size >= info->nblocksOrig, "Current index size should be larger or equal to original index size");
 
   // Reshape the block list if the child produced a new compacted list
   if (d->new_blocklist) {
