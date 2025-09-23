@@ -1464,6 +1464,7 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "ffi",
+ "libc",
  "rlookup",
  "value",
 ]

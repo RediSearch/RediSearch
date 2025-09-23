@@ -181,16 +181,21 @@ setup_build_environment() {
     FLAVOR="release"
   fi
 
-  # If unset, determine the Rust build profile
-  if [[ "$RUST_PROFILE" == "" ]]; then
+  # Determine the correct Rust profile for both build and tests
+  # Only set RUST_PROFILE if it wasn't already set by the user
+  if [[ -z "$RUST_PROFILE" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then
-      if [[ "$DEBUG" == "1" || "$COV" == "1" ]]; then
+      if [[ "$DEBUG" == "1" || -n "$SAN" || "$COV" == "1" ]]; then
         RUST_PROFILE="dev"
       else
         RUST_PROFILE="optimised_test"
       fi
     else
-      RUST_PROFILE="release"
+      if [[ "$DEBUG" == "1" ]]; then
+        RUST_PROFILE="dev"
+      else
+        RUST_PROFILE="release"
+      fi
     fi
   fi
 
@@ -340,6 +345,25 @@ prepare_cmake_arguments() {
   else
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
   fi
+
+  # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
+  if [[ "$RUST_DYN_CRT" == "1" ]]; then
+    # Add the dynamic C runtime flag to RUSTFLAGS
+    if [[ "$RUSTFLAGS" == "" ]]; then
+      RUSTFLAGS="-C target-feature=-crt-static"
+    else
+      RUSTFLAGS="$RUSTFLAGS -C target-feature=-crt-static"
+    fi
+    # Export RUSTFLAGS so it's available to the Rust build process
+    export RUSTFLAGS
+  fi
+
+  # RUSTFLAGS will be passed as environment variable to avoid quoting issues
+  # This prevents CMake argument parsing from truncating complex flag values
+
+  if [[ "$RUST_PROFILE" != "" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -377,49 +401,11 @@ run_cmake() {
     # If verbose, dump all CMake variables before and after configuration
     if [[ "$VERBOSE" == "1" ]]; then
       echo "Running CMake with verbose output..."
-      $CMAKE_CMD --trace-expand
+      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
     else
-      $CMAKE_CMD
+      RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
     fi
   fi
-}
-
-#-----------------------------------------------------------------------------
-# Function: build_redisearch_rs
-# Build the redisearch_rs target explicitly
-#-----------------------------------------------------------------------------
-build_redisearch_rs() {
-  echo "Building redisearch_rs..."
-  REDISEARCH_RS_DIR="$ROOT/src/redisearch_rs"
-  REDISEARCH_RS_TARGET_DIR="$ROOT/bin/redisearch_rs"
-  REDISEARCH_RS_BINDIR="$BINDIR/redisearch_rs"
-
-  # Determine Rust artifact directory based on the chosen profile
-  if [[ "$RUST_PROFILE" == "dev" ]]; then
-    RUST_ARTIFACT_SUBDIR="debug"
-  else
-    RUST_ARTIFACT_SUBDIR="$RUST_PROFILE"
-  fi
-  # Set up RUSTFLAGS for dynamic C runtime if needed
-  if [[ "$RUST_DYN_CRT" == "1" ]]; then
-    # Disable statically linking the C runtime.
-    # Default behaviour or ignored on most platforms,
-    # but necessary on Alpine Linux.
-    # See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
-    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
-  fi
-  # Build using cargo
-  mkdir -p "$REDISEARCH_RS_TARGET_DIR"
-  pushd .
-  cd "$REDISEARCH_RS_DIR"
-  # Rust code is built first, so exclude crates linking on C code as the internal lib is not built yet.
-  # Keep the exclude list synced with the clippy and rustdoc exclude lists in Makefile.
-  RUSTFLAGS="${RUSTFLAGS:--D warnings}" cargo build --workspace $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C --profile="$RUST_PROFILE"
-
-  # Copy artifacts to the target directory
-  mkdir -p "$REDISEARCH_RS_BINDIR"
-  cp "$REDISEARCH_RS_TARGET_DIR/$RUST_ARTIFACT_SUBDIR"/*.a "$REDISEARCH_RS_BINDIR"
-  popd
 }
 
 #-----------------------------------------------------------------------------
@@ -427,8 +413,7 @@ build_redisearch_rs() {
 # Build the RediSearch project using Make
 #-----------------------------------------------------------------------------
 build_project() {
-  # Build redisearch_rs explicitly
-  build_redisearch_rs
+  # redisearch_rs is now built automatically by CMake
 
   # Determine number of parallel jobs for make
   if command -v nproc &> /dev/null; then
