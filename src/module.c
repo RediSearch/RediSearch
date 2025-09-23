@@ -68,6 +68,7 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
 #include "rs_wall_clock.h"
+#include "hybrid/hybrid_exec.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -89,6 +90,8 @@
 extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
+
+redisearch_thpool_t *depleterPool = NULL;
 
 static int DIST_THREADPOOL = -1;
 
@@ -1213,6 +1216,14 @@ cleanup:
   return rc;
 }
 
+int RSShardedHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return hybridCommandHandler(ctx, argv, argc, true);
+}
+
+int RSClientHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return hybridCommandHandler(ctx, argv, argc, false);
+}
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
@@ -1293,6 +1304,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
          INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
+         INDEX_ONLY_CMD_ARGS, "", true))
+
+  RM_TRY(RMCreateSearchCommand(ctx, RS_HYBRID_CMD, RSShardedHybridCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,
@@ -3768,6 +3782,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.AGGREGATE",
            SafeCmd(DistAggregateCommand), "readonly", 0, 0, -1, "read", false))
   }
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.HYBRID",
+    SafeCmd(RSClientHybridCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.INFO", SafeCmd(InfoCommandHandler), "readonly", 0, 0, -1, "", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", 0, 0, -1, "read", false))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", 0, 0, -1, "read", false))
@@ -3904,4 +3920,34 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   }
   rm_free(sCmdCtx->argv);
   rm_free(sCmdCtx);
+}
+
+// Structure to pass context cleanup data to main thread
+typedef struct ContextCleanupData{
+  RedisModuleCtx *thctx;
+  RedisSearchCtx *sctx;
+} ContextCleanupData;
+
+// Callback to safely free contexts from main thread
+static void freeContextsCallback(void *data) {
+  ContextCleanupData *cleanup = (ContextCleanupData *)data;
+
+  if (cleanup->sctx) {
+    SearchCtx_Free(cleanup->sctx);
+  }
+
+  if (cleanup->thctx) {
+    RedisModule_FreeThreadSafeContext(cleanup->thctx);
+  }
+
+  rm_free(cleanup);
+}
+
+// Public function to schedule context cleanup
+void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx) {
+  ContextCleanupData *cleanup = rm_malloc(sizeof(ContextCleanupData));
+  cleanup->thctx = thctx;
+  cleanup->sctx = sctx;
+
+  ConcurrentSearch_ThreadPoolRun(freeContextsCallback, cleanup, DIST_THREADPOOL);
 }

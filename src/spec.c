@@ -2560,6 +2560,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     }
     RedisModule_ThreadSafeContextLock(ctx);
   }
+
   while (RedisModule_Scan(ctx, cursor, scanner_func, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
     counter++;
