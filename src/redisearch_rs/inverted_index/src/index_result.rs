@@ -415,10 +415,7 @@ impl<'index> RSAggregateResult<'index> {
         }
     }
 
-    /// Get the child at the given index, if it exists
-    ///
-    /// # Safety
-    /// The caller must ensure that the memory at the given index is still valid
+    /// Get the child at the given index, if it exists.
     pub fn get(&self, index: usize) -> Option<&RSIndexResult<'index>> {
         match self {
             RSAggregateResult::Borrowed { records, .. } => records.get(index).copied(),
@@ -426,10 +423,37 @@ impl<'index> RSAggregateResult<'index> {
         }
     }
 
-    /// Reset the aggregate result, clearing all children and resetting the kind mask.
+    /// Get the child at the given index, if it exists.
     ///
-    /// Note, this does not deallocate the children pointers, it just resets the count and kind
-    /// mask. The owner of the children pointers is responsible for deallocating them when needed.
+    /// # Safety
+    ///
+    /// 1. The index must be within the bounds of the children vector.
+    pub unsafe fn get_unchecked(&self, index: usize) -> &RSIndexResult<'index> {
+        match self {
+            RSAggregateResult::Borrowed { records, .. } => {
+                debug_assert!(
+                    index < records.len(),
+                    "Safety violation: trying to access an aggregate result child at an out-of-bounds index, {index}. Length: {}",
+                    records.len()
+                );
+                // SAFETY:
+                // - Thanks to precondition 1., we know that the index is within bounds.
+                unsafe { records.get_unchecked(index) }
+            }
+            RSAggregateResult::Owned { records, .. } => {
+                debug_assert!(
+                    index < records.len(),
+                    "Safety violation: trying to access an aggregate result child at an out-of-bounds index, {index}. Length: {}",
+                    records.len()
+                );
+                // SAFETY:
+                // - Thanks to precondition 1., we know that the index is within bounds.
+                unsafe { records.get_unchecked(index) }
+            }
+        }
+    }
+
+    /// Reset the aggregate result, clearing the children vector and resetting the kind mask.
     pub fn reset(&mut self) {
         match self {
             RSAggregateResult::Borrowed {
@@ -572,6 +596,21 @@ pub enum RSResultKind {
     Numeric = 16,
     Metric = 32,
     HybridMetric = 64,
+}
+
+impl std::fmt::Display for RSResultKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let k = match self {
+            RSResultKind::Union => "Union",
+            RSResultKind::Intersection => "Intersection",
+            RSResultKind::Term => "Term",
+            RSResultKind::Virtual => "Virtual",
+            RSResultKind::Numeric => "Numeric",
+            RSResultKind::Metric => "Metric",
+            RSResultKind::HybridMetric => "HybridMetric",
+        };
+        write!(f, "{k}")
+    }
 }
 
 /// Holds the actual data of an ['IndexResult']
@@ -825,6 +864,34 @@ impl<'index> RSIndexResult<'index> {
             | RSResultData::Numeric(_)
             | RSResultData::Metric(_)
             | RSResultData::HybridMetric(_) => None,
+        }
+    }
+
+    /// Get the aggregate result associated with this record
+    /// **without checking the discriminant**.
+    ///
+    /// # Safety
+    ///
+    /// 1. `Self::is_aggregate` must return `true` for `self`.
+    pub unsafe fn as_aggregate_unchecked(&self) -> Option<&RSAggregateResult<'index>> {
+        debug_assert!(
+            self.is_aggregate(),
+            "Invariant violation: `as_aggregate_unchecked` was invoked on an `IndexResult` \
+            instance that didn't actually contain an aggregate! It was a {}",
+            self.data.kind()
+        );
+        match &self.data {
+            RSResultData::Union(agg)
+            | RSResultData::Intersection(agg)
+            | RSResultData::HybridMetric(agg) => Some(agg),
+            RSResultData::Term(_)
+            | RSResultData::Virtual
+            | RSResultData::Numeric(_)
+            | RSResultData::Metric(_) => {
+                // SAFETY:
+                // - Thanks to safety precondition 1., we'll never reach this statement.
+                unsafe { std::hint::unreachable_unchecked() }
+            }
         }
     }
 
