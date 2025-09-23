@@ -27,7 +27,25 @@
     rustdoc::broken_intra_doc_links
 )]
 
+use std::cell::UnsafeCell;
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct QueryProcessingCtx {
+    pub rootProc: UnsafeCell<*mut ResultProcessor>,
+    pub endProc: UnsafeCell<*mut ResultProcessor>,
+    pub sctx: *mut RedisSearchCtx,
+    pub initTime: rs_wall_clock,
+    pub GILTime: rs_wall_clock_ns_t,
+    pub minScore: f64,
+    pub totalResults: u32,
+    pub resultLimit: u32,
+    pub err: *mut QueryError,
+    pub isProfile: bool,
+    pub timeoutPolicy: RSTimeoutPolicy,
+}
 
 /// Rust implementation of `t_fieldMask` from `redisearch.h`
 pub type FieldMask = t_fieldMask;

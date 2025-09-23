@@ -9,6 +9,7 @@
 
 use crate::{Context, Error, ResultProcessor, ResultProcessorWrapper};
 use std::{
+    cell::UnsafeCell,
     pin::Pin,
     ptr::{self, NonNull},
 };
@@ -106,8 +107,8 @@ pub struct Chain {
 impl Chain {
     pub fn new() -> Self {
         let query_processing_context = ffi::QueryProcessingCtx {
-            rootProc: ptr::null_mut(),
-            endProc: ptr::null_mut(),
+            rootProc: UnsafeCell::new(ptr::null_mut()),
+            endProc: UnsafeCell::new(ptr::null_mut()),
             sctx: ptr::null_mut(),
             initTime: ffi::timespec {
                 tv_sec: 0,
@@ -135,7 +136,8 @@ impl Chain {
         P: ResultProcessor + 'static,
     {
         let mut result_processor = ResultProcessorWrapper::new(result_processor);
-        result_processor.header.parent = &raw mut *self.query_processing_context;
+        result_processor.header.parent =
+            self.query_processing_context.as_ref().get_ref() as *const _;
 
         if let Some(upstream) = self.result_processors.last() {
             result_processor.header.upstream = upstream.as_ptr();
@@ -150,10 +152,22 @@ impl Chain {
         let result_processor_ptr: *mut ffi::ResultProcessor = unsafe { header_ptr.cast().as_mut() };
 
         // Safety: this pointer was created in Self::new, and is convertible to a reference.
-        if self.query_processing_context.as_ref().rootProc.is_null() {
-            self.query_processing_context.as_mut().rootProc = result_processor_ptr;
+        if unsafe { *self.query_processing_context.as_ref().rootProc.get() }.is_null() {
+            unsafe {
+                self.query_processing_context
+                    .as_ref()
+                    .rootProc
+                    .get()
+                    .write(result_processor_ptr)
+            };
         }
-        self.query_processing_context.as_mut().endProc = result_processor_ptr;
+        unsafe {
+            self.query_processing_context
+                .as_ref()
+                .endProc
+                .get()
+                .write(result_processor_ptr);
+        }
 
         self.result_processors.push(header_ptr);
     }
@@ -174,8 +188,14 @@ impl Chain {
         self.result_processors.push(result_processor);
 
         // Safety: Header's layout is compatible with ffi::ResultProcessor.
-        self.query_processing_context.as_mut().endProc =
-            unsafe { result_processor.cast().as_mut() };
+        let end_proc = unsafe { result_processor.cast().as_mut() };
+        unsafe {
+            self.query_processing_context
+                .as_ref()
+                .endProc
+                .get()
+                .write(end_proc);
+        }
     }
 
     /// Return a raw `NonNull` ptr to the last result processor in the chain
