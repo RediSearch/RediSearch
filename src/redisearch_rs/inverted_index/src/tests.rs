@@ -16,9 +16,9 @@ use std::{
 
 use crate::{
     BlockGcScanResult, DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex,
-    FilterGeoReader, FilterMaskReader, FilterNumericReader, GcScanDelta, IdDelta, IndexBlock,
-    IndexReader, InvertedIndex, NumericFilter, RSAggregateResult, RSIndexResult, RSResultData,
-    RSResultKind, RSTermRecord, RepairType,
+    FilterGeoReader, FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IdDelta,
+    IndexBlock, IndexReader, InvertedIndex, NumericFilter, RSAggregateResult, RSIndexResult,
+    RSResultData, RSResultKind, RSTermRecord, RepairType,
     debug::{BlockSummary, Summary},
 };
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, t_docId};
@@ -1550,6 +1550,15 @@ fn ii_apply_gc() {
     ];
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
 
+    // Inverted index is 40 bytes base
+    // 1st index block is 40 bytes + 8 bytes for the buffer capacity
+    // 2nd index block is 40 bytes + 16 bytes for the buffer capacity
+    // 3rd index block is 40 bytes + 20 bytes for the buffer capacity
+    // 4th index block is 40 bytes + 12 bytes for the buffer capacity
+    // 5th index block is 40 bytes + 20 bytes for the buffer capacity
+    // So total memory size is 316 bytes
+    assert_eq!(ii.memory_usage(), 316);
+
     let gc_result = vec![
         BlockGcScanResult {
             index: 0,
@@ -1597,7 +1606,15 @@ fn ii_apply_gc() {
         deltas: gc_result,
     };
 
-    ii.apply_gc(delta);
+    let apply_info = ii.apply_gc(delta);
+
+    // Inverted index is 40 bytes base
+    // 1st index block is 40 bytes + 12 bytes for the buffer capacity
+    // 2nd index block is 40 bytes + 12 bytes for the buffer capacity
+    // 3rd index block is 40 bytes + 12 bytes for the buffer capacity
+    // 4th index block is 40 bytes + 12 bytes for the buffer capacity
+    // So total memory size is 248 bytes
+    assert_eq!(ii.memory_usage(), 248);
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
@@ -1628,7 +1645,18 @@ fn ii_apply_gc() {
                 last_doc_id: 72,
             },
         ]
-    )
+    );
+    assert_eq!(
+        apply_info,
+        GcApplyInfo {
+            // The first, second, third and fifth block was removed totaling 224 bytes
+            bytes_freed: 224,
+            // The third and fifth block was split making 156 new bytes
+            bytes_allocated: 156,
+            entries_removed: 5,
+            blocks_ignored: 0
+        }
+    );
 }
 
 #[test]
@@ -1650,6 +1678,12 @@ fn ii_apply_gc_last_block_updated() {
     ];
 
     let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+
+    // Inverted index is 40 bytes base
+    // 1st index block is 40 bytes + 16 bytes for the buffer capacity
+    // 2nd index block is 40 bytes + 20 bytes for the buffer capacity
+    // So total memory size is 156 bytes
+    assert_eq!(ii.memory_usage(), 156);
 
     let gc_result = vec![
         BlockGcScanResult {
@@ -1675,7 +1709,12 @@ fn ii_apply_gc_last_block_updated() {
         deltas: gc_result,
     };
 
-    ii.apply_gc(delta);
+    let apply_info = ii.apply_gc(delta);
+
+    // Inverted index is 40 bytes base
+    // 1st index block is 40 bytes + 20 bytes for the buffer capacity
+    // So total memory size is 100 bytes
+    assert_eq!(ii.memory_usage(), 100);
 
     assert_eq!(ii.unique_docs(), 3);
     assert_eq!(
@@ -1686,5 +1725,17 @@ fn ii_apply_gc_last_block_updated() {
             first_doc_id: 20,
             last_doc_id: 22,
         },]
+    );
+    assert_eq!(
+        apply_info,
+        GcApplyInfo {
+            // Freed only the first block
+            bytes_freed: 56,
+            // Nothing new was made in the end
+            bytes_allocated: 0,
+            entries_removed: 2,
+            // Ignored the last block
+            blocks_ignored: 1
+        }
     );
 }

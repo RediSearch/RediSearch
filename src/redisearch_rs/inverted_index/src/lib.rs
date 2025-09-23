@@ -615,6 +615,22 @@ pub struct BlockGcScanResult {
     repair: RepairType,
 }
 
+/// Information about the result of applying a garbage collection scan to the index
+#[derive(Debug, Eq, PartialEq)]
+pub struct GcApplyInfo {
+    /// The number of bytes that were freed
+    bytes_freed: usize,
+
+    /// The number of bytes that were allocated
+    bytes_allocated: usize,
+
+    /// The number of entries that were removed from the index
+    entries_removed: usize,
+
+    /// The number of blocks that were ignored because the index changed since the scan was performed
+    blocks_ignored: usize,
+}
+
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
     pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
@@ -664,12 +680,19 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
     /// Apply the deltas of a garbage collection scan to the index. This will modify the index
     /// by deleting or repairing blocks as needed.
-    pub fn apply_gc(&mut self, delta: GcScanDelta) {
+    pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
         let GcScanDelta {
             last_block_idx,
             last_block_num_entries,
             deltas,
         } = delta;
+
+        let mut info = GcApplyInfo {
+            bytes_freed: 0,
+            bytes_allocated: 0,
+            entries_removed: 0,
+            blocks_ignored: 0,
+        };
 
         // We apply the repairs in reverse order so that the indices of the blocks to be repaired
         // remain valid as we modify the blocks vector.
@@ -678,27 +701,35 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             if delta.index == last_block_idx
                 && self.blocks[delta.index].num_entries != last_block_num_entries
             {
+                info.blocks_ignored += 1;
                 continue;
             }
 
             match delta.repair {
                 RepairType::Delete => {
                     let block = self.blocks.remove(delta.index);
-                    self.n_unique_docs -= block.num_entries;
+                    info.entries_removed += block.num_entries;
+                    info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
                 }
                 RepairType::Split { mut blocks } => {
                     let old_block = self.blocks.remove(delta.index);
-                    self.n_unique_docs -= old_block.num_entries;
+                    info.entries_removed += old_block.num_entries;
+                    info.bytes_freed += IndexBlock::SIZE + old_block.buffer.capacity();
 
                     blocks.reverse();
 
                     for block in blocks {
-                        self.n_unique_docs += block.num_entries;
+                        info.entries_removed -= block.num_entries;
+                        info.bytes_allocated += IndexBlock::SIZE + block.buffer.capacity();
                         self.blocks.insert(delta.index, block);
                     }
                 }
             }
         }
+
+        self.n_unique_docs -= info.entries_removed;
+
+        info
     }
 }
 
