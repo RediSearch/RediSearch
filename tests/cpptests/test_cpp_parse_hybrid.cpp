@@ -976,3 +976,98 @@ TEST_F(ParseHybridTest, testRangeMissingYieldScoreAsValue) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS");
   testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
 }
+
+// ============================================================================
+// HYBRID CALLBACK ERROR TESTS - Testing error paths in hybrid_callbacks.c
+// ============================================================================
+
+// LIMIT callback error tests - These test the actual callback function error paths
+TEST_F(ParseHybridTest, testLimitZeroCountWithNonZeroOffset) {
+  // Test LIMIT 0 0 vs LIMIT 5 0 - the callback should catch the second case
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "5", "0");
+  testErrorCode(args, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+}
+
+TEST_F(ParseHybridTest, testLimitInvalidOffset) {
+  // Test LIMIT with invalid offset (negative)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "-1", "10");
+  testErrorCode(args, QUERY_EPARSEARGS, "LIMIT offset must be a non-negative integer");
+}
+
+TEST_F(ParseHybridTest, testLimitInvalidCount) {
+  // Test LIMIT with invalid count (negative)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "0", "-5");
+  testErrorCode(args, QUERY_EPARSEARGS, "LIMIT count must be a non-negative integer");
+}
+
+TEST_F(ParseHybridTest, testLimitExceedsMaxResults) {
+  // Test LIMIT that exceeds maxResults (default is 1000000)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LIMIT", "0", "2000000");
+  testErrorCode(args, QUERY_ELIMIT, "LIMIT exceeds maximum of 1000000");
+}
+
+// SORTBY callback error tests
+TEST_F(ParseHybridTest, testSortByMissingFieldName) {
+  // Test SORTBY with missing field name (empty args after SORTBY)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "SORTBY");
+  testErrorCode(args, QUERY_EPARSEARGS, "SORTBY: Failed to parse the argument count");
+}
+
+// PARAMS callback error tests
+TEST_F(ParseHybridTest, testParamsOddArgumentCount) {
+  // Test PARAMS with odd number of arguments (not key-value pairs)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "PARAMS", "3", "key1", "value1", "key2");
+  testErrorCode(args, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
+}
+
+TEST_F(ParseHybridTest, testParamsZeroArguments) {
+  // Test PARAMS with zero arguments
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "PARAMS", "0");
+  testErrorCode(args, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
+}
+
+// WITHCURSOR callback error tests
+TEST_F(ParseHybridTest, testWithCursorInvalidMaxIdle) {
+  // Test WITHCURSOR with invalid MAXIDLE value (zero)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "WITHCURSOR", "MAXIDLE", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "Bad arguments for MAXIDLE: Value is outside acceptable bounds");
+}
+
+TEST_F(ParseHybridTest, testWithCursorInvalidCount) {
+  // Test WITHCURSOR with invalid COUNT value (zero)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "0");
+  testErrorCode(args, QUERY_EPARSEARGS, "Bad arguments for COUNT: Value is outside acceptable bounds");
+}
+
+// GROUPBY callback error tests
+TEST_F(ParseHybridTest, testGroupByNoProperties) {
+  // Test GROUPBY with no properties specified
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "GROUPBY");
+  testErrorCode(args, QUERY_EPARSEARGS, "GROUPBY: Failed to parse the argument count");
+}
+
+TEST_F(ParseHybridTest, testGroupByPropertyMissingAtPrefix) {
+  // Test GROUPBY with property missing @ prefix
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "GROUPBY", "1", "title");
+  testErrorCode(args, QUERY_EPARSEARGS, "Bad arguments for GROUPBY: Unknown property `title`. Did you mean `@title`?");
+}
+
+// APPLY callback error tests
+TEST_F(ParseHybridTest, testApplyMissingAsArgument) {
+  // Test APPLY with AS but missing alias argument
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "APPLY", "upper(@title)", "AS");
+  testErrorCode(args, QUERY_EPARSEARGS, "AS needs argument");
+}
+
+// LOAD callback error tests
+TEST_F(ParseHybridTest, testLoadInvalidFieldCount) {
+  // Test LOAD with invalid field count (non-numeric)
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LOAD", "invalid");
+  testErrorCode(args, QUERY_EPARSEARGS, "Bad arguments for LOAD: Expected number of fields or `*`");
+}
+
+TEST_F(ParseHybridTest, testLoadInsufficientFields) {
+  // Test LOAD with insufficient fields for specified count
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LOAD", "3", "@title");
+  testErrorCode(args, QUERY_EPARSEARGS, "Not enough arguments for LOAD");
+}
