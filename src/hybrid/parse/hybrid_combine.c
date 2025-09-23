@@ -110,7 +110,6 @@ static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *has
   ArgParser_AddDoubleV(parser, "CONSTANT", "RRF constant value (must be positive)", 
                        constant, ARG_OPT_OPTIONAL,
                        ARG_OPT_DEFAULT_DOUBLE, defaultConstant,
-                       ARG_OPT_RANGE, 0.0, LLONG_MAX,
                        ARG_OPT_END);
   ArgParser_AddIntV(parser, "WINDOW", "RRF window size (must be positive)", 
                     window, ARG_OPT_OPTIONAL,
