@@ -68,6 +68,10 @@ impl Decoder for FreqsFields {
         result.freq = freq;
         Ok(())
     }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
 }
 
 /// Encode and decode the delta, frequency and field mask of a record.
@@ -120,5 +124,9 @@ impl Decoder for FreqsFieldsWide {
         result.field_mask = field_mask;
         result.freq = freq;
         Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }

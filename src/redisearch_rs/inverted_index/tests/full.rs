@@ -102,9 +102,8 @@ fn test_encode_full() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let mut record_decoded = RSIndexResult::term();
-        Full::default()
-            .decode(&mut buf, prev_doc_id, &mut record_decoded)
+        let record_decoded = Full::default()
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 
         assert_eq!(
@@ -199,9 +198,8 @@ fn test_encode_full_wide() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let mut record_decoded = RSIndexResult::term();
-        FullWide::default()
-            .decode(&mut buf, prev_doc_id, &mut record_decoded)
+        let record_decoded = FullWide::default()
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 
         assert_eq!(
@@ -245,14 +243,13 @@ fn test_decode_full_input_too_small() {
     // Encoded data is too short.
     let buf = vec![0, 0];
     let mut cursor = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
 
-    let res = Full::default().decode(&mut cursor, 100, &mut result);
+    let res = Full::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FullWide::default().decode(&mut cursor, 100, &mut result);
+    let res = FullWide::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -263,14 +260,13 @@ fn test_decode_full_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
     let mut cursor = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
 
-    let res = Full::default().decode(&mut cursor, 100, &mut result);
+    let res = Full::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FullWide::default().decode(&mut cursor, 100, &mut result);
+    let res = FullWide::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -281,14 +277,13 @@ fn test_offsets_too_short() {
     // offsets claims to have 3 elements but actually have only 2.
     let buf = vec![0, 0, 1, 1, 3, 1, 2];
     let mut cursor = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
 
-    let res = Full::default().decode(&mut cursor, 100, &mut result);
+    let res = Full::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FullWide::default().decode(&mut cursor, 100, &mut result);
+    let res = FullWide::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);

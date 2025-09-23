@@ -70,6 +70,10 @@ impl Decoder for FreqsOffsets {
         Ok(())
     }
 
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
+
     fn seek<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,

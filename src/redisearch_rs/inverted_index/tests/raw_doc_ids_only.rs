@@ -60,9 +60,8 @@ fn test_encode_raw_doc_ids_only() {
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
 
-        let mut record_decoded = RSIndexResult::term();
-        RawDocIdsOnly::default()
-            .decode(&mut buf, prev_doc_id, &mut record_decoded)
+        let record_decoded = RawDocIdsOnly::default()
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode raw doc ids only record");
 
         assert_eq!(record_decoded, record);
@@ -87,9 +86,8 @@ fn test_decode_raw_doc_ids_only_input_too_small() {
     // Encoded data is too short.
     let buf = vec![0, 0];
     let mut cursor = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
 
-    let res = RawDocIdsOnly::default().decode(&mut cursor, 100, &mut result);
+    let res = RawDocIdsOnly::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -100,9 +98,8 @@ fn test_decode_raw_doc_ids_only_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
     let mut cursor = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
 
-    let res = RawDocIdsOnly::default().decode(&mut cursor, 100, &mut result);
+    let res = RawDocIdsOnly::default().decode_new(&mut cursor, 100);
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);

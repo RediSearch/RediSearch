@@ -64,9 +64,8 @@ fn test_encode_freqs_fields() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let mut record_decoded = RSIndexResult::term();
-        FreqsFields
-            .decode(&mut buf, prev_doc_id, &mut record_decoded)
+        let record_decoded = FreqsFields
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
@@ -132,9 +131,8 @@ fn test_encode_freqs_fields_wide() {
         let prev_doc_id = doc_id - (delta as u64);
         let buf = buf.into_inner();
         let mut buf = Cursor::new(buf.as_ref());
-        let mut record_decoded = RSIndexResult::term();
-        FreqsFieldsWide
-            .decode(&mut buf, prev_doc_id, &mut record_decoded)
+        let record_decoded = FreqsFieldsWide
+            .decode_new(&mut buf, prev_doc_id)
             .expect("to decode freqs only record");
 
         assert_eq!(record_decoded, record);
@@ -176,14 +174,13 @@ fn test_decode_freqs_fields_input_too_small() {
     // Encoded data is too short.
     let buf = vec![0, 0];
     let mut buf = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
 
-    let res = FreqsFields.decode(&mut buf, 100, &mut result);
+    let res = FreqsFields.decode_new(&mut buf, 100);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FreqsFieldsWide.decode(&mut buf, 100, &mut result);
+    let res = FreqsFieldsWide.decode_new(&mut buf, 100);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
@@ -194,14 +191,13 @@ fn test_decode_freqs_fields_empty_input() {
     // Try decoding an empty buffer.
     let buf = vec![];
     let mut buf = Cursor::new(buf.as_ref());
-    let mut result = RSIndexResult::term();
 
-    let res = FreqsFields.decode(&mut buf, 100, &mut result);
+    let res = FreqsFields.decode_new(&mut buf, 100);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 
-    let res = FreqsFieldsWide.decode(&mut buf, 100, &mut result);
+    let res = FreqsFieldsWide.decode_new(&mut buf, 100);
     assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);

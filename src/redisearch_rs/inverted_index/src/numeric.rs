@@ -482,6 +482,10 @@ impl Decoder for Numeric {
 
         Ok(())
     }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::numeric(0.0)
+    }
 }
 
 fn read_only_u64<R: Read>(reader: &mut R, len: usize) -> std::io::Result<u64> {
