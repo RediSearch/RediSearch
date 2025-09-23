@@ -590,6 +590,21 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 }
 
+/// Result of scanning the index for garbage collection
+#[derive(Debug, Eq, PartialEq)]
+pub struct GcScanDelta {
+    /// The index of the last block in the index at the time of the scan. This is used to ensure
+    /// that the index has not changed since the scan was performed.
+    last_block_idx: usize,
+
+    /// The number of entries in the last block at the time of the scan. This is used to ensure
+    /// that the index has not changed since the scan was performed.
+    last_block_num_entries: usize,
+
+    /// The results of the scan for each block that needs to be repaired or deleted.
+    deltas: Vec<BlockGcScanResult>,
+}
+
 /// Result of scanning a block for garbage collection
 #[derive(Debug, Eq, PartialEq)]
 pub struct BlockGcScanResult {
@@ -611,11 +626,11 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// callback is used to check if a document exists. It should return `true` if the document
     /// exists and `false` otherwise.
     ///
-    /// This function returns a vector of all the blocks which should be repaired or deleted.
+    /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc(
         &self,
         doc_exist_cb: fn(doc_id: t_docId) -> bool,
-    ) -> std::io::Result<Vec<BlockGcScanResult>> {
+    ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
@@ -636,7 +651,15 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        Ok(results)
+        if results.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(GcScanDelta {
+                last_block_idx: self.blocks.len() - 1,
+                last_block_num_entries: self.blocks.last().map(|b| b.num_entries).unwrap_or(0),
+                deltas: results,
+            }))
+        }
     }
 
     /// Apply the results of a garbage collection scan to the index. This will modify the index

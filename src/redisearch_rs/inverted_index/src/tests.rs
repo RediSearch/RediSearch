@@ -16,9 +16,9 @@ use std::{
 
 use crate::{
     BlockGcScanResult, DecodedBy, Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex,
-    FilterGeoReader, FilterMaskReader, FilterNumericReader, IdDelta, IndexBlock, IndexReader,
-    InvertedIndex, NumericFilter, RSAggregateResult, RSIndexResult, RSResultData, RSResultKind,
-    RSTermRecord, RepairType,
+    FilterGeoReader, FilterMaskReader, FilterNumericReader, GcScanDelta, IdDelta, IndexBlock,
+    IndexReader, InvertedIndex, NumericFilter, RSAggregateResult, RSIndexResult, RSResultData,
+    RSResultKind, RSTermRecord, RepairType,
     debug::{BlockSummary, Summary},
 };
 use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, t_docId};
@@ -1403,7 +1403,7 @@ fn index_block_repair_delta_too_big() {
 }
 
 #[test]
-fn ii_gc_scan() {
+fn ii_scan_gc() {
     // Create 5 blocks:
     // - One which is empty
     // - One which will be completely deleted
@@ -1448,32 +1448,64 @@ fn ii_gc_scan() {
         [21, 22, 30, 40].contains(&doc_id)
     }
 
-    let gc_result = ii.scan_gc(cb).unwrap();
+    let gc_result = ii.scan_gc(cb).unwrap().unwrap();
 
     assert_eq!(
         gc_result,
-        vec![
-            BlockGcScanResult {
-                index: 0,
-                repair: RepairType::Delete,
-            },
-            BlockGcScanResult {
-                index: 1,
-                repair: RepairType::Delete,
-            },
-            BlockGcScanResult {
-                index: 2,
-                repair: RepairType::Split {
-                    blocks: vec![IndexBlock {
-                        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
-                        num_entries: 2,
-                        first_doc_id: 21,
-                        last_doc_id: 22,
-                    }]
+        GcScanDelta {
+            last_block_idx: 4,
+            last_block_num_entries: 1,
+            deltas: vec![
+                BlockGcScanResult {
+                    index: 0,
+                    repair: RepairType::Delete,
                 },
-            },
-        ]
+                BlockGcScanResult {
+                    index: 1,
+                    repair: RepairType::Delete,
+                },
+                BlockGcScanResult {
+                    index: 2,
+                    repair: RepairType::Split {
+                        blocks: vec![IndexBlock {
+                            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+                            num_entries: 2,
+                            first_doc_id: 21,
+                            last_doc_id: 22,
+                        }]
+                    },
+                },
+            ]
+        }
     );
+}
+
+#[test]
+fn ii_scan_gc_no_change() {
+    // Create 2 blocks which will be unchanged
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+    ];
+    let ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+
+    fn cb(_doc_id: t_docId) -> bool {
+        true
+    }
+
+    let gc_result = ii.scan_gc(cb).unwrap();
+
+    assert_eq!(gc_result, None, "there should be no changes");
 }
 
 #[test]
