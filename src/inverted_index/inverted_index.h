@@ -25,7 +25,7 @@ extern "C" {
 #define INDEX_BLOCK_SIZE 100
 #define INDEX_BLOCK_SIZE_DOCID_ONLY 1000
 
-extern uint64_t TotalIIBlocks;
+size_t TotalIIBlocks();
 
 /* A single block of data in the index. The index is basically a list of blocks we iterate */
 typedef struct {

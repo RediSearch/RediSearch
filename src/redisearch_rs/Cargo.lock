@@ -768,6 +768,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "qint",
+ "redis-module",
  "varint",
 ]
 
@@ -782,6 +783,7 @@ dependencies = [
  "ffi",
  "inverted_index",
  "itertools 0.14.0",
+ "redis-module",
  "redis_mock",
  "types_ffi",
  "varint_ffi",
@@ -1462,6 +1464,7 @@ dependencies = [
  "build_utils",
  "cbindgen",
  "ffi",
+ "libc",
  "rlookup",
  "value",
 ]
