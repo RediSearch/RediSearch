@@ -230,13 +230,13 @@ struct KeyList<'a> {
     rowlen: u32,
 }
 
-/// A cursor over a [`KeyList`].
+/// A cursor over an [`RLookup`] key list.
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over a [`KeyList`] with editing operations.
+/// A cursor over an [`RLookup`] key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -721,7 +721,7 @@ impl Drop for KeyList<'_> {
 // ===== impl Cursor =====
 
 impl<'list, 'a> Cursor<'list, 'a> {
-    /// Move the cursor to the next [`RLookupKey`] in the [`KeyList`].
+    /// Move the cursor to the next [`RLookupKey`] in the key list.
     ///
     /// Note that contrary to [`Self::next`] this **does not** skip over hidden keys.
     pub fn move_next(&mut self) {
@@ -761,7 +761,7 @@ impl<'list, 'a> Cursor<'list, 'a> {
 impl<'list, 'a> Iterator for Cursor<'list, 'a> {
     type Item = &'list RLookupKey<'a>;
 
-    /// Advances the [`Cursor`] to the next [`RLookupKey`] in the [`KeyList`] and returns it.
+    /// Advances the [`Cursor`] to the next [`RLookupKey`] in the key list and returns it.
     ///
     /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
     fn next(&mut self) -> Option<Self::Item> {
@@ -879,7 +879,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 impl<'list, 'a> Iterator for CursorMut<'list, 'a> {
     type Item = Pin<&'list mut RLookupKey<'a>>;
 
-    /// Advances the [`CursorMut`] to the next [`RLookupKey`] in the [`KeyList`] and returns it.
+    /// Advances the [`CursorMut`] to the next [`RLookupKey`] in the key list and returns it.
     ///
     /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
     fn next(&mut self) -> Option<Self::Item> {
@@ -938,6 +938,12 @@ impl<'a> RLookup<'a> {
         self.index_spec_cache = spcache;
     }
 
+    /// Find a [`RLookupKey`] in this `RLookup`'s key list by its `name`
+    /// and return a [`Cursor`] pointing to the key if found.
+    pub fn find_by_name(&self, name: &CStr) -> Option<Cursor<'_, 'a>> {
+        self.keys.find_by_name(name)
+    }
+
     // ===== Get key for reading (create only if in schema and sortable) =====
 
     /// Gets a key by its name from the lookup table, if not found it uses the schema as a fallback to search the key.
@@ -955,7 +961,8 @@ impl<'a> RLookup<'a> {
 
         let available = self.keys.find_by_name(&name).is_some();
         if available {
-            // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
+            // FIXME: We cannot use let-some above because of a borrow-checker false positive.
+            // This duplication might have performance implications.
             // See <https://github.com/rust-lang/rust/issues/54663>
             return self.keys.find_by_name(&name).unwrap().into_current();
         }
