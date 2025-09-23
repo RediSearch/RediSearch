@@ -15,7 +15,7 @@
 #include <limits.h>
 
 // Helper function to append a sort entry - extracted from original code
-static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, int ascending) {
+static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
     // Initialize sortKeys array if not already done
     if (!arng->sortKeys) {
         arng->sortKeys = array_new(const char*, 1);
@@ -46,12 +46,13 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
         return;
     }
 
-    long long offset, num;
-    if (AC_GetLongLong(ac, &offset, AC_F_GE0) != AC_OK) {
+    uint64_t offset = 0;
+    uint64_t num = 0;
+    if (AC_GetU64(ac, &offset, AC_F_GE0) != AC_OK) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT offset must be a non-negative integer");
         return;
     }
-    if (AC_GetLongLong(ac, &num, AC_F_GE0) != AC_OK) {
+    if (AC_GetU64(ac, &num, AC_F_GE0) != AC_OK) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "LIMIT count must be a non-negative integer");
         return;
     }
@@ -82,6 +83,8 @@ void handleLimit(ArgParser *parser, const void *value, void *user_data) {
     arng->limit = num;
 }
 
+#define ASC_BY_DEFAULT true
+
 // SORTBY callback - implements EXACT original logic from lines 298-323
 void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
@@ -111,7 +114,7 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
         }
 
         // Default to ascending
-        int ascending = 1;
+        bool ascending = ASC_BY_DEFAULT;
 
         // Check for optional direction
         if (!AC_IsAtEnd(ac)) {
@@ -119,10 +122,10 @@ void handleSortBy(ArgParser *parser, const void *value, void *user_data) {
             if (AC_GetString(ac, &direction, NULL, AC_F_NOADVANCE) == AC_OK) {
                 if (strcasecmp(direction, "ASC") == 0) {
                     AC_Advance(ac);  // Consume the direction
-                    ascending = 1;
+                    ascending = true;
                 } else if (strcasecmp(direction, "DESC") == 0) {
                     AC_Advance(ac);  // Consume the direction
-                    ascending = 0;
+                    ascending = false;
                 }
                 // If it's not ASC/DESC, leave it for the next field
             }
@@ -217,7 +220,6 @@ void handleFormat(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
     const char *format = *(char**)value;
     QueryError *status = ctx->status;
-    ctx->specifiedArgs |= SPECIFIED_ARG_FORMAT;
     if (strcasecmp(format, "STRING") == 0) {
         *ctx->reqFlags &= ~QEXEC_FORMAT_EXPAND;
     } else if (strcasecmp(format, "EXPAND") == 0) {
@@ -249,6 +251,10 @@ void handleGroupby(ArgParser *parser, const void *value, void *user_data) {
     }
 
     const long long nproperties = AC_NumRemaining(ac);
+    if (nproperties <= 0) {
+        QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY: Expected at least one property", ", got: %d", nproperties);
+        return;
+    }
     const char **properties = array_newlen(const char *, nproperties);
     for (size_t i = 0; i < nproperties; ++i) {
         const char *property;

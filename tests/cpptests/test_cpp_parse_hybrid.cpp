@@ -108,7 +108,7 @@ class ParseHybridTest : public ::testing::Test {
 
     EXPECT_TRUE(hybridRequest->sctx != NULL) << "Failed to create search context";
 
-    int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status);
+    int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
 
     EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
     EXPECT_TRUE(rc == REDISMODULE_OK) << "parseHybridCommand returned REDISMODULE_ERR";
@@ -653,7 +653,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
   QueryError status = {QueryErrorCode(0)};
 
   // Create a fresh sctx for this test
-  int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status);
+  int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(status.code, expected_code) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_STREQ(status.detail, expected_detail) << "parsing error: " << QueryError_GetUserError(&status);

@@ -72,7 +72,7 @@ typedef struct {
  * @param ctx HybridParseContext containing parsing context and output parameters
  * @return 1 if arguments were handled, -1 on error, 0 if no arguments matched
  */
-int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac);
+int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool internal);
 
 #ifdef __cplusplus
 }

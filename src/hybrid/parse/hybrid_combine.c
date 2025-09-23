@@ -79,7 +79,7 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   ArgParser_Free(parser);
 }
 
-int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
+static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
   *hasExplicitWindow = false;
   ArgsCursor rrf;
   int rc = AC_GetVarArgs(ac, &rrf);
@@ -154,32 +154,32 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
 
 // COMBINE callback - implements exact ParseCombine behavior from hybrid_args.c
 void handleCombine(ArgParser *parser, const void *value, void *user_data) {
-    HybridParseContext *ctx = (HybridParseContext*)user_data;
-    const char *method = *(const char**)value;
-    QueryError *status = ctx->status;
-    HybridScoringContext *combineCtx = ctx->hybridScoringCtx;
-    ctx->specifiedArgs |= SPECIFIED_ARG_COMBINE;
-    size_t numWeights = ctx->numSubqueries;
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  const char *method = *(const char**)value;
+  QueryError *status = ctx->status;
+  HybridScoringContext *combineCtx = ctx->hybridScoringCtx;
+  ctx->specifiedArgs |= SPECIFIED_ARG_COMBINE;
+  size_t numWeights = ctx->numSubqueries;
 
-    // Exact implementation of ParseCombine from hybrid_args.c
-    // Check if a specific method is provided
-    HybridScoringType parsedScoringType;
-    if (strcasecmp(method, "LINEAR") == 0) {
-        parsedScoringType = HYBRID_SCORING_LINEAR;
-    } else if (strcasecmp(method, "RRF") == 0) {
-        parsedScoringType = HYBRID_SCORING_RRF;
-    } else {
-        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown COMBINE method", " `%s`", method);
-        return;
-    }
+  // Exact implementation of ParseCombine from hybrid_args.c
+  // Check if a specific method is provided
+  HybridScoringType parsedScoringType;
+  if (strcasecmp(method, "LINEAR") == 0) {
+    parsedScoringType = HYBRID_SCORING_LINEAR;
+  } else if (strcasecmp(method, "RRF") == 0) {
+    parsedScoringType = HYBRID_SCORING_RRF;
+  } else {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Unknown COMBINE method", " `%s`", method);
+    return;
+  }
 
-    combineCtx->scoringType = parsedScoringType;
-    ArgsCursor *ac = parser->cursor;
-    if (parsedScoringType == HYBRID_SCORING_LINEAR) {
-        combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
-        combineCtx->linearCtx.numWeights = numWeights;
-        parseLinearClause(ac, &combineCtx->linearCtx, status);
-    } else if (parsedScoringType == HYBRID_SCORING_RRF) {
-        parseRRFClause(ac, &combineCtx->rrfCtx, status);
-    }
+  combineCtx->scoringType = parsedScoringType;
+  ArgsCursor *ac = parser->cursor;
+  if (parsedScoringType == HYBRID_SCORING_LINEAR) {
+    combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
+    combineCtx->linearCtx.numWeights = numWeights;
+    parseLinearClause(ac, &combineCtx->linearCtx, status);
+  } else if (parsedScoringType == HYBRID_SCORING_RRF) {
+    parseRRFClause(ac, &combineCtx->rrfCtx, status);
+  }
 }

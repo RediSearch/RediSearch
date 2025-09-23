@@ -536,7 +536,7 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
  */
 int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                        RedisSearchCtx *sctx, const char *indexname, ParseHybridCommandCtx *parsedCmdCtx,
-                       QueryError *status) {
+                       QueryError *status, bool internal) {
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
@@ -585,7 +585,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
   };
-  if (HybridParseOptionalArgs(&hybridParseCtx, &ac) != REDISMODULE_OK) {
+  if (HybridParseOptionalArgs(&hybridParseCtx, &ac, internal) != REDISMODULE_OK) {
     goto error;
   }
 

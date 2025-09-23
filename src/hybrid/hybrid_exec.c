@@ -546,7 +546,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
 
-  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status) != REDISMODULE_OK) {
+  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {

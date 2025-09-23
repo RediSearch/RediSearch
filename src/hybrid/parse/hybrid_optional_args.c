@@ -12,8 +12,26 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
+/**
+ * Applies optimization to skip collecting rich results when they are not needed.
+ *
+ * Rich results (full result structure and metadata from iterators) can be skipped when:
+ * 1. No highlight/summarize step is required (QEXEC_F_SEND_HIGHLIGHT not set)
+ * 2. Scores are not explicitly requested (QEXEC_F_SEND_SCORES* flags not set)
+ * 3. Either this is not a search query OR the query has explicit sorting (not implicit score sorting)
+ *
+ * This optimization improves performance by avoiding unnecessary data collection.
+ */
+static void applyRichResultsOptimization(HybridParseContext *ctx) {
+    if (!(*ctx->reqFlags & QEXEC_F_SEND_HIGHLIGHT) &&
+        !(*ctx->reqFlags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) &&
+        (!(*ctx->reqFlags & QEXEC_F_IS_SEARCH) || hasQuerySortby(ctx->plan))) {
+        ctx->searchopts->flags |= Search_CanSkipRichResults;
+    }
+}
+
 // Main function to parse common arguments for hybrid queries
-int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
+int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool internal) {
 
     QueryError *status = ctx->status;
 
@@ -81,12 +99,14 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
                          ARG_OPT_CALLBACK, handleFormat, ctx,
                          ARG_OPT_END);
 
-    // WITHSCORES flag - sets QEXEC_F_SEND_SCORES
-    ArgParser_AddBitflagV(parser, "WITHSCORES", "Include scores in results",
-                          ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_SEND_SCORES,
-                          ARG_OPT_CALLBACK, handleWithScores, ctx,
-                          ARG_OPT_OPTIONAL, ARG_OPT_END);
-
+    // we only support withscores when parsing commands from the coordinator
+    if (internal) {
+        // WITHSCORES flag - sets QEXEC_F_SEND_SCORES
+        ArgParser_AddBitflagV(parser, "WITHSCORES", "Include scores in results",
+                            ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_SEND_SCORES,
+                            ARG_OPT_CALLBACK, handleWithScores, ctx,
+                            ARG_OPT_OPTIONAL, ARG_OPT_END);
+    }
     // EXPLAINSCORE flag - sets QEXEC_F_SEND_SCOREEXPLAIN
     ArgParser_AddBitflagV(parser, "EXPLAINSCORE", "Include score explanations in results",
                           ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_SEND_SCOREEXPLAIN,
@@ -162,16 +182,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac) {
         return REDISMODULE_ERR;
     }
 
-      if (!(*ctx->reqFlags & QEXEC_F_SEND_HIGHLIGHT) &&
-            !(*ctx->reqFlags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) &&
-            (!(*ctx->reqFlags & QEXEC_F_IS_SEARCH) || hasQuerySortby(ctx->plan))) {
-        // We can skip collecting full results structure and metadata from the iterators if:
-        // 1. We don't have a highlight/summarize step,
-        // 2. We are not required to return scores explicitly,
-        // 3. This is not a search query with implicit sorting by query score.
-        ctx->searchopts->flags |= Search_CanSkipRichResults;
-    }
+    // Apply optimization for skipping rich results collection when possible
+    applyRichResultsOptimization(ctx);
 
     return parseResult.success ? REDISMODULE_OK : REDISMODULE_ERR;
 }
-
