@@ -28,6 +28,7 @@
 #include "util/units.h"
 #include "hybrid/hybrid_request.h"
 #include "util/redis_mem_info.h"
+#include "module.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
