@@ -436,10 +436,10 @@ static void serializeGroup(myArgArray_t *arr, const PLN_BaseStep *stp) {
   }
 }
 
-static void serializeVectorNormalizer(char ***arr, const PLN_BaseStep *bstp) {
+static void serializeVectorNormalizer(myArgArray_t *arr, const PLN_BaseStep *bstp) {
   const PLN_VectorNormalizerStep *vnStep = (const PLN_VectorNormalizerStep *)bstp;
-  append_string(*arr, "VECTOR_NORMALIZER");
-  append_string(*arr, vnStep->vectorFieldName);
+  append_string(arr, "VECTOR_NORMALIZER");
+  append_string(arr, vnStep->vectorFieldName);
 }
 
 array_t AGPLN_Serialize(const AGGPlan *pln) {
