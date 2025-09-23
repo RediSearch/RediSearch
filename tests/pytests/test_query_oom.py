@@ -5,16 +5,19 @@ OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 def change_oom_policy(env, policy):
     env.expect(config_cmd(), 'SET', 'ON_OOM', policy).ok()
 
-# Test ignore policy
-@skip(cluster=True)
-def test_query_oom_ignore(env):
+def _common_test_scenario(env):
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     # Add a document
     env.expect('HSET', 'doc', 'name', 'hello').equal(1)
-
     # Change maxmemory to 1
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+
+# Test ignore policy
+@skip(cluster=True)
+def test_query_oom_ignore(env):
+
+    _common_test_scenario(env)
 
     # The test should ignore OOM since 'ignore' is the default config
     # TODO : change/ remove test if default config is changed
@@ -29,13 +32,7 @@ def test_query_oom_fail(env):
     # TODO : Change if default value is changed
     change_oom_policy(env, 'fail')
 
-    # Create an index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    # Add a document
-    env.expect('HSET', 'doc', 'name', 'hello').equal(1)
-
-    # Change maxmemory to 1
-    env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+    _common_test_scenario(env)
 
     for config_return in [False, True]:
         # Since we are in a standalone env, the test should fail also if the config is 'return'
@@ -55,13 +52,7 @@ def test_query_oom_cluster_ignore():
     # TODO : Change if default value is changed
     change_oom_policy(env, 'fail')
 
-    # Create an index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    # Add a document
-    env.expect('HSET', 'doc', 'name', 'hello').equal(1)
-
-    # Change maxmemory to 1
-    env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+    _common_test_scenario(env)
 
     # The test should ignore OOM since we are in a cluster env
     # TODO : change/ remove test if cluster env is supported
@@ -80,13 +71,7 @@ def test_query_oom_single_shard_fail():
     # TODO : Change if default value is changed
     change_oom_policy(env, 'fail')
 
-    # Create an index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    # Add a document
-    env.expect('HSET', 'doc', 'name', 'hello').equal(1)
-
-    # Change maxmemory to 1
-    env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
+    _common_test_scenario(env)
 
     # Verify query fails
     env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_QUERY_ERROR)
