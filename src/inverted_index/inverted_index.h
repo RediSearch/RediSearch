@@ -448,6 +448,8 @@ bool InvertedIndex_GcDelta_Scan(II_GCWriter *wr, RedisSearchCtx *sctx, InvertedI
 
 /**
  * Read info written by InvertedIndex_GcDelta_Scan
+ *
+ * InvertedIndexGcDelta memory ownership is passed to the caller and should be freed by it
  */
 InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(II_GCReader *rd, II_GCScanStats *info);
 

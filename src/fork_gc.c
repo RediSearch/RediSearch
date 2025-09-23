@@ -508,6 +508,7 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   return FGC_COLLECTED;
 
 error:
+  InvertedIndex_GcDelta_Free(ninfo->delta, &ninfo->info);
   return FGC_CHILD_ERROR;
 }
 
@@ -632,9 +633,7 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
   rm_free(term);
-  if (status != FGC_COLLECTED) {
-      InvertedIndex_GcDelta_Free(delta, &info);
-  }
+  InvertedIndex_GcDelta_Free(delta, &info);
   return status;
 }
 
@@ -703,9 +702,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
 
   loop_cleanup:
-    if (status != FGC_COLLECTED) {
-        InvertedIndex_GcDelta_Free(ninfo.delta, &ninfo.info);
-    }
+    InvertedIndex_GcDelta_Free(ninfo.delta, &ninfo.info);
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);
       IndexSpecRef_Release(spec_ref);
@@ -818,9 +815,8 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
-    if (status != FGC_COLLECTED) {
-        InvertedIndex_GcDelta_Free(delta, &info);
-    }
+    InvertedIndex_GcDelta_Free(delta, &info);
+
     if (tagVal) {
       rm_free(tagVal);
     }
@@ -888,9 +884,8 @@ cleanup:
   }
   HiddenString_Free(fieldName, false);
   rm_free(rawFieldName);
-  if (status != FGC_COLLECTED) {
-    InvertedIndex_GcDelta_Free(delta, &info);
-  }
+  InvertedIndex_GcDelta_Free(delta, &info);
+
   return status;
 }
 
@@ -950,9 +945,8 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
   }
-  if (status != FGC_COLLECTED)  {
-      InvertedIndex_GcDelta_Free(delta, &info);
-  }
+
+  InvertedIndex_GcDelta_Free(delta, &info);
   return status;
 }
 
