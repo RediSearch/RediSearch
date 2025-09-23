@@ -662,26 +662,39 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         }
     }
 
-    /// Apply the results of a garbage collection scan to the index. This will modify the index
+    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
     /// by deleting or repairing blocks as needed.
-    pub fn apply_gc(&mut self, results: Vec<BlockGcScanResult>) {
+    pub fn apply_gc(&mut self, delta: GcScanDelta) {
+        let GcScanDelta {
+            last_block_idx,
+            last_block_num_entries,
+            deltas,
+        } = delta;
+
         // We apply the repairs in reverse order so that the indices of the blocks to be repaired
         // remain valid as we modify the blocks vector.
-        for result in results.into_iter().rev() {
-            match result.repair {
+        for delta in deltas.into_iter().rev() {
+            // Skip if the last block has changed since the scan
+            if delta.index == last_block_idx
+                && self.blocks[delta.index].num_entries != last_block_num_entries
+            {
+                continue;
+            }
+
+            match delta.repair {
                 RepairType::Delete => {
-                    let block = self.blocks.remove(result.index);
+                    let block = self.blocks.remove(delta.index);
                     self.n_unique_docs -= block.num_entries;
                 }
                 RepairType::Split { mut blocks } => {
-                    let old_block = self.blocks.remove(result.index);
+                    let old_block = self.blocks.remove(delta.index);
                     self.n_unique_docs -= old_block.num_entries;
 
                     blocks.reverse();
 
                     for block in blocks {
                         self.n_unique_docs += block.num_entries;
-                        self.blocks.insert(result.index, block);
+                        self.blocks.insert(delta.index, block);
                     }
                 }
             }

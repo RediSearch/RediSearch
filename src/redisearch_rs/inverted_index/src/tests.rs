@@ -1509,7 +1509,7 @@ fn ii_scan_gc_no_change() {
 }
 
 #[test]
-fn ii_gc_apply() {
+fn ii_apply_gc() {
     // Create 5 blocks:
     // - One which is empty
     // - One which will be completely deleted
@@ -1591,7 +1591,13 @@ fn ii_gc_apply() {
         },
     ];
 
-    ii.apply_gc(gc_result);
+    let delta = GcScanDelta {
+        last_block_idx: 4,
+        last_block_num_entries: 3,
+        deltas: gc_result,
+    };
+
+    ii.apply_gc(delta);
 
     assert_eq!(ii.unique_docs(), 4);
     assert_eq!(
@@ -1623,4 +1629,62 @@ fn ii_gc_apply() {
             },
         ]
     )
+}
+
+#[test]
+fn ii_apply_gc_last_block_updated() {
+    // Create 2 blocks where the last block will have new entries since the GC scan
+    let blocks = vec![
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },
+    ];
+
+    let mut ii = InvertedIndex::from_blocks(IndexFlags_Index_DocIdsOnly, blocks, Dummy);
+
+    let gc_result = vec![
+        BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete,
+        },
+        BlockGcScanResult {
+            index: 1,
+            repair: RepairType::Split {
+                blocks: vec![IndexBlock {
+                    buffer: vec![0, 0, 0, 0],
+                    num_entries: 1,
+                    first_doc_id: 21,
+                    last_doc_id: 21,
+                }],
+            },
+        },
+    ];
+
+    let delta = GcScanDelta {
+        last_block_idx: 1,
+        last_block_num_entries: 2,
+        deltas: gc_result,
+    };
+
+    ii.apply_gc(delta);
+
+    assert_eq!(ii.unique_docs(), 3);
+    assert_eq!(
+        ii.blocks,
+        vec![IndexBlock {
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },]
+    );
 }
