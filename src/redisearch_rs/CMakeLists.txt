@@ -12,17 +12,9 @@ if(NOT DEFINED RUST_PROFILE)
     set(RUST_PROFILE "release")
 endif()
 
-# Set up RUSTFLAGS - respect existing environment variable and default to empty
-if(DEFINED ENV{RUSTFLAGS})
-    set(RUST_FLAGS "$ENV{RUSTFLAGS}")
-else()
-    set(RUST_FLAGS "")
-endif()
-
-# Add dynamic C runtime flag if requested (crucial for Alpine Linux)
-if(DEFINED RUST_DYN_CRT AND RUST_DYN_CRT)
-    set(RUST_FLAGS "${RUST_FLAGS} -C target-feature=-crt-static")
-endif()
+# Set RUSTFLAGS from environment variable
+# This avoids CMake argument parsing issues with complex flag values
+set(RUST_FLAGS "$ENV{RUSTFLAGS}")
 
 # Map Rust profile names to their corresponding artifact directory names
 if(RUST_PROFILE STREQUAL "dev")
@@ -87,3 +79,5 @@ message(STATUS "Rust configuration:")
 message(STATUS "  Cargo: ${CARGO_EXECUTABLE}")
 message(STATUS "  Profile: ${RUST_PROFILE}")
 message(STATUS "  RUSTFLAGS: ${RUST_FLAGS}")
+message(STATUS "  Target Dir: ${RUST_TARGET_DIR}")
+message(STATUS "  Library Path: ${RUST_LIB_PATH}")
