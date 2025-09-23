@@ -54,4 +54,8 @@ impl Decoder for DocIdsOnly {
         result.doc_id = base + delta as t_docId;
         Ok(())
     }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
 }

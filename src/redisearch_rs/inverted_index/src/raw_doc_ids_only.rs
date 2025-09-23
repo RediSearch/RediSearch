@@ -115,4 +115,8 @@ impl Decoder for RawDocIdsOnly {
         result.doc_id = doc_id;
         Ok(true)
     }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
 }

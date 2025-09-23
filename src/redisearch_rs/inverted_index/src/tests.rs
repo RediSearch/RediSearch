@@ -355,6 +355,10 @@ impl Decoder for Dummy {
         result.doc_id = doc_id;
         Ok(())
     }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::default()
+    }
 }
 
 impl DecodedBy for Dummy {
@@ -489,6 +493,10 @@ fn read_using_the_first_block_id_as_the_base() {
             result.doc_id = doc_id;
 
             Ok(())
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
         }
 
         fn base_id(block: &IndexBlock, _last_doc_id: ffi::t_docId) -> ffi::t_docId {
@@ -763,6 +771,10 @@ fn reader_has_duplicates() {
             _result: &mut RSIndexResult<'index>,
         ) -> std::io::Result<()> {
             panic!("This test won't decode anything")
+        }
+
+        fn base_result<'index>() -> RSIndexResult<'index> {
+            RSIndexResult::default()
         }
     }
 

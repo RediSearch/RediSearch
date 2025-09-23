@@ -176,6 +176,22 @@ pub trait Decoder {
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()>;
 
+    /// Creates a new instance of [`RSIndexResult`] which this decoder can decode into.
+    fn base_result<'index>() -> RSIndexResult<'index>;
+
+    /// Like `[Decoder::decode]`, but it returns a new instance of the result instead of filling
+    /// an existing one.
+    fn decode_new<'index>(
+        &self,
+        cursor: &mut Cursor<&'index [u8]>,
+        base: t_docId,
+    ) -> std::io::Result<RSIndexResult<'index>> {
+        let mut result = Self::base_result();
+        self.decode(cursor, base, &mut result)?;
+
+        Ok(result)
+    }
+
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
     /// Decoders can override the default implementation to provide a more efficient one by reading the

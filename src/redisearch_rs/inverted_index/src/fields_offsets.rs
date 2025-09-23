@@ -87,6 +87,10 @@ impl Decoder for FieldsOffsets {
         Ok(())
     }
 
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
+
     fn seek<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -190,6 +194,10 @@ impl Decoder for FieldsOffsetsWide {
             result,
         )?;
         Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 
     fn seek<'index>(

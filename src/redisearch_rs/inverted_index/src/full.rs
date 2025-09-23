@@ -146,6 +146,10 @@ impl Decoder for Full {
         Ok(())
     }
 
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
+
     fn seek<'index>(
         &self,
         cursor: &mut Cursor<&'index [u8]>,
@@ -243,6 +247,10 @@ impl Decoder for FullWide {
 
         decode_term_record_offsets(cursor, base, delta, field_mask, freq, offsets_sz, result)?;
         Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 
     fn seek<'index>(

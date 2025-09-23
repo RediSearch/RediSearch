@@ -66,6 +66,10 @@ impl Decoder for FieldsOnly {
         result.field_mask = field_mask as t_fieldMask;
         Ok(())
     }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
+    }
 }
 
 /// Encode and decode the delta and field mask of a record.
@@ -115,5 +119,9 @@ impl Decoder for FieldsOnlyWide {
         result.doc_id = base + delta as t_docId;
         result.field_mask = field_mask;
         Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }

@@ -55,4 +55,8 @@ impl Decoder for FreqsOnly {
         result.freq = freq;
         Ok(())
     }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::virt()
+    }
 }
