@@ -26,9 +26,7 @@ use pin_project::pin_project;
 #[cfg(debug_assertions)]
 use std::any::{TypeId, type_name};
 use std::{
-    marker::{PhantomData, PhantomPinned},
-    pin::Pin,
-    ptr::{self, NonNull},
+    cell::UnsafeCell, marker::{PhantomData, PhantomPinned}, pin::Pin, ptr::{self, NonNull}
 };
 
 /// Errors that can be returned by [`ResultProcessor`]
@@ -125,13 +123,13 @@ impl Context<'_> {
     }
 
     /// Returns the owning [`ffi::QueryProcessingCtx`] of the pipeline.
-    pub fn parent_mut(&mut self) -> Option<&mut ffi::QueryProcessingCtx> {
+    pub fn parent(&mut self) -> Option<&ffi::QueryProcessingCtx> {
         // Safety: We trust that this result processor's pointer is valid.
         let query_processing_context_ptr = unsafe { self.ptr.as_ref() }.parent;
 
         // Safety: We trust that the pointer to the parent context, if set, is
         // set to an appropriate structure.
-        unsafe { query_processing_context_ptr.as_mut() }
+        unsafe { UnsafeCell::raw_get(query_processing_context_ptr).as_ref() }
     }
 }
 
@@ -219,7 +217,7 @@ impl Upstream<'_> {
 #[derive(Debug)]
 struct Header {
     /// Reference to the parent QueryProcessingCtx that owns this result processor
-    parent: *mut ffi::QueryProcessingCtx,
+    parent: *const UnsafeCell<ffi::QueryProcessingCtx>,
     /// Previous result processor in the chain
     upstream: *mut Header,
     /// Type of result processor

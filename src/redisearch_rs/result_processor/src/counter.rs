@@ -48,7 +48,7 @@ impl ResultProcessor for Counter {
         // appropriately counting, so this patches that by manually incrementing the counter.
         if upstream.ty() == ffi::ResultProcessorType_RP_PROFILE {
             let end_proc = cx
-                .parent_mut()
+                .parent()
                 .expect("This processor has no parent.")
                 .endProc;
 
