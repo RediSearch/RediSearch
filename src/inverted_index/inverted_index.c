@@ -1875,6 +1875,7 @@ InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(II_GCReader *rd, II_GCScanStats
     delta->repaired = rm_malloc(sizeof(*delta->repaired) * info->nblocksRepaired);
     for (size_t i = 0; i < info->nblocksRepaired; ++i) {
       if (II_Gc_ReadRepairedBlock(rd, delta->repaired + i) != REDISMODULE_OK) {
+          info->nblocksRepaired = i;
         goto error;
       }
       nblocksRecvd++;
