@@ -26,7 +26,6 @@ use pin_project::pin_project;
 #[cfg(debug_assertions)]
 use std::any::{TypeId, type_name};
 use std::{
-    cell::UnsafeCell,
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
     ptr::{self, NonNull},
@@ -132,7 +131,7 @@ impl Context<'_> {
 
         // Safety: We trust that the pointer to the parent context, if set, is
         // set to an appropriate structure.
-        unsafe { UnsafeCell::raw_get(query_processing_context_ptr).as_ref() }
+        unsafe { query_processing_context_ptr.as_ref() }
     }
 }
 
@@ -220,7 +219,7 @@ impl Upstream<'_> {
 #[derive(Debug)]
 struct Header {
     /// Reference to the parent QueryProcessingCtx that owns this result processor
-    parent: *const UnsafeCell<ffi::QueryProcessingCtx>,
+    parent: *const ffi::QueryProcessingCtx,
     /// Previous result processor in the chain
     upstream: *mut Header,
     /// Type of result processor

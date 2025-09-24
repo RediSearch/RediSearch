@@ -78,6 +78,7 @@ struct ResultProcessor;
 struct RLookup;
 
 // Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
+/// <div rustbindgen hide></div>
 typedef struct QueryProcessingCtx {
   // First processor
   struct ResultProcessor *rootProc;

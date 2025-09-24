@@ -9,7 +9,6 @@
 
 use crate::{Context, Error, ResultProcessor, ResultProcessorWrapper};
 use std::{
-    cell::UnsafeCell,
     pin::Pin,
     ptr::{self, NonNull},
 };
@@ -101,31 +100,14 @@ impl<const RP_TYPE: ffi::ResultProcessorType> ResultProcessor for MockResultProc
 /// It acts as an owning collection of linked result processors.
 pub struct Chain {
     result_processors: Vec<NonNull<crate::Header>>,
-    query_processing_context: Pin<Box<UnsafeCell<ffi::QueryProcessingCtx>>>,
+    query_processing_context: Pin<Box<ffi::QueryProcessingCtx>>,
 }
 
 impl Chain {
     pub fn new() -> Self {
-        let query_processing_context = ffi::QueryProcessingCtx {
-            rootProc: ptr::null_mut(),
-            endProc: ptr::null_mut(),
-            sctx: ptr::null_mut(),
-            initTime: ffi::timespec {
-                tv_sec: 0,
-                tv_nsec: 0,
-            },
-            GILTime: 0,
-            minScore: 0.0,
-            totalResults: 0,
-            resultLimit: 0,
-            err: ptr::null_mut(),
-            isProfile: false,
-            timeoutPolicy: 0,
-        };
-
         Self {
             result_processors: Vec::new(),
-            query_processing_context: Box::pin(UnsafeCell::new(query_processing_context)),
+            query_processing_context: ffi::QueryProcessingCtx::new(),
         }
     }
 
@@ -146,20 +128,13 @@ impl Chain {
         // moving out of the type.
         let header_ptr: NonNull<crate::Header> =
             unsafe { ResultProcessorWrapper::into_ptr(Box::pin(result_processor)).cast() };
+        self.result_processors.push(header_ptr);
 
         // Safety: ResultProcessorWrapper's layout is compatible with ffi::ResultProcessor.
         let result_processor_ptr: *mut ffi::ResultProcessor = unsafe { header_ptr.cast().as_mut() };
 
-        let query_processing_context =
-            unsafe { &mut *self.query_processing_context.as_ref().get() };
-
-        // Safety: this pointer was created in Self::new, and is convertible to a reference.
-        if query_processing_context.rootProc.is_null() {
-            query_processing_context.rootProc = result_processor_ptr;
-        }
-        query_processing_context.endProc = result_processor_ptr;
-
-        self.result_processors.push(header_ptr);
+        self.query_processing_context
+            .append_raw(result_processor_ptr)
     }
 
     /// Append a new result processor at the end of the chain. It will have its `upstream`
@@ -175,13 +150,12 @@ impl Chain {
             }
         }
 
-        self.result_processors.push(result_processor);
+        // Safety: ResultProcessorWrapper's layout is compatible with ffi::ResultProcessor.
+        let result_processor_ptr: *mut ffi::ResultProcessor =
+            unsafe { result_processor.cast().as_mut() };
 
-        let query_processing_context =
-            unsafe { &mut *self.query_processing_context.as_ref().get() };
-
-        // Safety: Header's layout is compatible with ffi::ResultProcessor.
-        query_processing_context.endProc = unsafe { result_processor.cast().as_mut() };
+        self.query_processing_context
+            .append_raw(result_processor_ptr)
     }
 
     /// Return a raw `NonNull` ptr to the last result processor in the chain

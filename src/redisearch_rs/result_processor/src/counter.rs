@@ -47,7 +47,14 @@ impl ResultProcessor for Counter {
         // apparently (in a way enricozb cannot figure out) prevents the very last RPProfile from
         // appropriately counting, so this patches that by manually incrementing the counter.
         if upstream.ty() == ffi::ResultProcessorType_RP_PROFILE {
-            let end_proc = cx.parent().expect("This processor has no parent.").endProc;
+            // Safety: We trust that the result processor parent structure (QueryProcessingCtx) was
+            // constructed correctly, and thus has a valid pointer to the end processor.
+            let end_proc = unsafe {
+                *cx.parent()
+                    .expect("This processor has no parent.")
+                    .endProc
+                    .get()
+            };
 
             // Safety: If the previous (upstream) result processor is a profiling result processor,
             // then we are in profiling mode, and every other result processor is an RPProfile.
