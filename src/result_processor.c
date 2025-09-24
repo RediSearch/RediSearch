@@ -26,6 +26,7 @@
 #include "hybrid/hybrid_search_result.h"
 #include "config.h"
 #include "module.h"
+#include "debug_commands.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -1983,8 +1984,8 @@ static void addResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
 }
 
 // Insert the result processor before the first occurrence of a specific RP type in the upstream
-static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultProcessorType target_type) {
-  ResultProcessor *cur = r->qiter.endProc;
+static bool addResultProcessorBeforeType(QueryProcessingCtx *qctx, ResultProcessor *rp, ResultProcessorType target_type) {
+  ResultProcessor *cur = qctx->endProc;
   ResultProcessor *downstream = NULL;
 
   // Search for the target result processor type
@@ -1993,11 +1994,11 @@ static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultPro
     // To: downstream -> rp -> cur(type) -> cur->upstream
 
     if (cur->type == target_type) {
-      rp->parent = &r->qiter;
+      rp->parent = qctx;
       rp->upstream = cur;
       // Checking edge case: we are the first RP in the stream
-      if (cur == r->qiter.endProc) {
-        r->qiter.endProc = rp;
+      if (cur == qctx->endProc) {
+        qctx->endProc = rp;
       } else {
         downstream->upstream = rp;
       }
@@ -2013,8 +2014,8 @@ static bool addResultProcessorBeforeType(AREQ *r, ResultProcessor *rp, ResultPro
 
 // Insert the result processor after the first occurrence of a specific RP type in the upstream
 // Cannot be the last RP in the stream
-static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProcessorType target_type) {
-  ResultProcessor *cur = r->qiter.endProc;
+static bool addResultProcessorAfterType(QueryProcessingCtx *qctx, ResultProcessor *rp, ResultProcessorType target_type) {
+  ResultProcessor *cur = qctx->endProc;
   ResultProcessor *downstream = cur;
 
   bool found = false;
@@ -2029,7 +2030,7 @@ static bool addResultProcessorAfterType(AREQ *r, ResultProcessor *rp, ResultProc
       }
       rp->upstream = cur->upstream;
       cur->upstream = rp;
-      rp->parent = &r->qiter;
+      rp->parent = qctx;
       return true;
     }
     downstream = cur;
@@ -2156,7 +2157,7 @@ typedef struct {
   uint32_t remaining;
 } RPPauseAfterCount;
 
-bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status) {
+bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status) {
   ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
 
   if (!RPPauseAfterCount) {
@@ -2167,9 +2168,9 @@ bool PipelineAddPauseRPcount(AREQ *r, size_t results_count, bool before, ResultP
 
   bool success = false;
   if (before) {
-    success = addResultProcessorBeforeType(r, RPPauseAfterCount, rp_type);
+    success = addResultProcessorBeforeType(qctx, RPPauseAfterCount, rp_type);
   } else {
-    success = addResultProcessorAfterType(r, RPPauseAfterCount, rp_type);
+    success = addResultProcessorAfterType(qctx, RPPauseAfterCount, rp_type);
   }
   // Free if failed
   if (!success) {
