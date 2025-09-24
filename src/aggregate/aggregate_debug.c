@@ -178,7 +178,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    if (!PipelineAddPauseRPcount(&debug_req->r, results_count, before, rp_type, status)) {
+    if (!PipelineAddPauseRPcount(AREQ_QueryProcessingCtx(&debug_req->r), results_count, before, rp_type, status)) {
       // The query error is handled by each error case
       return REDISMODULE_ERR;
     }
