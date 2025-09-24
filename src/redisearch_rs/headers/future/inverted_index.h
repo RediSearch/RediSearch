@@ -7,8 +7,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "config.h"
+#include "search_ctx.h"
 #include "spec.h"
 #include "types_rs.h"
+
+/**
+ * Result of scanning the index for garbage collection
+ */
+typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
 
 /**
  * Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
@@ -34,6 +40,86 @@ typedef struct IndexReader IndexReader;
  * type.
  */
 typedef struct InvertedIndex InvertedIndex;
+
+typedef uintptr_t c_size_t;
+
+/**
+ * A writer that calls a C function to write data.
+ */
+typedef struct II_GCWriter {
+  /**
+   * Context pointer passed to the write function.
+   */
+  void *ctx;
+  /**
+   * Function pointer to the write function.
+   */
+  void (*write)(void *ctx, const void *buf, c_size_t len);
+} II_GCWriter;
+
+/**
+ * A callback structure to trigger garbage collection operations.
+ */
+typedef struct II_GCCallback {
+  /**
+   * Context pointer passed to the call function.
+   */
+  void *ctx;
+  /**
+   * Function pointer to the call function.
+   */
+  void (*call)(void *ctx);
+} II_GCCallback;
+
+/**
+ * Setting to pass to the GC scan function
+ */
+typedef struct IndexRepairParams {
+  /**
+   * Callback to call for each entry that is still valid
+   */
+  void (*repair_callback)(const RSIndexResult *res, const struct IndexBlock *ib, void*);
+  /**
+   * Argument to pass to the repair callback
+   */
+  void *repair_arg;
+} IndexRepairParams;
+
+/**
+ * A reader that calls a C function to read data.
+ */
+typedef struct II_GCReader {
+  /**
+   * Context pointer passed to the read function.
+   */
+  void *ctx;
+  /**
+   * Function pointer to the read function.
+   */
+  int (*read)(void *ctx, void *buf, c_size_t len);
+} II_GCReader;
+
+/**
+ * Information about the result of applying a garbage collection scan to the index
+ */
+typedef struct II_GCScanStats {
+  /**
+   * The number of bytes that were freed
+   */
+  uintptr_t bytes_freed;
+  /**
+   * The number of bytes that were allocated
+   */
+  uintptr_t bytes_allocated;
+  /**
+   * The number of entries that were removed from the index including duplicates
+   */
+  uintptr_t entries_removed;
+  /**
+   * The number of blocks that were ignored because the index changed since the scan was performed
+   */
+  uintptr_t blocks_ignored;
+} II_GCScanStats;
 
 #ifdef __cplusplus
 extern "C" {
@@ -235,6 +321,78 @@ uintptr_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
  * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  */
 void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
+
+/**
+ * Scan the inverted index for garbage and write the GC delta to the provided writer. The function
+ * returns true if the scan was successful and false otherwise.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `wr` must be a valid, non NULL, pointer to an `InvertedIndexGCWriter` instance.
+ * - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
+ * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ * - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
+ * - `params` must be a valid, non NULL, pointer to an `IndexRepairParams` instance.
+ * - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
+ *   `IndexSpec` instance.
+ */
+bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr,
+                                RedisSearchCtx *sctx,
+                                struct InvertedIndex *idx,
+                                struct II_GCCallback *cb,
+                                struct IndexRepairParams *params);
+
+/**
+ * Read a GC delta from the provided reader. The returned pointer must be freed using
+ * [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGcDelta`].
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `rd` must be a valid, non NULL, pointer to an `InvertedIndexGCReader` instance.
+ */
+struct InvertedIndexGcDelta *InvertedIndex_GcDelta_Read(struct II_GCReader *rd);
+
+/**
+ * Free the memory associated with a GC delta instance created using [`InvertedIndex_GcDelta_Read`].
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `deltas` must be a valid, non NULL, pointer to a `GcScanDelta` instance created using
+ *   [`InvertedIndex_GcDelta_Read`].
+ */
+void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
+
+/**
+ * Apply a GC delta to the inverted index. The output parameter `apply_info` will be set to
+ * information about the applied delta.
+ *
+ * This will take ownership of the `deltas` pointer and free it. Therefore, it should not be
+ * used or freed after calling this function.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+ * - `deltas` must be a valid, non NULL, pointer to a `GcScanDelta` instance created using
+ *   [`InvertedIndex_GcDelta_Read`].
+ * - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
+ */
+void InvertedIndex_ApplyGcDelta(struct InvertedIndex *ii,
+                                struct InvertedIndexGcDelta *deltas,
+                                struct II_GCScanStats *apply_info);
+
+/**
+ * Get the index of the last block in the GC delta.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `gc_scan_delta` must be a valid, non NULL, pointer to a `GcScanDelta` instance.
+ */
+uintptr_t GcScanDelta_LastBlockIdx(const struct InvertedIndexGcDelta *gc_scan_delta);
 
 /**
  * Get ID of the first document in the index block. This is used by some C tests.
