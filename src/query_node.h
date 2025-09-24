@@ -156,6 +156,9 @@ typedef enum {
   QueryNode_YieldsDistance = 0x04,
   QueryNode_IndexesEmpty = 0x08,
   QueryNode_IsTag = 0x10,
+  // Marks this as the main vector node in a hybrid vector subquery
+  QueryNode_HybridVectorSubqueryNode = 0x20,
+  QueryNode_HideVectorDistanceField = 0x40,
 } QueryNodeFlags;
 
 /* Query attribute is a dynamic attribute that can be applied to any query node.
@@ -191,6 +194,7 @@ typedef struct {
   double weight;
   int phonetic;
   char *distField;
+  bool explicitWeight; // Whether the weight was explicitly set by the user in the query.
 } QueryNodeOptions;
 
 typedef QueryNullNode QueryUnionNode, QueryNotNode, QueryOptionalNode;

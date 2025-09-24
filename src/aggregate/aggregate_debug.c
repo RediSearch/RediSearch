@@ -28,7 +28,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   debug_req->debug_params = debug_params;
 
   AREQ *r = &debug_req->r;
-  r->reqflags |= QEXEC_F_DEBUG;
+  AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;
 }
@@ -36,7 +36,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
 
 // Return True if we are in a cluster environment running the coordinator
 static bool isClusterCoord(AREQ_Debug *debug_req) {
-  if ((GetNumShards_UnSafe() > 1) && !(debug_req->r.reqflags & QEXEC_F_INTERNAL)) {
+  if ((GetNumShards_UnSafe() > 1) && !IsInternal(&debug_req->r)) {
     return true;
   }
 
@@ -117,7 +117,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     // Check if timeout should be applied only in the shard query pipeline
     if (internal_only && isClusterCoord(debug_req)) {
       if (results_count == 0) {
-        if (!(debug_req->r.reqflags & QEXEC_F_IS_CURSOR)) {
+        if (!(AREQ_RequestFlags(&debug_req->r) & QEXEC_F_IS_CURSOR)) {
           QueryError_SetError(
               status, QUERY_EPARSEARGS,
               "INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR");
@@ -134,7 +134,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       // Note, this will add a result processor as the downstream of the last result processor
       // (rpidnext for SA, or RPNext for cluster)
       // Take this into account when adding more debug types that are modifying the rp pipeline.
-      PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
+      PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
     }
     return REDISMODULE_OK;
   }

@@ -9,6 +9,7 @@
 
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
+#include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "util/arr.h"
 #include "dist_plan.h"
@@ -107,8 +108,8 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(gr->properties, gr->nproperties);
-  PLN_GroupStep *grRemote = PLNGroupStep_New(gr->properties, gr->nproperties);
+  PLN_GroupStep *grLocal = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
+  PLN_GroupStep *grRemote = PLNGroupStep_New(StrongRef_Clone(gr->properties_ref));
 
   size_t nreducers = array_len(gr->reducers);
   grLocal->reducers = array_new(PLN_Reducer, nreducers);
@@ -525,8 +526,9 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
       }
       case PLN_T_GROUP: {
         PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          const char *propname = stripAtPrefix(gstp->properties[ii]);
+        arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
+        for (size_t ii = 0; ii < array_len(properties); ++ii) {
+          const char *propname = stripAtPrefix(properties[ii]);
           RLookup_GetKey_Write(lookup, propname, RLOOKUP_F_NOFLAGS);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
@@ -561,7 +563,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
 
-  auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
+  auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;

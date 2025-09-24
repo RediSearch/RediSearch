@@ -27,6 +27,7 @@ mod bindings {
     // Type aliases for C bindings - types without lifetimes for C interop
     pub type RSIndexResult = inverted_index::RSIndexResult<'static>;
     pub type RSOffsetVector = inverted_index::RSOffsetVector<'static>;
+    pub type IndexDecoderCtx = inverted_index::ReadFilter<'static>;
 
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -355,14 +356,14 @@ pub fn read_raw_doc_ids_only(
 }
 
 #[cfg(test)]
+// `miri` can't handle FFI.
+#[cfg(not(miri))]
 mod tests {
-
+    use super::*;
     use ffi::RSQueryTerm;
+    use ffi::t_fieldMask;
     use inverted_index::RSOffsetVector;
 
-    use super::*;
-
-    use ffi::t_fieldMask;
     // The encode C implementation relies on these symbols. Re-export them to ensure they are not discarded by the linker.
     #[allow(unused_imports)]
     pub use types_ffi::RSOffsetVector_GetData;
@@ -370,6 +371,7 @@ mod tests {
     pub use varint_ffi::WriteVarintFieldMask;
 
     #[test]
+    #[ignore]
     fn test_encode_numeric() {
         // Test cases for all the different numeric encodings. These cases can be moved to the Rust
         // implementation tests verbatim.

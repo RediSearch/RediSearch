@@ -33,7 +33,6 @@ void SEReply(RedisModule_Reply *reply, RSScoreExplain *scrExp);
  */
 void SEDestroy(RSScoreExplain *scrExp);
 
-
 #define EXPLAIN(exp, fmt, args...) \
   {                                \
     if (exp) {                     \
