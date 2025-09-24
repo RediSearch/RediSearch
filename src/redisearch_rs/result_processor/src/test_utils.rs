@@ -150,6 +150,8 @@ impl Chain {
             }
         }
 
+        self.result_processors.push(result_processor);
+
         // Safety: ResultProcessorWrapper's layout is compatible with ffi::ResultProcessor.
         let result_processor_ptr: *mut ffi::ResultProcessor =
             unsafe { result_processor.cast().as_mut() };
