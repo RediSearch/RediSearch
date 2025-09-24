@@ -24,6 +24,7 @@ members = [
     "varint_bencher",
     "wildcard",
     "search_result",
+    "canary",
 ]
 
 resolver = "3"
@@ -72,6 +73,7 @@ qint = { path = "./qint" }
 rlookup = { path = "./rlookup" }
 rqe_iterators = { path = "./rqe_iterators" }
 search_result = { path = "./search_result" }
+canary = { path = "./canary" }
 
 cbindgen = "0.29"
 cc = "1"
