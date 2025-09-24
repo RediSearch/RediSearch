@@ -1130,6 +1130,13 @@ int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
   return 0;
 }
 
+void RMCK_SelectDb(RedisModuleCtx *ctx, int newid) {
+  ctx->dbid = newid;
+}
+
+static int RMCK_GetSelectedDb(RedisModuleCtx *ctx) {
+  return ctx->dbid;
+}
 
 /** Fork */
 static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
@@ -1364,6 +1371,8 @@ static void registerApis() {
   REGISTER_API(SetCommandACLCategories);
   REGISTER_API(Yield);
   REGISTER_API(GetContextFlags);
+  REGISTER_API(GetSelectedDb);
+  REGISTER_API(SelectDb);
 
   // RDB operations
   REGISTER_API(SaveUnsigned);
