@@ -26,7 +26,10 @@ use pin_project::pin_project;
 #[cfg(debug_assertions)]
 use std::any::{TypeId, type_name};
 use std::{
-    cell::UnsafeCell, marker::{PhantomData, PhantomPinned}, pin::Pin, ptr::{self, NonNull}
+    cell::UnsafeCell,
+    marker::{PhantomData, PhantomPinned},
+    pin::Pin,
+    ptr::{self, NonNull},
 };
 
 /// Errors that can be returned by [`ResultProcessor`]
