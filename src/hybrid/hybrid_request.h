@@ -116,6 +116,10 @@ HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
  */
 void AddValidationErrorContext(AREQ *req, QueryError *status);
 
+inline AGGPlan *HybridRequest_TailAGGPlan(HybridRequest *hreq) {
+  return &hreq->tailPipeline->ap;
+}
+
 #ifdef __cplusplus
 }
 #endif

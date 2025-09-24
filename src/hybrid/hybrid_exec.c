@@ -202,7 +202,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * @param limit Maximum number of results to return
  * @param cv Cached variables for result processing
  */
-static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv) {
     SearchResult r = {0};
     int rc = RS_RESULT_EOF;
     QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
