@@ -230,13 +230,13 @@ struct KeyList<'a> {
     rowlen: u32,
 }
 
-/// A cursor over a [`KeyList`].
+/// A cursor over an [`RLookup`]s key list.
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over a [`KeyList`] with editing operations.
+/// A cursor over an [`RLookup`]s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -721,7 +721,7 @@ impl Drop for KeyList<'_> {
 // ===== impl Cursor =====
 
 impl<'list, 'a> Cursor<'list, 'a> {
-    /// Move the cursor to the next [`RLookupKey`] in the [`KeyList`].
+    /// Move the cursor to the next [`RLookupKey`].
     ///
     /// Note that contrary to [`Self::next`] this **does not** skip over hidden keys.
     pub fn move_next(&mut self) {
@@ -761,7 +761,7 @@ impl<'list, 'a> Cursor<'list, 'a> {
 impl<'list, 'a> Iterator for Cursor<'list, 'a> {
     type Item = &'list RLookupKey<'a>;
 
-    /// Advances the [`Cursor`] to the next [`RLookupKey`] in the [`KeyList`] and returns it.
+    /// Advances the [`Cursor`] to the next [`RLookupKey`] and returns it.
     ///
     /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
     fn next(&mut self) -> Option<Self::Item> {
@@ -879,7 +879,7 @@ impl<'list, 'a> CursorMut<'list, 'a> {
 impl<'list, 'a> Iterator for CursorMut<'list, 'a> {
     type Item = Pin<&'list mut RLookupKey<'a>>;
 
-    /// Advances the [`CursorMut`] to the next [`RLookupKey`] in the [`KeyList`] and returns it.
+    /// Advances the [`CursorMut`] to the next [`RLookupKey`] and returns it.
     ///
     /// This will automatically skip over any keys with the [`RLookupKeyFlag::Hidden`] flag.
     fn next(&mut self) -> Option<Self::Item> {
@@ -936,6 +936,45 @@ impl<'a> RLookup<'a> {
             *self = Self::new();
         }
         self.index_spec_cache = spcache;
+    }
+
+    /// Add all on-overridden keys from `src` to `self`.
+    ///
+    /// For each key in src, check if it already exists *by name*.
+    /// - If it does the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+    /// - If it doesn't a new key will ne created.
+    ///
+    /// Flag handling:
+    ///  * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+    ///  * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+    ///  * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+    ///  * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+    pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
+        // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
+        for src_key in src.cursor() {
+            // Combine caller's control flags with source key's persistent properties
+            // Only preserve non-transient flags from source (F_SVSRC, F_HIDDEN, etc.)
+            // while respecting caller's control flags (F_OVERRIDE, F_FORCE_LOAD, etc.)
+            let combined_flags = flags | src_key.flags & !TRANSIENT_FLAGS;
+
+            // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
+            // In this case, we just want to move on to the next key
+            let _ = self.get_key_write(src_key._name.clone(), combined_flags);
+        }
+    }
+
+    /// Returns a [`Cursor`] starting at the first key.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    pub fn cursor(&self) -> Cursor<'_, 'a> {
+        self.keys.cursor_front()
+    }
+
+    /// Returns a [`Cursor`] starting at the first key.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
+        self.keys.cursor_front_mut()
     }
 
     // ===== Get key for reading (create only if in schema and sortable) =====
