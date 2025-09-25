@@ -156,6 +156,49 @@ static void HybridRequest_buildDistRPChain(HybridRequest *hreq, MRCommand *xcmd,
   }
 }
 
+// should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
+int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, MRCommand *xcmd) {
+  // Create synchronization context for coordinating depleter processors
+  // This ensures thread-safe access when multiple depleters read from their pipelines
+  StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
+  StrongRef dispatcher_ref = HybridDispatcher_New(xcmd, 4);
+  HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
+
+  // Build individual pipelines for each search request
+  for (size_t i = 0; i < req->nrequests; i++) {
+      AREQ *areq = req->requests[i];
+
+      int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+      if (rc != REDISMODULE_OK) {
+          StrongRef_Release(sync_ref);
+          return REDISMODULE_ERR;
+      }
+
+      // Obtain the query processing context for the current AREQ
+      QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+      // Set the result limit for the current AREQ - hack for now, should use window value
+      if (IsHybridVectorSubquery(areq)){
+        qctx->resultLimit = areq->maxAggregateResults;
+      } else if (IsHybridSearchSubquery(areq)) {
+        qctx->resultLimit = areq->maxSearchResults;
+      }
+      // Create a depleter processor to extract results from this pipeline
+      // The depleter will feed results to the hybrid merger
+      RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
+      RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
+      ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+      QITR_PushRP(qctx, depleter);
+
+      RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartDispatcher);
+      RPNet_SetDispatcher(rpNet, dispatcher);
+      QITR_PushRP(qctx, &rpNet->base);
+  }
+
+  // Release the sync reference as depleters now hold their own references
+  StrongRef_Release(sync_ref);
+  return REDISMODULE_OK;
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
 
