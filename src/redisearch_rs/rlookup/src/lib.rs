@@ -12,6 +12,8 @@ mod load_document;
 mod lookup;
 #[cfg(test)]
 mod mock;
+#[cfg(debug_assertions)]
+mod rlookup_id;
 mod row;
 
 pub use bindings::IndexSpecCache;
