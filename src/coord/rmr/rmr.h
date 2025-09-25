@@ -14,9 +14,31 @@
 #include "reply.h"
 #include "cluster.h"
 #include "command.h"
+#include <unistd.h>
+
 
 struct MRCtx;
 struct RedisModuleCtx;
+
+// Data structure for cursor mapping: targetSlot -> cursorId
+typedef struct {
+  int16_t targetSlot;
+  long long cursorId;
+} CursorMapping;
+
+// Data structure to hold cursor mapping data for iterator
+typedef struct {
+  //pthread lock
+  pthread_mutex_t mutex;
+  const char *indexName;
+  arrayof(CursorMapping *) searchMappings;
+  arrayof(CursorMapping *) vsimMappings;
+  size_t numMappings;
+} CursorMappingData;
+
+void iterStartCb(void *p);
+
+void iterCursorMappingCb(void *p);
 
 /* Prototype for all reduce functions */
 typedef int (*MRReduceFunc)(struct MRCtx *ctx, int count, MRReply **replies);
@@ -79,9 +101,13 @@ MRReply *MRIterator_Next(MRIterator *it);
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb);
 
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,void *iterStartCbPrivateData);
+
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
+
+void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx);
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 

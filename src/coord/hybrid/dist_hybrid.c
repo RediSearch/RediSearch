@@ -15,6 +15,44 @@
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
 #include "commands.h"
+#include "rpnet.h"
+#include "hybrid_dispatcher.h"
+
+
+static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  MRIteratorCallback_AddReply(ctx, rep);
+  MRIteratorCallback_Done(ctx, 0);
+}
+
+static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
+  RPNet *nc = (RPNet *)rp;
+  StrongRef dispatcher_ref = HybridDispatcher_New(&nc->cmd, 4);
+  HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
+
+  //TODO:len is number of shards
+  arrayof(CursorMapping *) searchMappings = array_new(CursorMapping* ,10);
+  arrayof(CursorMapping *) vsimMappings = array_new(CursorMapping*, 10);
+
+
+  // TODO: better initialization of the mappings (pipeline building flow dependent)
+  HybridDispatcher_SetMappingArray(dispatcher, searchMappings, true);
+  HybridDispatcher_SetMappingArray(dispatcher, vsimMappings, false);
+
+  if (!HybridDispatcher_IsStarted(dispatcher)) {
+    HybridDispatcher_Dispatch(dispatcher);
+  } else {
+    // Wait for completion - this can be called from multiple threads
+    HybridDispatcher_WaitForMappingsComplete(dispatcher);
+  }
+  // for hybrid commands, the index name is at position 1
+  const char *idx = MRCommand_ArgStringPtrLen(&dispatcher->cmd, 1, NULL);
+
+  MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx);
+  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, searchMappings);
+  nc->base.Next = rpnetNext;
+  return rpnetNext(rp, r);
+}
+
 
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
@@ -89,6 +127,34 @@ static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   rm_free(n_prefixes);
 }
 
+// TODO: Fix this
+static void HybridRequest_buildDistRPChain(HybridRequest *hreq, MRCommand *xcmd, AREQDIST_UpstreamInfo *us) {
+  // Establish our root processor, which is the distributed processor
+  RPNet *rpRoot = RPNet_New(xcmd, rpnetNext_StartDispatcher); // This will take ownership of the command
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  rpRoot->base.parent = qctx;
+  rpRoot->lookup = us->lookup;
+  // TODO: Is this enough?
+  rpRoot->areq = NULL; // Hybrid requests don't use a single AREQ - they manage multiple requests internally
+
+  // RS_ASSERT(!qctx->rootProc);
+  // Get the deepest-most root:
+  int found = 0;
+  for (ResultProcessor *rp = qctx->endProc; rp; rp = rp->upstream) {
+    if (!rp->upstream) {
+      rp->upstream = &rpRoot->base;
+      found = 1;
+      break;
+    }
+  }
+
+  // update root and end with RPNet
+  qctx->rootProc = &rpRoot->base;
+  if (!found) {
+    qctx->endProc = &rpRoot->base;
+  }
+}
+
 static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx *ctx,
         RedisModuleString **argv, int argc, IndexSpec *sp, QueryError *status) {
 
@@ -129,7 +195,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // xcmd.rootCommand = C_AGG;   // Response is equivalent to a `CURSOR READ` response
 
     // TODO: Build the result processor chain
-    // buildDistRPChain(hreq, &xcmd, &us);
+    HybridRequest_buildDistRPChain(hreq, &xcmd, &us);
 
     return REDISMODULE_OK;
 }

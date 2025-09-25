@@ -72,6 +72,12 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 } MRCtx;
 
+// Data structure to pass iterator and private data to callback
+typedef struct {
+  MRIterator *it;
+  void *privateData;
+} IteratorData;
+
 void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
   ctx->mastersOnly = mastersOnly;
 }
@@ -530,6 +536,7 @@ struct MRIteratorCtx {
 struct MRIteratorCallbackCtx {
   MRIterator *it;
   MRCommand cmd;
+  void *privateData;
 };
 
 struct MRIterator {
@@ -623,9 +630,15 @@ void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
 }
 
+void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
+  return ctx->privateData;
+}
+
+// Takes ownership of the IteratorData structure, but not its internal components: iterator and private data
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterStartCb(void *p) {
-  MRIterator *it = p;
+  IteratorData *data = (IteratorData *)p;
+  MRIterator *it = data->it;
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   size_t numShards = io_runtime_ctx->topo->numShards;
   it->len = numShards;
@@ -640,6 +653,7 @@ void iterStartCb(void *p) {
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[i].cmd.targetSlot = io_runtime_ctx->topo->shards[i].startSlot;
+    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
   }
 
   // This implies that every connection to each shard will work inside a single IO thread
@@ -649,6 +663,56 @@ void iterStartCb(void *p) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
     }
   }
+
+  // Clean up the data structure
+  rm_free(data);
+}
+
+// Separate callback for cursor mapping that creates FT.CURSOR READ commands for each shard
+void iterCursorMappingCb(void *p) {
+  IteratorData *data = (IteratorData *)p;
+  MRIterator *it = data->it;
+  arrayof(CursorMapping *) mappings = (arrayof(CursorMapping *))data->privateData;
+  RS_ASSERT(!mappings || array_len(mappings) > 0);
+
+  IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
+  size_t numShards = io_runtime_ctx->topo->numShards;
+  it->len = numShards;
+  it->ctx.pending = numShards;
+  it->ctx.inProcess = numShards; // Initially all commands are in process
+
+
+  it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
+  MRCommand *cmd = &it->cbxs->cmd;
+  cmd->targetSlot = mappings[0]->targetSlot;
+  char buf[128];
+  sprintf(buf, "%lld", mappings[0]->cursorId);
+  MRCommand_Append(cmd, buf, strlen(buf));
+
+
+  // Create FT.CURSOR READ commands for each mapping
+  for (size_t i = 1; i < numShards; i++) {
+    it->cbxs[i].it = it;
+    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+
+    it->cbxs[i].cmd = MRCommand_Copy(cmd);
+    it->cbxs[i].cmd.targetSlot = mappings[i]->targetSlot;
+    it->cbxs[i].cmd.num = 4;
+    char buf[128];
+    sprintf(buf, "%lld", mappings[i]->cursorId);
+    MRCommand_Append(&it->cbxs[i].cmd, buf, strlen(buf));
+  }
+
+  // Send commands to all shards
+  for (size_t i = 0; i < it->len; i++) {
+    if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
+                              mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
+      MRIteratorCallback_Done(&it->cbxs[i], 1);
+    }
+  }
+
+  // Clean up the data structure
+  rm_free(data);
 }
 
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
@@ -697,7 +761,10 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
 }
 
 MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
+  return MR_IterateWithPrivateData(cmd, cb, NULL, iterStartCb, NULL);
+}
 
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, MRIteratorCallback cb, void *cbPrivateData, void (*iterStartCb)(void *) ,void *iterStartCbPrivateData) {
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -723,8 +790,21 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = MRCommand_Copy(cmd),
     .it = ret,
+    .privateData = cbPrivateData,
   };
-  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, ret);
+
+  // Create data structure with iterator and private data (on heap)
+  IteratorData *data = rm_malloc(sizeof(IteratorData));
+  data->it = ret;
+  data->privateData = iterStartCbPrivateData;
+  // Itzik changed:
+  // RQ_Push(rq_g, iterStartCb, ret);
+  // --> RQ_Push(rq_g, iterStartCb, data);
+
+  // Guy changed:
+  // RQ_Push(rq_g, iterStartCb, ret);
+  // --> IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, ret);
+  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, iterStartCb, data);
   return ret;
 }
 
