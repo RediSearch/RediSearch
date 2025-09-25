@@ -343,7 +343,7 @@ impl IndexBlock {
     /// there is nothing to repair in this block then `None` is returned.
     fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
-        doc_exist_cb: fn(doc_id: t_docId) -> bool,
+        doc_exist_cb: impl Fn(t_docId) -> bool,
         encoder: E,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
@@ -657,7 +657,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc(
         &self,
-        doc_exist_cb: fn(doc_id: t_docId) -> bool,
+        doc_exist_cb: impl Fn(t_docId) -> bool,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
@@ -672,7 +672,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
             let encoder = self.encoder.clone();
 
-            let repair = block.repair(doc_exist_cb, encoder)?;
+            let repair = block.repair(&doc_exist_cb, encoder)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -849,6 +849,25 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     pub fn reader(&self) -> IndexReaderCore<'_, E, E::Decoder> {
         self.index.reader()
     }
+
+    /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
+    /// if any of its records point to documents that no longer exist. The `doc_exist_cb`
+    /// callback is used to check if a document exists. It should return `true` if the document
+    /// exists and `false` otherwise.
+    ///
+    /// This function returns a delta if GC is needed, or `None` if no GC is needed.
+    pub fn scan_gc(
+        &self,
+        doc_exist_cb: impl Fn(t_docId) -> bool,
+    ) -> std::io::Result<Option<GcScanDelta>> {
+        self.index.scan_gc(doc_exist_cb)
+    }
+
+    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
+    /// by deleting or repairing blocks as needed.
+    pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        self.index.apply_gc(delta)
+    }
 }
 
 /// A wrapper around the inverted index which tracks the fields for all the records in the index
@@ -954,6 +973,25 @@ impl<E: Encoder + DecodedBy> FieldMaskTrackingIndex<E> {
         mask: t_fieldMask,
     ) -> FilterMaskReader<IndexReaderCore<'_, E, E::Decoder>> {
         FilterMaskReader::new(mask, self.index.reader())
+    }
+
+    /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
+    /// if any of its records point to documents that no longer exist. The `doc_exist_cb`
+    /// callback is used to check if a document exists. It should return `true` if the document
+    /// exists and `false` otherwise.
+    ///
+    /// This function returns a delta if GC is needed, or `None` if no GC is needed.
+    pub fn scan_gc(
+        &self,
+        doc_exist_cb: impl Fn(t_docId) -> bool,
+    ) -> std::io::Result<Option<GcScanDelta>> {
+        self.index.scan_gc(doc_exist_cb)
+    }
+
+    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
+    /// by deleting or repairing blocks as needed.
+    pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        self.index.apply_gc(delta)
     }
 }
 
