@@ -2266,6 +2266,7 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f) {
   RedisModule_SaveUnsigned(rdb, f->types);
   RedisModule_SaveUnsigned(rdb, f->options);
   RedisModule_SaveSigned(rdb, f->sortIdx);
+
   // Save text specific options
   if (FIELD_IS(f, INDEXFLD_T_FULLTEXT) || (f->options & FieldSpec_Dynamic)) {
     RedisModule_SaveUnsigned(rdb, f->ftId);
@@ -2963,6 +2964,14 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp) {
   } else {
     RedisModule_SaveUnsigned(rdb, 0);
   }
+
+  if (isFlex) {
+    // Need to serialize the Trie.
+    TrieType_GenericSave(rdb, sp->terms, 0); // we do not need to save payload, the index will be got from the term
+    TrieType_GenericSave(rdb, sp->suffix, 0); // we do not need to save payload, the index will be got from the term
+
+    // Need to ask the Disk API for the Index to serialize the RAM info (deletedIDs, maxDocId, etc...)
+  }
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status) {
@@ -3048,8 +3057,12 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, QueryError *status)
   if (isFlex) {
     // TODO: Change to `if (isFlex && !(sp->flags & Index_StoreInRAM)) {` once
     // we add the `Index_StoreInRAM` flag to the rdb file.
-    RS_ASSERT(disk_db);
-    sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+    sp->terms = TrieType_GenericLoad(rdb, 0);
+    sp->suffix = TrieType_GenericLoad(rdb, 0);
+
+    // TODO:DiskSpec should be actually open when we receive the signal that DB is transfered to the replica.
+    // sp->diskSpec = SearchDisk_OpenIndex(HiddenString_GetUnsafe(sp->specName, NULL), sp->rule->type);
+    // RS_LOG_ASSERT(sp->diskSpec, "Failed to open disk spec")
   }
 
   return sp;
@@ -3814,4 +3827,104 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
   }
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
   RedisModule_ThreadSafeContextLock(ctx);
+}
+
+//---------------------------------------------------------------------------------------------
+// IndexSpec Replication Functions
+//---------------------------------------------------------------------------------------------
+
+int RediSearch_Freeze(void) {
+  if (!specDict_g) {
+    RedisModule_Log(RSDummyContext, "debug", "RediSearch: No specs to freeze");
+    return REDISMODULE_OK;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Freezing all IndexSpecs");
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  int total_specs = 0;
+  int frozen_specs = 0;
+
+  while ((entry = dictNext(iter))) {
+    total_specs++;
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+
+    if (!spec) {
+      RedisModule_Log(RSDummyContext, "warning", "RediSearch: Found null spec in dictionary");
+      continue;
+    }
+
+    int ret = IndexSpec_Freeze(spec);
+    if (ret != REDISMODULE_OK) {
+      RedisModule_Log(RSDummyContext, "warning",
+                    "RediSearch: Failed to freeze spec '%s'",
+                    IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+      dictReleaseIterator(iter);
+      return ret;
+    }
+    frozen_specs++;
+  }
+
+  dictReleaseIterator(iter);
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Froze %d/%d IndexSpecs",
+                frozen_specs, total_specs);
+
+  return REDISMODULE_OK;
+}
+
+int RediSearch_Unfreeze(void) {
+  if (!specDict_g) {
+    return REDISMODULE_OK;
+  }
+
+  RedisModule_Log(RSDummyContext, "debug", "RediSearch: Unfreezing all IndexSpecs");
+
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *spec = StrongRef_Get(spec_ref);
+
+    if (!spec) {
+      continue;
+    }
+
+    int ret = IndexSpec_Unfreeze(spec);
+    if (ret != REDISMODULE_OK) {
+      RedisModule_Log(RSDummyContext, "warning",
+                    "RediSearch: Failed to unfreeze spec '%s'",
+                    IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+      dictReleaseIterator(iter);
+      return ret;
+    }
+  }
+
+  dictReleaseIterator(iter);
+  return REDISMODULE_OK;
+}
+
+int IndexSpec_Freeze(IndexSpec *spec) {
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Preparing IndexSpec '%s' for fork",
+                IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+
+  pthread_rwlock_rdlock(&spec->rwlock);
+
+  RedisModule_Log(RSDummyContext, "debug",
+                "RediSearch: Successfully prepared IndexSpec '%s' for fork",
+                IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+
+  return REDISMODULE_OK;
+}
+
+int IndexSpec_Unfreeze(IndexSpec *spec) {
+
+  pthread_rwlock_unlock(&spec->rwlock);
+
+  return REDISMODULE_OK;
 }
