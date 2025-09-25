@@ -407,7 +407,7 @@ fn test_write_key_by_name_new_key() {
     row.write_key_by_name(&mut lookup, key_name.to_owned(), value.clone());
 
     // Verify we can find the key by name
-    let cursor = lookup.find_by_name(&key_name);
+    let cursor = lookup.find_key_by_name(&key_name);
     assert!(cursor.is_some());
 
     // Verify the rlookup row is in correct state
@@ -433,7 +433,7 @@ fn test_write_key_by_name_existing_key_overwrite() {
     row.write_key_by_name(&mut lookup, key_name.to_owned(), initial_value.clone());
 
     // Verify initial state
-    let cursor = lookup.find_by_name(&key_name).unwrap();
+    let cursor = lookup.find_key_by_name(&key_name).unwrap();
     assert!(cursor.into_current().is_some());
     assert_eq!(row.len(), 1);
     assert_eq!(
@@ -444,7 +444,7 @@ fn test_write_key_by_name_existing_key_overwrite() {
     // Overwrite with new value - key count should not increase
     row.write_key_by_name(&mut lookup, key_name.to_owned(), new_value.clone());
 
-    let cursor = lookup.find_by_name(&key_name).unwrap();
+    let cursor = lookup.find_key_by_name(&key_name).unwrap();
     assert!(cursor.into_current().is_some());
     assert_eq!(row.len(), 1);
     assert_eq!(
@@ -480,7 +480,7 @@ fn test_write_multiple_different_keys() {
         (&key2_name, value2),
         (&key3_name, value3),
     ] {
-        let cursor = lookup.find_by_name(key_name);
+        let cursor = lookup.find_key_by_name(key_name);
         let key = cursor.unwrap().into_current().unwrap();
         assert!(row.dyn_values()[key.dstidx as usize].is_some());
         assert_eq!(
