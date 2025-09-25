@@ -10,6 +10,11 @@
 //! Ports part of the RediSearch RSValue type to Rust. This is a temporary solution until we have a proper
 //! Rust port of the RSValue type.
 
+#[cfg(feature = "test_utils")]
+mod test_utils;
+#[cfg(feature = "test_utils")]
+pub use test_utils::RSValueMock;
+
 use std::{ffi::c_char, ptr::NonNull};
 
 /// A trait that defines the behavior of a RediSearch RSValue.
@@ -40,9 +45,6 @@ where
 
     /// gets a reference to the RSValue instance, if it is a reference type or None.
     fn get_ref(&self) -> Option<&Self>;
-
-    /// gets a mutable reference to the RSValue instance, if it is a reference type or None.
-    fn get_ref_mut(&mut self) -> Option<&mut Self>;
 
     /// gets the string slice of the RSValue instance, if it is a string type or None otherwise.
     fn as_str(&self) -> Option<&str>;
@@ -144,20 +146,6 @@ impl RSValueTrait for RSValueFFI {
 
             // Safety: We assume that a valid pointer is given by the C side
             Some(unsafe { &*(ref_ptr as *const RSValueFFI) })
-        } else {
-            None
-        }
-    }
-
-    fn get_ref_mut(&mut self) -> Option<&mut Self> {
-        // Safety: We assume a valid ptr is given by the C side
-        let p = unsafe { self.0.as_mut() };
-        if p.t() == ffi::RSValueType_RSValue_Reference {
-            // Safety: We tested that the type is a reference, so we access it over the union safely.
-            let ref_ptr = unsafe { p.__bindgen_anon_1.ref_ };
-
-            // Safety: We assume that a valid pointer is given by the C side
-            Some(unsafe { &mut *(ref_ptr as *mut RSValueFFI) })
         } else {
             None
         }

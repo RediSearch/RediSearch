@@ -252,10 +252,12 @@ add_subdirectory(src/redisearch_rs)
 # Source files for the core library
 file(GLOB SOURCES
     "src/*.c"
+    "src/pipeline/*.c"
     "src/aggregate/*.c"
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
+    "src/hybrid/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
     "src/query_parser/v1/*.c"
