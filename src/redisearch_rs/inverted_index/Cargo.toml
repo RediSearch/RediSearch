@@ -11,6 +11,8 @@ ffi.workspace = true
 low_memory_thin_vec.workspace = true
 qint.workspace = true
 varint.workspace = true
+serde.workspace = true
+rmp-serde.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
