@@ -10,7 +10,7 @@
 #include "rmalloc.h"
 #include "config.h"
 
-static void recExplainReply(RedisModule_Reply *reply, RSScoreExplain *scrExp, int depth) {
+static void recExplainReply(RedisModule_Reply *reply, const RSScoreExplain *scrExp, int depth) {
   int numChildren = scrExp->numChildren;
 
   if (numChildren == 0 ||
@@ -35,7 +35,7 @@ static void recExplainDestroy(RSScoreExplain *scrExp) {
   rm_free(scrExp->str);
 }
 
-void SEReply(RedisModule_Reply *reply, RSScoreExplain *scrExp) {
+void SEReply(RedisModule_Reply *reply, const RSScoreExplain *scrExp) {
   if (scrExp != NULL) {
     recExplainReply(reply, scrExp, 1);
   }

@@ -27,6 +27,7 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 #include "hybrid/hybrid_request.h"
+#include "result_processor.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -49,11 +50,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
  * RLookup registry. Returns NULL if there is no sorting key
  */
 static const RSValue *getReplyKey(const RLookupKey *kk, const SearchResult *r) {
-  const RSSortingVector* sv = RLookupRow_GetSortingVector(&r->rowdata);
+  const RSSortingVector* sv = RLookupRow_GetSortingVector(SearchResult_GetRowData(r));
   if ((kk->flags & RLOOKUP_F_SVSRC) && (sv && RSSortingVector_Length(sv) > kk->svidx)) {
     return RSSortingVector_Get(sv, kk->svidx);
   } else {
-    return RLookup_GetItem(kk, &r->rowdata);
+    return RLookup_GetItem(kk, SearchResult_GetRowData(r));
   }
 }
 
@@ -106,7 +107,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
 static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
                               const cachedVars *cv) {
   const uint32_t options = AREQ_RequestFlags(req);
-  const RSDocumentMetadata *dmd = r->dmd;
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
   size_t count0 = RedisModule_Reply_LocalCount(reply);
   bool has_map = RedisModule_IsRESP3(reply);
 
@@ -136,20 +137,20 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "score");
     }
     if (!(options & QEXEC_F_SEND_SCOREEXPLAIN)) {
-      RedisModule_Reply_Double(reply, r->score);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
     } else {
       RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Double(reply, r->score);
-      SEReply(reply, r->scoreExplain);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(r));
+      SEReply(reply, SearchResult_GetScoreExplain(r));
       RedisModule_Reply_ArrayEnd(reply);
     }
   }
 
   if (options & QEXEC_F_SENDRAWIDS) {
     if (has_map) {
-      RedisModule_ReplyKV_LongLong(reply, "id", r->docId);
+      RedisModule_ReplyKV_LongLong(reply, "id", SearchResult_GetDocId(r));
     } else {
-      RedisModule_Reply_LongLong(reply, r->docId);
+      RedisModule_Reply_LongLong(reply, SearchResult_GetDocId(r));
     }
   }
 
@@ -218,7 +219,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       RedisModule_Reply_SimpleString(reply, "extra_attributes");
     }
 
-    if (r->flags & Result_ExpiredDoc) {
+    if (SearchResult_GetFlags(r) & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
       // Get the number of fields in the reply.
@@ -229,7 +230,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
       int requiredFlags = (req->outFields.explicitReturn ? RLOOKUP_F_EXPLICITRETURN : 0);
       int skipFieldIndex[lk->rowlen]; // Array has `0` for fields which will be skipped
       memset(skipFieldIndex, 0, lk->rowlen * sizeof(*skipFieldIndex));
-      size_t nfields = RLookup_GetLength(lk, &r->rowdata, skipFieldIndex, requiredFlags, excludeFlags, rule);
+      size_t nfields = RLookup_GetLength(lk, SearchResult_GetRowData(r), skipFieldIndex, requiredFlags, excludeFlags, rule);
 
       RedisModule_Reply_Map(reply);
         int i = 0;
@@ -237,7 +238,7 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           if (!kk->name || !skipFieldIndex[i++]) {
             continue;
           }
-          const RSValue *v = RLookup_GetItem(kk, &r->rowdata);
+          const RSValue *v = RLookup_GetItem(kk, SearchResult_GetRowData(r));
           RS_LOG_ASSERT(v, "v was found in RLookup_GetLength iteration")
 
           RedisModule_Reply_StringBuffer(reply, kk->name, kk->name_len);

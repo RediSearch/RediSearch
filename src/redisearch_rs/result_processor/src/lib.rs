@@ -592,7 +592,7 @@ pub(crate) mod test {
                 _cx: Context,
                 res: &mut ffi::SearchResult,
             ) -> Result<Option<()>, Error> {
-                res.score = 42.0;
+                res.__score = 42.0;
                 Ok(Some(()))
             }
         }
@@ -621,7 +621,7 @@ pub(crate) mod test {
         let mut res = default_search_result();
         rp.next(cx, &mut res).unwrap().unwrap();
 
-        assert_eq!(res.score, 42.0);
+        assert_eq!(res.__score, 42.0);
     }
 
     #[test]
