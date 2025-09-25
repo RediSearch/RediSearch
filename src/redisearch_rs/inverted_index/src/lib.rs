@@ -310,6 +310,22 @@ impl IndexBlock {
         (this, Self::SIZE + buf_cap)
     }
 
+    pub fn first_block_id(&self) -> t_docId {
+        self.first_doc_id
+    }
+
+    pub fn last_block_id(&self) -> t_docId {
+        self.last_doc_id
+    }
+
+    pub fn num_entries(&self) -> usize {
+        self.num_entries
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.buffer
+    }
+
     fn writer(&mut self) -> Cursor<&mut Vec<u8>> {
         let pos = self.buffer.len();
         let mut buffer = Cursor::new(&mut self.buffer);

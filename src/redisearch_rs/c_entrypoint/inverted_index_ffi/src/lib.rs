@@ -546,6 +546,34 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
     ii_dispatch!(ii, gc_marker_inc);
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> t_docId {
+    let ib = unsafe { &*ib };
+
+    ib.first_block_id()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_LastId(ib: *const IndexBlock) -> t_docId {
+    let ib = unsafe { &*ib };
+
+    ib.last_block_id()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_NumEntries(ib: *const IndexBlock) -> usize {
+    let ib = unsafe { &*ib };
+
+    ib.num_entries()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn IndexBlock_Data(ib: *const IndexBlock) -> *const c_char {
+    let ib = unsafe { &*ib };
+
+    ib.data().as_ptr() as *const _
+}
+
 /// An opaque inverted index reader structure. The actual implementation is determined at runtime
 /// based on the index type and filter provided when creating the reader. This allows us to have a
 /// single interface for all index reader types while still being able to optimize the storage
