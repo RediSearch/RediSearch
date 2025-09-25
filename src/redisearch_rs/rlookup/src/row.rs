@@ -54,6 +54,11 @@ impl<'a, T: RSValueTrait> RLookupRow<'a, T> {
         }
     }
 
+    #[cfg(debug_assertions)]
+    pub const fn rlookup_id(&self) -> RLookupId {
+        self.rlookup_id
+    }
+
     /// Returns the length of [`RLookupRow::dyn_values`].
     pub const fn len(&self) -> usize {
         self.dyn_values.len()
