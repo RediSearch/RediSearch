@@ -10,17 +10,22 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
-use std::fmt::Debug;
+use std::{
+    ffi::{c_char, c_int, c_void},
+    fmt::Debug,
+    io::{self, Read, Write},
+};
 
 use ffi::{
-    IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
+    DocTable_Exists, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    IndexFlags_Index_WideSchema, t_docId, t_fieldMask,
+    IndexFlags_Index_WideSchema, RedisSearchCtx, t_docId, t_fieldMask,
 };
 
 use inverted_index::{
     EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
-    FilterNumericReader, IndexBlock, IndexReader as _, NumericFilter, RSIndexResult, ReadFilter,
+    FilterNumericReader, GcScanDelta, IndexBlock, IndexReader as _, NumericFilter, RSIndexResult,
+    ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -33,6 +38,9 @@ use inverted_index::{
     offsets_only::OffsetsOnly,
     raw_doc_ids_only::RawDocIdsOnly,
 };
+use serde::{Deserialize, Serialize};
+
+pub use inverted_index::GcApplyInfo;
 
 /// Get the total number of index blocks allocated across all inverted index instances.
 #[unsafe(no_mangle)]
@@ -544,6 +552,148 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
     let ii = unsafe { &*ii };
 
     ii_dispatch!(ii, gc_marker_inc);
+}
+
+// This alias can be removed once it lands in stable Rust
+#[allow(non_camel_case_types)]
+pub type c_size_t = usize;
+
+#[repr(C)]
+pub struct InvertedIndexGCWriter {
+    pub ctx: *mut c_void,
+    pub write: extern "C" fn(ctx: *mut c_void, buf: *const c_void, len: c_size_t),
+}
+
+impl Write for InvertedIndexGCWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let f = self.write;
+        f(
+            self.ctx,
+            buf.as_ptr() as *const c_void,
+            buf.len() as c_size_t,
+        );
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[repr(C)]
+pub struct InvertedIndexGCReader {
+    pub ctx: *mut c_void,
+    // read exactly len or return nonzero
+    pub read: extern "C" fn(ctx: *mut c_void, buf: *mut c_void, len: c_size_t) -> c_int,
+}
+
+impl Read for InvertedIndexGCReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        let f = self.read;
+        let rc = f(
+            self.ctx,
+            buf.as_mut_ptr() as *mut c_void,
+            buf.len() as c_size_t,
+        );
+        if rc == 0 {
+            Ok(buf.len())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "reader could not fill the buffer",
+            ))
+        }
+    }
+}
+
+#[repr(C)]
+pub struct InvertedIndexGCCallback {
+    pub ctx: *mut c_void,
+    // read exactly len or return nonzero
+    pub call: extern "C" fn(ctx: *mut c_void),
+}
+
+#[repr(C)]
+pub struct IndexRepairParams {
+    pub repair_callback:
+        Option<extern "C" fn(res: *const RSIndexResult, ib: *const IndexBlock, *mut c_void)>,
+    pub repair_arg: *mut c_void,
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
+    wr: *mut InvertedIndexGCWriter,
+    sctx: *mut RedisSearchCtx,
+    idx: *mut InvertedIndex,
+    cb: *mut InvertedIndexGCCallback,
+    params: *mut IndexRepairParams,
+) -> bool {
+    let ii = unsafe { &*idx };
+
+    let sctx = unsafe { &*sctx };
+    let spec = unsafe { &*sctx.spec };
+    let doc_table = spec.docs;
+
+    let doc_exists_cb = |id| unsafe { DocTable_Exists(&doc_table, id) };
+
+    let deltas = ii_dispatch!(ii, scan_gc, doc_exists_cb).unwrap();
+
+    let Some(deltas) = deltas else {
+        return false;
+    };
+
+    let cb = unsafe { &*cb };
+    let cb_call = cb.call;
+    cb_call(cb.ctx);
+
+    let wr = unsafe { &mut *wr };
+
+    deltas
+        .serialize(&mut rmp_serde::Serializer::new(wr))
+        .is_ok()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcDelta_Read(
+    rd: *mut InvertedIndexGCReader,
+) -> *mut GcScanDelta {
+    let rt = unsafe { &mut *rd };
+
+    let deltas = GcScanDelta::deserialize(&mut rmp_serde::Deserializer::new(rt)).unwrap();
+
+    let deltas = Box::new(deltas);
+
+    Box::into_raw(deltas)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
+    let _deltas = unsafe { Box::from_raw(deltas) };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
+    ii: *mut InvertedIndex,
+    deltas: *mut GcScanDelta,
+    apply_info: *mut GcApplyInfo,
+) {
+    let ii = unsafe { &mut *ii };
+    let deltas = unsafe { Box::from_raw(deltas) };
+    let deltas = *deltas;
+
+    let info = ii_dispatch!(ii, apply_gc, deltas);
+
+    unsafe { *apply_info = info };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GcScanDelta_LastBlockIdx(gc_scan_delta: *const GcScanDelta) -> usize {
+    let gc_scan_delta = unsafe { &*gc_scan_delta };
+
+    gc_scan_delta.last_block_idx()
 }
 
 #[unsafe(no_mangle)]

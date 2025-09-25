@@ -29,7 +29,6 @@ pub mod debug;
 pub mod doc_ids_only;
 pub mod fields_offsets;
 pub mod fields_only;
-pub mod fork_gc;
 pub mod freqs_fields;
 pub mod freqs_offsets;
 pub mod freqs_only;
@@ -611,6 +610,12 @@ pub struct GcScanDelta {
     deltas: Vec<BlockGcScanResult>,
 }
 
+impl GcScanDelta {
+    pub fn last_block_idx(&self) -> usize {
+        self.last_block_idx
+    }
+}
+
 /// Result of scanning a block for garbage collection
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct BlockGcScanResult {
@@ -623,6 +628,7 @@ pub struct BlockGcScanResult {
 
 /// Information about the result of applying a garbage collection scan to the index
 #[derive(Debug, Eq, PartialEq)]
+#[repr(C)]
 pub struct GcApplyInfo {
     /// The number of bytes that were freed
     bytes_freed: usize,

@@ -804,6 +804,8 @@ dependencies = [
  "cbindgen",
  "ffi",
  "inverted_index",
+ "rmp-serde",
+ "serde",
 ]
 
 [[package]]
