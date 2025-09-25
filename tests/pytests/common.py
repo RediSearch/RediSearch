@@ -958,7 +958,9 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
     """
     # return dict mapping key -> all fields from the results list
     res_results_index = recursive_index(response, 'results')
+    res_count_index = recursive_index(response, 'total_results')
     res_results_index[-1] += 1
+    res_count_index[-1] += 1
 
     results = {}
     for result in access_nested_list(response, res_results_index):
@@ -976,11 +978,7 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
             if '__key' in attrs:
                 key = attrs['__key']
                 results[key] = attrs
-    total_results = 0
-    # use get in case response is an error or a timeout response and doesn't contain
-    if isinstance(response, dict):
-        total_results = response.get('total_results', 0)
-
+    total_results = access_nested_list(response, res_count_index)
     return results, total_results
 
 def populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345, offset=0):
