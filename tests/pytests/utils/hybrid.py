@@ -128,42 +128,34 @@ def _process_hybrid_response(hybrid_results, expected_results: Optional[List[Res
     ranking_info = {'search_ranks': {}, 'vector_ranks': {}}
 
     for result_item in results_data:
-        # Each result_item is: ['attributes', [['__key', doc_id, 'SEARCH_RANK', '2', 'VECTOR_RANK', '5', '__score', score_str]]]
-        if (len(result_item) >= 2 and
-            result_item[0] == 'attributes' and
-            result_item[1] and
-            isinstance(result_item[1], list)):
+        attrs = dict(zip(result_item[::2], result_item[1::2]))
 
-            # Convert flat key-value list to dict using zip with slicing
-            attr_list = result_item[1]
-            attrs = dict(zip(attr_list[::2], attr_list[1::2]))
+        # Extract doc_id and score if both exist
+        if '__key' in attrs and '__score' in attrs:
+            try:
+                score = float(attrs['__score'])
+                doc_id = attrs['__key']
 
-            # Extract doc_id and score if both exist
-            if '__key' in attrs and '__score' in attrs:
-                try:
-                    score = float(attrs['__score'])
-                    doc_id = attrs['__key']
+                # Extract ranking information
+                search_rank = attrs.get('SEARCH_RANK', '-')
+                vector_rank = attrs.get('VECTOR_RANK', '-')
 
-                    # Extract ranking information
-                    search_rank = attrs.get('SEARCH_RANK', '-')
-                    vector_rank = attrs.get('VECTOR_RANK', '-')
+                # Store ranking info (convert to int if not '-')
+                if search_rank != '-':
+                    try:
+                        ranking_info['search_ranks'][doc_id] = int(search_rank)
+                    except ValueError:
+                        pass
 
-                    # Store ranking info (convert to int if not '-')
-                    if search_rank != '-':
-                        try:
-                            ranking_info['search_ranks'][doc_id] = int(search_rank)
-                        except ValueError:
-                            pass
+                if vector_rank != '-':
+                    try:
+                        ranking_info['vector_ranks'][doc_id] = int(vector_rank)
+                    except ValueError:
+                        pass
 
-                    if vector_rank != '-':
-                        try:
-                            ranking_info['vector_ranks'][doc_id] = int(vector_rank)
-                        except ValueError:
-                            pass
-
-                    processed.append(Result(key=doc_id, score=score))
-                except (ValueError, TypeError):
-                    pass  # Skip invalid scores
+                processed.append(Result(key=doc_id, score=score))
+            except (ValueError, TypeError):
+                pass  # Skip invalid scores
 
     return processed, ranking_info
 
