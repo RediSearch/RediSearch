@@ -229,7 +229,7 @@ uintptr_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
  * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  */
-void InvertedIndex_GcMarkerInc(const struct InvertedIndex *ii);
+void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
 
 /**
  * Create a new inverted index reader for the given inverted index and filter. The returned pointer
