@@ -58,7 +58,7 @@ pub enum Error {
 /// # Example
 ///
 /// ```rust
-/// # use result_processor::{ResultProcessor, Error, Context};
+/// # use result_processor::{ResultProcessor, Error, Context, SearchResult};
 ///
 /// /// A simple result processor that simply prints out the search result received from the previous processor
 /// /// before passing it on.
@@ -67,16 +67,15 @@ pub enum Error {
 /// impl ResultProcessor for Logger {
 ///    const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType::MAX;
 ///
-///     fn next(&mut self, mut cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+///     fn next(&mut self, mut cx: Context, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
 ///         let mut upstream = cx
 ///             .upstream()
 ///             .expect("There is no processor upstream of this counter.");
 ///
-///         while upstream.next(res)?.is_some() {
-///             eprintln!("{res:?}");
-///         }
+///         let out = upstream.next(res);
+///         eprintln!("{res:?}");
 ///
-///         Ok(None)
+///         out
 ///     }
 /// }
 /// ```
@@ -93,7 +92,7 @@ pub trait ResultProcessor {
     ///
     /// In both cases `Ok(None)` and `Err(_)` indicate to the caller that calling `next`
     /// will not yield values anymore, thus ending iteration.
-    fn next(&mut self, cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error>;
+    fn next(&mut self, cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error>;
 }
 
 /// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
@@ -145,7 +144,7 @@ impl Upstream<'_> {
     /// # Errors
     ///
     /// Returns `Err(_)` for exceptional error cases.
-    pub fn next(&mut self, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+    pub fn next(&mut self, res: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
         // Safety: We have to trust that the upstream pointer set by our QueryIterator parent
         // is correct.
         let next = unsafe { self.ptr.as_ref() }
@@ -224,7 +223,7 @@ struct Header {
     ///
     /// The populated structure (if [`ffi::RPStatus_RS_RESULT_OK`] is returned) does contain references
     /// to document data. Callers *MUST* ensure they are eventually freed.
-    next: Option<unsafe extern "C" fn(self_: *mut Header, res: *mut ffi::SearchResult) -> c_int>,
+    next: Option<unsafe extern "C" fn(self_: *mut Header, res: *mut SearchResult) -> c_int>,
     /// "VTable" function. Frees the processor and any internal data related to it.
     free: Option<unsafe extern "C" fn(self_: *mut Header)>,
 
@@ -334,7 +333,7 @@ where
     /// 2. `res` must be a non-null, well-aligned, valid pointer to an *initialized* [`ffi::SearchResult`].
     unsafe extern "C" fn result_processor_next(
         ptr: *mut Header,
-        res: *mut ffi::SearchResult,
+        res: *mut SearchResult<'_>,
     ) -> c_int {
         let ptr = NonNull::new(ptr).unwrap();
         debug_assert!(ptr.is_aligned());
@@ -418,7 +417,7 @@ where
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::test_utils::{Chain, ResultRP, default_search_result};
+    use crate::test_utils::{Chain, ResultRP};
 
     // Compile time check to ensure that `Header` (which currently duplicates `ffi::ResultProcessor`)
     // has the exact same size, alignment, and field layout.
@@ -462,7 +461,7 @@ pub(crate) mod test {
 
             let rp = unsafe { chain.last_raw() };
             let found =
-                unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut default_search_result()) };
+                unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
 
             assert_eq!(found, expected);
         }
@@ -478,8 +477,7 @@ pub(crate) mod test {
         chain.append(ResultRP::new_ok_none());
 
         let rp = unsafe { chain.last_raw() };
-        let found =
-            unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut default_search_result()) };
+        let found = unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
 
         assert_eq!(found, ffi::RPStatus_RS_RESULT_EOF as i32);
     }
@@ -491,8 +489,7 @@ pub(crate) mod test {
         chain.append(ResultRP::new_ok_some());
 
         let rp = unsafe { chain.last_raw() };
-        let found =
-            unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut default_search_result()) };
+        let found = unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SearchResult::new()) };
 
         assert_eq!(found, ffi::RPStatus_RS_RESULT_OK as i32);
     }
@@ -511,7 +508,7 @@ pub(crate) mod test {
 
             unsafe extern "C" fn result_processor_next(
                 me: *mut Header,
-                _res: *mut ffi::SearchResult,
+                _res: *mut SearchResult,
             ) -> c_int {
                 unsafe { me.cast::<RP>().as_ref().unwrap().ret_code }
             }
@@ -552,7 +549,7 @@ pub(crate) mod test {
             fn next(
                 &mut self,
                 mut cx: Context,
-                res: &mut ffi::SearchResult,
+                res: &mut SearchResult,
             ) -> Result<Option<()>, Error> {
                 let mut upstream = cx.upstream().unwrap();
                 upstream.next(res)
@@ -567,7 +564,7 @@ pub(crate) mod test {
             let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
             // we don't care about the exact search result value here
-            let res = rp.next(cx, &mut default_search_result());
+            let res = rp.next(cx, &mut SearchResult::new());
             assert_eq!(res, expected);
         }
 
@@ -587,12 +584,8 @@ pub(crate) mod test {
         impl ResultProcessor for Upstream {
             const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
-            fn next(
-                &mut self,
-                _cx: Context,
-                res: &mut ffi::SearchResult,
-            ) -> Result<Option<()>, Error> {
-                res.__score = 42.0;
+            fn next(&mut self, _cx: Context, res: &mut SearchResult) -> Result<Option<()>, Error> {
+                res.set_score(42.0);
                 Ok(Some(()))
             }
         }
@@ -604,7 +597,7 @@ pub(crate) mod test {
             fn next(
                 &mut self,
                 mut cx: Context,
-                res: &mut ffi::SearchResult,
+                res: &mut SearchResult,
             ) -> Result<Option<()>, Error> {
                 let mut upstream = cx.upstream().unwrap();
                 upstream.next(res)
@@ -618,10 +611,10 @@ pub(crate) mod test {
 
         let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
-        let mut res = default_search_result();
+        let mut res = SearchResult::new();
         rp.next(cx, &mut res).unwrap().unwrap();
 
-        assert_eq!(res.__score, 42.0);
+        assert_eq!(res.score(), 42.0);
     }
 
     #[test]

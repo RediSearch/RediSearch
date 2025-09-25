@@ -189,6 +189,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
+name = "canary"
+version = "0.0.1"
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1381,6 +1385,7 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "redis-module",
+ "result_processor_ffi",
  "triemap_ffi",
  "types_ffi",
  "varint_ffi",
@@ -1419,6 +1424,7 @@ checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
 name = "result_processor"
 version = "0.0.1"
 dependencies = [
+ "canary",
  "enumflags2",
  "ffi",
  "inverted_index",
