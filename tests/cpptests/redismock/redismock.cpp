@@ -753,8 +753,12 @@ int RMCK_IsIOError(RedisModuleIO *io) {
 }
 
 RedisModuleCtx *RMCK_GetContextFromIO(RedisModuleIO *io) {
-  // For mock purposes, return a new context
-  return new RedisModuleCtx();
+  // Return a shared context instead of creating new ones
+  static RedisModuleCtx *shared_ctx = nullptr;
+  if (!shared_ctx) {
+    shared_ctx = new RedisModuleCtx();
+  }
+  return shared_ctx;
 }
 
 RedisModuleIO *RMCK_CreateRdbIO(void) {
