@@ -50,14 +50,24 @@ on:
         description: 'Branch to use when building RedisJSON for tests'
 
 jobs:
+  # Generate macOS matrix configurations via script (no checkout required)
+  generate-macos-matrix:
+    uses: ./.github/workflows/task-generate-test-matrix.yml
+    with:
+      platforms: 'macos'
+      include-coverage: false
+      include-sanitizer: false
+
+  # macOS matrix using generated configurations
   build-macos:
+    name: ${{ matrix.name }}
+    needs: generate-macos-matrix
     strategy:
       fail-fast: false
-      matrix:
-        arch: [macos-15-intel, macos-latest] # macos-latest has arm chip
+      matrix: ${{ fromJson(needs.generate-macos-matrix.outputs.matrix) }}
     uses: ./.github/workflows/task-test.yml
     with:
-      env: ${{ matrix.arch }}
+      env: ${{ matrix.env }}
       test-config: ${{ inputs.test-config }}
       coordinator: ${{ inputs.coordinator }}
       standalone:  ${{ inputs.standalone }}
