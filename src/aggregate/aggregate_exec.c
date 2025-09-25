@@ -812,7 +812,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   }
 
   // Currently supporting OOM policy only in standalone env
-  if (req->reqConfig.oomPolicy != OomPolicy_Ignore && !isClusterEnv())
+  if (req->reqConfig.oomPolicy != OomPolicy_Ignore && !(isClusterEnv() && req->reqConfig.oomPolicy == OomPolicy_Return))
   {
     // OOM guardrail
     // Hold the GIL if necessary before check OOM
