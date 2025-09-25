@@ -105,6 +105,8 @@ typedef uint32_t RLookupOption;
 
 typedef struct IndexSpecCache IndexSpecCache;
 
+typedef struct RLookupId RLookupId;
+
 /**
  * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed [RSSortingVector]
  * or from dynamic values stored in the row during processing.
