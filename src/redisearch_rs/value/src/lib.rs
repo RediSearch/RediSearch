@@ -70,6 +70,7 @@ where
 ///
 /// Safety:
 /// 1. The pointer must be a valid pointer to an `RSValue` created by the C side.
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct RSValueFFI(NonNull<ffi::RSValue>);
 
