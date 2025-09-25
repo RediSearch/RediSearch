@@ -237,6 +237,46 @@ uintptr_t InvertedIndex_GcMarker(const struct InvertedIndex *ii);
 void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
 
 /**
+ * Get ID of the first document in the index block. This is used by some C tests.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+ */
+t_docId IndexBlock_FirstId(const struct IndexBlock *ib);
+
+/**
+ * Get ID of the last document in the index block. This is used by some C tests.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+ */
+t_docId IndexBlock_LastId(const struct IndexBlock *ib);
+
+/**
+ * Get the number of entries in the index block. This is used by some C tests.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+ */
+uintptr_t IndexBlock_NumEntries(const struct IndexBlock *ib);
+
+/**
+ * Get a pointer to the raw data of the index block. This is used by some C tests.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+ */
+const char *IndexBlock_Data(const struct IndexBlock *ib);
+
+/**
  * Create a new inverted index reader for the given inverted index and filter. The returned pointer
  * must be freed using [`IndexReader_Free`] when no longer needed.
  *
