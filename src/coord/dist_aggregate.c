@@ -405,7 +405,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
             if (!strcmp(warning_str, QueryError_Strerror(QUERY_ETIMEDOUT))) {
               timed_out = true;
             } else if (!strcmp(warning_str, QUERY_WMAXPREFIXEXPANSIONS)) {
-              nc->areq->qiter.err->reachedMaxPrefixExpansions = true;
+              AREQ_QueryProcessingCtx(nc->areq)->err->reachedMaxPrefixExpansions = true;
             }
           }
         }
@@ -424,7 +424,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   // get the next reply from the channel
   while (!root) {
-    if (TimedOut(&self->parent->sctx->time.timeout)) {
+    if (TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
@@ -445,8 +445,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       const char *strErr = MRReply_String(nc->current.root, NULL);
       if (!strErr
           || strcmp(strErr, "Timeout limit was reached")
-          || nc->areq->reqConfig.timeoutPolicy == FailurePolicy_Fail) {
-        QueryError_SetError(nc->areq->qiter.err, QUERY_EGENERIC, strErr);
+          || nc->areq->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+        QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
       }
     }
@@ -650,19 +650,20 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd); // This will take ownership of the command
-  rpRoot->base.parent = &r->qiter;
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
+  rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
   rpRoot->areq = r;
 
   ResultProcessor *rpProfile = NULL;
   if (IsProfile(r)) {
-    rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
+    rpProfile = RPProfile_New(&rpRoot->base, qctx);
   }
 
-  RS_ASSERT(!r->qiter.rootProc);
+  RS_ASSERT(!AREQ_QueryProcessingCtx(r)->rootProc);
   // Get the deepest-most root:
   int found = 0;
-  for (ResultProcessor *rp = r->qiter.endProc; rp; rp = rp->upstream) {
+  for (ResultProcessor *rp = AREQ_QueryProcessingCtx(r)->endProc; rp; rp = rp->upstream) {
     if (!rp->upstream) {
       rp->upstream = IsProfile(r) ? rpProfile : &rpRoot->base;
       found = 1;
@@ -671,9 +672,9 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   }
 
   // update root and end with RPNet
-  r->qiter.rootProc = &rpRoot->base;
+  qctx->rootProc = &rpRoot->base;
   if (!found) {
-    r->qiter.endProc = &rpRoot->base;
+    qctx->endProc = &rpRoot->base;
   }
 
   // allocate memory for replies and update endProc if necessary
@@ -681,7 +682,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     // 2 is just a starting size, as we most likely have more than 1 shard
     rpRoot->shardsProfile = array_new(MRReply*, 2);
     if (!found) {
-      r->qiter.endProc = rpProfile;
+      qctx->endProc = rpProfile;
     }
   }
 }
@@ -691,7 +692,7 @@ void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
   ProfilePrinterCtx *cCtx = ctx;
-  RPNet *rpnet = (RPNet *)cCtx->req->qiter.rootProc;
+  RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(cCtx->req)->rootProc;
   PrintShardProfile_ctx sCtx = {
     .count = array_len(rpnet->shardsProfile),
     .replies = rpnet->shardsProfile,
@@ -705,13 +706,13 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
   int profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     profileArgs += 2;     // SEARCH/AGGREGATE + QUERY
-    r->reqflags |= QEXEC_F_PROFILE;
+    AREQ_AddRequestFlags(r, QEXEC_F_PROFILE);
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       profileArgs++;
-      r->reqflags |= QEXEC_F_PROFILE_LIMITED;
+      AREQ_AddRequestFlags(r, QEXEC_F_PROFILE_LIMITED);
     }
     if (RMUtil_ArgIndex("QUERY", argv + 3, 2) == -1) {
-      QueryError_SetError(r->qiter.err, QUERY_EPARSEARGS, "No QUERY keyword provided");
+      QueryError_SetError(AREQ_QueryProcessingCtx(r)->err, QUERY_EPARSEARGS, "No QUERY keyword provided");
       return -1;
     }
   }
@@ -720,8 +721,8 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
-  r->qiter.err = status;
-  r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
+  AREQ_QueryProcessingCtx(r)->err = status;
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->initClock);
 
   int profileArgs = parseProfile(argv, argc, r);
@@ -746,12 +747,12 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
       if (knnCtx != NULL) {
         // If we found KNN, add an arange step, so it will be the first step after
         // the root (which is first plan step to be executed after the root).
-        AGPLN_AddKNNArrangeStep(&r->ap, knnCtx->knn.k, knnCtx->knn.fieldName);
+        AGPLN_AddKNNArrangeStep(AREQ_AGGPlan(r), knnCtx->knn.k, knnCtx->knn.fieldName);
       }
     }
   }
 
-  rc = AGGPLN_Distribute(&r->ap, status);
+  rc = AGGPLN_Distribute(AREQ_AGGPlan(r), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   AREQDIST_UpstreamInfo us = {NULL};
@@ -762,7 +763,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   MRCommand xcmd;
   buildMRCommand(argv , argc, profileArgs, &us, &xcmd, sp, knnCtx);
   xcmd.protocol = is_resp3(ctx) ? 3 : 2;
-  xcmd.forCursor = r->reqflags & QEXEC_F_IS_CURSOR;
+  xcmd.forCursor = AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR;
   xcmd.forProfiling = IsProfile(r);
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
@@ -777,14 +778,13 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
   SearchCtx_UpdateTime(r->sctx, r->reqConfig.queryTimeoutMS);
-  r->qiter.sctx = r->sctx;
   // r->sctx->expanded should be received from shards
 
   return REDISMODULE_OK;
 }
 
 static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
-  if (r->reqflags & QEXEC_F_IS_CURSOR) {
+  if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
@@ -884,7 +884,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // rpnet now owns the command
-  MRCommand *cmd = &(((RPNet *)r->qiter.rootProc)->cmd);
+  MRCommand *cmd = &(((RPNet *)AREQ_QueryProcessingCtx(r)->rootProc)->cmd);
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
   // insert also debug params at the end

@@ -8,92 +8,7 @@
 */
 
 use sorting_vector::{IndexOutOfBounds, RSSortingVector};
-use value::RSValueTrait;
-
-#[derive(Clone, Debug, PartialEq)]
-enum RSValueMock {
-    Null,
-    Number(f64),
-    String(String),
-    Reference(Box<RSValueMock>),
-}
-
-impl RSValueTrait for RSValueMock {
-    fn create_null() -> Self {
-        RSValueMock::Null
-    }
-
-    fn create_string(s: String) -> Self {
-        RSValueMock::String(s)
-    }
-
-    fn create_num(num: f64) -> Self {
-        RSValueMock::Number(num)
-    }
-
-    fn create_ref(value: Self) -> Self {
-        RSValueMock::Reference(Box::new(value))
-    }
-
-    fn is_null(&self) -> bool {
-        matches!(self, RSValueMock::Null)
-    }
-
-    fn get_ref(&self) -> Option<&Self> {
-        if let RSValueMock::Reference(boxed) = self {
-            Some(boxed)
-        } else {
-            None
-        }
-    }
-
-    fn get_ref_mut(&mut self) -> Option<&mut Self> {
-        if let RSValueMock::Reference(boxed) = self {
-            Some(boxed.as_mut())
-        } else {
-            None
-        }
-    }
-
-    fn as_str(&self) -> Option<&str> {
-        if let RSValueMock::String(s) = self {
-            Some(s)
-        } else {
-            None
-        }
-    }
-
-    fn as_num(&self) -> Option<f64> {
-        if let RSValueMock::Number(num) = self {
-            Some(*num)
-        } else {
-            None
-        }
-    }
-
-    fn get_type(&self) -> ffi::RSValueType {
-        // Mock implementation, return a dummy type
-        match &self {
-            RSValueMock::Null => ffi::RSValueType_RSValue_Null,
-            RSValueMock::Number(_) => ffi::RSValueType_RSValue_Number,
-            RSValueMock::String(_) => ffi::RSValueType_RSValue_String,
-            RSValueMock::Reference(reference) => reference.get_type(),
-        }
-    }
-
-    fn is_ptr_type() -> bool {
-        // Mock implementation, return false
-        false
-    }
-
-    fn increment(&mut self) {
-        todo!("not used in that mock")
-    }
-
-    fn decrement(&mut self) {
-        todo!("not used in that mock")
-    }
-}
+use value::{RSValueMock, RSValueTrait};
 
 #[test]
 fn test_creation() {
@@ -155,7 +70,7 @@ fn test_override() -> Result<(), IndexOutOfBounds> {
     // the following is only possible in Rust API
     let mut dupl = src.clone();
     for val in dupl.iter_mut() {
-        *val = RSValueMock::Number(42.0)
+        *val = RSValueMock::create_num(42.0)
     }
 
     assert_eq!(dst[0], RSValueMock::create_null());

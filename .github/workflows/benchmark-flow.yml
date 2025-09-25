@@ -71,7 +71,7 @@ jobs:
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
-        timeout-minutes: 240 # timeout for the step
+        timeout-minutes: 360 # timeout for the step
         working-directory: tests/benchmarks
         env:
           # Hard-coded
