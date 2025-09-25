@@ -9,10 +9,8 @@
 
 use rlookup::{RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupRow};
 use sorting_vector::RSSortingVector;
-use std::{
-    ffi::CString,
-    ops::{Deref, DerefMut},
-};
+use std::ffi::CString;
+use std::ops::{Deref, DerefMut};
 use value::{RSValueMock, RSValueTrait};
 
 #[test]
