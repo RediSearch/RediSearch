@@ -238,13 +238,13 @@ struct KeyList<'a> {
     rowlen: u32,
 }
 
-/// A cursor over an [`RLookup`] key list.
+/// A cursor over an [`RLookup`]s key list.
 pub struct Cursor<'list, 'a> {
     _rlookup: &'list KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
 }
 
-/// A cursor over an [`RLookup`] key list with editing operations.
+/// A cursor over a an [`RLookup`]s key list with editing operations.
 pub struct CursorMut<'list, 'a> {
     _rlookup: &'list mut KeyList<'a>,
     current: Option<NonNull<RLookupKey<'a>>>,
@@ -357,7 +357,7 @@ impl<'a> RLookupKey<'a> {
     }
 
     #[cfg(debug_assertions)]
-    pub(crate) const fn rlookup_id(&self) -> RLookupId {
+    pub const fn rlookup_id(&self) -> RLookupId {
         self.rlookup_id
     }
 
@@ -995,8 +995,22 @@ impl<'a> RLookup<'a> {
     }
 
     #[cfg(debug_assertions)]
-    pub(crate) const fn id(&self) -> RLookupId {
+    pub const fn id(&self) -> RLookupId {
         self.id
+    }
+
+    /// Returns a [`Cursor`] starting at the first key.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    pub fn cursor(&self) -> Cursor<'_, 'a> {
+        self.keys.cursor_front()
+    }
+
+    /// Returns a [`Cursor`] starting at the first key.
+    ///
+    /// The [`Cursor`] type can be used as Iterator over the keys in this lookup.
+    pub fn cursor_mut(&mut self) -> CursorMut<'_, 'a> {
+        self.keys.cursor_front_mut()
     }
 
     // ===== Get key for reading (create only if in schema and sortable) =====
