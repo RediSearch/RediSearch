@@ -38,7 +38,7 @@ fn rerun_if_changes(dir: &Path, extensions: &[&str]) -> std::io::Result<()> {
         } else if let Some(extension) = path.extension().and_then(|ext| ext.to_str())
             && extensions.contains(&extension)
         {
-            println!("cargo:rerun-if-changed={}", path.display());
+            println!("cargo::rerun-if-changed={}", path.display());
         }
     }
     Ok(())
@@ -60,11 +60,15 @@ fn rerun_if_rust_changes(dir: &Path) -> std::io::Result<()> {
     rerun_if_changes(dir, &["rs"])
 }
 
-/// Emit granular `rerun-if-changed` statements for each files which are
-/// part of the crates listed in `config.parse.include`.
-/// This ensures cbindgen output is regenerated when the underlying Rust code
-/// is updated.
-pub fn rerun_cbinden(config: &cbindgen::Config) -> Result<(), Box<dyn std::error::Error>> {
+/// Generate a C header file via `cbindgen` for the calling crate.
+/// It'll read `cbindgen` configuration from the `cbindgen.toml` file at the crate root
+/// and output the header file to `header_path`.
+pub fn run_cbinden(header_path: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
+    let config =
+        cbindgen::Config::from_file("cbindgen.toml").expect("Failed to find cbindgen config");
+    println!("cargo::rerun-if-changed=cbindgen.toml");
+
+    // emit `rerun-if-changed` for all the headers files referenced by the config as well
     if let Some(include) = &config.parse.include {
         for included_crate in include.iter() {
             let path = git_root()?
@@ -76,6 +80,18 @@ pub fn rerun_cbinden(config: &cbindgen::Config) -> Result<(), Box<dyn std::error
             }
         }
     }
+    // We should also regenerate the header files if the source of the current
+    // crate changes. The current crate isn't usually included in `cbindgen`'s
+    // config file under `parse.include`.
+    let _ = rerun_if_rust_changes(&PathBuf::from("src"));
+
+    let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+
+    cbindgen::Builder::new()
+        .with_crate(crate_dir)
+        .with_config(config)
+        .generate()?
+        .write_to_file(header_path);
 
     Ok(())
 }
@@ -102,9 +118,9 @@ pub fn link_static_libraries(libs: &[(&str, &str)]) {
     // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
     // We prefer to fail at runtime if we try to use a symbol that's undefined.
     if target_os == "macos" {
-        println!("cargo:rustc-link-arg=-Wl,-undefined,dynamic_lookup");
+        println!("cargo::rustc-link-arg=-Wl,-undefined,dynamic_lookup");
     } else {
-        println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+        println!("cargo::rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
 
     let bin_root = if let Ok(bin_root) = std::env::var("BINDIR") {
@@ -140,9 +156,9 @@ fn link_static_lib(
     let lib_dir = bin_root.join(lib_subdir);
     let lib = lib_dir.join(format!("lib{lib_name}.a"));
     if std::fs::exists(&lib).unwrap_or(false) {
-        println!("cargo:rustc-link-lib=static={lib_name}");
-        println!("cargo:rerun-if-changed={}", lib.display());
-        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+        println!("cargo::rustc-link-lib=static={lib_name}");
+        println!("cargo::rerun-if-changed={}", lib.display());
+        println!("cargo::rustc-link-search=native={}", lib_dir.display());
         Ok(())
     } else {
         Err(format!("Static library not found: {}", lib.display()).into())
