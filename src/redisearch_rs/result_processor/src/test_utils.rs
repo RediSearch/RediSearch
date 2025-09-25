@@ -181,17 +181,17 @@ impl Drop for Chain {
 // FIXME: Replace with `Default::default` once [MOD-9920] is completed.
 pub const fn default_search_result() -> ffi::SearchResult {
     const SEARCH_RESULT_INIT: ffi::SearchResult = ffi::SearchResult {
-        docId: 0,
-        score: 0.0,
-        scoreExplain: ptr::null_mut(),
-        dmd: ptr::null(),
-        indexResult: ptr::null_mut(),
-        rowdata: ffi::RLookupRow {
+        __docId: 0,
+        __score: 0.0,
+        __scoreExplain: ptr::null_mut(),
+        __dmd: ptr::null(),
+        __indexResult: ptr::null_mut(),
+        __rowdata: ffi::RLookupRow {
             sv: ptr::null(),
             dyn_: ptr::null_mut(),
             ndyn: 0,
         },
-        flags: 0,
+        __flags: 0,
     };
     SEARCH_RESULT_INIT
 }
@@ -206,17 +206,17 @@ unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
     let r = unsafe { r.as_mut().unwrap() };
 
     // This won't affect anything if the result is null
-    r.score = 0.0;
+    r.__score = 0.0;
 
     // SEDestroy(r->scoreExplain);
-    r.scoreExplain = ptr::null_mut();
+    r.__scoreExplain = ptr::null_mut();
 
     // IndexResult_Free(r->indexResult);
-    r.indexResult = ptr::null_mut();
+    r.__indexResult = ptr::null_mut();
 
-    r.flags = 0;
+    r.__flags = 0;
     // RLookupRow_Wipe(&r->rowdata);
 
-    r.dmd = ptr::null();
+    r.__dmd = ptr::null();
     //   DMD_Return(r->dmd);
 }
