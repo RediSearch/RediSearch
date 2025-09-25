@@ -1159,6 +1159,8 @@ def test_query_controller_add_before_after(env):
         # Check RP type that is not in the stream
         env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', 0, 'DEBUG_PARAMS_COUNT', 3).error()\
         .contains(f"Highlighter RP type not found in stream or tried to insert after last RP")
+        env.expect(debug_cmd(), 'FT.SEARCH', 'idx', '*', f'PAUSE_{cmd_str}_RP_N', 'Highlighter', -1, 'DEBUG_PARAMS_COUNT', 3).error()\
+        .contains(f"Invalid PAUSE_{cmd_str}_RP_N count")
         # Build threads
         t_query = threading.Thread(
             target=target_func,
