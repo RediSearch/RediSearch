@@ -48,6 +48,13 @@ jobs:
       rejson-branch: '8.2'
       test-config: '' # run all tests
 
+  run-on-intel:
+    needs: get-latest-redis-tag
+    secrets: inherit
+    uses: ./.github/workflows/flow-intel.yml
+    with:
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+
   sanitize:
     needs: get-latest-redis-tag
     secrets: inherit
@@ -65,6 +72,7 @@ jobs:
       - test-linux
       - test-macos
       - coverage
+      - run-on-intel
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
