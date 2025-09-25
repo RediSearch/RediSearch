@@ -614,14 +614,14 @@ mod tests {
 
             assert_eq!(row.len(), 2);
 
-            let cursor = lookup.find_by_name(c"field1").unwrap();
+            let cursor = lookup.find_key_by_name(c"field1").unwrap();
             let rlk = cursor.current().unwrap();
             assert_eq!(
                 row.get(rlk),
                 Some(&RSValueMock::create_string("value1".to_owned()))
             );
 
-            let cursor = lookup.find_by_name(c"field2").unwrap();
+            let cursor = lookup.find_key_by_name(c"field2").unwrap();
             let rlk = cursor.current().unwrap();
             assert_eq!(
                 row.get(rlk),
