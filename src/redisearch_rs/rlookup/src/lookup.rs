@@ -6,6 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#[cfg(debug_assertions)]
+use crate::RLookupId;
 use crate::bindings::{
     FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes, IndexSpecCache,
 };
@@ -158,6 +160,9 @@ pub struct RLookupKey<'a> {
     _name: Cow<'a, CStr>,
     #[pin]
     _path: Option<Cow<'a, CStr>>,
+
+    #[cfg(debug_assertions)]
+    rlookup_id: RLookupId,
 }
 
 #[derive(Debug)]
@@ -209,6 +214,9 @@ pub struct RLookup<'a> {
     // If present, then GetKey will consult this list if the value is not found in
     // the existing list of keys.
     index_spec_cache: Option<IndexSpecCache>,
+
+    #[cfg(debug_assertions)]
+    id: RLookupId,
 }
 
 #[derive(Debug)]
@@ -290,7 +298,15 @@ impl<'a> RLookupKey<'a> {
             },
             _name: name,
             _path: None,
+            #[cfg(debug_assertions)]
+            rlookup_id: RLookupId::placeholder(),
         }
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn with_rlookup_id(mut self, rlookup_id: RLookupId) -> Self {
+        self.rlookup_id = rlookup_id;
+        self
     }
 
     pub fn update_from_field_spec(&mut self, fs: &ffi::FieldSpec) {
@@ -340,19 +356,25 @@ impl<'a> RLookupKey<'a> {
         }
     }
 
+    #[cfg(debug_assertions)]
+    pub const fn rlookup_id(&self) -> RLookupId {
+        self.rlookup_id
+    }
+
     /// Construct an `RLookupKey` from its main parts. Prefer Self::new if you are unsure which to use.
     fn from_parts(
         name: Cow<'a, CStr>,
         path: Option<Cow<'a, CStr>>,
         dstidx: u16,
         flags: RLookupKeyFlags,
+        #[cfg(debug_assertions)] rlookup_id: RLookupId,
     ) -> Self {
         debug_assert_eq!(
             matches!(name, Cow::Owned(_)),
             flags.contains(RLookupKeyFlag::NameAlloc),
             "`RLookupKeyFlag::NameAlloc` was provided, but `name` was not `Cow::Owned`"
         );
-        if let Option::Some(path) = &path {
+        if let Some(path) = &path {
             debug_assert_eq!(
                 matches!(path, Cow::Owned(_)),
                 flags.contains(RLookupKeyFlag::NameAlloc),
@@ -374,6 +396,8 @@ impl<'a> RLookupKey<'a> {
             },
             _name: name,
             _path: path,
+            #[cfg(debug_assertions)]
+            rlookup_id,
         }
     }
 
@@ -832,8 +856,14 @@ impl<'list, 'a> CursorMut<'list, 'a> {
             old.header.path = ptr::null();
             let path = mem::take(old._path.deref_mut());
 
-            let new =
-                RLookupKey::from_parts(name, path, old.header.dstidx, old.header.flags | flags);
+            let new = RLookupKey::from_parts(
+                name,
+                path,
+                old.header.dstidx,
+                old.header.flags | flags,
+                #[cfg(debug_assertions)]
+                *old.rlookup_id,
+            );
 
             // Mark the old key as hidden, so it won't show up in iteration.
             old.header.flags |= RLookupKeyFlag::Hidden;
@@ -930,6 +960,8 @@ impl<'a> RLookup<'a> {
             },
             options: RLookupOptions::empty(),
             index_spec_cache: None,
+            #[cfg(debug_assertions)]
+            id: RLookupId::next(),
         }
     }
 
@@ -940,6 +972,11 @@ impl<'a> RLookup<'a> {
             *self = Self::new();
         }
         self.index_spec_cache = spcache;
+    }
+
+    #[cfg(debug_assertions)]
+    pub const fn id(&self) -> RLookupId {
+        self.id
     }
 
     // ===== Get key for reading (create only if in schema and sortable) =====
@@ -973,7 +1010,11 @@ impl<'a> RLookup<'a> {
 
         // If we didn't find the key in the schema (there is no schema) and unresolved is OK, create an unresolved key.
         if self.options.contains(RLookupOption::AllowUnresolved) {
+            #[cfg_attr(debug_assertions, allow(unused_mut))]
             let mut key = RLookupKey::new(name, flags);
+            #[cfg(debug_assertions)]
+            let mut key = key.with_rlookup_id(self.id);
+
             key.flags |= RLookupKeyFlag::Unresolved;
 
             let key = self.keys.push(key);
@@ -1003,7 +1044,11 @@ impl<'a> RLookup<'a> {
             return None;
         }
 
+        #[cfg_attr(debug_assertions, allow(unused_mut))]
         let mut key = RLookupKey::new(name, flags);
+        #[cfg(debug_assertions)]
+        let mut key = key.with_rlookup_id(self.id);
+
         key.update_from_field_spec(fs);
         Some(key)
     }
@@ -1034,8 +1079,11 @@ impl<'a> RLookup<'a> {
         } else {
             // B. we didn't find the key at the lookup table:
             // create a new key with the name and flags
-            self.keys
-                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc));
+            let key = RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc);
+            #[cfg(debug_assertions)]
+            let key = key.with_rlookup_id(self.id);
+
+            self.keys.push(key);
         };
 
         // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
@@ -1095,10 +1143,14 @@ impl<'a> RLookup<'a> {
                     .unwrap();
             }
         } else {
-            self.keys.push(RLookupKey::new(
+            let key = RLookupKey::new(
                 name,
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
-            ));
+            );
+            #[cfg(debug_assertions)]
+            let key = key.with_rlookup_id(self.id);
+
+            self.keys.push(key);
         };
 
         // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
@@ -1407,7 +1459,14 @@ mod tests {
     #[test]
     fn key_from_parts_only_name() {
         let name = Cow::Borrowed(c"foo");
-        let key = RLookupKey::from_parts(name, Option::None, 0, RLookupKeyFlags::empty());
+        let key = RLookupKey::from_parts(
+            name,
+            None,
+            0,
+            RLookupKeyFlags::empty(),
+            #[cfg(debug_assertions)]
+            RLookupId::placeholder(),
+        );
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._name.as_ptr());
@@ -1417,7 +1476,14 @@ mod tests {
     fn key_from_parts_name_and_path() {
         let name = Cow::Borrowed(c"foo");
         let path = Cow::Borrowed(c"bar");
-        let key = RLookupKey::from_parts(name, Option::Some(path), 0, RLookupKeyFlags::empty());
+        let key = RLookupKey::from_parts(
+            name,
+            Some(path),
+            0,
+            RLookupKeyFlags::empty(),
+            #[cfg(debug_assertions)]
+            RLookupId::placeholder(),
+        );
 
         assert_eq!(key.name, key._name.as_ptr());
         assert_eq!(key.path, key._path.as_ref().unwrap().as_ptr());
@@ -1429,7 +1495,14 @@ mod tests {
     #[cfg_attr(debug_assertions, should_panic)]
     fn key_from_parts_name_namealloc_fail() {
         let name = Cow::Owned(c"foo".to_owned());
-        let key = RLookupKey::from_parts(name, Option::None, 0, RLookupKeyFlags::empty());
+        let key = RLookupKey::from_parts(
+            name,
+            None,
+            0,
+            RLookupKeyFlags::empty(),
+            #[cfg(debug_assertions)]
+            RLookupId::placeholder(),
+        );
 
         #[cfg(debug_assertions)]
         unreachable!();
@@ -1446,9 +1519,11 @@ mod tests {
         let name = Cow::Borrowed(c"foo");
         let key = RLookupKey::from_parts(
             name,
-            Option::None,
+            None,
             0,
             make_bitflags!(RLookupKeyFlag::NameAlloc),
+            #[cfg(debug_assertions)]
+            RLookupId::placeholder(),
         );
 
         #[cfg(debug_assertions)]
@@ -1465,7 +1540,14 @@ mod tests {
     fn key_from_parts_path_namealloc_fail() {
         let name = Cow::Borrowed(c"foo");
         let path = Cow::Owned(c"bar".to_owned());
-        let key = RLookupKey::from_parts(name, Option::Some(path), 0, RLookupKeyFlags::empty());
+        let key = RLookupKey::from_parts(
+            name,
+            Some(path),
+            0,
+            RLookupKeyFlags::empty(),
+            #[cfg(debug_assertions)]
+            RLookupId::placeholder(),
+        );
 
         #[cfg(debug_assertions)]
         unreachable!();
@@ -1483,9 +1565,11 @@ mod tests {
         let path = Cow::Borrowed(c"bar");
         let key = RLookupKey::from_parts(
             name,
-            Option::Some(path),
+            Some(path),
             0,
             make_bitflags!(RLookupKeyFlag::NameAlloc),
+            #[cfg(debug_assertions)]
+            RLookupId::placeholder(),
         );
 
         #[cfg(debug_assertions)]
@@ -1931,7 +2015,6 @@ mod tests {
         // setup:
         let key_name = c"key_no_cache";
         let field_name = c"name_in_doc";
-        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
         // we don't use the cache
         let empty_field_array = [];
@@ -1939,6 +2022,11 @@ mod tests {
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
+
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
+        #[cfg(debug_assertions)]
+        let key = key.with_rlookup_id(rlookup.id);
+
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup
@@ -1964,7 +2052,6 @@ mod tests {
         // setup:
         let key_name = c"key_also_cache";
         let cache_field_name = c"name_in_doc";
-        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
         // Let's create a cache with one field spec
         let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
@@ -1980,6 +2067,11 @@ mod tests {
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
+
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
+        #[cfg(debug_assertions)]
+        let key = key.with_rlookup_id(rlookup.id);
+
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup
@@ -2007,7 +2099,6 @@ mod tests {
         // setup:
         let key_name = c"key_also_cache";
         let cache_field_name = c"name_in_doc";
-        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
         // Let's create a cache with one field spec
         let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
@@ -2025,6 +2116,11 @@ mod tests {
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
+
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
+        #[cfg(debug_assertions)]
+        let key = key.with_rlookup_id(rlookup.id);
+
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup.get_key_load(
@@ -2043,7 +2139,6 @@ mod tests {
         // setup:
         let key_name = c"key_also_cache";
         let cache_field_name = c"name_in_doc";
-        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
 
         // Let's create a cache with one field spec
         let mut arr = unsafe { [MaybeUninit::<ffi::FieldSpec>::zeroed().assume_init()] };
@@ -2061,6 +2156,11 @@ mod tests {
 
         let mut rlookup = RLookup::new();
         rlookup.init(Some(spcache));
+
+        let key = RLookupKey::new(key_name, RLookupKeyFlags::empty());
+        #[cfg(debug_assertions)]
+        let key = key.with_rlookup_id(rlookup.id);
+
         rlookup.keys.push(key);
 
         let retrieved_key = rlookup
@@ -2095,14 +2195,17 @@ mod tests {
         ];
 
         for flag in key_flags {
-            let key = RLookupKey::new(key_name, flag.into());
-
             // we don't use the cache
             let empty_field_array = [];
             let spcache = unsafe { IndexSpecCache::from_slice(&empty_field_array) };
 
             let mut rlookup = RLookup::new();
             rlookup.init(Some(spcache));
+
+            let key = RLookupKey::new(key_name, flag.into());
+            #[cfg(debug_assertions)]
+            let key = key.with_rlookup_id(rlookup.id);
+
             rlookup.keys.push(key);
 
             let retrieved_key =
@@ -2194,9 +2297,11 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             rlookup
-                 .keys
-                 .push(RLookupKey::new(&name, RLookupKeyFlags::empty()));
+             let key = RLookupKey::new(&name, RLookupKeyFlags::empty());
+             #[cfg(debug_assertions)]
+             let key = key.with_rlookup_id(rlookup.id);
+
+             rlookup.keys.push(key);
 
              let key = rlookup
                  .get_key_read(&name, RLookupKeyFlags::empty())
@@ -2218,9 +2323,11 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             rlookup
-                 .keys
-                 .push(RLookupKey::new(&name, RLookupKeyFlags::empty()));
+             let key = RLookupKey::new(&name, RLookupKeyFlags::empty());
+             #[cfg(debug_assertions)]
+             let key = key.with_rlookup_id(rlookup.id);
+
+             rlookup.keys.push(key);
 
              let not_key = rlookup
                  .get_key_read(&wrong_name, RLookupKeyFlags::empty());
@@ -2295,9 +2402,11 @@ mod tests {
              let mut rlookup = RLookup::new();
 
              // push a key to the keylist
-             rlookup
-                 .keys
-                 .push(RLookupKey::new(&name1, RLookupKeyFlags::empty()));
+             let key = RLookupKey::new(&name1, RLookupKeyFlags::empty());
+             #[cfg(debug_assertions)]
+             let key = key.with_rlookup_id(rlookup.id);
+
+             rlookup.keys.push(key);
 
              // push a field spec to the cache
              let mut arr = unsafe {
@@ -2334,10 +2443,11 @@ mod tests {
 
              let mut rlookup = RLookup::new();
 
-             // push a key to the keylist
-             rlookup
-                 .keys
-                 .push(RLookupKey::new(&name1, RLookupKeyFlags::empty()));
+             let key = RLookupKey::new(&name1, RLookupKeyFlags::empty());
+             #[cfg(debug_assertions)]
+             let key = key.with_rlookup_id(rlookup.id);
+
+             rlookup.keys.push(key);
 
              // push a field spec to the cache
              let mut arr = unsafe {
