@@ -173,7 +173,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     }
 
 validate_current:
-    IndexSpec* spec = RP_SPEC(base);
+    IndexSpec* spec = self->sctx->spec;
     if (!getDocumentMetadata(spec, docs, sctx, it, &dmd)) {
       continue;
     }
@@ -679,9 +679,9 @@ typedef struct {
  */
 
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
-  if (self->base.parent->sctx->spec->diskSpec) {
+  if (self->loadopts.sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->base.parent->sctx->spec->diskSpec, r->dmd->id)) {
+    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, r->dmd->id)) {
       r->flags |= Result_ExpiredDoc;
       return false;
     }
