@@ -153,6 +153,10 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+if(BUILD_INTEL_SVS_OPT)
+    add_compile_definitions("BUILD_INTEL_SVS_OPT=1")
+endif()
+
 if(MAX_WORKER_THREADS)
     set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
@@ -242,15 +246,18 @@ add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
+add_subdirectory(src/redisearch_rs)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
 file(GLOB SOURCES
     "src/*.c"
+    "src/pipeline/*.c"
     "src/aggregate/*.c"
     "src/aggregate/expr/*.c"
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
+    "src/hybrid/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
     "src/query_parser/v1/*.c"
@@ -315,7 +322,7 @@ target_link_libraries(redisearch
         iterators
         wildcard
         uv_a
-        ${BINDIR}/redisearch_rs/libredisearch_rs.a
+        redisearch_rs
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
@@ -323,6 +330,7 @@ target_link_libraries(redisearch
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)
 add_dependencies(redisearch uv_a)
+add_dependencies(redisearch redisearch_rs)
 
 
 #----------------------------------------------------------------------------------------------

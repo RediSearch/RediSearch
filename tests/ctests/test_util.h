@@ -45,6 +45,9 @@ static int numAsserts = 0;
 
 #define ASSERT_STRING_EQ(s1, s2) ASSERT(!strcmp(s1, s2));
 
+#define ASSERT_TRUE(expr) ASSERT(expr)
+#define ASSERT_FALSE(expr) ASSERT(!(expr))
+
 #define ASSERT_EQUAL(x, y, ...)                                           \
   if (x != y) {                                                           \
     fprintf(stderr, "%s:%d: ", __FILE__, __LINE__);                       \

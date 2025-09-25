@@ -104,3 +104,38 @@ fn test_decode_raw_doc_ids_only_empty_input() {
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
+
+#[test]
+fn test_seek_raw_doc_ids_only() {
+    let buf = vec![
+        0, 0, 0, 0, // First delta
+        5, 0, 0, 0, // Second delta
+        6, 0, 0, 0, // Third delta
+        8, 0, 0, 0, // Fourth delta
+        12, 0, 0, 0, // Fifth delta
+        13, 0, 0, 0, // Sixth delta
+    ];
+    let mut buf = Cursor::new(buf.as_ref());
+
+    let decoder = RawDocIdsOnly::default();
+
+    let record_decoded = decoder
+        .seek(&mut buf, 10, 16)
+        .expect("to decode raw docs ids only record")
+        .expect("to find the target record");
+
+    assert_eq!(record_decoded, RSIndexResult::term().doc_id(16));
+
+    let record_decoded = decoder
+        .seek(&mut buf, 10, 20)
+        .expect("to decode raw docs ids only record")
+        .expect("to find the target record");
+
+    assert_eq!(record_decoded, RSIndexResult::term().doc_id(22));
+
+    let record_decoded = decoder
+        .seek(&mut buf, 10, 50)
+        .expect("to decode raw docs ids only record");
+
+    assert_eq!(record_decoded, None);
+}

@@ -24,6 +24,7 @@
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
+#include "hybrid/hybrid_debug.h"
 #include "reply.h"
 #include "reply_macros.h"
 #include "obfuscation/obfuscation_api.h"
@@ -1498,6 +1499,13 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
 }
 
+DEBUG_COMMAND(HybridCommand_DebugWrapper) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+}
+
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
@@ -1795,6 +1803,9 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
 // Global counter for tracking yield calls during loading
 static size_t g_yieldCallCounter = 0;
 
+// Global variable for sleep time before yielding (in microseconds)
+static unsigned int g_indexerSleepBeforeYieldMicros = 0;
+
 // Function to increment the yield counter (to be called from IndexerBulkAdd)
 void IncrementYieldCounter(void) {
   g_yieldCallCounter++;
@@ -1803,6 +1814,11 @@ void IncrementYieldCounter(void) {
 // Reset the yield counter
 void ResetYieldCounter(void) {
   g_yieldCallCounter = 0;
+}
+
+// Get the current sleep time before yielding (in microseconds)
+unsigned int GetIndexerSleepBeforeYieldMicros(void) {
+  return g_indexerSleepBeforeYieldMicros;
 }
 
 /**
@@ -1832,6 +1848,33 @@ DEBUG_COMMAND(YieldCounter) {
 
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+}
+
+/**
+ * FT.DEBUG INDEXER_SLEEP_BEFORE_YIELD [<microseconds>]
+ * Get or set the sleep time in microseconds before yielding during indexing while loading
+ */
+DEBUG_COMMAND(IndexerSleepBeforeYieldMicros) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+
+  if (argc > 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // Set new sleep time
+  if (argc == 3) {
+    long long sleepMicros;
+    if (RedisModule_StringToLongLong(argv[2], &sleepMicros) != REDISMODULE_OK || sleepMicros < 0) {
+      return RedisModule_ReplyWithError(ctx, "Invalid sleep time. Must be a non-negative integer.");
+    }
+
+    g_indexerSleepBeforeYieldMicros = (unsigned int)sleepMicros;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  return RedisModule_WrongArity(ctx);
 }
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
@@ -1870,6 +1913,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
@@ -1877,6 +1921,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
+                               {"FT.HYBRID", HybridCommand_DebugWrapper},
+                               {"_FT.HYBRID", HybridCommand_DebugWrapper}, // internal use only, in SA use FT.HYBRID
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.

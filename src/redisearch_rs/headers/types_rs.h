@@ -28,11 +28,6 @@ typedef struct FieldSpec FieldSpec;
 
 
 /**
- * An iterator over the results in an [`RSAggregateResult`].
- */
-typedef struct RSAggregateResultIter RSAggregateResultIter;
-
-/**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter {
@@ -426,6 +421,18 @@ typedef struct RSIndexResult {
 } RSIndexResult;
 
 /**
+ * A view over the records stored inside an [`RSAggregateResult`].
+ *
+ * It is designed to minimize the overhead of iterating over the records on
+ * the C side, by providing a direct pointer to the records and avoiding unnecessary
+ * C->Rust FFI calls.
+ */
+typedef struct AggregateRecordsSlice {
+  const struct RSIndexResult *const *ptr;
+  uintptr_t len;
+} AggregateRecordsSlice;
+
+/**
  * Summary information about the key metrics of a block in an inverted index
  */
 typedef struct IIBlockSummary {
@@ -446,6 +453,44 @@ typedef struct IISummary {
   double block_efficiency;
   bool has_efficiency;
 } IISummary;
+
+/**
+ * Filter to apply when reading from an index. Entries which don't match the filter will not be
+ * returned by the reader.
+ */
+enum IndexDecoderCtx_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  /**
+   * No filter, all entries are accepted
+   */
+  IndexDecoderCtx_None,
+  /**
+   * Accepts entries matching this field mask
+   */
+  IndexDecoderCtx_FieldMask,
+  /**
+   * Accepts entries matching this numeric filter
+   */
+  IndexDecoderCtx_Numeric,
+};
+#ifndef __cplusplus
+typedef uint8_t IndexDecoderCtx_Tag;
+#endif // __cplusplus
+
+typedef union IndexDecoderCtx {
+  IndexDecoderCtx_Tag tag;
+  struct {
+    IndexDecoderCtx_Tag field_mask_tag;
+    t_fieldMask field_mask;
+  };
+  struct {
+    IndexDecoderCtx_Tag numeric_tag;
+    const struct NumericFilter *numeric;
+  };
+} IndexDecoderCtx;
 
 #ifdef __cplusplus
 extern "C" {
@@ -620,9 +665,24 @@ struct RSOffsetVector *IndexResult_TermOffsetsRefMut(struct RSIndexResult *resul
 const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
 
 /**
- * Reset the result if it is an aggregate result. This will clear all children and reset the kind mask.
- * This function does not deallocate the children pointers, but rather resets the internal state of the
- * aggregate result. The owner of the children pointers is responsible for managing their lifetime.
+ * Get the aggregate result reference without performing a runtime check
+ * on the enum discriminant.
+ *
+ * Use this method if and only if you've already checked the enum
+ * discriminant in C code and you don't want to incur the (small)
+ * performance penalty of an additional redundant check.
+ *
+ * # Safety
+ *
+ * The following invariant must be upheld when calling this function:
+ * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
+ * 2. `result`'s data payload must be of the aggregate kind
+ */
+const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RSIndexResult *result);
+
+/**
+ * Reset the result if it is an aggregate result. This will clear the children vector
+ * and reset the kind mask.
  *
  * # Safety
  *
@@ -639,10 +699,21 @@ void IndexResult_AggregateReset(struct RSIndexResult *result);
  *
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
- * - The memory address at `index` should still be valid and not have been deallocated.
  */
 const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *agg,
                                                 uintptr_t index);
+
+/**
+ * Get the result at the specified index in the aggregate result, without checking bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
+ * 2. `index` must be lower than the length of the aggregate result children vector.
+ */
+const struct RSIndexResult *AggregateResult_GetUnchecked(const union RSAggregateResult *agg,
+                                                         uintptr_t index);
 
 /**
  * Get the element count of the aggregate result.
@@ -708,40 +779,13 @@ void AggregateResult_Free(union RSAggregateResult agg);
 void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
 
 /**
- * Create an iterator over the aggregate result. This iterator should be freed
- * using [`AggregateResultIter_Free`].
+ * Get a view of the records stored inside the aggregate result.
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-struct RSAggregateResultIter *AggregateResult_Iter(const union RSAggregateResult *agg);
-
-/**
- * Get the next item in the aggregate result iterator and put it into the provided `value`
- * pointer. This function will return `true` if there is a next item, or `false` if the iterator
- * is exhausted.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `iter` must point to a valid `RSAggregateResultIter` and cannot be NULL.
- * - `value` must point to a valid pointer where the next item will be stored.
- * - All the memory addresses of the `RSAggregateResult` should still be valid and not have
- *   been deallocated.
- */
-bool AggregateResultIter_Next(struct RSAggregateResultIter *iter, struct RSIndexResult **value);
-
-/**
- * Free the aggregate result iterator. This function will deallocate the memory used by the iterator.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `iter` must point to a valid `RSAggregateResultIter`.
- * - The iterator must have been created using [`AggregateResult_Iter`].
- */
-void AggregateResultIter_Free(struct RSAggregateResultIter *iter);
+struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const union RSAggregateResult *agg);
 
 /**
  * Retrieve the offsets array from [`RSOffsetVector`].

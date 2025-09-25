@@ -61,7 +61,7 @@ unsafe extern "C" fn RSSortingVector_Get(
         );
     }
 
-    vec[idx].0.as_ptr()
+    vec[idx].as_ptr()
 }
 
 /// Returns the length of the sorting vector. For nullptr it returns 0.
@@ -157,9 +157,12 @@ unsafe extern "C" fn RSSortingVector_PutStr(
 
     // Safety: RS_StringVal receives a valid C string pointer (1) and length
     let value = unsafe { RS_StringVal(str.cast_mut(), len as u32) };
-    // Safety: We assume RS_StringVal never returns a null pointer
-    let value = unsafe { NonNull::new_unchecked(value) };
-    let value = RSValueFFI(value);
+
+    // Safety: We assume RS_StringVal always returns valid pointers
+    let value = unsafe {
+        RSValueFFI::from_raw(NonNull::new(value).expect("RS_StringVal returned nullptr"))
+    };
+
     vec.try_insert_val(idx, value).unwrap_or_else(|_| {
         panic!("Index out of bounds: {} >= {}", idx, vec.len());
     });
@@ -192,8 +195,8 @@ unsafe extern "C" fn RSSortingVector_PutRSVal(
 
     // Safety: Caller must ensure 1. --> Deref is safe
     let vec = unsafe { vec.as_mut() };
-    //let _ = vec.try_insert_val(idx, RSValueFFI(val));
-    vec.try_insert_val(idx, RSValueFFI(val))
+    // Safety: Caller must ensure 2. --> pointer is valid
+    vec.try_insert_val(idx, unsafe { RSValueFFI::from_raw(val) })
         .unwrap_or_else(|_| {
             panic!("Index out of bounds: {} >= {}", idx, vec.len());
         });

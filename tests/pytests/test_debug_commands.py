@@ -58,10 +58,13 @@ class TestDebugCommands(object):
             "INFO",
             'GET_HIDE_USER_DATA_FROM_LOGS',
             'YIELDS_ON_LOAD_COUNTER',
+            'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
             '_FT.SEARCH',
+            'FT.HYBRID',
+            '_FT.HYBRID',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)

@@ -122,3 +122,48 @@ fn test_decode_freqs_offsets_empty_input() {
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
+
+#[test]
+fn test_seek_freqs_offsets() {
+    let buf = vec![
+        0, 0, 1, 3, 1, 2, 3, // First record: 0 delta; 1 freqs; 3 offsets len
+        0, 10, 2, 4, 1, 2, 3, 4, // Second record: 10 delta; 2 freqs; 4 offsets len
+        0, 10, 3, 4, 5, 6, 7, 8, // Third record: 10 delta; 3 freqs; 4 offsets len
+        0, 5, 1, 2, 10, 11, // Fourth record: 5 delta; 1 freqs; 2 offsets len
+        0, 20, 9, 2, 20, 21, // Fifth record: 20 delta; 9 freqs; 2 offsets len
+        0, 5, 1, 2, 20, 21, // Sixth record: 5 delta; 1 freqs; 2 offsets len
+    ];
+    let mut buf = Cursor::new(buf.as_ref());
+
+    let decoder = FreqsOffsets::default();
+
+    let record_decoded = decoder
+        .seek(&mut buf, 10, 30)
+        .expect("to decode freqs offsets record")
+        .expect("to find the target record");
+
+    let record_expected = TestTermRecord::new(30, 0, 3, vec![5i8, 6, 7, 8]);
+
+    assert_eq!(
+        TermRecordCompare(&record_decoded),
+        TermRecordCompare(&record_expected.record)
+    );
+
+    let record_decoded = decoder
+        .seek(&mut buf, 30, 40)
+        .expect("to decode freqs offsets record")
+        .expect("to find the target record");
+
+    let record_expected = TestTermRecord::new(55, 0, 9, vec![20i8, 21]);
+
+    assert_eq!(
+        TermRecordCompare(&record_decoded),
+        TermRecordCompare(&record_expected.record)
+    );
+
+    let record_decoded = decoder
+        .seek(&mut buf, 55, 70)
+        .expect("to decode fields offsets record");
+
+    assert_eq!(record_decoded, None);
+}
