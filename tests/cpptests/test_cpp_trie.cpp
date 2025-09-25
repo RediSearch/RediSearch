@@ -313,9 +313,9 @@ bool trieContains(Trie *t, const char *s) {
   if (!runes) {
     return false;
   }
-  float score = TrieNode_Find(t->root, runes, len);
+  TrieNode *node = TrieNode_Get(t->root, runes, len, 0, NULL);
   runeBufFree(&buf);
-  return score != 0; // TrieNode_Find returns 0 if not found, actual score if found
+  return node != NULL; // TrieNode_Find returns 0 if not found, actual score if found
 }
 
 TEST_F(TrieTest, testScoreOrder) {
@@ -654,8 +654,8 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   // Reset read position to load it back
   io->read_pos = 0;
 
-  // Load the trie from RDB
-  Trie *loadedTrie = (Trie *)TrieType_RdbLoad(io, TRIE_ENCVER_CURRENT);
+  // Load the trie from RDB WITHOUT payloads (loadPayloads = 0) to match the save operation
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, 0);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
