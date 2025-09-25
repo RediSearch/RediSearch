@@ -38,8 +38,8 @@ protected:
 
 // Helper function to get error message from HybridRequest for test assertions
 std::string HREQ_GetUserError(HybridRequest* req) {
-  QueryError error;
-  QueryError_Init(&error);
+  QueryError error = QUERY_ERROR_DEFAULT;
+
   HybridRequest_GetError(req, &error);
   HybridRequest_ClearErrors(req);
   return QueryError_GetUserError(&error);
