@@ -53,6 +53,14 @@ jobs:
                 **/CMakeLists.txt
                 **/Makefile
           fetch_additional_submodule_history: true
+      - name: Check if tests were changed
+        id: check-tests
+        uses: tj-actions/changed-files@v46.0.5
+        with: # Only run on changes to these paths (code, deps, and benchmarks related changes)
+          files: |
+                tests/**
+                .github/workflows/*test*.yml
+          fetch_additional_submodule_history: true
       - name: Check if rust micro-benchmarks were changed
         id: check-micro-benchmarks
         uses: tj-actions/changed-files@v46.0.5
