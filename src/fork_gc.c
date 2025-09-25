@@ -293,7 +293,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
                            .uniqueId = rt->uniqueId};
 
     numCbCtx nctx;
-    IndexRepairParams params = {.RepairCallback = countRemain, .arg = &nctx};
+    IndexRepairParams params = {.repair_callback = countRemain, .repair_arg = &nctx};
     hll_init(&nctx.majority_card, NR_BIT_PRECISION);
     hll_init(&nctx.last_block_card, NR_BIT_PRECISION);
     while ((currNode = NumericRangeTreeIterator_Next(gcIterator))) {
@@ -497,7 +497,7 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   }
 
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
-  ninfo->delta = InvertedIndex_GcDelta_Read(&rd, &ninfo->info);
+  ninfo->delta = InvertedIndex_GcDelta_Read(&rd);
   if (ninfo->delta == NULL) {
     goto error;
   }
@@ -508,23 +508,22 @@ static FGCError recvNumIdx(ForkGC *gc, NumGcInfo *ninfo) {
   return FGC_COLLECTED;
 
 error:
-  InvertedIndex_GcDelta_Free(ninfo->delta, &ninfo->info);
+  InvertedIndex_GcDelta_Free(ninfo->delta);
   return FGC_CHILD_ERROR;
 }
 
 static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocksSinceFork) {
-  if (!InvertedIndex_GcDelta_GetLastBlockIgnored(info->delta)) {
+  if (info->info.blocks_ignored == 0) {
     hll_set_registers(&range->hll, info->registersWithLastBlock, NR_REG_SIZE);
     if (blocksSinceFork == 0) {
       return; // No blocks were added since the fork. We're done
     }
   } else {
     hll_set_registers(&range->hll, info->registersWithoutLastBlock, NR_REG_SIZE);
-    blocksSinceFork++; // Count the ignored block as well
   }
   // Add the entries that were added since the fork to the HLL
-  size_t startIdx = InvertedIndex_NumBlocks(range->entries) - blocksSinceFork; // Here `blocksSinceFork` > 0
-  IndexBlock *startBlock = InvertedIndex_BlockRef(range->entries, startIdx);
+  size_t startIdx = GcScanDelta_LastBlockIdx(info->delta);
+  const IndexBlock *startBlock = InvertedIndex_BlockRef(range->entries, startIdx);
   t_docId startId = IndexBlock_FirstId(startBlock);
   IndexDecoderCtx decoderCtx = {.tag = IndexDecoderCtx_None};
   IndexReader *reader = NewIndexReader(range->entries, decoderCtx);
@@ -546,13 +545,12 @@ static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {
   NumericRangeNode *currNode = ninfo->node;
   InvertedIndexGcDelta *delta = ninfo->delta;
   II_GCScanStats *info = &ninfo->info;
-  size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - info->nblocksOrig; // record before applying changes
+  size_t blocksSinceFork = InvertedIndex_NumBlocks(currNode->range->entries) - GcScanDelta_LastBlockIdx(delta) - 1; // record before applying changes
   InvertedIndex_ApplyGcDelta(currNode->range->entries, delta, info);
-  InvertedIndex_SetNumEntries(currNode->range->entries, InvertedIndex_NumEntries(currNode->range->entries) - info->nentriesCollected);
-  currNode->range->invertedIndexSize += info->nbytesAdded;
-  currNode->range->invertedIndexSize -= info->nbytesCollected;
+  currNode->range->invertedIndexSize += info->bytes_allocated;
+  currNode->range->invertedIndexSize -= info->bytes_freed;
 
-  FGC_updateStats(gc, sctx, info->nentriesCollected, info->nbytesCollected, info->nbytesAdded, info->gcBlocksDenied);
+  FGC_updateStats(gc, sctx, info->entries_removed, info->bytes_freed, info->bytes_allocated, info->blocks_ignored);
 
   resetCardinality(ninfo, currNode->range, blocksSinceFork);
 }
@@ -572,7 +570,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
   II_GCScanStats info = {0};
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
 
-  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd, &info);
+  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
     rm_free(term);
@@ -610,7 +608,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
       // get memory before deleting the inverted index
       size_t inv_idx_size = InvertedIndex_MemUsage(idx);
       if (dictDelete(sctx->spec->keysDict, termKey) == DICT_OK) {
-        info.nbytesCollected += inv_idx_size;
+        info.bytes_freed += inv_idx_size;
       }
     }
 
@@ -627,7 +625,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
   }
 
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
+  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
 
 cleanup:
 
@@ -636,7 +634,7 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
   rm_free(term);
-  InvertedIndex_GcDelta_Free(delta, &info);
+  InvertedIndex_GcDelta_Free(delta);
   return status;
 }
 
@@ -696,16 +694,16 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     }
 
     applyNumIdx(gc, sctx, &ninfo);
-    rt->numEntries -= ninfo.info.nentriesCollected;
-    rt->invertedIndexesSize -= ninfo.info.nbytesCollected;
-    rt->invertedIndexesSize += ninfo.info.nbytesAdded;
+    rt->numEntries -= ninfo.info.entries_removed;
+    rt->invertedIndexesSize -= ninfo.info.bytes_freed;
+    rt->invertedIndexesSize += ninfo.info.bytes_allocated;
 
     if (InvertedIndex_NumDocs(ninfo.node->range->entries) == 0) {
       rt->emptyLeaves++;
     }
 
   loop_cleanup:
-    InvertedIndex_GcDelta_Free(ninfo.delta, &ninfo.info);
+    InvertedIndex_GcDelta_Free(ninfo.delta);
     if (sp) {
       RedisSearchCtx_UnlockSpec(sctx);
       IndexSpecRef_Release(spec_ref);
@@ -776,7 +774,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     }
 
     II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
-    delta = InvertedIndex_GcDelta_Read(&rd, &info);
+    delta = InvertedIndex_GcDelta_Read(&rd);
 
     if (delta == NULL) {
       status = FGC_CHILD_ERROR;
@@ -805,7 +803,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     // if tag value is empty, let's remove it.
     if (InvertedIndex_NumDocs(idx) == 0) {
       // get memory before deleting the inverted index
-      info.nbytesCollected += InvertedIndex_MemUsage(idx);
+      info.bytes_freed += InvertedIndex_MemUsage(idx);
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 
       if (tagIdx->suffix) {
@@ -813,12 +811,12 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
       }
     }
 
-    FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
+    FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
 
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
-    InvertedIndex_GcDelta_Free(delta, &info);
+    InvertedIndex_GcDelta_Free(delta);
 
     if (tagVal) {
       rm_free(tagVal);
@@ -844,7 +842,7 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
 
   II_GCScanStats info = {0};
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
-  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd, &info);
+  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
     rm_free(rawFieldName);
@@ -874,10 +872,10 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
 
   if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely lets free it
-    info.nbytesCollected += InvertedIndex_MemUsage(idx);
+    info.bytes_freed += InvertedIndex_MemUsage(idx);
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
-  FGC_updateStats(gc, sctx, info.nentriesCollected, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
+  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
 
 cleanup:
 
@@ -887,7 +885,7 @@ cleanup:
   }
   HiddenString_Free(fieldName, false);
   rm_free(rawFieldName);
-  InvertedIndex_GcDelta_Free(delta, &info);
+  InvertedIndex_GcDelta_Free(delta);
 
   return status;
 }
@@ -908,7 +906,7 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   II_GCScanStats info = {0};
   II_GCReader rd = { .ctx = gc, .read = pipe_read_cb };
-  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd, &info);
+  InvertedIndexGcDelta *delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
     rm_free(empty_indicator);
@@ -936,11 +934,11 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
 
   if (InvertedIndex_NumDocs(idx) == 0) {
     // inverted index was cleaned entirely, let's free it
-    info.nbytesCollected += InvertedIndex_MemUsage(idx);
+    info.bytes_freed += InvertedIndex_MemUsage(idx);
     InvertedIndex_Free(idx);
     sp->existingDocs = NULL;
   }
-  FGC_updateStats(gc, sctx, 0, info.nbytesCollected, info.nbytesAdded, info.gcBlocksDenied);
+  FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
 
 cleanup:
   rm_free(empty_indicator);
@@ -949,7 +947,7 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
 
-  InvertedIndex_GcDelta_Free(delta, &info);
+  InvertedIndex_GcDelta_Free(delta);
   return status;
 }
 
