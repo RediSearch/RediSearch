@@ -315,7 +315,7 @@ bool trieContains(Trie *t, const char *s) {
   }
   TrieNode *node = TrieNode_Get(t->root, runes, len, 0, NULL);
   runeBufFree(&buf);
-  return node != NULL; // TrieNode_Find returns 0 if not found, actual score if found
+  return node != NULL;
 }
 
 TEST_F(TrieTest, testScoreOrder) {
