@@ -14,6 +14,7 @@
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "aggregate/aggregate.h"
+#include "hybrid/hybrid_dispatcher.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,6 +33,7 @@ typedef struct {
   MRIterator *it;
   MRCommand cmd;
   AREQ *areq;
+  HybridDispatcher *dispatcher;
 
   // profile vars
   arrayof(MRReply *) shardsProfile;
@@ -40,6 +42,7 @@ typedef struct {
 
 void rpnetFree(ResultProcessor *rp);
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *));
+void RPNet_SetDispatcher(RPNet *nc, HybridDispatcher *dispatcher);
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 

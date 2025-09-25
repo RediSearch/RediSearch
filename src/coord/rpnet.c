@@ -172,11 +172,16 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd; // Take ownership of the command's internal allocations
   nc->areq = NULL;
+  nc->dispatcher = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
   nc->base.Next = nextFunc;
   nc->base.type = RP_NETWORK;
   return nc;
+}
+
+void RPNet_SetDispatcher(RPNet *nc, HybridDispatcher *dispatcher) {
+  nc->dispatcher = dispatcher;
 }
 
 void RPNet_resetCurrent(RPNet *nc) {

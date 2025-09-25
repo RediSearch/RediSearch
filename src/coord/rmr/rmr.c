@@ -696,11 +696,12 @@ void iterCursorMappingCb(void *p) {
     it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
+
     it->cbxs[i].cmd.targetSlot = mappings[i]->targetSlot;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
     sprintf(buf, "%lld", mappings[i]->cursorId);
-    MRCommand_Append(&it->cbxs[i].cmd, buf, strlen(buf));
+    MRCommand_ReplaceArg(&it->cbxs[i].cmd, 4, buf, strlen(buf));
   }
 
   // Send commands to all shards

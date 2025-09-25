@@ -26,8 +26,7 @@ static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 
 static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
-  StrongRef dispatcher_ref = HybridDispatcher_New(&nc->cmd, 4);
-  HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
+  HybridDispatcher *dispatcher = nc->dispatcher;
 
   //TODO:len is number of shards
   arrayof(CursorMapping *) searchMappings = array_new(CursorMapping* ,10);
@@ -128,9 +127,11 @@ static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 }
 
 // TODO: Fix this
-static void HybridRequest_buildDistRPChain(HybridRequest *hreq, MRCommand *xcmd, AREQDIST_UpstreamInfo *us) {
+static void HybridRequest_buildDistRPChain(HybridRequest *hreq, MRCommand *xcmd,
+                      AREQDIST_UpstreamInfo *us, HybridDispatcher *dispatcher) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd, rpnetNext_StartDispatcher); // This will take ownership of the command
+  RPNet_SetDispatcher(rpRoot, dispatcher);
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
@@ -172,6 +173,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
     int rc = parseHybridCommand(ctx, argv, argc, hreq->sctx, indexname, &cmd, status);
+    // we only need parse the combine and what comes after it
+    // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     // Set request flags from hybridParams
@@ -195,7 +198,10 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // xcmd.rootCommand = C_AGG;   // Response is equivalent to a `CURSOR READ` response
 
     // TODO: Build the result processor chain
-    HybridRequest_buildDistRPChain(hreq, &xcmd, &us);
+    StrongRef dispatcher_ref = HybridDispatcher_New(&xcmd, 4);
+    HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, dispatcher);
+    HybridRequest_buildDistRPChain(hreq->requests[2], &xcmd, &us, dispatcher);
 
     return REDISMODULE_OK;
 }
