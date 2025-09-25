@@ -54,7 +54,8 @@ def test_hybrid_search_explicit_scorer():
         env.assertEqual(b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e" ,np.array([1.2, 0.2]).astype(np.float32).tobytes())
         hybrid_response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'SCORER', scorer, 'VSIM' ,'@embedding', \
             b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e",'COMBINE', 'LINEAR', '4', 'ALPHA', '1.0', 'BETA', '0.0')
-        results = get_results_from_hybrid_response(hybrid_response)
+        results, count = get_results_from_hybrid_response(hybrid_response)
+        env.assertEqual(count, len(results.keys()))
         results = {a: float(results[a][SCORE_FIELD]) for a in results}
         agg_response = env.cmd('FT.AGGREGATE', 'idx', 'shoes', 'ADDSCORES', 'SCORER', scorer, 'LOAD', 2, '__key', '__score')
         agg_results = {a[3]: float(a[1]) for a in agg_response[1:]}
