@@ -70,19 +70,25 @@ impl Decoder for FieldsOffsets {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<3, _>(cursor)?;
         let [delta, field_mask, offsets_sz] = decoded_values;
 
-        let record = decode_term_record_offsets(
+        decode_term_record_offsets(
             cursor,
             base,
             delta,
             field_mask as t_fieldMask,
             1,
             offsets_sz,
+            result,
         )?;
-        Ok(record)
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 
     fn seek<'index>(
@@ -90,11 +96,14 @@ impl Decoder for FieldsOffsets {
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
         let (field_mask, offsets_sz) = loop {
             let [delta, field_mask, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
-                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
                 Err(error) => return Err(error),
             };
 
@@ -108,9 +117,16 @@ impl Decoder for FieldsOffsets {
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
         };
 
-        let record =
-            decode_term_record_offsets(cursor, base, 0, field_mask as t_fieldMask, 1, offsets_sz)?;
-        Ok(Some(record))
+        decode_term_record_offsets(
+            cursor,
+            base,
+            0,
+            field_mask as t_fieldMask,
+            1,
+            offsets_sz,
+            result,
+        )?;
+        Ok(true)
     }
 }
 
@@ -162,20 +178,26 @@ impl Decoder for FieldsOffsetsWide {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, offsets_sz] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-        let record = decode_term_record_offsets(
+        decode_term_record_offsets(
             cursor,
             base,
             delta,
             field_mask as t_fieldMask,
             1,
             offsets_sz,
+            result,
         )?;
-        Ok(record)
+        Ok(())
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 
     fn seek<'index>(
@@ -183,11 +205,14 @@ impl Decoder for FieldsOffsetsWide {
         cursor: &mut Cursor<&'index [u8]>,
         mut base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
         let (field_mask, offsets_sz) = loop {
             let [delta, offsets_sz] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
-                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Ok(false);
+                }
                 Err(error) => return Err(error),
             };
             let field_mask = t_fieldMask::read_as_varint(cursor)?;
@@ -202,8 +227,15 @@ impl Decoder for FieldsOffsetsWide {
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
         };
 
-        let record =
-            decode_term_record_offsets(cursor, base, 0, field_mask as t_fieldMask, 1, offsets_sz)?;
-        Ok(Some(record))
+        decode_term_record_offsets(
+            cursor,
+            base,
+            0,
+            field_mask as t_fieldMask,
+            1,
+            offsets_sz,
+            result,
+        )?;
+        Ok(true)
     }
 }

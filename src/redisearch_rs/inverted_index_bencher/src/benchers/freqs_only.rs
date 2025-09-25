@@ -14,7 +14,7 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{Decoder, Encoder, freqs_only::FreqsOnly};
+use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
 use itertools::Itertools;
 
 use crate::ffi::{TestBuffer, encode_freqs_only, read_freqs};
@@ -164,7 +164,8 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let result = FreqsOnly.decode(buffer, 100).unwrap();
+                        let mut record = RSIndexResult::default();
+                        let result = FreqsOnly.decode(buffer, 100, &mut record).unwrap();
                         let _ = black_box(result);
                     },
                     BatchSize::SmallInput,
