@@ -1005,8 +1005,12 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
         if '__key' in result:
             key = result['__key']
             results[key] = result
-
-    return results, response['total_results']
+            
+    total_results = 0
+    # use get in case response is an error or a timeout response and doesn't contain
+    if isinstance(response, dict):
+        total_results = response.get('total_results', 0)
+    return results, total_results
 
 def populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345, offset=0):
     """Populate database with faker-generated text documents
