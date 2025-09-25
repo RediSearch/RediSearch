@@ -609,7 +609,7 @@ mod tests {
             .build()?;
 
             let mut lookup = RLookup::new();
-            let mut row = RLookupRow::new();
+            let mut row = RLookupRow::new(&lookup);
             load_document_int(&mut lookup, &mut row, &opt, ctx)?;
 
             assert_eq!(row.len(), 2);
