@@ -94,11 +94,18 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
       return REDISMODULE_ERR;
     }
 
-    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument
+    // AC_ERR_ENOENT - check if it's VSIM or just an unknown argument (special error message for DIALECT)
     const char *cur;
-    if (AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE) == AC_OK && !strcasecmp("VSIM", cur)) {
+    rv = AC_GetString(ac, &cur, NULL, AC_F_NOADVANCE);
+
+    if (rv == AC_OK && !strcasecmp("VSIM", cur)) {
       // Hit VSIM, we're done with search options
       return REDISMODULE_OK;
+    }
+    if (rv == AC_OK && !strcasecmp("DIALECT", cur)) {
+      // Hit VSIM, we're done with search options
+      QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in SEARCH subquery");
+      return REDISMODULE_ERR;
     }
 
     // Unknown argument that's not VSIM - this is an error
@@ -184,6 +191,9 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       pvd->vectorScoreFieldAlias = rm_strdup(value);
+    } else if (AC_AdvanceIfMatch(ac, "DIALECT")) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in vector subquery");
+      return REDISMODULE_ERR;
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -274,6 +284,9 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       pvd->vectorScoreFieldAlias = rm_strdup(value);
+    } else if (AC_AdvanceIfMatch(ac, "DIALECT")) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in vector subquery");
+      return REDISMODULE_ERR;
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);

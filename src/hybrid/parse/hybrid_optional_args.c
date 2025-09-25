@@ -12,6 +12,8 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
+#define MIN_HYBRID_DIALECT 2
+
 /**
  * Applies optimization to skip collecting rich results when they are not needed.
  *
@@ -75,7 +77,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // TIMEOUT timeout - query timeout in milliseconds
     ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
                       &ctx->reqConfig->queryTimeoutMS,
-                      ARG_OPT_OPTIONAL, 
+                      ARG_OPT_OPTIONAL,
                       ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.queryTimeoutMS,
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
@@ -84,7 +86,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     ArgParser_AddIntV(parser, "DIALECT", "Query dialect version",
                       &ctx->reqConfig->dialectVersion, 1, 1,
                       ARG_OPT_RANGE, (long long)MIN_DIALECT_VERSION, (long long)MAX_DIALECT_VERSION,
-                      ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.dialectVersion,
+                      ARG_OPT_DEFAULT_INT, MIN_HYBRID_DIALECT,
                       ARG_OPT_CALLBACK, handleDialect, ctx,
                       ARG_OPT_OPTIONAL,
                       ARG_OPT_END);
@@ -161,7 +163,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // Parse the arguments
     ArgParseResult parseResult = ArgParser_Parse(parser);
-    
+
     // Check for errors from callbacks
     if (QueryError_HasError(status)) {
         ArgParser_Free(parser);

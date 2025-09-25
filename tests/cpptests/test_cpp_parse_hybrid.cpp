@@ -176,7 +176,7 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
 
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "TIMEOUT", "240", "DIALECT", "2");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "TIMEOUT", "240");
 
   parseCommand(args);
 
@@ -1070,4 +1070,44 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   // Test LOAD with insufficient fields for specified count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LOAD", "3", "@title");
   testErrorCode(args, QUERY_EPARSEARGS, "Not enough arguments for LOAD");
+}
+
+// ============================================================================
+// DIALECT ERROR TESTS - Testing DIALECT is not supported in subqueries
+// ============================================================================
+
+TEST_F(ParseHybridTest, testDialectInSearchSubquery) {
+  // Test DIALECT in SEARCH subquery - should fail with specific error
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "DIALECT", "2", "VSIM", "@vector", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in SEARCH subquery");
+}
+
+TEST_F(ParseHybridTest, testDialectInVectorKNNSubquery) {
+  // Test DIALECT in vector KNN subquery - should fail with specific error
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in vector subquery");
+}
+
+TEST_F(ParseHybridTest, testDialectInVectorRangeSubquery) {
+  // Test DIALECT in vector RANGE subquery - should fail with specific error
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in vector subquery");
+}
+
+TEST_F(ParseHybridTest, testDialectInTail) {
+  // Test DIALECT in tail (after subqueries) - should work correctly
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "DIALECT", "2");
+
+  QueryError status = {QueryErrorCode(0)};
+  int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
+
+  // Should succeed - DIALECT is allowed in the tail
+  EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
+  EXPECT_TRUE(rc == REDISMODULE_OK) << "parseHybridCommand returned REDISMODULE_ERR";
+
+  // Verify that dialect was set correctly
+  EXPECT_EQ(result.reqConfig->dialectVersion, 2);
+
+  // Clean up
+  QueryError_ClearError(&status);
 }
