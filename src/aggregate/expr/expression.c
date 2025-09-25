@@ -479,6 +479,8 @@ static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
       return RS_RESULT_OK;
     }
 
+    // Reduce the total number of results
+    rp->parent->totalResults--;
     // Otherwise, the result must be filtered out.
     SearchResult_Clear(r);
   }

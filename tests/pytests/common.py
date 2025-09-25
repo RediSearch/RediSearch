@@ -1006,7 +1006,7 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
             key = result['__key']
             results[key] = result
 
-    return results
+    return results, response['total_results']
 
 def populate_db_with_faker_text(env, num_docs, doc_len=5, seed=12345, offset=0):
     """Populate database with faker-generated text documents

@@ -575,15 +575,15 @@ class testHybridSearch:
 
         # total_results should be the number of results before filtering.
         self.env.assertEqual(unfiltered_dict['total_results'], 3)
-        self.env.assertEqual(filtered_dict['total_results'], 3)
+        self.env.assertEqual(filtered_dict['total_results'], 1)
 
         # But only 1 result is returned by the filtered query:
         expected = [
-            'total_results', 3,
             'results',
             [
                 ['__key', 'both_01', '__score', '0.45']
             ],
+            'total_results', 1,
             'warnings', [],
             'execution_time', ANY
         ]

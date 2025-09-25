@@ -113,7 +113,8 @@ def test_debug_timeout_return_with_results():
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'gear', 'VSIM', \
                        '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, \
                        'TIMEOUT_AFTER_N_SEARCH', '1', 'TIMEOUT_AFTER_N_VSIM', '1', 'DEBUG_PARAMS_COUNT', '4')
-    results = get_results_from_hybrid_response(response)
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, len(results.keys()))
     env.assertTrue('doc:3' in results.keys())
     # Expect exactly one document from VSIM since the timeout occurred after processing one result - should be either doc:2 or doc:4
     env.assertTrue(('doc:2' in results.keys()) ^ ('doc:4' in results.keys()))
