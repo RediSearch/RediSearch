@@ -150,8 +150,8 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 500);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 1);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 1);
+  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithParams) {
