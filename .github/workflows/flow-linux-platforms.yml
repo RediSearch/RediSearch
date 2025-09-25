@@ -91,49 +91,31 @@ on:
         default: false # Default to false on manual trigger
 
 jobs:
-  get-required-envs:
-    uses: ./.github/workflows/task-get-linux-configurations.yml
+  # Generate Linux matrix configurations
+  generate-linux-matrix:
+    uses: ./.github/workflows/task-generate-test-matrix.yml
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
+      include-coverage: false
+      include-sanitizer: false
 
-  linux-matrix-x86_64:
-    if: inputs.architecture == 'all' || inputs.architecture == 'x86_64'
-    needs: get-required-envs
+  # Unified Linux matrix using generated configurations
+  linux-unified-matrix:
+    name: ${{ matrix.name }}
+    needs: generate-linux-matrix
     strategy:
-      matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_x86) }}
-        include: ${{ fromJson(needs.get-required-envs.outputs.include_x86) }}
+      matrix: ${{ fromJson(needs.generate-linux-matrix.outputs.matrix) }}
       fail-fast: ${{ inputs.fail-fast }}
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
+      env: ${{ matrix.env }}
       get-redis: ${{ inputs.redis-ref }}
       rejson: ${{ inputs.rejson }}
       rejson-branch: ${{ inputs.rejson-branch }}
-      container: ${{ matrix.OS }}
-      pre-steps-script: ${{ matrix.pre-deps }}
-      coordinator: ${{ inputs.coordinator }}
-      standalone: ${{ inputs.standalone }}
-      test-config: ${{ inputs.test-config }}
-
-  linux-matrix-aarch64:
-    if: inputs.architecture == 'all' || inputs.architecture == 'aarch64'
-    needs: get-required-envs
-    strategy:
-      matrix:
-        OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_arm) }}
-        include: ${{ fromJson(needs.get-required-envs.outputs.include_arm) }}
-      fail-fast: ${{ inputs.fail-fast }}
-    uses:  ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      env: ${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}
-      get-redis: ${{ inputs.redis-ref }}
-      rejson: ${{ inputs.rejson }}
-      rejson-branch: ${{ inputs.rejson-branch }}
-      container: ${{ matrix.OS }}
-      pre-steps-script: ${{ matrix.pre-deps }}
+      container: ${{ matrix.container }}
+      pre-steps-script: ${{ matrix.pre-steps-script }}
       coordinator: ${{ inputs.coordinator }}
       standalone: ${{ inputs.standalone }}
       test-config: ${{ inputs.test-config }}
