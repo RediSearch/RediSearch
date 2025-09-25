@@ -173,6 +173,15 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
 
       RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
 
+      RLookupKey *scoreAliasKey = NULL;
+      if (params->scoreAlias) {
+        scoreAliasKey = RLookup_GetKey_Write(lk, params->scoreAlias, RLOOKUP_F_NOFLAGS);
+        if (!scoreKey) {
+          QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "Cannot use provided score alias", ", Alias: `%s`", params->scoreAlias);
+          goto end;
+        }
+      }
+
       for (size_t ii = 0; ii < nkeys; ++ii) {
         const char *keystr = astp->sortKeys[ii];
         RLookupKey *sortkey = RLookup_GetKey_Read(lk, keystr, RLOOKUP_F_NOFLAGS);
@@ -196,14 +205,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
-      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
+      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, scoreAliasKey, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
     } else if (IsHybridTail(&params->common) || IsHybridSearchSubquery(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
                HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(maxResults);
+      rp = RPSorter_NewByScore(maxResults, scoreAliasKey);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
@@ -560,9 +569,13 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         // Get score key for writing normalized scores
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         RS_ASSERT(curLookup);
-        const RLookupKey *scoreKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
+        const RLookupKey *distanceKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
+        const RLookupKey *scoreKey = NULL;
+        if (vnStep->scoreAlias) {
+          scoreKey = RLookup_GetKey_Write(curLookup, vnStep->scoreAlias, RLOOKUP_F_NOFLAGS);
+        }
         // Create vector normalizer result processor
-        rp = RPVectorNormalizer_New(normFunc, scoreKey);
+        rp = RPVectorNormalizer_New(normFunc, distanceKey, scoreKey);
         PUSH_RP();
         break;
       }

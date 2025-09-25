@@ -55,6 +55,9 @@ typedef struct AggregationPipelineParams {
    *  Used by highlighting result processors to apply proper stemming,
    *  tokenization, and markup for the specified language. */
   RSLanguage language;
+
+  /** Name to use as the score alias. */
+  const char* scoreAlias;
 } AggregationPipelineParams;
 
 

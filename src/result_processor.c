@@ -389,6 +389,9 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   SearchResult *cur_best = mmh_pop_max(self->pq);
 
   if (cur_best) {
+    if (self->scoreAlias) {
+      RLookup_WriteOwnKey(self->scoreAlias, &r->rowdata, RS_NumVal(r->score));
+    }
     SearchResult_Override(r, cur_best);
     rm_free(cur_best);
     return RS_RESULT_OK;
@@ -527,7 +530,7 @@ static void srDtor(void *p) {
   }
 }
 
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, const RLookupKey* scoreAlias, uint64_t ascmap) {
 
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
@@ -535,6 +538,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
+  ret->scoreAlias = scoreAlias;
 
   ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
@@ -544,8 +548,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey* scoreAlias) {
+  return RPSorter_NewByFields(maxresults, NULL, 0, scoreAlias, 0);
 }
 
 /*******************************************************************************************************************
@@ -1446,10 +1450,10 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Apply normalization to the score
   double normalizedScore = 0.0;
-  RSValue *scoreValue = RLookup_GetItem(self->scoreKey, &r->rowdata);
-  if (scoreValue) {
+  RSValue *distanceValue = RLookup_GetItem(self->distanceKey, &r->rowdata);
+  if (distanceValue) {
     double originalScore = 0.0;
-    if (RSValue_ToNumber(scoreValue, &originalScore)) {
+    if (RSValue_ToNumber(distanceValue, &originalScore)) {
       normalizedScore = self->normFunc(originalScore);
     }
   }
@@ -1469,14 +1473,15 @@ static void RPVectorNormalizer_Free(ResultProcessor *rp) {
 }
 
 /* Create a new Vector Normalizer processor */
-ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey) {
+ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *distanceKey, const RLookupKey *scoreAliasKey) {
   RPVectorNormalizer *ret = rm_calloc(1, sizeof(*ret));
 
   ret->normFunc = normFunc;
   ret->base.Next = RPVectorNormalizer_Next;
   ret->base.Free = RPVectorNormalizer_Free;
   ret->base.type = RP_VECTOR_NORMALIZER;
-  ret->scoreKey = scoreKey;
+  ret->distanceKey = distanceKey;
+  ret->scoreKey = scoreAliasKey;
 
   return &ret->base;
 }
