@@ -624,6 +624,13 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
 
   FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
 
+  if (sp) {
+    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpecRef_Release(spec_ref);
+  }
+  rm_free(term);
+  return status;
+
 cleanup:
 
   if (sp) {
@@ -698,6 +705,13 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     if (InvertedIndex_NumDocs(ninfo.node->range->entries) == 0) {
       rt->emptyLeaves++;
     }
+
+    if (sp) {
+      RedisSearchCtx_UnlockSpec(sctx);
+      IndexSpecRef_Release(spec_ref);
+    }
+
+    continue;
 
   loop_cleanup:
     InvertedIndex_GcDelta_Free(ninfo.delta);
@@ -810,6 +824,15 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 
     FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
 
+    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpecRef_Release(spec_ref);
+
+    if (tagVal) {
+      rm_free(tagVal);
+    }
+
+    continue;
+
   loop_cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
@@ -874,6 +897,15 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   }
   FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
 
+  if (sp) {
+    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpecRef_Release(spec_ref);
+  }
+  HiddenString_Free(fieldName, false);
+  rm_free(rawFieldName);
+
+  return status;
+
 cleanup:
 
   if (sp) {
@@ -936,6 +968,14 @@ static FGCError FGC_parentHandleExistingDocs(ForkGC *gc) {
     sp->existingDocs = NULL;
   }
   FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+
+  rm_free(empty_indicator);
+  if (sp) {
+    RedisSearchCtx_UnlockSpec(sctx);
+    IndexSpecRef_Release(spec_ref);
+  }
+
+  return status;
 
 cleanup:
   rm_free(empty_indicator);
