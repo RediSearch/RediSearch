@@ -9,7 +9,7 @@
 
 #include "test_util.h"
 #include "src/util/khtable.h"
-#include "src/util/fnv.h"
+#include "src/util/fxhash.h"
 
 #include <string.h>
 #include <assert.h>
@@ -36,7 +36,7 @@ static KHTableEntry *myAlloc(void *ctx) {
 }
 
 static uint32_t calcHash(const char *s) {
-  return rs_fnv_32a_buf((char *)s, strlen(s), 0);
+  return fxhash_32((char *)s, strlen(s));
 }
 
 static KHTableProcs myProcs = {.Alloc = myAlloc, .Hash = myHash, .Compare = myEntryCompare};
