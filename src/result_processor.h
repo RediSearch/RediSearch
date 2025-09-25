@@ -296,13 +296,6 @@ void Profile_AddRPs(QueryProcessingCtx *qctx);
  * First accumulates all results from the upstream, then normalizes and yields them.
  *******************************************************************************************************************/
 ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
-/*******************************************************************************************************************
- *  Normalizer Result Processor
- *
- * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
- * First accumulates all results from the upstream, then normalizes and yields them.
- *******************************************************************************************************************/
-ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
 /*******************************************************************************************************************
  *  Vector Normalizer Result Processor
