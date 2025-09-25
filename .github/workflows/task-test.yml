@@ -48,6 +48,7 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
+  BUILD_INTEL_SVS_OPT: "yes"
 
 jobs:
   common-flow:
@@ -177,8 +178,6 @@ jobs:
                              ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
                              ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
-      - name: Enable Intel's Optimizations
-        run: echo "BUILD_INTEL_SVS_OPT=yes" >> $GITHUB_ENV
       - name: Build
         env:
           SAN: ${{ inputs.san }}
