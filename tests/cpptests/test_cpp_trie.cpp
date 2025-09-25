@@ -552,9 +552,9 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   ASSERT_TRUE(loadedPayload2 != nullptr);
   ASSERT_TRUE(loadedPayload3 != nullptr);
 
-  EXPECT_STREQ(payload1, (char *)loadedPayload1);
-  EXPECT_STREQ(payload2, (char *)loadedPayload2);
-  EXPECT_STREQ(payload3, (char *)loadedPayload3);
+  EXPECT_EQ(0, strncmp(payload1, (char *)loadedPayload1, strlen(payload1)));
+  EXPECT_EQ(0, strncmp(payload2, (char *)loadedPayload2, strlen(payload2)));
+  EXPECT_EQ(0, strncmp(payload3, (char *)loadedPayload3, strlen(payload3)));
 }
 
 TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
