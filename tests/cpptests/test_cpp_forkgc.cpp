@@ -382,7 +382,7 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   lastBlockMemory += this->addDocumentWrapper(buf, "f1", "hello");
 
   // Save the pointer to the original last block data.
-  IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
+  const IndexBlock *lastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 1);
   const char *originalData = IndexBlock_Data(lastBlock);
 
   /** Apply the child changes. All the entries the child has seen are marked as deleted,
@@ -614,7 +614,7 @@ TEST_F(FGCTestTag, testRemoveMiddleBlock) {
   // Get the previous pointer, i.e. the one we expect to have the updated
   // info. We do -2 and not -1 because we have one new document in the
   // fourth block (as a sentinel)
-  IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
+  const IndexBlock *secondLastBlock = InvertedIndex_BlockRef(iv, InvertedIndex_NumBlocks(iv) - 2);
   const char *pp = IndexBlock_Data(secondLastBlock);
   FGC_Apply(fgc);
 
@@ -754,7 +754,7 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   FGC_WaitBeforeFork(fgc);
 
   // Delete the entire second block
-  IndexBlock *block = InvertedIndex_BlockRef(rt->root->range->entries, 1);
+  const IndexBlock *block = InvertedIndex_BlockRef(rt->root->range->entries, 1);
   t_docId firstId = IndexBlock_FirstId(block);
   t_docId lastId = IndexBlock_LastId(block);
   for (size_t i = firstId; i <= lastId; i++) {
