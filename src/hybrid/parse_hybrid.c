@@ -31,6 +31,8 @@
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 
+#define MIN_HYBRID_DIALECT 2
+
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
   const char *verb = (provided == 1) ? "was" : "were";
@@ -699,6 +701,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
+
+  // Use default dialect if > 1, otherwise use dialect 2
+  if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
+    parsedCmdCtx->reqConfig->dialectVersion = MIN_HYBRID_DIALECT;
+    parsedCmdCtx->search->reqConfig.dialectVersion = MIN_HYBRID_DIALECT;
+    parsedCmdCtx->vector->reqConfig.dialectVersion = MIN_HYBRID_DIALECT;
+  }
+
   RSSearchOptions mergeSearchopts = {0};
   size_t mergeMaxSearchResults = RSGlobalConfig.maxSearchResults;
   size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
