@@ -73,8 +73,8 @@ extern "C" {
   X(QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed")             \
   X(QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed")                \
   X(QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM")        \
-  //TODO: remove QUERY_EHYBRID_HYBRID_ALIAS after YIELD_DISTANCE_AS is enabled
   X(QUERY_EOOM, "Not enough memory available to execute the query")    \
+  //TODO: remove QUERY_EHYBRID_HYBRID_ALIAS after YIELD_DISTANCE_AS is enabled
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
