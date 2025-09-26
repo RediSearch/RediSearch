@@ -321,7 +321,7 @@ void PipelineAddCrash(struct AREQ *r);
   * Processes results immediately without accumulation.
   * The normalization function is provided by pipeline construction logic.
   *******************************************************************************************************************/
- ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey);
+ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *distanceKey, const RLookupKey *scoreAliasKey);
 
 /*******************************************************************************
  * Depleter Result Processor

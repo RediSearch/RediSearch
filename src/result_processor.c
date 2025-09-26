@@ -379,6 +379,9 @@ typedef struct {
     uint64_t ascendMap;
   } fieldcmp;
 
+  // The key to store the score under
+  const RLookupKey* scoreKey;
+
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 } RPSorter;
@@ -389,8 +392,8 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   SearchResult *cur_best = mmh_pop_max(self->pq);
 
   if (cur_best) {
-    if (self->scoreAlias) {
-      RLookup_WriteOwnKey(self->scoreAlias, &r->rowdata, RS_NumVal(r->score));
+    if (self->scoreKey) {
+      RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
     }
     SearchResult_Override(r, cur_best);
     rm_free(cur_best);
@@ -530,7 +533,7 @@ static void srDtor(void *p) {
   }
 }
 
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, const RLookupKey* scoreAlias, uint64_t ascmap) {
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, const RLookupKey* scoreKey, uint64_t ascmap) {
 
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
@@ -538,7 +541,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
-  ret->scoreAlias = scoreAlias;
+  ret->scoreKey = scoreKey;
 
   ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
@@ -1436,7 +1439,8 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 typedef struct {
   ResultProcessor base;
   VectorNormFunction normFunc;
-  const RLookupKey *scoreKey;      // Score field to normalize
+  const RLookupKey *distanceKey;   // Distance field to normalize
+  const RLookupKey *scoreKey;      // Score key to save the normalized score under
 } RPVectorNormalizer;
 
 static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {

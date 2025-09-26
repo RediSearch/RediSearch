@@ -1417,11 +1417,11 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         .sctx = req->sctx,
         .reqflags = req->reqflags,
         .optimizer = req->optimizer,
+        .scoreAlias = req->searchopts.scoreAlias,
       },
       .ast = &req->ast,
       .rootiter = req->rootiter,
       .scorerName = req->searchopts.scorerName,
-      .scoreAlias = req->searchopts.scorerAlias,
       .reqConfig = &req->reqConfig,
     };
     Pipeline_BuildQueryPart(&req->pipeline, &params);
@@ -1434,6 +1434,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .sctx = req->sctx,
       .reqflags = req->reqflags,
       .optimizer = req->optimizer,
+      .scoreAlias = req->searchopts.scoreAlias,
     },
     .outFields = &req->outFields,
     .maxResultsLimit = IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults,

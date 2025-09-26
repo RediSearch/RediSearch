@@ -76,7 +76,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
   ACArgSpec querySpecs[] = {
     {.name = "SCORER", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scorerName},
-    {.name = "YIELD_SCORE_AS", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scoreAlias}
+    {.name = "YIELD_SCORE_AS", .type = AC_ARGTYPE_STRING, .target = &searchOpts->scoreAlias},
     {NULL}
   };
 
@@ -199,7 +199,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         return REDISMODULE_ERR;
       }
       pvd->vectorScoreAlias = rm_strdup(value);
-    } else
+    } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in KNN", current);
@@ -233,7 +233,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   bool hasRadius = false;
   bool hasEpsilon = false;
   RS_ASSERT(pvd->vectorScoreAlias == NULL);
-  RS_ASSERT(pvd->vectorDistanceAlias == NULL);
+  RS_ASSERT(pvd->vectorDistanceFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
@@ -623,7 +623,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // otherwise, store the vector score in a default key.
   const char *vectorDistanceFieldAlias = NULL;
   const char *vectorScoreAlias = vectorRequest->parsedVectorData->vectorScoreAlias;
-  if (vectorRequest->parsedVectorData->vectorDistanceAlias != NULL) {
+  if (vectorRequest->parsedVectorData->vectorDistanceFieldAlias != NULL) {
     vectorDistanceFieldAlias = vectorRequest->parsedVectorData->vectorDistanceFieldAlias;
     vectorRequest->parsedVectorData->vectorDistanceFieldAlias = NULL;
   } else {
@@ -719,6 +719,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
               .sctx = sctx,  // should be a separate context?
               .reqflags = *mergeReqflags | QEXEC_F_IS_HYBRID_TAIL,
               .optimizer = NULL,  // is it?
+              .scoreAlias = NULL; // tail does not support a score alias at this time, the hybrid merger should use the score directly
           },
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,

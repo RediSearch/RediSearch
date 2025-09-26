@@ -164,23 +164,23 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
+  RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+
+  RLookupKey *scoreKey = NULL;
+  if (params->common.scoreAlias) {
+    scoreKey = RLookup_GetKey_Write(lk, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
+    if (!scoreKey) {
+      QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", params->common.scoreAlias);
+      goto end;
+    }
+  }
+
   if (IsHybrid(&params->common) || (params->common.optimizer->type != Q_OPT_NO_SORTER)) { // Don't optimize hybrid queries
     if (astp->sortKeys) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
       const RLookupKey **sortkeys = astp->sortkeysLK;
-
-      RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
-
-      RLookupKey *scoreAliasKey = NULL;
-      if (params->scoreAlias) {
-        scoreAliasKey = RLookup_GetKey_Write(lk, params->scoreAlias, RLOOKUP_F_NOFLAGS);
-        if (!scoreKey) {
-          QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "Cannot use provided score alias", ", Alias: `%s`", params->scoreAlias);
-          goto end;
-        }
-      }
 
       for (size_t ii = 0; ii < nkeys; ++ii) {
         const char *keystr = astp->sortKeys[ii];
@@ -205,14 +205,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
-      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, scoreAliasKey, astp->sortAscMap);
+      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, scoreKey, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
     } else if (IsHybridTail(&params->common) || IsHybridSearchSubquery(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
                HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(maxResults, scoreAliasKey);
+      rp = RPSorter_NewByScore(maxResults, scoreKey);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
@@ -396,14 +396,14 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
   if (scoresExplicitlyRequested || (isSearchReturningRows && scoringNeeded)) {
     const RLookupKey *scoreKey = NULL;
     if (HasScoreInPipeline(&params->common)) {
-      if (params->scoreAlias) {
-        scoreKey = RLookup_GetKey_Write(first, params->scoreAlias, RLOOKUP_F_NOFLAGS);
+      if (params->common.scoreAlias) {
+        scoreKey = RLookup_GetKey_Write(first, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
       } else {
         scoreKey = RLookup_GetKey_Write(first, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
       }
     }
-    if (params->scoreAlias && !scoreKey) {
-      QueryError_SetWithUserDataFmt(params->common.err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", params->scoreAlias);
+    if (params->common.scoreAlias && !scoreKey) {
+      QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", params->common.scoreAlias);
       return;
     } 
 
