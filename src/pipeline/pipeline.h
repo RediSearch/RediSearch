@@ -56,8 +56,6 @@ typedef struct AggregationPipelineParams {
    *  tokenization, and markup for the specified language. */
   RSLanguage language;
 
-  /** Name to use as the score alias. */
-  const char* scoreAlias;
 } AggregationPipelineParams;
 
 
@@ -88,6 +86,9 @@ typedef struct QueryPipelineParams {
      *  Examples include "BM25", "TFIDF", or custom scorer names. This determines
      *  how documents are ranked by relevance. If NULL, the default scorer is used. */
     const char *scorerName;
+
+      /** Name to use as the score alias. */
+    const char* scoreAlias;
 
     /** Request configuration containing timeout policies and execution settings.
      *  Determines how the search query behaves under timeout conditions and other
