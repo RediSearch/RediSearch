@@ -163,6 +163,7 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher) {
     // Mark as started
     HybridDispatcher_MarkStarted(dispatcher);
 
+    RedisModule_Log(NULL, "debug", "HybridDispatcher_Dispatch: Starting iterator");
     // Start the iterator
     MRIterator *it = HybridDispatcher_ProcessMappings(dispatcher);
     if (!it) {

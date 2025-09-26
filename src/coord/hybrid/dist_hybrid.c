@@ -25,6 +25,7 @@ static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 }
 
 static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
+  RedisModule_Log(NULL, "debug", "rpnetNext_StartDispatcher");
   RPNet *nc = (RPNet *)rp;
   HybridDispatcher *dispatcher = nc->dispatcher;
 
@@ -127,23 +128,32 @@ static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
 }
 
 // TODO: Fix this
-static void HybridRequest_buildDistRPChain(HybridRequest *hreq, MRCommand *xcmd,
-                      AREQDIST_UpstreamInfo *us, HybridDispatcher *dispatcher) {
+static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
+                          AREQDIST_UpstreamInfo *us,
+                          int (*nextFunc)(ResultProcessor *, SearchResult *),
+                          HybridDispatcher *dispatcher) {
   // Establish our root processor, which is the distributed processor
-  RPNet *rpRoot = RPNet_New(xcmd, rpnetNext_StartDispatcher); // This will take ownership of the command
+  RedisModule_Log(NULL, "debug", "HybridRequest_buildDistRPChain");
+  MRCommand cmd = MRCommand_Copy(xcmd);
+  RPNet *rpRoot = RPNet_New(&cmd, rpnetNext_StartDispatcher); // This will take ownership of the command
   RPNet_SetDispatcher(rpRoot, dispatcher);
-  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
-  // TODO: Is this enough?
-  rpRoot->areq = NULL; // Hybrid requests don't use a single AREQ - they manage multiple requests internally
+  rpRoot->areq = r;
 
-  // RS_ASSERT(!qctx->rootProc);
+  ResultProcessor *rpProfile = NULL;
+  if (IsProfile(r)) {
+    rpProfile = RPProfile_New(&rpRoot->base, qctx);
+  }
+
+  // RS_ASSERT(!AREQ_QueryProcessingCtx(r)->rootProc);
   // Get the deepest-most root:
   int found = 0;
-  for (ResultProcessor *rp = qctx->endProc; rp; rp = rp->upstream) {
+  for (ResultProcessor *rp = AREQ_QueryProcessingCtx(r)->endProc; rp; rp = rp->upstream) {
     if (!rp->upstream) {
-      rp->upstream = &rpRoot->base;
+      rp->upstream = IsProfile(r) ? rpProfile : &rpRoot->base;
       found = 1;
       break;
     }
@@ -154,19 +164,30 @@ static void HybridRequest_buildDistRPChain(HybridRequest *hreq, MRCommand *xcmd,
   if (!found) {
     qctx->endProc = &rpRoot->base;
   }
+
+  // allocate memory for replies and update endProc if necessary
+  if (IsProfile(r)) {
+    // 2 is just a starting size, as we most likely have more than 1 shard
+    rpRoot->shardsProfile = array_new(MRReply*, 2);
+    if (!found) {
+      qctx->endProc = rpProfile;
+    }
+  }
 }
 
 // should make sure the product of AREQ_BuildPipeline(areq, &req->errors[i]) would result in rpSorter only (can set up the aggplan to be a sorter only)
-int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, MRCommand *xcmd) {
+int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params) {
   // Create synchronization context for coordinating depleter processors
   // This ensures thread-safe access when multiple depleters read from their pipelines
   StrongRef sync_ref = DepleterSync_New(req->nrequests, params->synchronize_read_locks);
-  StrongRef dispatcher_ref = HybridDispatcher_New(xcmd, 4);
-  HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
+  // StrongRef dispatcher_ref = HybridDispatcher_New(xcmd, 4);
+  // HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
 
   // Build individual pipelines for each search request
   for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
+
+      areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
 
       int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
       if (rc != REDISMODULE_OK) {
@@ -189,9 +210,9 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       ResultProcessor *depleter = RPDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
       QITR_PushRP(qctx, depleter);
 
-      RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartDispatcher);
-      RPNet_SetDispatcher(rpNet, dispatcher);
-      QITR_PushRP(qctx, &rpNet->base);
+      // RPNet *rpNet = RPNet_New(xcmd, rpnetNext_StartDispatcher);
+      // RPNet_SetDispatcher(rpNet, dispatcher);
+      // QITR_PushRP(qctx, &rpNet->base);
   }
 
   // Release the sync reference as depleters now hold their own references
@@ -229,7 +250,16 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     AREQDIST_UpstreamInfo us = {NULL};
-    rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
+    // rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
+    rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
+    if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
+
+    // Build the aggregation part of the tail pipeline for final result processing
+    // This handles sorting, filtering, field loading, and output formatting of merged results
+    uint32_t stateFlags = 0;
+    const AggregationPipelineParams *aggParams = &hybridParams.aggregationParams;
+    rc = Pipeline_BuildAggregationPart(hreq->tailPipeline, aggParams, &stateFlags);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     // Construct the command string
@@ -243,9 +273,22 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // TODO: Build the result processor chain
     StrongRef dispatcher_ref = HybridDispatcher_New(&xcmd, 4);
     HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, dispatcher);
-    HybridRequest_buildDistRPChain(hreq->requests[2], &xcmd, &us, dispatcher);
 
+    // // Add RPNet to each AREQ
+    // for (size_t i = 0; i < hreq->nrequests; i++) {
+    //     AREQ *areq = hreq->requests[i];
+    //     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+    //     RPNet *rpNet = RPNet_New(&xcmd, rpnetNext_StartDispatcher);
+    //     RPNet_SetDispatcher(rpNet, dispatcher);
+    //     addResultProcessor(qctx, &rpNet->base);
+    // }
+
+    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartDispatcher, dispatcher);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartDispatcher, dispatcher);
+
+
+    // Free the command
+    // MRCommand_Free(&xcmd);
     return REDISMODULE_OK;
 }
 
