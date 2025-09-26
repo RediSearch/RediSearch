@@ -414,7 +414,6 @@ run_cmake() {
 #-----------------------------------------------------------------------------
 build_project() {
   # redisearch_rs is now built automatically by CMake
-
   # Determine number of parallel jobs for make
   if command -v nproc &> /dev/null; then
     NPROC=$(nproc)

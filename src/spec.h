@@ -188,7 +188,6 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
-
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -205,6 +204,7 @@ extern Version redisVersion;
 extern Version rlecVersion;
 extern bool isCrdt;
 extern bool isTrimming;
+extern bool isFlex;
 
 /**
  * This "ID" type is independent of the field mask, and is used to distinguish
@@ -285,6 +285,7 @@ typedef struct {
 
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
+typedef const void* RedisSearchDiskIndexSpec;
 
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
@@ -355,6 +356,8 @@ typedef struct IndexSpec {
   // Contains all the existing documents (for wildcard search)
   InvertedIndex *existingDocs;
 
+  // Disk index handle
+  RedisSearchDiskIndexSpec *diskSpec;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

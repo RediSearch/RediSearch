@@ -67,6 +67,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "legacy_types.h"
+#include "search_disk.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 
@@ -1130,6 +1131,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     RedisModule_FreeCallReply(reply);
   }
 
+  isFlex = SearchDisk_IsEnabled(ctx);
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {
@@ -1257,6 +1259,14 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
 
   if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+
+  if (isFlex) {
+    bool disk_initialized = SearchDisk_Initialize(ctx);
+    if (!disk_initialized) {
+      RedisModule_Log(ctx, "error", "Search Disk is enabled but could not be initialized");
+      return REDISMODULE_ERR;
+    }
   }
 
   // register trie-dictionary type
@@ -3867,6 +3877,8 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     rm_free((void *)RSGlobalConfig.frisoIni);
     RSGlobalConfig.frisoIni = NULL;
   }
+
+  SearchDisk_Close();
 
   return REDISMODULE_OK;
 }

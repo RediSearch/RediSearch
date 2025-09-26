@@ -47,7 +47,6 @@ if(NOT TARGET redisearch_rs_build)
             --profile=${RUST_PROFILE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Building Rust workspace with profile ${RUST_PROFILE}"
-        VERBATIM
     )
 endif()
 

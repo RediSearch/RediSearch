@@ -26,6 +26,7 @@
 #include "hybrid/hybrid_search_result.h"
 #include "config.h"
 #include "module.h"
+#include "search_disk.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -93,6 +94,44 @@ typedef struct {
   RedisSearchCtx *sctx;
 } RPQueryIterator;
 
+
+/****
+ * getDocumentMetadata - get the document metadata for the current document from the iterator.
+ * If the document is deleted or expired, return false.
+ * If the document is not deleted or expired, return true.
+ * If the document is not deleted or expired, and dmd is not NULL, set *dmd to the document metadata.
+ * @param spec The index spec
+ * @param docs The document table
+ * @param sctx The search context
+ * @param it The query iterator
+ * @param dmd The document metadata pointer to set
+ * @return true if the document is not deleted or expired, false otherwise.
+ */
+static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, const RSDocumentMetadata **dmd) {
+  if (spec->diskSpec) {
+    RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    diskDmd->ref_count = 1;
+    // Start from checking the deleted-ids (in memory), then perform IO
+    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, it->current->docId, diskDmd);
+    if (!foundDocument) {
+      DMD_Return(diskDmd);
+      return false;
+    }
+    *dmd = diskDmd;
+  } else {
+    if (it->current->dmd) {
+      *dmd = it->current->dmd;
+    } else {
+      *dmd = DocTable_Borrow(docs, it->lastDocId);
+    }
+    if (!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->time.current)) {
+      DMD_Return(*dmd);
+      return false;;
+    }
+  }
+  return true;
+}
+
 /* Next implementation */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
@@ -134,14 +173,8 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     }
 
 validate_current:
-
-    if (it->current->dmd) {
-      dmd = it->current->dmd;
-    } else {
-      dmd = DocTable_Borrow(docs, it->lastDocId);
-    }
-    if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd, &sctx->time.current)) {
-      DMD_Return(dmd);
+    IndexSpec* spec = self->sctx->spec;
+    if (!getDocumentMetadata(spec, docs, sctx, it, &dmd)) {
       continue;
     }
 
@@ -638,11 +671,33 @@ typedef struct {
   QueryError status;
 } RPLoader;
 
+/***
+ * isDocumentStillValid - check if the document is still valid for loading.
+ * @param self The loader
+ * @param r The search result
+ * @return true if the document is still valid, false otherwise.
+ */
+
+static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
+  if (self->loadopts.sctx->spec->diskSpec) {
+    // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
+    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, r->dmd->id)) {
+      r->flags |= Result_ExpiredDoc;
+      return false;
+    }
+  } else {
+    if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
+      r->flags |= Result_ExpiredDoc;
+      return false;
+    }
+  }
+  return true;
+}
+
 static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it, and we need to mark
   // the result as expired.
-  if ((r->dmd->flags & Document_FailedToOpen) || (r->dmd->flags & Document_Deleted)) {
-    r->flags |= Result_ExpiredDoc;
+  if (!isDocumentStillValid(self, r)) {
     return;
   }
 
@@ -2073,4 +2128,3 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
 
    return &ret->base;
  }
-
