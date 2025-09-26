@@ -158,7 +158,7 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "@title:($param1)", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "PARAMS", "2", "param1", "hello", "DIALECT", "2");
+                      "PARAMS", "2", "param1", "hello");
 
   parseCommand(args);
 
@@ -191,8 +191,6 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
   ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
-
-
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   // Test with LINEAR combine method
@@ -1072,8 +1070,6 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   testErrorCode(args, QUERY_EPARSEARGS, "Not enough arguments for LOAD");
 }
 
-
-
 // ============================================================================
 // DIALECT ERROR TESTS - Testing DIALECT is not supported in subqueries
 // ============================================================================
@@ -1087,13 +1083,13 @@ TEST_F(ParseHybridTest, testDialectInSearchSubquery) {
 TEST_F(ParseHybridTest, testDialectInVectorKNNSubquery) {
   // Test DIALECT in vector KNN subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `DIALECT` in KNN");
 }
 
 TEST_F(ParseHybridTest, testDialectInVectorRangeSubquery) {
   // Test DIALECT in vector RANGE subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `DIALECT` in RANGE");
 }
 
 TEST_F(ParseHybridTest, testDialectInTail) {

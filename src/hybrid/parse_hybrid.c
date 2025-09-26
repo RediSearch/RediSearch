@@ -191,9 +191,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       pvd->vectorScoreFieldAlias = rm_strdup(value);
-    } else if (AC_AdvanceIfMatch(ac, "DIALECT")) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
-      return REDISMODULE_ERR;
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -284,9 +281,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       pvd->vectorScoreFieldAlias = rm_strdup(value);
-    } else if (AC_AdvanceIfMatch(ac, "DIALECT")) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
-      return REDISMODULE_ERR;
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
