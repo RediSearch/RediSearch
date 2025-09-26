@@ -111,11 +111,11 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     ResultProcessor *merger = RPHybridMerger_New(params->scoringCtx, depleters, req->nrequests, scoreKey, req->subqueriesReturnCodes, lookupCtx);
     params->scoringCtx = NULL; // ownership transferred to merger
     QITR_PushRP(&req->tailPipeline->qctx, merger);
-
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
     uint32_t stateFlags = 0;
-    return Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags);
+    return rc;
 }
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params) {
@@ -274,6 +274,20 @@ static RedisSearchCtx* createDetachedSearchContext(RedisModuleCtx *ctx, const ch
   RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
   RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
   return NewSearchCtxC(detachedCtx, indexname, true);
+}
+
+AREQ *MakeDefaultHybridUpstreams(RedisSearchCtx *sctx) {
+  AREQ *search = AREQ_New();
+  AREQ *vector = AREQ_New();
+  initializeAREQ(search);
+  initializeAREQ(vector);
+  const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
+  search->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
+  vector->sctx = createDetachedSearchContext(sctx->redisCtx, indexName);
+  arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
+  requests = array_ensure_append_1(requests, search);
+  requests = array_ensure_append_1(requests, vector);
+  return requests;
 }
 
 HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {

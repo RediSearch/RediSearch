@@ -24,8 +24,7 @@ static void HybridDispatcher_MarkStarted(HybridDispatcher *dispatcher) {
 // Unified function for waiting until mappings are complete
 void HybridDispatcher_WaitForMappingsComplete(HybridDispatcher *dispatcher) {
     pthread_mutex_lock(&dispatcher->data_mutex);
-    while (array_len(dispatcher->searchMappings) < dispatcher->numShards) {
-        RS_ASSERT(array_len(dispatcher->searchMappings) == array_len(dispatcher->vsimMappings));
+    while (array_len(dispatcher->searchMappings) != dispatcher->numShards || array_len(dispatcher->vsimMappings) != dispatcher->numShards) {
         pthread_cond_wait(&dispatcher->mapping_ready_cond, &dispatcher->data_mutex);
     }
     pthread_mutex_unlock(&dispatcher->data_mutex);
@@ -72,6 +71,7 @@ static void processHybridResp2(HybridDispatcher *dispatcher, MRReply *rep, MRCom
         } else {
             RS_ABORT("Unknown key");
         }
+        RedisModule_Log(NULL, "warning", "processHybridResp2: adding mapping for shard %d, cursorId=%lld, isSearch=%d", mapping->targetSlot, mapping->cursorId, isSearch);
         HybridDispatcher_AddMapping(dispatcher, mapping, isSearch);
     }
 }
@@ -103,9 +103,14 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
     HybridDispatcher *dispatcher = (HybridDispatcher *)MRIteratorCallback_GetPrivateData(ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
+    char *cmd_str = MRReply_String(rep, NULL);
+    RedisModule_Log(NULL, "warning", "processCursorMappingCallback: cmd=%s", cmd_str);
+    free(cmd_str);
+
     // Detect protocol version based on reply type
     bool isResp3 = MRReply_Type(rep) == MR_REPLY_MAP;
 
+    RedisModule_Log(NULL, "warning", "processCursorMappingCallback: isResp3=%d", isResp3);
     if (isResp3) {
         RS_ASSERT(MRReply_Type(rep) == MR_REPLY_MAP && MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
         processHybridResp3(dispatcher, rep, cmd);
@@ -150,6 +155,9 @@ StrongRef HybridDispatcher_New(const MRCommand *cmd,const size_t numShards) {
 }
 
 static MRIterator *HybridDispatcher_ProcessMappings(HybridDispatcher *dispatcher) {
+
+    RedisModule_Log(NULL, "warning", "HybridDispatcher_ProcessMappings: sending _FT.HYBRID to shards");
+
     return MR_IterateWithPrivateData(
         &dispatcher->cmd,
         processCursorMappingCallback,  // Hardcoded callback
@@ -163,7 +171,7 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher) {
     // Mark as started
     HybridDispatcher_MarkStarted(dispatcher);
 
-    RedisModule_Log(NULL, "debug", "HybridDispatcher_Dispatch: Starting iterator");
+    RedisModule_Log(NULL, "warning", "HybridDispatcher_Dispatch: Starting iterator");
     // Start the iterator
     MRIterator *it = HybridDispatcher_ProcessMappings(dispatcher);
     if (!it) {

@@ -658,6 +658,7 @@ void iterStartCb(void *p) {
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
+    RedisModule_Log(NULL, "warning", "iterStartCb: sending command to shard %d", it->cbxs[i].cmd.targetSlot);
     if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);

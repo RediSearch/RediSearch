@@ -25,7 +25,7 @@ static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 }
 
 static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
-  RedisModule_Log(NULL, "debug", "rpnetNext_StartDispatcher");
+  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher");
   RPNet *nc = (RPNet *)rp;
   HybridDispatcher *dispatcher = nc->dispatcher;
 
@@ -46,6 +46,8 @@ static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
   }
   // for hybrid commands, the index name is at position 1
   const char *idx = MRCommand_ArgStringPtrLen(&dispatcher->cmd, 1, NULL);
+
+  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: idx=%s", idx);
 
   MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx);
   nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, searchMappings);
@@ -81,14 +83,14 @@ static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   array_append(tmparr, "_NUM_SSTRING");
 
   // Add the index prefixes to the command, for validation in the shard
-  array_append(tmparr, "_INDEX_PREFIXES");
-  arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
-  char *n_prefixes;
-  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  array_append(tmparr, n_prefixes);
-  for (uint i = 0; i < array_len(prefixes); i++) {
-    array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
-  }
+  // array_append(tmparr, "_INDEX_PREFIXES");
+  // arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
+  // char *n_prefixes;
+  // rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  // array_append(tmparr, n_prefixes);
+  // for (uint i = 0; i < array_len(prefixes); i++) {
+  //   array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
+  // }
 
   // Add upstream serialized parameters
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
@@ -123,8 +125,9 @@ static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     MRCommand_AppendRstr(xcmd, argv[dialect_index + 3]);
   }
 
+
   array_free(tmparr);
-  rm_free(n_prefixes);
+  // rm_free(n_prefixes);
 }
 
 // TODO: Fix this
@@ -135,6 +138,7 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
   // Establish our root processor, which is the distributed processor
   RedisModule_Log(NULL, "debug", "HybridRequest_buildDistRPChain");
   MRCommand cmd = MRCommand_Copy(xcmd);
+
   RPNet *rpRoot = RPNet_New(&cmd, rpnetNext_StartDispatcher); // This will take ownership of the command
   RPNet_SetDispatcher(rpRoot, dispatcher);
 
@@ -187,7 +191,8 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
 
-      areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
+      // areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, &req->errors[i]);
+      AREQ_AddRequestFlags(areq,QEXEC_F_BUILDPIPELINE_NO_ROOT);
 
       int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
       if (rc != REDISMODULE_OK) {
@@ -241,8 +246,8 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-    // Set request flags from hybridParams
-    hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
+    // // Set request flags from hybridParams
+    // hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
 
     // TODO: Do we need a different AGGPLN_Hybrid_Distribute()?
     // by now I'm reusing AGGPLN_Distribute()
@@ -250,16 +255,25 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     AREQDIST_UpstreamInfo us = {NULL};
+
+    array_free_ex(hreq->requests, (void (*)(void *))AREQ_Free);
+    hreq->requests = MakeDefaultHybridUpstreams(hreq->sctx);
+    hreq->nrequests = array_len(hreq->requests);
+
+    AREQ_AddRequestFlags(hreq->requests[0], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
+    AREQ_AddRequestFlags(hreq->requests[1], QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY);
+
+    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[0]));
+    AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(hreq->requests[1]));
+
+
     // rc = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, &us, status);
     rc = HybridRequest_BuildDistributedDepletionPipeline(hreq, &hybridParams);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
+    // AREQ_AddRequestFlags(hreq somehow,QEXEC_F_BUILDPIPELINE_NO_ROOT);
 
-    // Build the aggregation part of the tail pipeline for final result processing
-    // This handles sorting, filtering, field loading, and output formatting of merged results
-    uint32_t stateFlags = 0;
-    const AggregationPipelineParams *aggParams = &hybridParams.aggregationParams;
-    rc = Pipeline_BuildAggregationPart(hreq->tailPipeline, aggParams, &stateFlags);
+    rc = HybridRequest_BuildMergePipeline(hreq, &hybridParams);
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
     // Construct the command string
@@ -271,7 +285,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // xcmd.rootCommand = C_AGG;   // Response is equivalent to a `CURSOR READ` response
 
     // TODO: Build the result processor chain
-    StrongRef dispatcher_ref = HybridDispatcher_New(&xcmd, 4);
+    StrongRef dispatcher_ref = HybridDispatcher_New(&xcmd, 2);
     HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
 
     // // Add RPNet to each AREQ
@@ -282,6 +296,14 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     //     RPNet_SetDispatcher(rpNet, dispatcher);
     //     addResultProcessor(qctx, &rpNet->base);
     // }
+
+    // RedisModule_Log(NULL, "warning", "HybridRequest_prepareForExecution: tail RP chain:");
+    // logRPChain(hreq->tailPipeline->qctx.endProc);
+
+    // RedisModule_Log(NULL, "warning", "HybridRequest_prepareForExecution: requests[0] RP chain:");
+    // logRPChain(hreq->requests[0]->pipeline.qctx.endProc);
+    // RedisModule_Log(NULL, "warning", "HybridRequest_prepareForExecution: requests[1] RP chain:");
+    // logRPChain(hreq->requests[1]->pipeline.qctx.endProc);
 
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartDispatcher, dispatcher);
     HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartDispatcher, dispatcher);
@@ -296,13 +318,13 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
                         RedisModule_Reply *reply, QueryError *status) {
     bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     if (isCursor) {
-        // TODO:
+        // // TODO:
         // // Keep the original concurrent context
         // ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
         // StrongRef dummy_spec_ref = {.rm = NULL};
 
-        // if (HybridRequest_StartCursor(hreq, reply, dummy_spec_ref, status, true) != REDISMODULE_OK) {
+        // if (HybridRequest_StartCursor(hreq, reply, &dummy_spec_ref, status, true) != REDISMODULE_OK) {
         //     return REDISMODULE_ERR;
         // }
     } else {
@@ -362,6 +384,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, &status) != REDISMODULE_OK) {
         goto err;
     }
+
 
     if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
         goto err;
