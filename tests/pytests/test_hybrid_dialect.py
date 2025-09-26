@@ -104,3 +104,52 @@ def test_hybrid_dialects():
             'FILTER', '@__key == "doc:1" || @__key == "doc:2"',
         ]
         exec_and_validate_query(env, hybrid_cmd)
+
+
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_dialect_errors():
+    """Test DIALECT parameter error handling in hybrid queries"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.2]).astype(np.float32).tobytes()
+
+    # Test DIALECT in SEARCH subquery - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)', 'DIALECT', '2',
+        'VSIM', '@vector', query_vector
+    ).error().contains('DIALECT is not supported in SEARCH subquery')
+
+    # Test DIALECT in KNN subquery - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector, 'KNN', '2', 'DIALECT', '2'
+    ).error().contains('DIALECT is not supported in vector subquery')
+
+    # Test DIALECT in RANGE subquery - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector, 'RANGE', '2', 'DIALECT', '2'
+    ).error().contains('DIALECT is not supported in vector subquery')
+
+    # Test DIALECT in tail section - should succeed
+    hybrid_cmd = [
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector,
+        'DIALECT', '2'
+    ]
+    env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in hybrid queries')
+
+    # Test DIALECT with other tail parameters - should succeed
+    hybrid_cmd = [
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector,
+        'COMBINE', 'RRF', '2', 'CONSTANT', '30',
+        'DIALECT', '3'
+    ]
+    env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in hybrid queries')

@@ -384,6 +384,11 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
   }
 
+  if (AC_AdvanceIfMatch(ac, "DIALECT")) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in vector subquery");
+    goto error;
+  }
+
 final:
   if (!vreq->query) {  // meaning there is no filter clause
     vreq->query = "*";

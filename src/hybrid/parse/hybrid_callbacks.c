@@ -211,7 +211,9 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
 // DIALECT callback - handles DIALECT dialect
 void handleDialect(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
-    ctx->specifiedArgs |= SPECIFIED_ARG_DIALECT;
+    QueryError *status = ctx->status;
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+      "DIALECT is not supported in hybrid queries");
 }
 
 // FORMAT callback - implements EXACT original logic from lines 359-366
