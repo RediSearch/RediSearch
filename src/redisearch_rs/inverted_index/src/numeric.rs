@@ -152,6 +152,7 @@ trait ToBytes<const N: usize> {
     fn pack(self) -> [u8; N];
 }
 
+#[derive(Clone)]
 pub struct Numeric {
     /// If enabled, `f64` values will be truncated to `f32`s whenever the difference is below a given
     /// [threshold](Self::FLOAT_COMPRESSION_THRESHOLD)

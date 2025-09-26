@@ -15,7 +15,7 @@ use std::{
 
 use debug::{BlockSummary, Summary};
 use ffi::{
-    FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_HasMultiValue,
+    FieldSpec, GeoFilter, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasMultiValue,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
 };
 pub use ffi::{t_docId, t_fieldMask};
@@ -124,7 +124,7 @@ impl NumericFilter {
 }
 
 /// Encoder to write a record into an index
-pub trait Encoder {
+pub trait Encoder: Clone {
     /// Document ids are represented as `u64`s and stored using delta-encoding.
     ///
     /// Some encoders can't encode arbitrarily large id deltas—e.g. they might be limited to `u32::MAX` or
@@ -255,6 +255,16 @@ pub struct IndexBlock {
 
 static TOTAL_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 
+/// The type of repair needed for a block after a garbage collection scan.
+#[derive(Debug, Eq, PartialEq)]
+enum RepairType {
+    /// This block can be deleted completely.
+    Delete,
+
+    /// The block contains GCed entries, and might need to be split into the following blocks.
+    Split { blocks: Vec<IndexBlock> },
+}
+
 impl IndexBlock {
     const SIZE: usize = std::mem::size_of::<Self>();
 
@@ -288,6 +298,42 @@ impl IndexBlock {
     /// Returns the total number of index blocks in existence.
     pub fn total_blocks() -> usize {
         TOTAL_BLOCKS.load(atomic::Ordering::Relaxed)
+    }
+
+    /// Repair a block by removing records which no longer exists according to `doc_exists_cb`. If
+    /// there is nothing to repair in this block then `None` is returned.
+    fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
+        &'index self,
+        doc_exist_cb: fn(doc_id: t_docId) -> bool,
+        encoder: E,
+    ) -> std::io::Result<Option<RepairType>> {
+        let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
+        let mut last_doc_id = self.first_doc_id;
+        let decoder = E::decoder();
+
+        let mut tmp_inverted_index = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, encoder);
+
+        while !cursor.fill_buf()?.is_empty() {
+            let base = D::base_id(self, last_doc_id);
+            let result = decoder.decode(&mut cursor, base)?;
+            last_doc_id = result.doc_id;
+
+            if doc_exist_cb(result.doc_id) {
+                tmp_inverted_index.add_record(&result)?;
+            }
+        }
+
+        if tmp_inverted_index.blocks.is_empty() {
+            Ok(Some(RepairType::Delete))
+        } else if tmp_inverted_index.blocks.len() == 1
+            && tmp_inverted_index.blocks[0].num_entries == self.num_entries
+        {
+            Ok(None)
+        } else {
+            Ok(Some(RepairType::Split {
+                blocks: tmp_inverted_index.blocks,
+            }))
+        }
     }
 }
 
@@ -497,10 +543,146 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 }
 
+/// Result of scanning the index for garbage collection
+#[derive(Debug, Eq, PartialEq)]
+pub struct GcScanDelta {
+    /// The index of the last block in the index at the time of the scan. This is used to ensure
+    /// that the index has not changed since the scan was performed.
+    last_block_idx: usize,
+
+    /// The number of entries in the last block at the time of the scan. This is used to ensure
+    /// that the index has not changed since the scan was performed.
+    last_block_num_entries: usize,
+
+    /// The results of the scan for each block that needs to be repaired or deleted.
+    deltas: Vec<BlockGcScanResult>,
+}
+
+/// Result of scanning a block for garbage collection
+#[derive(Debug, Eq, PartialEq)]
+pub struct BlockGcScanResult {
+    /// The index of the block in the inverted index
+    index: usize,
+
+    /// The type of repair needed for this block
+    repair: RepairType,
+}
+
+/// Information about the result of applying a garbage collection scan to the index
+#[derive(Debug, Eq, PartialEq)]
+pub struct GcApplyInfo {
+    /// The number of bytes that were freed
+    bytes_freed: usize,
+
+    /// The number of bytes that were allocated
+    bytes_allocated: usize,
+
+    /// The number of entries that were removed from the index
+    entries_removed: usize,
+
+    /// The number of blocks that were ignored because the index changed since the scan was performed
+    blocks_ignored: usize,
+}
+
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Create a new [`IndexReader`] for this inverted index.
     pub fn reader(&self) -> IndexReader<'_, E, E::Decoder> {
         IndexReader::new(self)
+    }
+
+    /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
+    /// if any of its records point to documents that no longer exist. The `doc_exist_cb`
+    /// callback is used to check if a document exists. It should return `true` if the document
+    /// exists and `false` otherwise.
+    ///
+    /// This function returns a delta if GC is needed, or `None` if no GC is needed.
+    pub fn scan_gc(
+        &self,
+        doc_exist_cb: fn(doc_id: t_docId) -> bool,
+    ) -> std::io::Result<Option<GcScanDelta>> {
+        let mut results = Vec::new();
+
+        for (i, block) in self.blocks.iter().enumerate() {
+            if block.num_entries == 0 {
+                results.push(BlockGcScanResult {
+                    index: i,
+                    repair: RepairType::Delete,
+                });
+                continue;
+            }
+
+            let encoder = self.encoder.clone();
+
+            let repair = block.repair(doc_exist_cb, encoder)?;
+
+            if let Some(repair) = repair {
+                results.push(BlockGcScanResult { index: i, repair });
+            }
+        }
+
+        if results.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(GcScanDelta {
+                last_block_idx: self.blocks.len() - 1,
+                last_block_num_entries: self.blocks.last().map(|b| b.num_entries).unwrap_or(0),
+                deltas: results,
+            }))
+        }
+    }
+
+    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
+    /// by deleting or repairing blocks as needed.
+    pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        let GcScanDelta {
+            last_block_idx,
+            last_block_num_entries,
+            deltas,
+        } = delta;
+
+        let mut info = GcApplyInfo {
+            bytes_freed: 0,
+            bytes_allocated: 0,
+            entries_removed: 0,
+            blocks_ignored: 0,
+        };
+
+        // We apply the repairs in reverse order so that the indices of the blocks to be repaired
+        // remain valid as we modify the blocks vector.
+        for delta in deltas.into_iter().rev() {
+            // Skip if the last block has changed since the scan
+            if delta.index == last_block_idx
+                && self.blocks[delta.index].num_entries != last_block_num_entries
+            {
+                info.blocks_ignored += 1;
+                continue;
+            }
+
+            match delta.repair {
+                RepairType::Delete => {
+                    let block = self.blocks.remove(delta.index);
+                    info.entries_removed += block.num_entries;
+                    info.bytes_freed += IndexBlock::SIZE + block.buffer.capacity();
+                }
+                RepairType::Split { mut blocks } => {
+                    let old_block = self.blocks.remove(delta.index);
+                    info.entries_removed += old_block.num_entries;
+                    info.bytes_freed += IndexBlock::SIZE + old_block.buffer.capacity();
+
+                    blocks.reverse();
+
+                    for block in blocks {
+                        info.entries_removed -= block.num_entries;
+                        info.bytes_allocated += IndexBlock::SIZE + block.buffer.capacity();
+                        self.blocks.insert(delta.index, block);
+                    }
+                }
+            }
+        }
+
+        self.n_unique_docs -= info.entries_removed;
+
+        info
     }
 }
 
