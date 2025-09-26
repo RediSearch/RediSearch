@@ -101,7 +101,6 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
       return REDISMODULE_OK;
     }
     if (rv == AC_OK && !strcasecmp("DIALECT", cur)) {
-      // Hit VSIM, we're done with search options
       QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
       return REDISMODULE_ERR;
     }
