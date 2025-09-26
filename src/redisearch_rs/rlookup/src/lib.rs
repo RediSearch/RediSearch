@@ -11,10 +11,15 @@ mod bindings;
 mod lookup;
 #[cfg(test)]
 mod mock;
+#[cfg(debug_assertions)]
+mod rlookup_id;
 mod row;
 
 pub use bindings::IndexSpecCache;
 pub use lookup::{
-    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption, RLookupOptions,
+    Cursor, CursorMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOption,
+    RLookupOptions,
 };
+#[cfg(debug_assertions)]
+pub use rlookup_id::RLookupId;
 pub use row::RLookupRow;
