@@ -29,7 +29,7 @@ static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
     return 1;
   }
 
-  if (v->t != RSValue_Array) {
+  if (!RSValue_IsArray(v)) {
     if (RSValue_ToNumber(v, &d)) {
       QS_Insert(qs, d);
     }
