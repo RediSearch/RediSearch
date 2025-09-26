@@ -78,7 +78,7 @@ def test_hybrid_filter_behavior():
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', query_vector,
-        "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 1, "category", "FILTER", '@category=="fruit"',
+        "COMBINE", "RRF", "2", "CONSTANT", "30", "LOAD", 2, "__key", "category", "FILTER", "@category==\"fruit\"",
     )
     results = get_results_from_hybrid_response(response)
     # # This should filter as post processing.
