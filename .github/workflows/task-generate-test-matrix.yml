@@ -88,18 +88,23 @@ jobs:
                   # Assume it's a Linux platform, include both x86 and ARM
                   requested_platforms = ['linux-x86', 'linux-arm']
 
-          # Linux container images (matches original configuration exactly)
-          X86_IMAGES = [
-              'ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'rockylinux:8', 'rockylinux:9',
-              'gcc:11-bullseye', 'gcc:12-bookworm', 'amazonlinux:2', 'amazonlinux:2023',
-              'mcr.microsoft.com/cbl-mariner/base/core:2.0', 'mcr.microsoft.com/azurelinux/base/core:3.0', 'alpine:3'
-          ]
+          # Linux container images (from environment variables)
+          # Parse the environment variables as JSON-like strings
+          def parse_image_list(env_var):
+              """Parse environment variable containing a list of container images"""
+              raw_value = os.environ[env_var]
+              # Remove the outer brackets and split by comma
+              # Handle both single and double quotes
+              raw_value = raw_value.strip().strip('[]')
+              images = []
+              for item in raw_value.split(','):
+                  item = item.strip().strip('\'"')
+                  if item:  # Skip empty items
+                      images.append(item)
+              return images
 
-          ARM_IMAGES = [
-              'ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'rockylinux:8', 'rockylinux:9',
-              'gcc:11-bullseye', 'gcc:12-bookworm', 'amazonlinux:2023',
-              'mcr.microsoft.com/azurelinux/base/core:3.0', 'alpine:3'
-          ]
+          X86_IMAGES = parse_image_list('ALL_X86_IMAGES')
+          ARM_IMAGES = parse_image_list('ALL_ARM_IMAGES')
 
           # Pre-dependency scripts mapping
           PRE_DEPS_MAP = {
