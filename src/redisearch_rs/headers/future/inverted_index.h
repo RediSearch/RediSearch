@@ -376,6 +376,6 @@ void IndexReader_SwapIndex(struct IndexReader *ir, const struct InvertedIndex *i
 // will be returned in it
 //
 // The inverted index should be freed using [`InvertedIndex_Free`] when no longer needed.
-InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize) {
+inline static InvertedIndex *NewInvertedIndex(IndexFlags flags, size_t *memsize) {
   return NewInvertedIndex_Ex(flags, RSGlobalConfig.invertedIndexRawDocidEncoding, RSGlobalConfig.numericCompress, memsize);
 }
