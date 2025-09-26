@@ -12,8 +12,6 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
-#define MIN_HYBRID_DIALECT 2
-
 /**
  * Applies optimization to skip collecting rich results when they are not needed.
  *
@@ -163,7 +161,6 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // Parse the arguments
     ArgParseResult parseResult = ArgParser_Parse(parser);
-
     // Check for errors from callbacks
     if (QueryError_HasError(status)) {
         ArgParser_Free(parser);

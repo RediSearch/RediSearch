@@ -179,7 +179,6 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
         QueryError_SetError(status, QUERY_EADDARGS, "Multiple PARAMS are not allowed. Parameters can be defined only once");
         return;
     }
-
     // Validate argument count (must be even for key-value pairs)
     if (paramsArgs->argc == 0 || paramsArgs->argc % 2) {
         QueryError_SetError(status, QUERY_EADDARGS, "Parameters must be specified in PARAM VALUE pairs");
@@ -198,7 +197,6 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
     for (int i = 0; i < n; i += 2) {
         const char *param = AC_GetStringNC(paramsArgs, NULL);
         const char *value = AC_GetStringNC(paramsArgs, &value_len);
-
         if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
             Param_DictFree(params);  // Cleanup on error
             return;
@@ -208,12 +206,12 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
     ctx->searchopts->params = params;
 }
 
-// DIALECT callback - handles DIALECT dialect
+// DIALECT callback - implements EXACT original logic from lines 341-349
 void handleDialect(ArgParser *parser, const void *value, void *user_data) {
-    HybridParseContext *ctx = (HybridParseContext*)user_data;
-    QueryError *status = ctx->status;
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
-      "DIALECT is not supported in hybrid queries");
+  HybridParseContext *ctx = (HybridParseContext*)user_data;
+  QueryError *status = ctx->status;
+  QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
+    "DIALECT is not supported in hybrid queries");
 }
 
 // FORMAT callback - implements EXACT original logic from lines 359-366
