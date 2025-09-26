@@ -205,7 +205,7 @@ def test_hybrid_internal_with_params(env):
 
     # Execute hybrid command with direct vector specification (keeping text param)
     hybrid_result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '@description:($term)',
-                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR', 'DIALECT', '2',
+                           'VSIM', '@embedding', query_vec.tobytes(), 'WITHCURSOR',
                            'PARAMS', '2', 'term', 'shoes')
 
     # Should return cursor map
@@ -311,4 +311,3 @@ def test_hybrid_internal_empty_search_results(env):
 
     # VSIM cursor should return some results
     env.assertTrue(len(cursor_results['VSIM']) > 0)
-

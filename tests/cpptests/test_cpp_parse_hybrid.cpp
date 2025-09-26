@@ -150,15 +150,15 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 500);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 1);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 1);
+  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithParams) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "@title:($param1)", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "PARAMS", "2", "param1", "hello", "DIALECT", "2");
+                      "PARAMS", "2", "param1", "hello");
 
   parseCommand(args);
 
@@ -176,7 +176,7 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
 
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "TIMEOUT", "240", "DIALECT", "2");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "TIMEOUT", "240");
 
   parseCommand(args);
 
@@ -191,8 +191,6 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
   ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
 }
-
-
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   // Test with LINEAR combine method
@@ -1070,4 +1068,32 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   // Test LOAD with insufficient fields for specified count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "LOAD", "3", "@title");
   testErrorCode(args, QUERY_EPARSEARGS, "Not enough arguments for LOAD");
+}
+
+// ============================================================================
+// DIALECT ERROR TESTS - Testing DIALECT is not supported
+// ============================================================================
+
+TEST_F(ParseHybridTest, testDialectInSearchSubquery) {
+  // Test DIALECT in SEARCH subquery - should fail with specific error
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "DIALECT", "2", "VSIM", "@vector", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+}
+
+TEST_F(ParseHybridTest, testDialectInVectorKNNSubquery) {
+  // Test DIALECT in vector KNN subquery - should fail with specific error
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `DIALECT` in KNN");
+}
+
+TEST_F(ParseHybridTest, testDialectInVectorRangeSubquery) {
+  // Test DIALECT in vector RANGE subquery - should fail with specific error
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "2", "DIALECT", "2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EPARSEARGS, "Unknown argument `DIALECT` in RANGE");
+}
+
+TEST_F(ParseHybridTest, testDialectInTail) {
+  // Test DIALECT in tail (after subqueries) - should work correctly
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "DIALECT", "2");
+  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
 }

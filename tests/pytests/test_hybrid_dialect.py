@@ -59,10 +59,7 @@ def test_hybrid_dialects():
             'VSIM', '@vector', query_vector,
             'PARAMS', '2', 'WORD', 'apples'
         ]
-        if dialect == 1:
-            env.expect(*hybrid_cmd).error().contains('Syntax error')
-        else:
-            exec_and_validate_query(env, hybrid_cmd)
+        exec_and_validate_query(env, hybrid_cmd)
 
         # Simple query with parameters in VSIM
         hybrid_cmd = [
@@ -73,39 +70,30 @@ def test_hybrid_dialects():
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
-        # Tag autoescaping in SEARCH - invalid syntax in DIALECT 1
+        # Tag autoescaping in SEARCH - invalid syntax in DIALECT 1, but default overrides to DIALECT 2
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@tag:{"57-300"}',
             'VSIM', '@vector', query_vector,
         ]
-        if dialect == 1:
-            env.expect(*hybrid_cmd).error().contains('Syntax error')
-        else:
-            exec_and_validate_query(env, hybrid_cmd)
+        exec_and_validate_query(env, hybrid_cmd)
 
-        # Tag autoescaping in VSIM FILTER - invalid syntax in DIALECT 1
+        # Tag autoescaping in VSIM FILTER - invalid syntax in DIALECT 1, but default overrides to DIALECT 2
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@text:(apples)',
             'VSIM', '@vector', query_vector, 'FILTER', '@tag:{"57-300"}',
         ]
-        if dialect == 1:
-            env.expect(*hybrid_cmd).error().contains('Syntax error')
-        else:
-            exec_and_validate_query(env, hybrid_cmd)
+        exec_and_validate_query(env, hybrid_cmd)
 
-        # Parameters in VSIM FILTER - invalid syntax in DIALECT 1
+        # Parameters in VSIM FILTER - invalid syntax in DIALECT 1, but default overrides to DIALECT 2
         hybrid_cmd = [
             'FT.HYBRID', 'idx',
             'SEARCH', '@text:(apples)',
             'VSIM', '@vector', query_vector, 'FILTER', '@text:($WORD)',
             'PARAMS', '2', 'WORD', 'apples',
         ]
-        if dialect == 1:
-            env.expect(*hybrid_cmd).error().contains('Syntax error')
-        else:
-            exec_and_validate_query(env, hybrid_cmd)
+        exec_and_validate_query(env, hybrid_cmd)
 
         # Post filter
         hybrid_cmd = [
@@ -117,3 +105,51 @@ def test_hybrid_dialects():
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
+
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_dialect_errors():
+    """Test DIALECT parameter error handling in hybrid queries"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.2]).astype(np.float32).tobytes()
+
+    # Test DIALECT in SEARCH subquery - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)', 'DIALECT', '2',
+        'VSIM', '@vector', query_vector
+    ).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration')
+
+    # Test DIALECT in KNN subquery - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector, 'KNN', '2', 'DIALECT', '2'
+    ).error().contains('Unknown argument `DIALECT` in KNN')
+
+    # Test DIALECT in RANGE subquery - should fail
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector, 'RANGE', '2', 'DIALECT', '2'
+    ).error().contains('Unknown argument `DIALECT` in RANGE')
+
+    # Test DIALECT in tail section - should fail
+    hybrid_cmd = [
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector,
+        'DIALECT', '2'
+    ]
+    env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration')
+
+    # Test DIALECT with other tail parameters - should fail
+    hybrid_cmd = [
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector,
+        'COMBINE', 'RRF', '2', 'CONSTANT', '30',
+        'DIALECT', '3'
+    ]
+    env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration')

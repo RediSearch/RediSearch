@@ -18,6 +18,8 @@
 extern "C" {
 #endif
 
+#define MIN_HYBRID_DIALECT 2
+
 typedef enum {
     SPECIFIED_ARG_NONE = 0,
     SPECIFIED_ARG_LIMIT = 1 << 0,
@@ -29,7 +31,7 @@ typedef enum {
     SPECIFIED_ARG_WITHSCORES = 1 << 6,
     SPECIFIED_ARG_EXPLAINSCORE = 1 << 7,
     SPECIFIED_ARG_GROUPBY = 1 << 8,
-    SPECIFIED_ARG_TIMEOUT = 1 << 9,    
+    SPECIFIED_ARG_TIMEOUT = 1 << 9,
     SPECIFIED_ARG_COMBINE = 1 << 10,
     SPECIFIED_ARG_APPLY = 1 << 11,
     SPECIFIED_ARG_LOAD = 1 << 12,
@@ -56,7 +58,7 @@ typedef struct {
 
 /**
  * Parse common arguments that are shared between FT.SEARCH, FT.AGGREGATE, and FT.HYBRID
- * 
+ *
  * This function handles arguments like:
  * - LIMIT offset count
  * - SORTBY field [ASC|DESC] [field [ASC|DESC] ...]
@@ -66,9 +68,9 @@ typedef struct {
  * - DIALECT dialect
  * - FORMAT format
  * - WITHSCORES
- * - EXPLAINSCORE  
+ * - EXPLAINSCORE
  * - COMBINE [RRF [K k] [WINDOW window]] | [LINEAR weight1 weight2 ...]
- * 
+ *
  * @param ctx HybridParseContext containing parsing context and output parameters
  * @return 1 if arguments were handled, -1 on error, 0 if no arguments matched
  */
