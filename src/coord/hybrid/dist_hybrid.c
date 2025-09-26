@@ -29,16 +29,13 @@ static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
   RPNet *nc = (RPNet *)rp;
   HybridDispatcher *dispatcher = nc->dispatcher;
 
-  //TODO:len is number of shards
-  arrayof(CursorMapping *) searchMappings = array_new(CursorMapping* ,10);
-  arrayof(CursorMapping *) vsimMappings = array_new(CursorMapping*, 10);
-
-
-  // TODO: better initialization of the mappings (pipeline building flow dependent)
-  HybridDispatcher_SetMappingArray(dispatcher, searchMappings, true);
-  HybridDispatcher_SetMappingArray(dispatcher, vsimMappings, false);
-
   if (!HybridDispatcher_IsStarted(dispatcher)) {
+    //TODO:len is number of shards
+    arrayof(CursorMapping *) searchMappings = array_new(CursorMapping* ,10);
+    arrayof(CursorMapping *) vsimMappings = array_new(CursorMapping*, 10);
+    // TODO: better initialization of the mappings (pipeline building flow dependent)
+    HybridDispatcher_SetMappingArray(dispatcher, searchMappings, true);
+    HybridDispatcher_SetMappingArray(dispatcher, vsimMappings, false);
     HybridDispatcher_Dispatch(dispatcher);
   } else {
     // Wait for completion - this can be called from multiple threads
@@ -49,8 +46,8 @@ static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
 
   RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: idx=%s", idx);
 
-  MRCommand cmd = MR_NewCommand(4, "_FT.CURSOR", "READ", idx);
-  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, searchMappings);
+  MRCommand cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
+  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, dispatcher->searchMappings);
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
@@ -62,42 +59,44 @@ static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
 static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                        AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
                                        IndexSpec *sp, HybridPipelineParams *hybridParams) {
-  // We need to prepend the array with the command, index, and query that
-  // we want to use.
-  const char **tmparr = array_new(const char *, us->nserialized);
-
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
   // Build _FT.HYBRID command (no profiling support)
-  array_append(tmparr, "_FT.HYBRID");                           // Command
-  array_append(tmparr, index_name);                             // Index name
+  *xcmd = MR_NewCommand(2, "_FT.HYBRID", index_name);
+
+  int vsim_index = RMUtil_ArgIndex("VSIM", argv + 2, argc - 2);
+  RedisModule_Log(NULL, "warning", "HybridRequest_buildMRCommand: vsim_index=%d", vsim_index);
 
   // Add the hybrid query arguments (SEARCH ... VSIM ...)
   for (int i = 2; i < argc; i++) {
-    array_append(tmparr, RedisModule_StringPtrLen(argv[i], NULL));
+    if (i == vsim_index + 2 && argv[i] != '$') {
+      MRCommand_AppendRstr(xcmd, argv[i]);
+    } else {
+      size_t len;
+      const char *str = RedisModule_StringPtrLen(argv[i], &len);
+      MRCommand_Append(xcmd, str, len);
+    }
   }
 
   // Add WITHCURSOR
-  array_append(tmparr, "WITHCURSOR");
+  MRCommand_Append(xcmd, "WITHCURSOR", strlen("WITHCURSOR"));
   // Numeric responses are encoded as simple strings.
-  array_append(tmparr, "_NUM_SSTRING");
+  MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
   // Add the index prefixes to the command, for validation in the shard
-  // array_append(tmparr, "_INDEX_PREFIXES");
+  // MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
   // arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
   // char *n_prefixes;
   // rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  // array_append(tmparr, n_prefixes);
+  // MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
   // for (uint i = 0; i < array_len(prefixes); i++) {
-  //   array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
+  //   MRCommand_Append(xcmd, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL), strlen(HiddenUnicodeString_GetUnsafe(prefixes[i], NULL)));
   // }
 
   // Add upstream serialized parameters
   for (size_t ii = 0; ii < us->nserialized; ++ii) {
-    array_append(tmparr, us->serialized[ii]);
+    MRCommand_Append(xcmd, us->serialized[ii], strlen(us->serialized[ii]));
   }
-
-  *xcmd = MR_NewCommandArgv(array_len(tmparr), tmparr);
 
   // Handle PARAMS if present
   int loc = RMUtil_ArgIndex("PARAMS", argv + 2, argc - 2);
@@ -126,7 +125,6 @@ static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
 
 
-  array_free(tmparr);
   // rm_free(n_prefixes);
 }
 
@@ -285,7 +283,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // xcmd.rootCommand = C_AGG;   // Response is equivalent to a `CURSOR READ` response
 
     // TODO: Build the result processor chain
-    StrongRef dispatcher_ref = HybridDispatcher_New(&xcmd, 2);
+    StrongRef dispatcher_ref = HybridDispatcher_New(&xcmd, 3);
     HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
 
     // // Add RPNet to each AREQ
