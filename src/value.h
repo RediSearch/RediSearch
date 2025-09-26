@@ -486,7 +486,7 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
  * Gets the string pointer and length from the value,
  * dereferencing in case `value` is a (chain of) RSValue
  * references. Works for all RSValue string types.
- * 
+ *
  * If `value` if of type `RSValue_String`, does the same as
  * `RSValue_String_GetPtr()`
  */
@@ -565,6 +565,16 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);
 /* Return 1 if the two values are equal */
 int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *status);
 
+/**
+ * This function decrements the refcount of dst (as a pointer), and increments the
+ * refcount of src, and finally assigns src to the variable dst
+ */
+static inline void RSValue_Replace(RSValue **destpp, RSValue *src) {
+    RSValue_Decref(*destpp);
+    RSValue_IncrRef(src);
+    *(destpp) = src;
+}
+
 /* "truth testing" for a value. for a number - not zero. For a string/array - not empty. null is
  * considered false */
 static inline int RSValue_BoolTest(const RSValue *v) {
@@ -617,28 +627,6 @@ static size_t RSValue_NumToString(const RSValue *v, char *buf) {
 // Formats the parsed expression object into a string, obfuscating the values if needed based on the
 // obfuscate boolean The returned string must be freed by the caller using sdsfree
 sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate);
-
-/**
- * This macro decrements the refcount of dst (as a pointer), and increments the
- * refcount of src, and finally assigns src to the variable dst
- */
-#define RSVALUE_REPLACE(dstpp, src) \
-  do {                              \
-    RSValue_Decref(*dstpp);         \
-    RSValue_IncrRef(src);           \
-    *(dstpp) = src;                 \
-  } while (0);
-
-/**
- * This macro does three things:
- * (1) It checks if the value v is NULL, if it isn't then it:
- * (2) Decrements it
- * (3) Sets the variable to NULL, as it no longer owns it.
- */
-#define RSVALUE_CLEARVAR(v) \
-  if (v) {                  \
-    RSValue_Decref(v);      \
-  }
 
 #ifdef __cplusplus
 }
