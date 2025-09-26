@@ -560,9 +560,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Use default dialect if > 1, otherwise use dialect 2
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
     parsedCmdCtx->reqConfig->dialectVersion = MIN_HYBRID_DIALECT;
-    parsedCmdCtx->search->reqConfig.dialectVersion = MIN_HYBRID_DIALECT;
-    parsedCmdCtx->vector->reqConfig.dialectVersion = MIN_HYBRID_DIALECT;
   }
+  parsedCmdCtx->search->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+  parsedCmdCtx->vector->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
 
   RSSearchOptions mergeSearchopts = {0};
   RSSearchOptions_Init(&mergeSearchopts);
