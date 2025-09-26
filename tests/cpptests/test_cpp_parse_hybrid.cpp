@@ -1071,7 +1071,7 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
 }
 
 // ============================================================================
-// DIALECT ERROR TESTS - Testing DIALECT is not supported in subqueries
+// DIALECT ERROR TESTS - Testing DIALECT is not supported
 // ============================================================================
 
 TEST_F(ParseHybridTest, testDialectInSearchSubquery) {

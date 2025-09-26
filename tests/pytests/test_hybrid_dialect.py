@@ -135,7 +135,7 @@ def test_hybrid_dialect_errors():
         'VSIM', '@vector', query_vector, 'RANGE', '2', 'DIALECT', '2'
     ).error().contains('Unknown argument `DIALECT` in RANGE')
 
-    # Test DIALECT in tail section - should succeed
+    # Test DIALECT in tail section - should fail
     hybrid_cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)',
@@ -144,7 +144,7 @@ def test_hybrid_dialect_errors():
     ]
     env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration')
 
-    # Test DIALECT with other tail parameters - should succeed
+    # Test DIALECT with other tail parameters - should fail
     hybrid_cmd = [
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)',
