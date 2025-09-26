@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join("src")
         .join("inverted_index")
         .join("inverted_index.h");
-    generate_c_bindings(vec![ii_header], ".*/inverted_index.h")?;
+    generate_c_bindings(vec![ii_header], ".*/inverted_index.h", false)?;
 
     Ok(())
 }

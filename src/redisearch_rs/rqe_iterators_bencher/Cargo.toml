@@ -19,6 +19,7 @@ harness = false
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }
+cc = "1.0"
 
 [dependencies]
 criterion.workspace = true
