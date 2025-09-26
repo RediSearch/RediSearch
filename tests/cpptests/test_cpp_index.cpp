@@ -978,7 +978,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
     ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
-    ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
+    ASSERT_EQ(RSValue_Number_Get(h->metrics[0].value), exp_dist);
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
@@ -997,13 +997,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
-  ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
+  ASSERT_EQ(RSValue_Number_Get(vecIt->current->metrics[0].value), exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
-  ASSERT_EQ(vecIt->current->metrics[0].value->numval, exp_dist);
+  ASSERT_EQ(RSValue_Number_Get(vecIt->current->metrics[0].value), exp_dist);
 
   // Invalid SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, n+1), ITERATOR_EOF);

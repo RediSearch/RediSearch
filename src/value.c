@@ -41,80 +41,207 @@ static inline mempool_t *getPool() {
   return tp;
 }
 
-RSValue *RS_NewValue(RSValueType t) {
-  RSValue *v = mempool_get(getPool());
-  v->t = t;
-  v->refcount = 1;
-  v->allocated = 1;
+RSValue RSValue_Undefined_Static() {
+  RSValue v;
+  v._t = RSValue_Undef;
+  v._allocated = 0;
+  v._refcount = 1;
   return v;
 }
 
+RSValue *RS_NewValue(RSValueType t) {
+  RSValue *v = mempool_get(getPool());
+  v->_t = t;
+  v->_refcount = 1;
+  v->_allocated = 1;
+  return v;
+}
+
+RSValue RSValue_NewStatic_Number(double n) {
+  RSValue v = {0};
+
+  v._t = RSValue_Number;
+  v._refcount = 1;
+  v._allocated = 0;
+  v._numval = n;
+
+  return v;
+}
+
+RSValue RSValue_NewStatic_String_Malloc(char *str, uint32_t len) {
+  RSValue v = {0};
+  v._allocated = 0;
+  v._refcount = 1;
+  v._t = RSValue_String;
+  v._strval.str = str;
+  v._strval.len = len;
+  v._strval.stype = RSString_Malloc;
+  return v;
+}
+
+bool RSValue_IsDuo(const RSValue *v) {
+  return (v && v->_t == RSValue_Duo);
+}
+
+RSValue *RSValue_Duo_GetLeft(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValue_Duo);
+  return v->_duoval.vals[0];
+}
+
+RSValue *RSValue_Duo_GetRight(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValue_Duo);
+  return v->_duoval.vals[1];
+}
+
+RSValueType RSValue_Type(const RSValue *v) {
+  RS_ASSERT(v);
+  return v->_t;
+}
+
+bool RSValue_IsReference(const RSValue *v) {
+  return (v && v->_t == RSValue_Reference);
+}
+
+bool RSValue_IsNumber(const RSValue *v) {
+  return (v && v->_t == RSValue_Number);
+}
+
+bool RSValue_IsString(const RSValue *v) {
+  return (v && v->_t == RSValue_String);
+}
+
+bool RSValue_IsArray(const RSValue *v) {
+  return (v && v->_t == RSValue_Array);
+}
+
+bool RSValue_IsRedisString(const RSValue *v) {
+  return (v && v->_t == RSValue_RedisString);
+}
+
+bool RSValue_IsOwnRString(const RSValue *v) {
+  return (v && v->_t == RSValue_OwnRstring);
+}
+
+double RSValue_Number_Get(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValue_Number);
+  return v->_numval;
+}
+
+char *RSValue_String_Get(const RSValue *v, uint32_t *lenp) {
+  RS_ASSERT(v && v->_t == RSValue_String);
+  if(lenp) {
+    *lenp = v->_strval.len;
+  }
+  return v->_strval.str;
+}
+
+char *RSValue_String_GetPtr(const RSValue *v) {
+  return RSValue_String_Get(v, NULL);
+}
+
+RedisModuleString *RSValue_RedisString_Get(const RSValue *v) {
+  RS_ASSERT(v && (v->_t == RSValue_RedisString || v->_t == RSValue_OwnRstring));
+  return v->_rstrval;
+}
+
+uint32_t RSValue_MapLen(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValue_Map);
+  return v->_mapval.len;
+}
+
+void RSValue_MapEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue **val) {
+  RS_ASSERT(i < RSValue_MapLen(map));
+  *key = map->_mapval.pairs[RSVALUE_MAP_KEYPOS(i)];
+  *val = map->_mapval.pairs[RSVALUE_MAP_VALUEPOS(i)];
+}
+
+void RSValue_IntoUndefined(RSValue *v) {
+  RS_ASSERT(v);
+  v->_t = RSValue_Undef;
+}
+
+void RSValue_IntoNumber(RSValue *v, double n) {
+  RS_ASSERT(v);
+  v->_t = RSValue_Number;
+  v->_numval = n;
+}
+
+void RSValue_IntoNull(RSValue *v) {
+  RS_ASSERT(v);
+  v->_t = RSValue_Null;
+}
+
+uint16_t RSValue_Refcount(const RSValue *v) {
+  RS_ASSERT(v);
+  return v->_refcount;
+}
+
 void RSValue_Clear(RSValue *v) {
-  switch (v->t) {
+  switch (v->_t) {
     case RSValue_String:
       // free strings by allocation strategy
-      switch (v->strval.stype) {
+      switch (v->_strval.stype) {
         case RSString_Malloc:
         case RSString_RMAlloc:
-          rm_free(v->strval.str);
+          rm_free(v->_strval.str);
           break;
         case RSString_SDS:
-          sdsfree(v->strval.str);
+          sdsfree(v->_strval.str);
           break;
         case RSString_Const:
           break;
       }
       break;
     case RSValue_Reference:
-      RSValue_Decref(v->ref);
+      RSValue_Decref(v->_ref);
       break;
     case RSValue_OwnRstring:
-      RedisModule_FreeString(RSDummyContext, v->rstrval);
+      RedisModule_FreeString(RSDummyContext, v->_rstrval);
       break;
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
     case RSValue_Duo:
-      RSValue_Decref(RS_DUOVAL_VAL(*v));
-      RSValue_Decref(RS_DUOVAL_OTHERVAL(*v));
+      RSValue_Decref(RSValue_Duo_GetLeft(v));
+      RSValue_Decref(RSValue_Duo_GetRight(v));
       RSValue_Decref(RS_DUOVAL_OTHER2VAL(*v));
-      rm_free(v->duoval.vals);
+      rm_free(v->_duoval.vals);
       break;
     case RSValue_Array:
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_Decref(v->arrval.vals[i]);
+      for (uint32_t i = 0; i < v->_arrval.len; i++) {
+        RSValue_Decref(v->_arrval.vals[i]);
       }
-      rm_free(v->arrval.vals);
+      rm_free(v->_arrval.vals);
       break;
     case RSValue_Map:
-      for (uint32_t i = 0; i < v->mapval.len; i++) {
-        RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
-        RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
+      for (uint32_t i = 0; i < v->_mapval.len; i++) {
+        RSValue_Decref(v->_mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
+        RSValue_Decref(v->_mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
       }
-      rm_free(v->mapval.pairs);
+      rm_free(v->_mapval.pairs);
       break;
     default:   // no free
       break;
   }
 
-  v->ref = NULL;
-  v->t = RSValue_Undef;
+  v->_ref = NULL;
+  v->_t = RSValue_Undef;
 }
 
 
 RSValue* RSValue_IncrRef(RSValue* v) {
-  __atomic_fetch_add(&v->refcount, 1, __ATOMIC_RELAXED);
+  __atomic_fetch_add(&v->_refcount, 1, __ATOMIC_RELAXED);
   return v;
 }
 
 void RSValue_Decref(RSValue* v) {
-  if (__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED) == 0) {
+  if (__atomic_sub_fetch(&(v)->_refcount, 1, __ATOMIC_RELAXED) == 0) {
     RSValue_Free(v);
   }
 }
 
 int RSValue_IsNull(const RSValue *value) {
   if (!value || value == RS_NullVal()) return 1;
-  if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
+  if (value->_t == RSValue_Reference) return RSValue_IsNull(value->_ref);
   return 0;
 }
 
@@ -122,30 +249,30 @@ int RSValue_IsNull(const RSValue *value) {
  * the actual value object */
 void RSValue_Free(RSValue *v) {
   RSValue_Clear(v);
-  if (v->allocated) {
+  if (v->_allocated) {
     mempool_release(getPool(), v);
   }
 }
 
 RSValue RS_Value(RSValueType t) {
   RSValue v = (RSValue){
-      .t = t,
-      .refcount = 1,
-      .allocated = 0,
+      ._t = t,
+      ._refcount = 1,
+      ._allocated = 0,
   };
   return v;
 }
 
 inline void RSValue_SetNumber(RSValue *v, double n) {
-  v->t = RSValue_Number;
-  v->numval = n;
+  v->_t = RSValue_Number;
+  v->_numval = n;
 }
 
 inline void RSValue_SetString(RSValue *v, char *str, size_t len) {
-  v->t = RSValue_String;
-  v->strval.len = len;
-  v->strval.str = str;
-  v->strval.stype = RSString_Malloc;
+  v->_t = RSValue_String;
+  v->_strval.len = len;
+  v->_strval.str = str;
+  v->_strval.stype = RSString_Malloc;
 }
 
 RSValue *RS_NewCopiedString(const char *s, size_t n) {
@@ -158,16 +285,16 @@ RSValue *RS_NewCopiedString(const char *s, size_t n) {
 }
 
 inline void RSValue_SetSDS(RSValue *v, sds s) {
-  v->t = RSValue_String;
-  v->strval.len = sdslen(s);
-  v->strval.str = s;
-  v->strval.stype = RSString_SDS;
+  v->_t = RSValue_String;
+  v->_strval.len = sdslen(s);
+  v->_strval.str = s;
+  v->_strval.stype = RSString_SDS;
 }
 inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
-  v->t = RSValue_String;
-  v->strval.len = len;
-  v->strval.str = (char *)str;
-  v->strval.stype = RSString_Const;
+  v->_t = RSValue_String;
+  v->_strval.len = len;
+  v->_strval.str = (char *)str;
+  v->_strval.stype = RSString_Const;
 }
 
 /* Wrap a string with length into a value object. Doesn't duplicate the string. Use strdup if
@@ -175,25 +302,25 @@ inline void RSValue_SetConstString(RSValue *v, const char *str, size_t len) {
 inline RSValue *RS_StringVal(char *str, uint32_t len) {
   RS_LOG_ASSERT(len <= (UINT32_MAX >> 4), "string length exceeds limit");
   RSValue *v = RS_NewValue(RSValue_String);
-  v->strval.str = str;
-  v->strval.len = len;
-  v->strval.stype = RSString_Malloc;
+  v->_strval.str = str;
+  v->_strval.len = len;
+  v->_strval.stype = RSString_Malloc;
   return v;
 }
 
 /* Same as RS_StringVal but with explicit string type */
 inline RSValue *RS_StringValT(char *str, uint32_t len, RSStringType t) {
   RSValue *v = RS_NewValue(RSValue_String);
-  v->strval.str = str;
-  v->strval.len = len;
-  v->strval.stype = t;
+  v->_strval.str = str;
+  v->_strval.len = len;
+  v->_strval.stype = t;
   return v;
 }
 
 /* Wrap a redis string value */
 RSValue *RS_RedisStringVal(RedisModuleString *str) {
   RSValue *v = RS_NewValue(RSValue_RedisString);
-  v->rstrval = str;
+  v->_rstrval = str;
   return v;
 }
 
@@ -206,27 +333,27 @@ RSValue *RS_OwnRedisStringVal(RedisModuleString *str) {
 // TODO : NORMALLY
 RSValue *RS_StealRedisStringVal(RedisModuleString *str) {
   RSValue *ret = RS_RedisStringVal(str);
-  ret->t = RSValue_OwnRstring;
+  ret->_t = RSValue_OwnRstring;
   return ret;
 }
 
 void RSValue_MakeRStringOwner(RSValue *v) {
-  RS_LOG_ASSERT(v->t == RSValue_RedisString, "RSvalue type should be string");
-  v->t = RSValue_OwnRstring;
-  RedisModule_RetainString(RSDummyContext, v->rstrval);
+  RS_LOG_ASSERT(v->_t == RSValue_RedisString, "RSvalue type should be string");
+  v->_t = RSValue_OwnRstring;
+  RedisModule_RetainString(RSDummyContext, v->_rstrval);
 }
 
 /* Convert a value to a string value. If the value is already a string value it gets
  * shallow-copied (no string buffer gets copied) */
 void RSValue_ToString(RSValue *dst, RSValue *v) {
-  switch (v->t) {
+  switch (v->_t) {
     case RSValue_String:
       RSValue_MakeReference(dst, v);
       break;
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
       size_t sz;
-      const char *str = RedisModule_StringPtrLen(v->rstrval, &sz);
+      const char *str = RedisModule_StringPtrLen(v->_rstrval, &sz);
       RSValue_SetConstString(dst, str, sz);
       break;
     }
@@ -238,10 +365,10 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
       break;
     }
     case RSValue_Reference:
-      return RSValue_ToString(dst, v->ref);
+      return RSValue_ToString(dst, v->_ref);
 
     case RSValue_Duo:
-      return RSValue_ToString(dst, RS_DUOVAL_VAL(*v));
+      return RSValue_ToString(dst, RSValue_Duo_GetLeft(v));
 
     case RSValue_Null:
     default:
@@ -270,25 +397,25 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
 
   const char *p = NULL;
   size_t l = 0;
-  switch (v->t) {
+  switch (v->_t) {
     // for numerics - just set the value and return
     case RSValue_Number:
-      *d = v->numval;
+      *d = v->_numval;
       return 1;
 
     case RSValue_String:
       // C strings - take the ptr and len
-      p = v->strval.str;
-      l = v->strval.len;
+      p = v->_strval.str;
+      l = v->_strval.len;
       break;
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       // Redis strings - take the number and len
-      p = RedisModule_StringPtrLen(v->rstrval, &l);
+      p = RedisModule_StringPtrLen(v->_rstrval, &l);
       break;
 
     case RSValue_Duo:
-      return RSValue_ToNumber(RS_DUOVAL_VAL(*v), d);
+      return RSValue_ToNumber(RSValue_Duo_GetLeft(v), d);
 
     case RSValue_Null:
     case RSValue_Array:
@@ -317,17 +444,17 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
   value = RSValue_Dereference(value);
 
-  switch (value->t) {
+  switch (value->_t) {
     case RSValue_String:
       if (lenp) {
-        *lenp = value->strval.len;
+        *lenp = value->_strval.len;
       }
-      return value->strval.str;
+      return value->_strval.str;
     case RSValue_RedisString:
     case RSValue_OwnRstring:
-      return RedisModule_StringPtrLen(value->rstrval, lenp);
+      return RedisModule_StringPtrLen(value->_rstrval, lenp);
     case RSValue_Duo:
-      return RSValue_StringPtrLen(RS_DUOVAL_VAL(*value), lenp);
+      return RSValue_StringPtrLen(RSValue_Duo_GetLeft(value), lenp);
     default:
       return NULL;
   }
@@ -339,10 +466,10 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
                                         size_t buflen) {
   value = RSValue_Dereference(value);
 
-  if (RSValue_IsString(value)) {
+  if (RSValue_IsStringVariant(value)) {
     return RSValue_StringPtrLen(value, lenp);
-  } else if (value->t == RSValue_Number) {
-    size_t n = snprintf(buf, buflen, "%f", value->numval);
+  } else if (value->_t == RSValue_Number) {
+    size_t n = snprintf(buf, buflen, "%f", value->_numval);
     if (n >= buflen) {
       *lenp = 0;
       return "";
@@ -359,27 +486,27 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
 /* Wrap a number into a value object */
 RSValue *RS_NumVal(double n) {
   RSValue *v = RS_NewValue(RSValue_Number);
-  v->numval = n;
+  v->_numval = n;
   return v;
 }
 
 RSValue *RS_Int64Val(int64_t dd) {
   RSValue *v = RS_NewValue(RSValue_Number);
-  v->numval = dd;
+  v->_numval = dd;
   return v;
 }
 
 RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
   RSValue *arr = RS_NewValue(RSValue_Array);
-  arr->arrval.vals = vals;
-  arr->arrval.len = len;
+  arr->_arrval.vals = vals;
+  arr->_arrval.len = len;
   return arr;
 }
 
 RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
   RSValue *map = RS_NewValue(RSValue_Map);
-  map->mapval.pairs = pairs;
-  map->mapval.len = numPairs;
+  map->_mapval.pairs = pairs;
+  map->_mapval.len = numPairs;
   return map;
 }
 
@@ -414,7 +541,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
   return RSValue_NewArray(arr, sz);
 }
 
-RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
+RSValue RS_NULL = {._t = RSValue_Null, ._refcount = 1, ._allocated = 0};
 /* Returns a pointer to the NULL RSValue */
 RSValue *RS_NullVal() {
   return &RS_NULL;
@@ -422,10 +549,10 @@ RSValue *RS_NullVal() {
 
 RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val) {
   RSValue *duo = RS_NewValue(RSValue_Duo);
-  duo->duoval.vals = rm_calloc(3, sizeof(*duo->duoval.vals));
-  duo->duoval.vals[0] = val;
-  duo->duoval.vals[1] = otherval;
-  duo->duoval.vals[2] = other2val;
+  duo->_duoval.vals = rm_calloc(3, sizeof(*duo->_duoval.vals));
+  duo->_duoval.vals[0] = val;
+  duo->_duoval.vals[1] = otherval;
+  duo->_duoval.vals[2] = other2val;
   return duo;
 }
 
@@ -445,25 +572,25 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
 }
 
 static inline int compare_arrays_first(const RSValue *arr1, const RSValue *arr2, QueryError *qerr) {
-  uint32_t len1 = arr1->arrval.len;
-  uint32_t len2 = arr2->arrval.len;
+  uint32_t len1 = arr1->_arrval.len;
+  uint32_t len2 = arr2->_arrval.len;
 
   uint32_t len = MIN(len1, len2);
   if (len) {
     // Compare only the first entry
-    return RSValue_Cmp(arr1->arrval.vals[0], arr2->arrval.vals[0], qerr);
+    return RSValue_Cmp(arr1->_arrval.vals[0], arr2->_arrval.vals[0], qerr);
   }
   return len1 - len2;
 }
 
 // TODO: Use when SORTABLE is not looking only at the first array element
 static inline int compare_arrays(const RSValue *arr1, const RSValue *arr2, QueryError *qerr) {
-  uint32_t len1 = arr1->arrval.len;
-  uint32_t len2 = arr2->arrval.len;
+  uint32_t len1 = arr1->_arrval.len;
+  uint32_t len2 = arr2->_arrval.len;
 
   uint32_t len = MIN(len1, len2);
   for (uint32_t i = 0; i < len; i++) {
-    int cmp = RSValue_Cmp(arr1->arrval.vals[i], arr2->arrval.vals[i], qerr);
+    int cmp = RSValue_Cmp(arr1->_arrval.vals[i], arr2->_arrval.vals[i], qerr);
     if (cmp != 0) {
       return cmp;
     }
@@ -474,7 +601,7 @@ static inline int compare_arrays(const RSValue *arr1, const RSValue *arr2, Query
 
 
 static inline int cmp_numbers(const RSValue *v1, const RSValue *v2) {
-  return v1->numval > v2->numval ? 1 : (v1->numval < v2->numval ? -1 : 0);
+  return v1->_numval > v2->_numval ? 1 : (v1->_numval < v2->_numval ? -1 : 0);
 }
 
 static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *qerr) {
@@ -492,20 +619,20 @@ static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *q
 }
 
 static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
-  switch (v1->t) {
+  switch (v1->_t) {
     case RSValue_Number:
       return cmp_numbers(v1, v2);
     case RSValue_String:
-      return cmp_strings(v1->strval.str, v2->strval.str, v1->strval.len, v2->strval.len);
+      return cmp_strings(v1->_strval.str, v2->_strval.str, v1->_strval.len, v2->_strval.len);
     case RSValue_RedisString:
     case RSValue_OwnRstring: {
       size_t l1, l2;
-      const char *s1 = RedisModule_StringPtrLen(v1->rstrval, &l1);
-      const char *s2 = RedisModule_StringPtrLen(v2->rstrval, &l2);
+      const char *s1 = RedisModule_StringPtrLen(v1->_rstrval, &l1);
+      const char *s2 = RedisModule_StringPtrLen(v2->_rstrval, &l2);
       return cmp_strings(s1, s2, l1, l2);
     }
     case RSValue_Duo:
-      return RSValue_Cmp(RS_DUOVAL_VAL(*v1), RS_DUOVAL_VAL(*v2), qerr);
+      return RSValue_Cmp(RSValue_Duo_GetLeft(v1), RSValue_Duo_GetLeft(v2), qerr);
     case RSValue_Null:
       return 0;
     case RSValue_Array:
@@ -519,7 +646,7 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr)
 
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
-  if (v1->t == v2->t) {
+  if (v1->_t == v2->_t) {
     return RSValue_CmpNC(v1, v2, qerr);
   }
 
@@ -533,7 +660,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   // if either of the arguments is a number, convert the other one to a number
   // if, however, error handling is not available, fallback to string comparison
   do {
-    if (v1->t == RSValue_Number) {
+    if (v1->_t == RSValue_Number) {
       RSValue v2n;
       if (!convert_to_number(v2, &v2n, qerr)) {
         // if it is possible to indicate an error, return
@@ -542,7 +669,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
         break;
       }
       return cmp_numbers(v1, &v2n);
-    } else if (v2->t == RSValue_Number) {
+    } else if (v2->_t == RSValue_Number) {
       RSValue v1n;
       if (!convert_to_number(v1, &v1n, qerr)) {
         // if it is possible to indicate an error, return
@@ -567,7 +694,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
 int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   RS_LOG_ASSERT(v1 && v2, "missing RSvalue");
 
-  if (v1->t == v2->t) {
+  if (v1->_t == v2->_t) {
     return RSValue_CmpNC(v1, v2, qerr) == 0;
   }
 
@@ -577,10 +704,10 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
 
   // if either of the arguments is a number, convert the other one to a number
   RSValue vn;
-  if (v1->t == RSValue_Number) {
+  if (v1->_t == RSValue_Number) {
     if (!convert_to_number(v2, &vn, NULL)) return 0;
     return cmp_numbers(v1, &vn) == 0;
-  } else if (v2->t == RSValue_Number) {
+  } else if (v2->_t == RSValue_Number) {
     if (!convert_to_number(v1, &vn, NULL)) return 0;
     return cmp_numbers(&vn, v2) == 0;
   }
@@ -598,14 +725,14 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
   if (!v) {
     return sdscat(s, "nil");
   }
-  switch (v->t) {
+  switch (v->_t) {
     case RSValue_String:
       if (obfuscate) {
-        const char *obfuscated = Obfuscate_Text(v->strval.str);
+        const char *obfuscated = Obfuscate_Text(v->_strval.str);
         return sdscatfmt(s, "\"%s\"", obfuscated);
       } else {
         s = sdscat(s, "\"");
-        s = sdscatlen(s, v->strval.str, v->strval.len);
+        s = sdscatlen(s, v->_strval.str, v->_strval.len);
         s = sdscat(s, "\"");
         return s;
       }
@@ -614,11 +741,11 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
     case RSValue_OwnRstring:
       if (obfuscate) {
         size_t len;
-        const char *obfuscated = Obfuscate_Text(RedisModule_StringPtrLen(v->rstrval, &len));
+        const char *obfuscated = Obfuscate_Text(RedisModule_StringPtrLen(v->_rstrval, &len));
         return sdscatfmt(s, "\"%s\"", obfuscated);
       } else {
         size_t len;
-        const char *str = RedisModule_StringPtrLen(v->rstrval, &len);
+        const char *str = RedisModule_StringPtrLen(v->_rstrval, &len);
         s = sdscat(s, "\"");
         s = sdscatlen(s, str, len);
         s = sdscat(s, "\"");
@@ -627,7 +754,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       break;
     case RSValue_Number: {
       if (obfuscate) {
-        return sdscat(s, Obfuscate_Number(v->numval));
+        return sdscat(s, Obfuscate_Number(v->_numval));
       } else {
         char buf[128];
         size_t len = RSValue_NumToString(v, buf);
@@ -642,30 +769,30 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       return sdscat(s, "<Undefined>");
     case RSValue_Array:
       s = sdscat(s, "[");
-      for (uint32_t i = 0; i < v->arrval.len; i++) {
+      for (uint32_t i = 0; i < v->_arrval.len; i++) {
         if (i > 0)
           s = sdscat(s, ", ");
-        s = RSValue_DumpSds(v->arrval.vals[i], s, obfuscate);
+        s = RSValue_DumpSds(v->_arrval.vals[i], s, obfuscate);
       }
       return sdscat(s, "]");
       break;
     case RSValue_Map:
       s = sdscat(s, "{");
-      for (uint32_t i = 0; i < v->mapval.len; i++) {
+      for (uint32_t i = 0; i < v->_mapval.len; i++) {
         if (i > 0)
           s = sdscat(s, ", ");
-        s = RSValue_DumpSds(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], s, obfuscate);
+        s = RSValue_DumpSds(v->_mapval.pairs[RSVALUE_MAP_KEYPOS(i)], s, obfuscate);
         s = sdscat(s, ": ");
-        s = RSValue_DumpSds(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], s, obfuscate);
+        s = RSValue_DumpSds(v->_mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], s, obfuscate);
       }
       s = sdscat(s, "}");
       break;
     case RSValue_Reference:
-      return RSValue_DumpSds(v->ref, s, obfuscate);
+      return RSValue_DumpSds(v->_ref, s, obfuscate);
       break;
 
     case RSValue_Duo:
-      return RSValue_DumpSds(RS_DUOVAL_VAL(*v), s, obfuscate);
+      return RSValue_DumpSds(RSValue_Duo_GetLeft(v), s, obfuscate);
       break;
   }
 }

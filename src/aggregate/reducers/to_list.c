@@ -43,7 +43,7 @@ static int tolistAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   }
 
   // for non array values we simply add the value to the list */
-  if (v->t != RSValue_Array) {
+  if (!RSValue_IsArray(v)) {
     dictAdd(values, v, NULL);
   } else {  // For array values we add each distinct element to the list
     uint32_t len = RSValue_ArrayLen(v);

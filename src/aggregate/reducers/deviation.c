@@ -43,7 +43,7 @@ static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   double d;
   RSValue *v = RLookup_GetItem(r->srckey, srcrow);
   if (v) {
-    if (v->t != RSValue_Array) {
+    if (!RSValue_IsArray(v)) {
       if (RSValue_ToNumber(v, &d)) {
         stddevAddInternal(dctx, d);
       }

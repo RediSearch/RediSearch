@@ -14,6 +14,7 @@
 #include "function.h"
 
 #include "hiredis/sds.h"
+#include "value.h"
 
 #include <ctype.h>
 
@@ -62,7 +63,6 @@ static int func_matchedTerms(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   RSValue_SetConstString(result, np, sz);                                                     \
   return EXPR_EVAL_OK
 
-
 /* lower(str) */
 static int stringfunc_tolower(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   stringfunc_to_generic(tolower);
@@ -85,8 +85,8 @@ static int stringfunc_substr(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     return EXPR_EVAL_ERR;
   }
 
-  int offset = (int)RSValue_Dereference(&argv[1])->numval;
-  int len = (int)RSValue_Dereference(&argv[2])->numval;
+  int offset = (int)RSValue_Number_Get(RSValue_Dereference(&argv[1]));
+  int len = (int)RSValue_Number_Get(RSValue_Dereference(&argv[2]));
 
   // for negative offsets we count from the end of the string
   if (offset < 0) {
@@ -167,9 +167,9 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
         // write null value
         out = sdscat(out, "(null)");
         continue;
-      } else if (!RSValue_IsString(arg)) {
+      } else if (!RSValue_IsStringVariant(arg)) {
 
-        RSValue strval = RSVALUE_STATIC;
+        RSValue strval = RSValue_Undefined_Static();
         RSValue_ToString(&strval, arg);
         size_t sz;
         const char *str = RSValue_StringPtrLen(&strval, &sz);
@@ -265,13 +265,11 @@ static int stringfunc_split(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *
 }
 
 int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
-
-  result->t = RSValue_Number;
-  if (argv[0].t != RSValue_Null) {
-    result->numval = 1;
+  if (RSValue_Type(&argv[0]) != RSValue_Null) {
+    RSValue_IntoNumber(result, 1);
   } else {
     QueryError_ClearError(ctx->err);
-    result->numval = 0;
+    RSValue_IntoNumber(result, 0);
   }
   return EXPR_EVAL_OK;
 }
@@ -294,8 +292,7 @@ static int stringfunc_startswith(ExprEval *ctx, RSValue *argv, size_t argc, RSVa
   const char *p_str = RSValue_StringPtrLen(str, NULL);
   size_t n;
   const char *p_pref = RSValue_StringPtrLen(pref, &n);
-  result->t = RSValue_Number;
-  result->numval = strncmp(p_pref, p_str, n) == 0;
+  RSValue_IntoNumber(result, strncmp(p_pref, p_str, n) == 0);
   return EXPR_EVAL_OK;
 }
 
@@ -310,7 +307,6 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *argv, size_t argc, RSValu
   char *p_str = (char *)RSValue_StringPtrLen(str, &p_str_size);
   size_t p_pref_size;
   const char *p_pref = (char *)RSValue_StringPtrLen(pref, &p_pref_size);
-  result->t = RSValue_Number;
 
   size_t num;
   if(p_pref_size > 0) {
@@ -322,7 +318,7 @@ static int stringfunc_contains(ExprEval *ctx, RSValue *argv, size_t argc, RSValu
   } else {
     num = p_str_size + 1;
   }
-  result->numval = num;
+  RSValue_IntoNumber(result, num);
   return EXPR_EVAL_OK;
 }
 
@@ -333,8 +329,7 @@ static int stringfunc_strlen(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
 
   size_t n;
   const char *p_pref = (char *)RSValue_StringPtrLen(str, &n);
-  result->t = RSValue_Number;
-  result->numval = n;
+  RSValue_IntoNumber(result, n);
   return EXPR_EVAL_OK;
 }
 

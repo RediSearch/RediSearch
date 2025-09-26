@@ -81,25 +81,26 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
     RedisModule_Reply_Null(reply);
   }
   else {
-    if (key->t == RSValue_Reference) {
+    if (RSValue_IsReference(key)) {
       key = RSValue_Dereference(key);
-    } else if (key->t == RSValue_Duo) {
-      key = RS_DUOVAL_VAL(*key);
+    } else if (RSValue_IsDuo(key)) {
+      key = RSValue_Duo_GetLeft(key);
     }
-    switch (key->t) {
+
+    switch (RSValue_Type(key)) {
       case RSValue_Number:
         // Serialize double - by prepending "#" to the number, so the coordinator/client can
         // tell it's a double and not just a numeric string value
-        rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", key->numval);
+        rskey = RedisModule_CreateStringPrintf(outctx, "#%.17g", RSValue_Number_Get(key));
         break;
       case RSValue_String:
         // Serialize string - by prepending "$" to it
-        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", key->strval.str);
+        rskey = RedisModule_CreateStringPrintf(outctx, "$%s", RSValue_String_Get(key, NULL));
         break;
       case RSValue_RedisString:
       case RSValue_OwnRstring:
         rskey = RedisModule_CreateStringPrintf(outctx, "$%s",
-                                               RedisModule_StringPtrLen(key->rstrval, NULL));
+          RedisModule_StringPtrLen(RSValue_RedisString_Get(key), NULL));
         break;
       case RSValue_Null:
       case RSValue_Undef:
@@ -109,6 +110,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
       case RSValue_Duo:
         break;
     }
+
     if (rskey) {
       RedisModule_Reply_String(reply, rskey);
       RedisModule_FreeString(outctx, rskey);
@@ -206,12 +208,12 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     for(; currentField < requiredFieldsCount; currentField++) {
       const RLookupKey *rlk = RLookup_GetKey_Read(cv->lastLookup, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
       const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
-      if (v && v->t == RSValue_Duo) {
-        // For duo value, we use the value here (not the other value)
-        v = RS_DUOVAL_VAL(*v);
+      if (RSValue_IsDuo(v)) {
+        // For duo value, we use the left value here (not the right value)
+        v = RSValue_Duo_GetLeft(v);
       }
       RSValue rsv;
-      if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && v->t != RSVALTYPE_DOUBLE && !RSValue_IsNull(v)) {
+      if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
         double d;
         RSValue_ToNumber(v, &d);
         RSValue_SetNumber(&rsv, d);
@@ -262,16 +264,16 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
           unsigned int apiVersion = sctx->apiVersion;
-          if (v && v->t == RSValue_Duo) {
+          if (RSValue_IsDuo(v)) {
             // Which value to use for duo value
             if (!(flags & SENDREPLY_FLAG_EXPAND)) {
               // STRING
               if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
                 // Multi
-                v = RS_DUOVAL_OTHERVAL(*v);
+                v = RSValue_Duo_GetRight(v);
               } else {
                 // Single
-                v = RS_DUOVAL_VAL(*v);
+                v = RSValue_Duo_GetLeft(v);
               }
             } else {
               // EXPAND

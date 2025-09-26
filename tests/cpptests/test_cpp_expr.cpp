@@ -12,6 +12,7 @@
 #include "aggregate/expr/exprast.h"
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
+#include "value.h"
 
 class ExprTest : public ::testing::Test {
  public:
@@ -113,8 +114,9 @@ TEST_F(ExprTest, testExpr) {
 
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
-  ASSERT_EQ(RSValue_Number, eval.result().t);
-  ASSERT_EQ(6, eval.result().numval);
+  RSValue result = eval.result();
+  ASSERT_EQ(RSValue_Number, RSValue_Type(&result));
+  ASSERT_EQ(6, RSValue_Number_Get(&result));
 }
 
 
@@ -152,11 +154,12 @@ TEST_F(ExprTest, testArithmetics) {
     ASSERT_TRUE(ctx) << ctx.error();                \
     ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());            \
     auto res = RSValue_Dereference(&ctx.result());  \
-    ASSERT_EQ(RSValue_Number, res->t);              \
+    ASSERT_EQ(RSValue_Number, RSValue_Type(res));   \
+    auto numval = RSValue_Number_Get(res);          \
     if (std::isnan(expected)) {                     \
-      EXPECT_TRUE(std::isnan(res->numval));         \
+      EXPECT_TRUE(std::isnan(numval));              \
     } else {                                        \
-      EXPECT_FLOAT_EQ(expected, res->numval);       \
+      EXPECT_FLOAT_EQ(expected, numval);            \
     }                                               \
   }
 
@@ -228,7 +231,7 @@ TEST_F(ExprTest, testParser) {
   TEvalCtx eval(root);
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
-  ASSERT_EQ(RSValue_Number, eval.result().t);
+  ASSERT_EQ(RSValue_Number, RSValue_Type(&eval.result()));
 }
 
 TEST_F(ExprTest, testGetFields) {
@@ -255,7 +258,7 @@ TEST_F(ExprTest, testFunction) {
   TEvalCtx ctx(e);
 
   EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK) << "Could not parse " << e << " " << ctx.error();
-  EXPECT_EQ(RSValue_Number, ctx.result().t);
+  EXPECT_EQ(RSValue_Number, RSValue_Type(&ctx.result()));
 
   ctx.assign("banana(1, 2, 3)");
   EXPECT_TRUE(!ctx) << "Parsed invalid function";
@@ -302,7 +305,7 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
     return EvalResult::failure(&ctx.status_s);
   }
 
-  return EvalResult::ok(RSValue_Dereference(&ctx.result())->numval);
+  return EvalResult::ok(RSValue_Number_Get(RSValue_Dereference(&ctx.result())));
 }
 
 TEST_F(ExprTest, testPredicate) {
@@ -403,9 +406,8 @@ TEST_F(ExprTest, testPropertyFetch) {
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
-  ASSERT_EQ(RSValue_Number, ctx.result().t);
-  ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), ctx.result().numval);
-
+  ASSERT_EQ(RSValue_Number, RSValue_Type(&ctx.result()));
+  ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), RSValue_Number_Get(&ctx.result()));
   RLookupRow_Reset(&rr);
   RLookup_Cleanup(&lk);
 }
@@ -416,8 +418,8 @@ TEST_F(ExprTest, testPropertyFetch) {
     ASSERT_TRUE(ctx_var) << ctx_var.error();                \
     ASSERT_EQ(EXPR_EVAL_OK, ctx_var.eval());                \
     auto res = RSValue_Dereference(&ctx_var.result());      \
-    ASSERT_EQ(RSValue_Number, res->t);                      \
-    ASSERT_EQ(expected_value, res->numval);                 \
+    ASSERT_EQ(RSValue_Number, RSValue_Type(res));           \
+    ASSERT_EQ(expected_value, RSValue_Number_Get(res));     \
   }
 
 TEST_F(ExprTest, testEvalFuncCase) {
@@ -502,22 +504,22 @@ TEST_F(ExprTest, testEvalFuncCaseNested) {
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   auto res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, res->t);
-  ASSERT_STREQ("inner_true", res->strval.str);
+  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_STREQ("inner_true", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(0, 'outer_true', case(1, 'nested_true', 'nested_false'))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, res->t);
-  ASSERT_STREQ("nested_true", res->strval.str);
+  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_STREQ("nested_true", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(0, 'outer_true', case(0, 'nested_true', 'nested_false'))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, res->t);
-  ASSERT_STREQ("nested_false", res->strval.str);
+  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_STREQ("nested_false", RSValue_String_Get(res, NULL));
 }
 
 TEST_F(ExprTest, testEvalFuncCaseWithNullValues) {
@@ -528,8 +530,8 @@ TEST_F(ExprTest, testEvalFuncCaseWithNullValues) {
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   auto res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, res->t);
-  ASSERT_STREQ("false_branch", res->strval.str);
+  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_STREQ("false_branch", RSValue_String_Get(res, NULL));
 
   ctx.assign("case(1, NULL, 'false_branch')");
   ASSERT_TRUE(ctx) << ctx.error();
@@ -594,15 +596,15 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   auto res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_Number, res->t);
-  ASSERT_EQ(42, res->numval);
+  ASSERT_EQ(RSValue_Number, RSValue_Type(res));
+  ASSERT_EQ(42, RSValue_Number_Get(res));
 
   ctx.assign("case(0, 42, 'string_result')");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_String, res->t);
-  ASSERT_STREQ("string_result", res->strval.str);
+  ASSERT_EQ(RSValue_String, RSValue_Type(res));
+  ASSERT_STREQ("string_result", RSValue_String_Get(res, NULL));
 
   // Test with complex expressions returning different types
   ctx.assign("case(1, 3.14 * 2, 'pi_doubled')");
@@ -613,8 +615,8 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
   res = RSValue_Dereference(&ctx.result());
-  ASSERT_EQ(RSValue_Number, res->t);
-  ASSERT_EQ(1, res->numval);
+  ASSERT_EQ(RSValue_Number, RSValue_Type(res));
+  ASSERT_EQ(1, RSValue_Number_Get(res));
 
   ctx.assign("case(0, 1==1, 2!=2)");
   ASSERT_EXPR_EVAL_NUMBER(ctx, 0);

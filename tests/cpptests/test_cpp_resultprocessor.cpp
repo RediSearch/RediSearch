@@ -10,6 +10,7 @@
 
 #include "result_processor.h"
 #include "query.h"
+#include "value.h"
 #include "gtest/gtest.h"
 
 struct processor1Ctx : public ResultProcessor {
@@ -74,8 +75,8 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
     ASSERT_EQ(count, r.score);
     RSValue *v = RLookup_GetItem(p->kout, &r.rowdata);
     ASSERT_TRUE(v != NULL);
-    ASSERT_EQ(RSValue_Number, v->t);
-    ASSERT_EQ(count, v->numval);
+    ASSERT_EQ(RSValue_Number, RSValue_Type(v));
+    ASSERT_EQ(count, RSValue_Number_Get(v));
     SearchResult_Clear(&r);
   }
 
