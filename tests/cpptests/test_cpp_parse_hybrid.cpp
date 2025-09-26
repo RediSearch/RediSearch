@@ -491,9 +491,9 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vn->children[0]->type, QN_WILDCARD);
 }
 
-TEST_F(ParseHybridTest, testVsimKNNWithYieldScoreOnly) {
+TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
   // Parse hybrid request
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "8", "YIELD_SCORE_AS", "distance_score", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "8", "YIELD_DISTANCE_AS", "distance_score", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
