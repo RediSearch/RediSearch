@@ -169,9 +169,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
-      const RLookupKey **sortkeys = astp->sortkeysLK;
-
       RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+
+      const RLookupKey **sortkeys = astp->sortkeysLK;
 
       for (size_t ii = 0; ii < nkeys; ++ii) {
         const char *keystr = astp->sortKeys[ii];
@@ -222,7 +222,7 @@ end:
 }
 
 // Assumes that the spec is locked
-static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const QueryPipelineParams *params) {
+static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const RLookupKey *scoreKey, const QueryPipelineParams *params) {
   const char *scorer = params->scorerName;
   if (!scorer) {
     scorer = DEFAULT_SCORER_NAME;
@@ -240,10 +240,6 @@ static ResultProcessor *getScorerRP(Pipeline *pipeline, RLookup *rl, const Query
   IndexSpec_GetStats(params->common.sctx->spec, &scargs.indexStats);
   scargs.qdata = params->ast->udata;
   scargs.qdatalen = params->ast->udatalen;
-  const RLookupKey *scoreKey = NULL;
-  if (HasScoreInPipeline(&params->common)) {
-    scoreKey = RLookup_GetKey_Write(rl, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
-  }
   ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
   return rp;
 }
@@ -368,22 +364,49 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
    *  * WITHSCORES/ADDSCORES is defined
    *  * there is no subsequent sorter within this grouping */
   const int reqflags = params->common.reqflags;
-  if ((reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD)) ||
-      ((IsSearch(&params->common) || IsHybridSearchSubquery(&params->common)) && !(reqflags & QEXEC_F_NOROWS) &&
-       ((reqflags & QEXEC_OPTIMIZE) ? (params->common.optimizer->scorerType != SCORER_TYPE_NONE) : !hasQuerySortby(&pipeline->ap)))) {
-    rp = getScorerRP(pipeline, first, params);
-    PUSH_RP();
-    const char *scorerName = params->scorerName;
-    if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
-      const RLookupKey *scoreKey = NULL;
-      if (params->common.reqflags & QEXEC_F_SEND_SCORES_AS_FIELD) {
-        scoreKey = RLookup_GetKey_Write(first, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
-      }
-      rp = RPMaxScoreNormalizer_New(scoreKey);
-      PUSH_RP();
-      }
+
+  // Check if scores are explicitly requested (WITHSCORES/ADDSCORES)
+  const bool scoresExplicitlyRequested = (reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD));
+
+  // Check if this is a search or hybrid search subquery that returns rows
+  const bool isSearchReturningRows = (IsSearch(&params->common) || IsHybridSearchSubquery(&params->common)) &&
+                               !(reqflags & QEXEC_F_NOROWS);
+
+  // Check if scoring is needed based on optimization settings or sorting requirements
+  bool scoringNeeded = false;
+  if (isSearchReturningRows) {
+    if (reqflags & QEXEC_OPTIMIZE) {
+      // When optimized, check if optimizer has a scorer
+      scoringNeeded = (params->common.optimizer->scorerType != SCORER_TYPE_NONE);
+    } else {
+      // When not optimized, check if there's no explicit sorting (which would handle scoring)
+      scoringNeeded = !hasQuerySortby(&pipeline->ap);
     }
   }
+
+  if (scoresExplicitlyRequested || (isSearchReturningRows && scoringNeeded)) {
+    const RLookupKey *scoreKey = NULL;
+    if (HasScoreInPipeline(&params->common)) {
+      if (params->common.scoreAlias) {
+        scoreKey = RLookup_GetKey_Write(first, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
+      } else {
+        scoreKey = RLookup_GetKey_Write(first, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
+      }
+    }
+    if (params->common.scoreAlias && !scoreKey) {
+      QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", params->common.scoreAlias);
+      return;
+    } 
+
+    rp = getScorerRP(pipeline, first, scoreKey, params);
+    PUSH_RP();
+    const char *scorerName = params->scorerName;
+    if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME)) {
+      rp = RPMaxScoreNormalizer_New(scoreKey);
+      PUSH_RP();
+    }
+  }
+}
 
 /**
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
@@ -560,9 +583,13 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         // Get score key for writing normalized scores
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         RS_ASSERT(curLookup);
-        const RLookupKey *scoreKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
+        const RLookupKey *distanceKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
+        const RLookupKey *scoreKey = NULL;
+        if (vnStep->scoreAlias) {
+          scoreKey = RLookup_GetKey_Write(curLookup, vnStep->scoreAlias, RLOOKUP_F_NOFLAGS);
+        }
         // Create vector normalizer result processor
-        rp = RPVectorNormalizer_New(normFunc, scoreKey);
+        rp = RPVectorNormalizer_New(normFunc, distanceKey, scoreKey);
         PUSH_RP();
         break;
       }

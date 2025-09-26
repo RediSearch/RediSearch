@@ -1487,7 +1487,8 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 typedef struct {
   ResultProcessor base;
   VectorNormFunction normFunc;
-  const RLookupKey *scoreKey;      // Score field to normalize
+  const RLookupKey *distanceKey;   // Distance field to normalize
+  const RLookupKey *scoreKey;      // Score key to save the normalized score under
 } RPVectorNormalizer;
 
 static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
@@ -1501,10 +1502,10 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
 
   // Apply normalization to the score
   double normalizedScore = 0.0;
-  RSValue *scoreValue = RLookup_GetItem(self->scoreKey, &r->rowdata);
-  if (scoreValue) {
+  RSValue *distanceValue = RLookup_GetItem(self->distanceKey, &r->rowdata);
+  if (distanceValue) {
     double originalScore = 0.0;
-    if (RSValue_ToNumber(scoreValue, &originalScore)) {
+    if (RSValue_ToNumber(distanceValue, &originalScore)) {
       normalizedScore = self->normFunc(originalScore);
     }
   }
@@ -1524,14 +1525,15 @@ static void RPVectorNormalizer_Free(ResultProcessor *rp) {
 }
 
 /* Create a new Vector Normalizer processor */
-ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *scoreKey) {
+ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLookupKey *distanceKey, const RLookupKey *scoreAliasKey) {
   RPVectorNormalizer *ret = rm_calloc(1, sizeof(*ret));
 
   ret->normFunc = normFunc;
   ret->base.Next = RPVectorNormalizer_Next;
   ret->base.Free = RPVectorNormalizer_Free;
   ret->base.type = RP_VECTOR_NORMALIZER;
-  ret->scoreKey = scoreKey;
+  ret->distanceKey = distanceKey;
+  ret->scoreKey = scoreAliasKey;
 
   return &ret->base;
 }
