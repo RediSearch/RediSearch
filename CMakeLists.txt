@@ -258,6 +258,7 @@ file(GLOB SOURCES
     "src/aggregate/functions/*.c"
     "src/aggregate/reducers/*.c"
     "src/hybrid/*.c"
+    "src/hybrid/parse/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
     "src/query_parser/v1/*.c"

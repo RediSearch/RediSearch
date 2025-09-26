@@ -324,12 +324,23 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
         }
 
         case ARG_TYPE_SUBARGS: {
+            unsigned int count = 0;
+            const char *notEnoughArgMessage = NULL;
             if (def->options.subargs.max_args && def->options.subargs.min_args == def->options.subargs.max_args) {
-                // Single argument slice
-                rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, def->options.subargs.max_args);
+                count = def->options.subargs.max_args;
+                notEnoughArgMessage = "Not enough arguments were provided";
             } else {
-                // Variable arguments
-                rv = AC_GetVarArgs(parser->cursor, (ArgsCursor*)def->target);
+                rv = AC_GetUnsigned(parser->cursor, &count, 0);
+                notEnoughArgMessage = "Not enough arguments were provided based on argument count";
+            }
+            if (rv != AC_OK) {
+                set_error(parser, "Failed to parse the argument count", def->name);
+            } else {
+                // Single argument slice
+                rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, count);
+                if (rv == AC_ERR_NOARG) {
+                    set_error(parser, notEnoughArgMessage, def->name);
+                }
             }
             break;
         }
