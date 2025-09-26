@@ -17,7 +17,6 @@
 
 #define INITIAL_DEF_CAPACITY 16
 #define MAX_ERROR_MSG_LEN 512
-#define MAX_POSITIONAL_ARGS 20 // reasonable limit for number of expected positional arguments
 
 // Internal helper functions
 static ArgDefinition *find_definition(ArgParser *parser, const char *name);
@@ -462,39 +461,6 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
         // Check if this is a known argument (named or positional)
         ArgDefinition *def = find_definition(parser, arg_name);
         if (!def) {
-            // Check if this could be a positional argument value
-            // Find the next unparsed positional argument
-            ArgDefinition *pos_def = NULL;
-            for (uint16_t pos = current_position; pos <= MAX_POSITIONAL_ARGS; pos++) { // reasonable limit
-                ArgDefinition *candidate = find_positional_definition(parser, pos, arg_name);
-                if (!candidate) break;
-
-                if (!candidate->parsed) {
-                    pos_def = candidate;
-                    break;
-                }
-            }
-
-            if (pos_def) {
-                // Advance past the argument name
-                rv = AC_Advance(parser->cursor);
-                if (rv != AC_OK) {
-                    set_error(parser, "Failed to parse past", pos_def->name);
-                    break;
-                }
-                // Parse as positional argument
-                size_t def_index = pos_def - parser->definitions;
-                rv = parse_single_arg(parser, pos_def);
-                if (rv != AC_OK) {
-                    if (parser->last_result.success) {
-                        set_error(parser, AC_Strerror(rv), pos_def->name);
-                    }
-                    break;
-                }
-                pos_def->parsed = true;
-                continue;
-            }
-
             // Unknown argument
             set_error(parser, "Unknown argument", arg_name);
             break;
