@@ -455,16 +455,19 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisModuleString *keyName;
       size_t i = 0;
       RedisJSON value;
-      pairs = rm_malloc(sizeof(RSValue*) * len * 2);
+ 
+      RSValueMap map = RSValueMap_Create_Uninit(len);
       for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
-        RS_ASSERT(i < len);
-        pairs[RSVALUE_MAP_KEYPOS(i)] = RS_StealRedisStringVal(keyName);
-        pairs[RSVALUE_MAP_VALUEPOS(i)] = jsonValToValueExpanded(ctx, value);
+        RSValueMap_SetEntry(&map, i, RS_StealRedisStringVal(keyName),
+          jsonValToValueExpanded(ctx, value));
       }
       japi->freeKeyValuesIter(iter);
       RS_ASSERT(i == len && !value);
+
+      ret = RSValue_NewMap(map);
+    } else {
+      ret = RSValue_NewMap(RSValueMap_Create_Uninit(0));
     }
-    ret = RSValue_NewMap(pairs, len);
   } else if (type == JSONType_Array) {
     // Array
     japi->getLen(json, &len);
