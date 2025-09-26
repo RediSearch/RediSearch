@@ -83,8 +83,8 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
   else {
     if (RSValue_IsReference(key)) {
       key = RSValue_Dereference(key);
-    } else if (RSValue_IsDuo(key)) {
-      key = RSValue_Duo_GetLeft(key);
+    } else if (RSValue_IsTrio(key)) {
+      key = RSValue_Trio_GetLeft(key);
     }
 
     switch (RSValue_Type(key)) {
@@ -107,7 +107,7 @@ static void reeval_key(RedisModule_Reply *reply, const RSValue *key) {
       case RSValue_Array:
       case RSValue_Map:
       case RSValue_Reference:
-      case RSValue_Duo:
+      case RSValue_Trio:
         break;
     }
 
@@ -208,9 +208,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     for(; currentField < requiredFieldsCount; currentField++) {
       const RLookupKey *rlk = RLookup_GetKey_Read(cv->lastLookup, req->requiredFields[currentField], RLOOKUP_F_NOFLAGS);
       const RSValue *v = rlk ? getReplyKey(rlk, r) : NULL;
-      if (RSValue_IsDuo(v)) {
+      if (RSValue_IsTrio(v)) {
         // For duo value, we use the left value here (not the right value)
-        v = RSValue_Duo_GetLeft(v);
+        v = RSValue_Trio_GetLeft(v);
       }
       RSValue rsv;
       if (rlk && (rlk->flags & RLOOKUP_T_NUMERIC) && v && !RSValue_IsNumber(v) && !RSValue_IsNull(v)) {
@@ -264,20 +264,20 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
           flags |= (reqFlags & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
           unsigned int apiVersion = sctx->apiVersion;
-          if (RSValue_IsDuo(v)) {
+          if (RSValue_IsTrio(v)) {
             // Which value to use for duo value
             if (!(flags & SENDREPLY_FLAG_EXPAND)) {
               // STRING
               if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
                 // Multi
-                v = RSValue_Duo_GetRight(v);
+                v = RSValue_Trio_GetMiddle(v);
               } else {
                 // Single
-                v = RSValue_Duo_GetLeft(v);
+                v = RSValue_Trio_GetLeft(v);
               }
             } else {
               // EXPAND
-              v = RS_DUOVAL_OTHER2VAL(*v);
+              v = RSValue_Trio_GetRight(v);
             }
           }
           RedisModule_Reply_RSValue(reply, v, flags);

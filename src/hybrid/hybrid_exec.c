@@ -126,20 +126,20 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
         flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
         unsigned int apiVersion = sctx->apiVersion;
-        if (RSValue_IsDuo(v)) {
+        if (RSValue_IsTrio(v)) {
           // Which value to use for duo value
           if (!(flags & SENDREPLY_FLAG_EXPAND)) {
             // STRING
             if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
               // Multi
-              v = RSValue_Duo_GetRight(v);
+              v = RSValue_Trio_GetMiddle(v);
             } else {
               // Single
-              v = RSValue_Duo_GetLeft(v);
+              v = RSValue_Trio_GetLeft(v);
             }
           } else {
             // EXPAND
-            v = RS_DUOVAL_OTHER2VAL(*v);
+            v = RSValue_Trio_GetRight(v);
           }
         }
         RedisModule_Reply_RSValue(reply, v, flags);

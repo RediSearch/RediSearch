@@ -550,7 +550,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
       RSValue *val = jsonValToValue(ctx, json);
       RSValue *otherval = RS_StealRedisStringVal(serialized);
       RSValue *expand = japi_ver >= 4 ? jsonIterToValueExpanded(ctx, iter) : RS_NullVal();
-      *rsv = RS_DuoVal(val, otherval, expand);
+      *rsv = RS_TrioVal(val, otherval, expand);
       res = REDISMODULE_OK;
     } else if (serialized) {
       RedisModule_FreeString(ctx, serialized);
