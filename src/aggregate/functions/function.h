@@ -21,16 +21,16 @@ extern "C" {
   {                                                                                            \
     RSValue *dref = RSValue_Dereference(&args[idx]);                                           \
     if (!verifier(dref, varg)) {                                                               \
-                                                                                               \
-      QueryError_SetWithoutUserDataFmt(                                                      \
+      RSValueType dref_ty = RSValue_Type(dref);                                                \
+      QueryError_SetWithoutUserDataFmt(                                                        \
           ctx->err, QUERY_EPARSEARGS,                                                          \
-          "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
+          "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref_ty, \
           idx, fname, #verifier, #varg);                                                       \
       return EXPR_EVAL_ERR;                                                                    \
     }                                                                                          \
   }
 
-#define VALIDATE_ARG__TYPE(arg, t_) ((arg)->t == t_)
+#define VALIDATE_ARG__TYPE(arg, t_) (RSValue_Type(arg) == t_)
 #define VALIDATE_ARG_TYPE(fname, args, idx, t) \
   VALIDATE_ARG__COMMON(fname, args, idx, VALIDATE_ARG__TYPE, t)
 

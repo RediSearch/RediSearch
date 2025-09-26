@@ -16,11 +16,11 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
   int rv = REDISMODULE_OK;
   RSValue *val = RSValue_Dereference(argv);
 
-  if (RSValue_IsString(val)) {
+  if (RSValue_IsStringVariant(val)) {
     size_t len;
     const char *p = RSValue_StringPtrLen(val, &len);
     rv = parseGeo(p, len, &geo[0], &geo[1], status);
-  } else if (val && val->t == RSValue_Number) {
+  } else if (RSValue_IsNumber(val)) {
     double dbl;
     RSValue_ToNumber(val, &dbl);
     if (decodeGeo(dbl, geo) == 0) {
