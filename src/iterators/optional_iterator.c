@@ -269,7 +269,7 @@ static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q
   } else if (IsWildcardIterator(it)) {
     // All will be real hits
     ret = it;
-    ret->current->weight = weight;
+    ret->current->weight *= weight;
   }
   return ret;
 }
@@ -291,7 +291,9 @@ QueryIterator *NewOptionalIterator(QueryIterator *it, QueryEvalCtx *q, double we
   oi->virt = NewVirtualResult(0, RS_FIELDMASK_ALL);
   oi->virt->freq = 1;
   oi->maxDocId = q->docTable->maxDocId;
-  oi->weight = weight;
+  RS_ASSERT(it->current);
+  // The weight of the result should be the multiplication of the child's weight and the node's weight.
+  oi->weight = weight * it->current->weight;
 
   ret = &oi->base;
   ret->type = OPTIONAL_ITERATOR;
