@@ -562,7 +562,7 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
       RedisModule_Reply_Map(reply);
       for (uint32_t i = 0; i < RSValue_MapLen(v); i++) {
         RSValue *key, *val;
-        RSValue_MapEntry(v, i, &key, &val);
+        RSValue_MapGetEntry(v, i, &key, &val);
         RedisModule_Reply_RSValue(reply, key, flags);
         RedisModule_Reply_RSValue(reply, val, flags);
       }
