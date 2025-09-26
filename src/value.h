@@ -18,7 +18,6 @@
 #include "rmutil/rm_assert.h"
 #include "hiredis/sds.h"
 
-#include <assert.h>
 #include <string.h>
 #include <sys/param.h>
 #include <stdarg.h>
@@ -391,7 +390,7 @@ static inline uint32_t RSValue_ArrayLen(const RSValue *arr) {
  * The passed RSValue must be of type RSValue_Number.
  */
 static size_t RSValue_NumToString(const RSValue *v, char *buf) {
-  assert(v->t == RSValue_Number);
+  RS_ASSERT(v->t == RSValue_Number);
   double dd = v->numval;
   long long ll = dd;
   if (ll == dd) {
