@@ -141,8 +141,6 @@ typedef struct RSValue {
 } RSValue;
 #pragma pack()
 
-#define APIVERSION_RETURN_MULTI_CMP_FIRST 3
-
 /**
  * Clears the underlying storage of the value, and makes it
  * be a reference to the NULL value
@@ -484,7 +482,14 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
   return 0;
 }
 
-// Gets the string pointer and length from the value
+/**
+ * Gets the string pointer and length from the value,
+ * dereferencing in case `value` is a (chain of) RSValue
+ * references. Works for all RSValue string types.
+ * 
+ * If `value` if of type `RSValue_String`, does the same as
+ * `RSValue_String_GetPtr()`
+ */
 const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp);
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
