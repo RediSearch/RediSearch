@@ -235,9 +235,9 @@ ResultProcessor *RPMetricsLoader_New();
  * @param nkeys is the number of keys.
  * keys will be freed by the arrange step dtor.
  */
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, const RLookupKey* scoreAlias, uint64_t ascendingMap);
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey* scoreAlias);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 

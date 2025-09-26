@@ -623,6 +623,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // otherwise, store the vector score in a default key.
   const char *vectorDistanceFieldAlias = NULL;
   const char *vectorScoreAlias = vectorRequest->parsedVectorData->vectorScoreAlias;
+  vectorRequest->parsedVectorData->vectorScoreAlias = NULL;
   if (vectorRequest->parsedVectorData->vectorDistanceFieldAlias != NULL) {
     vectorDistanceFieldAlias = vectorRequest->parsedVectorData->vectorDistanceFieldAlias;
     vectorRequest->parsedVectorData->vectorDistanceFieldAlias = NULL;
@@ -719,7 +720,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
               .sctx = sctx,  // should be a separate context?
               .reqflags = *mergeReqflags | QEXEC_F_IS_HYBRID_TAIL,
               .optimizer = NULL,  // is it?
-              .scoreAlias = NULL; // tail does not support a score alias at this time, the hybrid merger should use the score directly
+              .scoreAlias = NULL, // tail does not support a score alias at this time, the hybrid merger should use the score directly
           },
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,

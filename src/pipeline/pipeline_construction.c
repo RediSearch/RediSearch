@@ -164,21 +164,12 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
     return up;
   }
 
-  RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
-
-  RLookupKey *scoreKey = NULL;
-  if (params->common.scoreAlias) {
-    scoreKey = RLookup_GetKey_Write(lk, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
-    if (!scoreKey) {
-      QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", params->common.scoreAlias);
-      goto end;
-    }
-  }
-
   if (IsHybrid(&params->common) || (params->common.optimizer->type != Q_OPT_NO_SORTER)) { // Don't optimize hybrid queries
     if (astp->sortKeys) {
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
+
+      RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
 
       const RLookupKey **sortkeys = astp->sortkeysLK;
 
@@ -205,14 +196,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
-      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, scoreKey, astp->sortAscMap);
+      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(&pipeline->qctx, rp, up);
     } else if (IsHybridTail(&params->common) || IsHybridSearchSubquery(&params->common) ||
                IsSearch(&params->common) && !IsOptimized(&params->common) ||
                HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(maxResults, scoreKey);
+      rp = RPSorter_NewByScore(maxResults);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }

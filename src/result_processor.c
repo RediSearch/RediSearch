@@ -379,9 +379,6 @@ typedef struct {
     uint64_t ascendMap;
   } fieldcmp;
 
-  // The key to store the score under
-  const RLookupKey* scoreKey;
-
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 } RPSorter;
@@ -392,9 +389,6 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   SearchResult *cur_best = mmh_pop_max(self->pq);
 
   if (cur_best) {
-    if (self->scoreKey) {
-      RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
-    }
     SearchResult_Override(r, cur_best);
     rm_free(cur_best);
     return RS_RESULT_OK;
@@ -533,7 +527,7 @@ static void srDtor(void *p) {
   }
 }
 
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, const RLookupKey* scoreKey, uint64_t ascmap) {
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
 
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
   ret->cmp = nkeys ? cmpByFields : cmpByScore;
@@ -541,7 +535,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.ascendMap = ascmap;
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
-  ret->scoreKey = scoreKey;
 
   ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
@@ -551,8 +544,8 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey* scoreAlias) {
-  return RPSorter_NewByFields(maxresults, NULL, 0, scoreAlias, 0);
+ResultProcessor *RPSorter_NewByScore(size_t maxresults) {
+  return RPSorter_NewByFields(maxresults, NULL, 0, 0);
 }
 
 /*******************************************************************************************************************
