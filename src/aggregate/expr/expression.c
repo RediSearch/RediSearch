@@ -24,7 +24,7 @@ extern int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result)
 
 static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   // Evaluate the condition
-  RSValue condVal = RSVALUE_STATIC;
+  RSValue condVal = RSValue_Undefined_Static();
   int rc = evalInternal(eval, f->args->args[0], &condVal);
   if (rc != EXPR_EVAL_OK) {
     RSValue_Clear(&condVal);
@@ -58,7 +58,7 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
 
   // Normal function evaluation
   for (size_t ii = 0; ii < nargs; ii++) {
-    args[ii] = (RSValue)RSVALUE_STATIC;
+    args[ii] = RSValue_Undefined_Static();
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
 
     // Handle NULL values:
@@ -81,7 +81,7 @@ cleanup:
 }
 
 static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
-  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
+  RSValue l = RSValue_Undefined_Static(), r = RSValue_Undefined_Static();
   int rc = EXPR_EVAL_ERR;
 
   if (evalInternal(eval, op->left, &l) != EXPR_EVAL_OK) {
@@ -122,8 +122,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
     default: RS_LOG_ASSERT_FMT(0, "Invalid operator %c", op->op);
   }
 
-  result->numval = res;
-  result->t = RSValue_Number;
+  RSValue_IntoNumber(result, res);
   rc = EXPR_EVAL_OK;
 
 cleanup:
@@ -176,13 +175,12 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
 }
 
 static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
-  RSValue tmpval = RSVALUE_STATIC;
+  RSValue tmpval = RSValue_Undefined_Static();
   if (evalInternal(eval, vv->child, &tmpval) != EXPR_EVAL_OK) {
     return EXPR_EVAL_ERR;
   }
 
-  result->numval = !RSValue_BoolTest(&tmpval);
-  result->t = RSValue_Number;
+  RSValue_IntoNumber(result, !RSValue_BoolTest(&tmpval));
 
   RSValue_Clear(&tmpval);
   return EXPR_EVAL_OK;
@@ -190,7 +188,7 @@ static int evalInverted(ExprEval *eval, const RSInverted *vv, RSValue *result) {
 
 static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *result) {
   int res;
-  RSValue l = RSVALUE_STATIC, r = RSVALUE_STATIC;
+  RSValue l = RSValue_Undefined_Static(), r = RSValue_Undefined_Static();
   int rc = EXPR_EVAL_ERR;
   if (evalInternal(eval, pred->left, &l) != EXPR_EVAL_OK) {
     goto cleanup;
@@ -208,11 +206,10 @@ static int evalPredicate(ExprEval *eval, const RSPredicate *pred, RSValue *resul
 
 success:
   if (!eval->err || eval->err->code == QUERY_OK) {
-    result->numval = res;
-    result->t = RSValue_Number;
+    RSValue_IntoNumber(result, res);
     rc = EXPR_EVAL_OK;
   } else {
-    result->t = RSValue_Undef;
+    RSValue_IntoUndefined(result);
   }
 
 cleanup:
@@ -239,7 +236,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
     if (eval->err) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ENOPROPVAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
-    res->t = RSValue_Null;
+    RSValue_IntoNull(res);
     return EXPR_EVAL_NULL;
   }
 

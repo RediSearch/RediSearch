@@ -28,6 +28,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "pipeline/pipeline.h"
 #include "util/units.h"
+#include "value.h"
 
 #include <time.h>
 
@@ -125,16 +126,16 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
         flags |= (options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0;
 
         unsigned int apiVersion = sctx->apiVersion;
-        if (v && v->t == RSValue_Duo) {
+        if (RSValue_IsDuo(v)) {
           // Which value to use for duo value
           if (!(flags & SENDREPLY_FLAG_EXPAND)) {
             // STRING
             if (apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST) {
               // Multi
-              v = RS_DUOVAL_OTHERVAL(*v);
+              v = RSValue_Duo_GetRight(v);
             } else {
               // Single
-              v = RS_DUOVAL_VAL(*v);
+              v = RSValue_Duo_GetRight(v);
             }
           } else {
             // EXPAND
