@@ -12,6 +12,28 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
+static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const char *clause, QueryError* status) {
+  unsigned int count = 0; 
+  int rc = AC_GetUnsigned(ac, &count, 0);
+  if (rc == AC_ERR_NOARG) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Missing %s argument count", clause);
+    return false;
+  } else if (rc != AC_OK) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s argument count", clause);
+    return false;
+  }
+
+  rc = AC_GetSlice(ac, target, count);
+  if (rc == AC_ERR_NOARG) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments", "in %s, specified %u but only %u provided", clause, count, AC_NumRemaining(ac));
+    return false;
+  } else if (rc != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments", "in %s: %s", clause, AC_Strerror(rc));
+    return false;
+  }
+  return true;
+}
+
 static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
   // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
   //        ^
@@ -20,24 +42,8 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   double alphaValue = 0.0;
   double betaValue = 0.0;
 
-  
-  unsigned int count = 0; 
-  int rc = AC_GetUnsigned(ac, &count, 0);
-  if (rc == AC_ERR_NOARG) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing LINEAR argument count");
-    return;
-  } else if (rc != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid LINEAR argument count");
-    return;
-  }
-
-  ArgsCursor linear;
-  rc = AC_GetSlice(ac, &linear, count);
-  if (rc == AC_ERR_NOARG) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments in LINEAR", ", specified %u but only %u provided", count, AC_NumRemaining(ac));
-    return;
-  } else if (rc != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments in LINEAR", ": %s", AC_Strerror(rc));
+  ArgsCursor linear = {0};
+  if (!getVarArgsForClause(ac, &linear, "LINEAR", status)) {
     return;
   }
 
@@ -81,28 +87,15 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
 
 static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
   *hasExplicitWindow = false;
-  ArgsCursor rrf;
-  int rc = AC_GetVarArgs(ac, &rrf);
-  if (rc == AC_ERR_NOARG) {
-    // Apparently we allow no arguments for RRF
-    *constant = HYBRID_DEFAULT_RRF_CONSTANT;
-    *window = HYBRID_DEFAULT_WINDOW;
-    return AC_OK;
-  } else if (rc == AC_ERR_PARSE) {
-    // We also allow a different keyword after it, e.g LIMIT
-    // This means if it a different keyword the error will be more ambiguous
-    *constant = HYBRID_DEFAULT_RRF_CONSTANT;
-    *window = HYBRID_DEFAULT_WINDOW;
-    return AC_OK;
-  } else if (rc != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for RRF: %s", AC_Strerror(rc));
-    return rc;
+  ArgsCursor rrf = {0};
+  if (!getVarArgsForClause(ac, &rrf, "RRF", status)) {
+    return false;
   }
 
   ArgParser *parser = ArgParser_New(&rrf, "RRF");
   if (!parser) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create RRF argument parser");
-    return AC_ERR_PARSE;
+    return false;
   }
 
   double defaultConstant = HYBRID_DEFAULT_RRF_CONSTANT;
@@ -122,11 +115,11 @@ static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *has
   if (!result.success) {
     QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
-    return AC_ERR_PARSE;
+    return false;
   }
   *hasExplicitWindow = ArgParser_WasParsed(parser, "WINDOW");
   ArgParser_Free(parser);
-  return AC_OK;
+  return true;
 }
 
 
@@ -140,7 +133,7 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   int windowValue = HYBRID_DEFAULT_WINDOW;
   bool hasExplicitWindow = false;
 
-  if (parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status) != AC_OK) {
+  if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status)) {
     return;
   }
   
