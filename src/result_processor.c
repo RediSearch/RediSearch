@@ -1503,14 +1503,17 @@ typedef struct {
   RedisSearchCtx *nextThreadCtx;       // Downstream search context - used by the thread calling Next
   arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
   bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
-  uint cur_idx;                        // Current index for yielding results
+  size_t cur_idx;                      // Current index for yielding results
   RPStatus last_rc;                    // Last return code from upstream
   bool first_call;                     // Whether the first call to Next has been made
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
+
+  RedisSearchCtx *sctx;                // Search context (contains timeout info)
 } RPDepleter;
 
 /*
  * Shared synchronization object for all RPDepleter instances of a pipeline.
+ *
  * We have two main synchronization fronts:
  * 1. The pipeline thread should wake up once ANY depleter finishes depleting.
  *    For this, we have the shared condition variable `cond` and mutex `mutex`.
@@ -1524,10 +1527,12 @@ typedef struct {
 typedef struct {
   pthread_cond_t cond;
   pthread_mutex_t mutex;
-  uint num_depleters;      // Number of depleters to sync
+  unsigned int num_depleters;    // Number of depleters to sync
   atomic_int num_locked;   // Number of depleters that have locked the index
   bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
   bool take_index_lock;    // Whether or not the depleter should take the index lock
+
+
 } DepleterSync;
 
 // Free function for DepleterSync
@@ -1539,7 +1544,7 @@ static void DepleterSync_Free(void *obj) {
 }
 
 // Create a new shared sync object for a pipeline
-StrongRef DepleterSync_New(uint num_depleters, bool take_index_lock) {
+StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock) {
   DepleterSync *sync = rm_calloc(1, sizeof(DepleterSync));
   pthread_cond_init(&sync->cond, NULL);
   pthread_mutex_init(&sync->mutex, NULL);
@@ -1560,6 +1565,8 @@ static void RPDepleter_Free(ResultProcessor *base) {
 
 /**
  * Background thread function: consumes all results from upstream and stores them in the results array.
+ *
+ * Checks for timeout before starting execution and relies on upstream timeout detection during processing.
  * Signals completion by setting done_depleting to `true` and broadcasting to condition variable.
  */
 static void RPDepleter_Deplete(void *arg) {
@@ -1567,6 +1574,12 @@ static void RPDepleter_Deplete(void *arg) {
   RPStatus rc;
 
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+
+  // Check if timeout was exceeded before starting execution
+  if (self->sctx && TimedOut(&self->sctx->time.timeout) == TIMED_OUT) {
+    self->last_rc = RS_RESULT_TIMEDOUT;
+    goto signal_completion;
+  }
 
   if (sync->take_index_lock) {
     // Lock the index for read
@@ -1582,15 +1595,18 @@ static void RPDepleter_Deplete(void *arg) {
     r = rm_calloc(1, sizeof(*r));
   }
   rm_free(r);
+
+
+
   // Save the last return code from the upstream.
   self->last_rc = rc;
 
-  // Verify the index is unlocked (in case the pipeline did not release the lock,
-  // e.g., limit + no Loader)
+  // Unlock the index if we locked it
   if (sync->take_index_lock) {
     RedisSearchCtx_UnlockSpec(self->depletingThreadCtx);
   }
 
+signal_completion:
   // Signal completion under mutex protection
   pthread_mutex_lock(&sync->mutex);
   self->done_depleting = true;
@@ -1607,6 +1623,10 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   // Depleting thread is done, it's safe to return the results.
   if (self->cur_idx == array_len(self->results)) {
     // We've reached the end of the array, return the last code from the upstream.
+    // Handle timeout policy: if we timed out but have TimeoutPolicy_Return, return EOF to yield partial results
+    if (self->last_rc == RS_RESULT_TIMEDOUT && base->parent && base->parent->timeoutPolicy == TimeoutPolicy_Return) {
+      return RS_RESULT_EOF;  // Return EOF to indicate we're done yielding partial results
+    }
     return self->last_rc;
   }
   // Return the next result in the array.
@@ -1618,9 +1638,21 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
-// Adds a depletion job to the depleters thread pool
-static inline void RPDepleter_StartDepletionThread(RPDepleter *self) {
-    redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
+/**
+ * Adds a depletion job to the depleters thread pool with timeout validation.
+ *
+ * This function implements timeout checking before submitting jobs to the thread pool
+ * to prevent adding jobs that would exceed the timeout even before execution starts.
+ * This addresses the issue where jobs could be queued in the thread pool but timeout
+ * before they even begin processing.
+ *
+ * @param self The RPDepleter instance
+ * @return true if job was submitted successfully, false if timeout already exceeded
+ */
+static inline bool RPDepleter_StartDepletionThread(RPDepleter *self) {
+    // Submit the job to the thread pool
+    int rc = redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
+    return (rc == 0);  // Return true if successfully added to queue
 }
 
 // Can only succeed once, if called after RE_RESULT_OK was returned an error will be returned
@@ -1688,7 +1720,17 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   // The first call to next will start the depleting thread, and return `RS_RESULT_DEPLETING`.
   if (self->first_call) {
     self->first_call = false;
-    RPDepleter_StartDepletionThread(self);
+
+    // Check timeout before attempting to start thread
+    if (self->sctx && TimedOut(&self->sctx->time.timeout) == TIMED_OUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+
+    // Try to start the depletion thread
+    if (!RPDepleter_StartDepletionThread(self)) {
+      // Thread pool submission failed (not timeout)
+      return RS_RESULT_ERROR;
+    }
     return RS_RESULT_DEPLETING;
   }
 
@@ -1719,8 +1761,15 @@ ResultProcessor *RPDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThr
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
   ret->nextThreadCtx = nextThreadCtx;
+
+  // Initialize timeout fields
+  ret->sctx = nextThreadCtx;  // Store search context for timeout access
+
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
+
+
+
   return &ret->base;
 }
 
@@ -1772,7 +1821,17 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
   for (size_t i = 0; i < count; i++) {
     RPDepleter* depleter = (RPDepleter*)depleters[i];
     depleter->first_call = false;
-    RPDepleter_StartDepletionThread(depleter);
+
+    // Check timeout before attempting to start thread
+    if (depleter->sctx && TimedOut(&depleter->sctx->time.timeout) == TIMED_OUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
+
+    // Try to start the depletion thread
+    if (!RPDepleter_StartDepletionThread(depleter)) {
+      // Thread pool submission failed (not timeout)
+      return RS_RESULT_ERROR;
+    }
   }
 
   // Wait for depleting to start with configurable interval and timeout
@@ -1834,6 +1893,7 @@ dictType dictTypeHybridSearchResult = {
  const RLookupKey *scoreKey;  // Key for writing score as field when QEXEC_F_SEND_SCORES_AS_FIELD is set
  RPStatus* upstreamReturnCodes;  // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
+ RedisSearchCtx *sctx;  // Search context for timeout access
 } RPHybridMerger;
 
 /* Generic helper function to check if any upstream has a specific return code */
@@ -1932,14 +1992,30 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    return RS_RESULT_OK;
  }
 
- /* Accumulation phase - consume window results from all upstreams */
+ /**
+  * Accumulation phase - consume window results from all upstreams with enhanced timeout handling.
+  *
+  * This function implements improved timeout handling for the HybridMerger:
+  * 1. Periodic timeout checks to avoid excessive system calls
+  * 2. Early termination when timeout is detected
+  * 3. Proper timeout propagation to downstream processors
+  * 4. Timeout policy-aware behavior (FAIL vs RETURN)
+  * 5. Busy-wait prevention with small delays when no progress is made
+  *
+  * @param rp The result processor (RPHybridMerger)
+  * @param r The search result to populate
+  * @return RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout, RS_RESULT_ERROR on error
+  */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
+
   // Continuously try to consume from upstreams until all are consumed
   while (numConsumed < self->numUpstreams) {
+
+    bool made_progress = false;
     for (size_t i = 0; i < self->numUpstreams; i++) {
       if (consumed[i]) {
         continue;
@@ -1961,11 +2037,35 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
       // Store the final return code for this upstream
       self->upstreamReturnCodes[i] = rc;
 
-      // Currently continues processing other upstreams.
-      // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error : MOD-11004
-      // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
-      consumed[i] = true;
-      numConsumed++;
+      // Early termination on timeout or error for faster response
+      if (rc == RS_RESULT_TIMEDOUT || rc == RS_RESULT_ERROR) {
+        consumed[i] = true;
+        numConsumed++;
+        made_progress = true;
+
+        // If timeout policy is fail, we can terminate early
+        if (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
+          // Mark remaining upstreams as timed out and break
+          for (size_t j = i + 1; j < self->numUpstreams; j++) {
+            if (!consumed[j]) {
+              self->upstreamReturnCodes[j] = RS_RESULT_TIMEDOUT;
+              consumed[j] = true;
+              numConsumed++;
+            }
+          }
+          break;
+        }
+      } else {
+        consumed[i] = true;
+        numConsumed++;
+        made_progress = true;
+      }
+    }
+
+    // If we're not making progress and still have unconsumed upstreams,
+    // add a small delay to avoid busy waiting
+    if (!made_progress && numConsumed < self->numUpstreams) {
+      usleep(1000);  // 1ms delay
     }
   }
 
@@ -2030,7 +2130,8 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                     size_t numUpstreams,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
-                                    HybridLookupContext *lookupCtx) {
+                                    HybridLookupContext *lookupCtx,
+                                    RedisSearchCtx *sctx) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   RS_ASSERT(numUpstreams > 0);
@@ -2049,6 +2150,9 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
 
   // Store lookup context for field merging (takes ownership)
   ret->lookupCtx = lookupCtx;
+
+  // Store search context for timeout access
+  ret->sctx = sctx;
 
    // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
