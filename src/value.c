@@ -79,18 +79,23 @@ RSValue RSValue_NewStatic_String_Malloc(char *str, uint32_t len) {
   return v;
 }
 
-bool RSValue_IsDuo(const RSValue *v) {
-  return (v && v->_t == RSValue_Duo);
+bool RSValue_IsTrio(const RSValue *v) {
+  return (v && v->_t == RSValue_Trio);
 }
 
-RSValue *RSValue_Duo_GetLeft(const RSValue *v) {
-  RS_ASSERT(v && v->_t == RSValue_Duo);
-  return v->_duoval.vals[0];
+RSValue *RSValue_Trio_GetLeft(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValue_Trio);
+  return v->_trioval.vals[0];
 }
 
-RSValue *RSValue_Duo_GetRight(const RSValue *v) {
-  RS_ASSERT(v && v->_t == RSValue_Duo);
-  return v->_duoval.vals[1];
+RSValue *RSValue_Trio_GetMiddle(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValue_Trio);
+  return v->_trioval.vals[1];
+}
+
+RSValue *RSValue_Trio_GetRight(const RSValue *v) {
+  RS_ASSERT(v && v->_t == RSValue_Trio);
+  return v->_trioval.vals[2];
 }
 
 RSValueType RSValue_Type(const RSValue *v) {
@@ -200,11 +205,11 @@ void RSValue_Clear(RSValue *v) {
       break;
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
-    case RSValue_Duo:
-      RSValue_Decref(RSValue_Duo_GetLeft(v));
-      RSValue_Decref(RSValue_Duo_GetRight(v));
-      RSValue_Decref(RS_DUOVAL_OTHER2VAL(*v));
-      rm_free(v->_duoval.vals);
+    case RSValue_Trio:
+      RSValue_Decref(RSValue_Trio_GetLeft(v));
+      RSValue_Decref(RSValue_Trio_GetMiddle(v));
+      RSValue_Decref(RSValue_Trio_GetRight(v));
+      rm_free(v->_trioval.vals);
       break;
     case RSValue_Array:
       for (uint32_t i = 0; i < v->_arrval.len; i++) {
@@ -367,8 +372,8 @@ void RSValue_ToString(RSValue *dst, RSValue *v) {
     case RSValue_Reference:
       return RSValue_ToString(dst, v->_ref);
 
-    case RSValue_Duo:
-      return RSValue_ToString(dst, RSValue_Duo_GetLeft(v));
+    case RSValue_Trio:
+      return RSValue_ToString(dst, RSValue_Trio_GetLeft(v));
 
     case RSValue_Null:
     default:
@@ -414,8 +419,8 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
       p = RedisModule_StringPtrLen(v->_rstrval, &l);
       break;
 
-    case RSValue_Duo:
-      return RSValue_ToNumber(RSValue_Duo_GetLeft(v), d);
+    case RSValue_Trio:
+      return RSValue_ToNumber(RSValue_Trio_GetLeft(v), d);
 
     case RSValue_Null:
     case RSValue_Array:
@@ -453,8 +458,8 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
     case RSValue_RedisString:
     case RSValue_OwnRstring:
       return RedisModule_StringPtrLen(value->_rstrval, lenp);
-    case RSValue_Duo:
-      return RSValue_StringPtrLen(RSValue_Duo_GetLeft(value), lenp);
+    case RSValue_Trio:
+      return RSValue_StringPtrLen(RSValue_Trio_GetLeft(value), lenp);
     default:
       return NULL;
   }
@@ -547,13 +552,13 @@ RSValue *RS_NullVal() {
   return &RS_NULL;
 }
 
-RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val) {
-  RSValue *duo = RS_NewValue(RSValue_Duo);
-  duo->_duoval.vals = rm_calloc(3, sizeof(*duo->_duoval.vals));
-  duo->_duoval.vals[0] = val;
-  duo->_duoval.vals[1] = otherval;
-  duo->_duoval.vals[2] = other2val;
-  return duo;
+RSValue *RS_TrioVal(RSValue *val, RSValue *otherval, RSValue *other2val) {
+  RSValue *trio = RS_NewValue(RSValue_Trio);
+  trio->_trioval.vals = rm_calloc(3, sizeof(*trio->_trioval.vals));
+  trio->_trioval.vals[0] = val;
+  trio->_trioval.vals[1] = otherval;
+  trio->_trioval.vals[2] = other2val;
+  return trio;
 }
 
 static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t l2) {
@@ -631,8 +636,8 @@ static int RSValue_CmpNC(const RSValue *v1, const RSValue *v2, QueryError *qerr)
       const char *s2 = RedisModule_StringPtrLen(v2->_rstrval, &l2);
       return cmp_strings(s1, s2, l1, l2);
     }
-    case RSValue_Duo:
-      return RSValue_Cmp(RSValue_Duo_GetLeft(v1), RSValue_Duo_GetLeft(v2), qerr);
+    case RSValue_Trio:
+      return RSValue_Cmp(RSValue_Trio_GetLeft(v1), RSValue_Trio_GetLeft(v2), qerr);
     case RSValue_Null:
       return 0;
     case RSValue_Array:
@@ -791,8 +796,8 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       return RSValue_DumpSds(v->_ref, s, obfuscate);
       break;
 
-    case RSValue_Duo:
-      return RSValue_DumpSds(RSValue_Duo_GetLeft(v), s, obfuscate);
+    case RSValue_Trio:
+      return RSValue_DumpSds(RSValue_Trio_GetLeft(v), s, obfuscate);
       break;
   }
 }
