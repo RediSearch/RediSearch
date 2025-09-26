@@ -46,8 +46,8 @@ typedef enum {
   RSValue_OwnRstring = 7,
   // Reference to another value
   RSValue_Reference = 8,
-  // Duo value
-  RSValue_Duo = 9,
+  // Trio value
+  RSValue_Trio = 9,
   // Map value
   RSValue_Map = 10,
 
@@ -93,18 +93,18 @@ typedef struct RSValue {
 
     struct {
       /**
-       * Duo value
+       * Trio value
        *
-       * Allows keeping a value, together with an additional value.
+       * Allows keeping a value, together with two additional values.
        *
-       * For example, keeping a value and, in addition, a different value for serialization, such as
-       * a JSON String representation.
+       * For example, keeping a value and, in addition, a different value for serialization,
+       * such as a JSON String representation, and one for its expansion.
        */
 
       // An array of 2 RSValue *'s
       // The first entry is the value, the second entry is the additional value
       struct RSValue **vals;
-    } _duoval;
+    } _trioval;
 
     // redis string value
     struct RedisModuleString *_rstrval;
@@ -126,7 +126,6 @@ typedef struct RSValue {
 } RSValue;
 #pragma pack()
 
-#define RS_DUOVAL_OTHER2VAL(v) ((v)._duoval.vals[2])
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
 #define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
@@ -208,27 +207,35 @@ static inline RSValue *RSValue_Dereference(const RSValue *v) {
 }
 
 /**
- * Check whether the RSValue is of type RSValue_Duo.
+ * Check whether the RSValue is of type RSValue_Trio.
  * @param v The value to check
- * @return true if the value is a Duo, false otherwise
+ * @return true if the value is a Trio, false otherwise
  */
-bool RSValue_IsDuo(const RSValue *v);
+bool RSValue_IsTrio(const RSValue *v);
 
 /**
- * Get the left value of a Duo value.
- * The passed RSValue must be of type RSValue_Duo.
- * @param v The Duo value to extract the left value from
- * @return The left value of the Duo
+ * Get the left value of a Trio value.
+ * The passed RSValue must be of type RSValue_Trio.
+ * @param v The Trio value to extract the left value from
+ * @return The left value of the Trio
  */
-RSValue *RSValue_Duo_GetLeft(const RSValue *v);
+RSValue *RSValue_Trio_GetLeft(const RSValue *v);
 
 /**
- * Get the right value of a Duo value.
- * The passed RSValue must be of type RSValue_Duo.
- * @param v The Duo value to extract the right value from
- * @return The right value of the Duo
+ * Get the middle value of a Trio value.
+ * The passed RSValue must be of type RSValue_Trio.
+ * @param v The Trio value to extract the middle value from
+ * @return The middle value of the Trio
  */
-RSValue *RSValue_Duo_GetRight(const RSValue *v);
+RSValue *RSValue_Trio_GetMiddle(const RSValue *v);
+
+/**
+ * Get the right value of a Trio value.
+ * The passed RSValue must be of type RSValue_Trio.
+ * @param v The Trio value to extract the right value from
+ * @return The right value of the Trio
+ */
+RSValue *RSValue_Trio_GetRight(const RSValue *v);
 
 
 /**
@@ -458,8 +465,8 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
     case RSValue_Undef:
       return 0;
 
-    case RSValue_Duo:
-      return RSValue_Hash(RSValue_Duo_GetLeft(v), hval);
+    case RSValue_Trio:
+      return RSValue_Hash(RSValue_Trio_GetLeft(v), hval);
   }
 
   return 0;
@@ -513,8 +520,8 @@ RSValue *RS_StringArray(char **strs, uint32_t sz);
 /* Initialize all strings in the array with a given string type */
 RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st);
 
-/* Wrap a pair of RSValue into an RSValue Duo */
-RSValue *RS_DuoVal(RSValue *val, RSValue *otherval, RSValue *other2val);
+/* Wrap a trio of RSValue into an RSValue Trui */
+RSValue *RS_TrioVal(RSValue *val, RSValue *otherval, RSValue *other2val);
 
 /* Compare 2 values for sorting */
 int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *status);

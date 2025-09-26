@@ -545,8 +545,8 @@ int RedisModule_Reply_RSValue(RedisModule_Reply *reply, const RSValue *v, SendRe
     case RSValue_Null:
       return RedisModule_Reply_Null(reply);
 
-    case RSValue_Duo: {
-      return RedisModule_Reply_RSValue(reply, RSValue_Duo_GetRight(v), flags);
+    case RSValue_Trio: {
+      return RedisModule_Reply_RSValue(reply, RSValue_Trio_GetMiddle(v), flags);
     }
 
     case RSValue_Array:
