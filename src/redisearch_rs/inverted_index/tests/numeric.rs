@@ -393,8 +393,9 @@ fn test_numeric_encode_decode(
     let prev_doc_id = u64::MAX - delta;
     let buf = buf.into_inner();
     let mut buf = Cursor::new(buf.as_ref());
+
     let record_decoded = numeric
-        .decode(&mut buf, prev_doc_id)
+        .decode_new(&mut buf, prev_doc_id)
         .expect("to decode numeric record");
 
     assert_eq!(record_decoded, record, "failed for value: {}", value);
@@ -426,8 +427,9 @@ fn encode_f64_with_compression() {
 
     let buf = buf.into_inner();
     let mut buf = Cursor::new(buf.as_ref());
+
     let record_decoded = numeric
-        .decode(&mut buf, 0)
+        .decode_new(&mut buf, 0)
         .expect("to decode numeric record");
 
     let diff = record_decoded.as_numeric().unwrap() - record.as_numeric().unwrap();
@@ -441,7 +443,7 @@ fn test_empty_buffer() {
     let buffer = Vec::new();
     let mut buffer = Cursor::new(buffer.as_ref());
     let decoder = Numeric::new();
-    let res = decoder.decode(&mut buffer, 0);
+    let res = decoder.decode_new(&mut buffer, 0);
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
@@ -600,7 +602,7 @@ mod property_based {
             let mut buf = Cursor::new(buf.as_ref());
 
             let record_decoded = numeric
-                .decode(&mut buf, prev_doc_id)
+                .decode_new(&mut buf, prev_doc_id)
                 .expect("to decode numeric record");
 
             assert_eq!(record_decoded, record, "failed for value: {}", value);
@@ -624,7 +626,7 @@ mod property_based {
             let mut buf = Cursor::new(buf.as_ref());
 
             let record_decoded = numeric
-                .decode(&mut buf, prev_doc_id)
+                .decode_new(&mut buf, prev_doc_id)
                 .expect("to decode numeric record");
 
             assert_eq!(record_decoded, record, "failed for value: {}", value);
