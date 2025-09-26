@@ -61,7 +61,25 @@ typedef enum {
   RSString_SDS = 0x03,
 } RSStringType;
 
+/**
+ * Represents a key-value pair entry in an RSValueMap.
+ * Both key and value are RSValue pointers that are owned by the map.
+ */
+typedef struct RSValueMapEntry {
+  struct RSValue *key;
+  struct RSValue *value;
+} RSValueMapEntry;
+
 #pragma pack(4)
+/**
+ * Represents a map (dictionary/hash table) of RSValue key-value pairs.
+ * The map owns all keys and values and will free them when the map is freed.
+ */
+typedef struct RSValueMap {
+  uint32_t len;
+  RSValueMapEntry *entries;
+} RSValueMap;
+
 // Variant value union
 typedef struct RSValue {
 
@@ -86,10 +104,7 @@ typedef struct RSValue {
     } _arrval;
 
     // map value
-    struct {
-      struct RSValue **pairs;  // array of <key,value> pairs which are <strval, RSValue>
-      uint32_t len;            // number of pairs (not number of array elements)
-    } _mapval;
+    RSValueMap _mapval;
 
     struct {
       /**
@@ -127,9 +142,6 @@ typedef struct RSValue {
 #pragma pack()
 
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
-
-#define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
-#define RSVALUE_MAP_VALUEPOS(pos) ((pos) * 2 + 1)
 
 /**
  * Clears the underlying storage of the value, and makes it
@@ -334,7 +346,7 @@ uint32_t RSValue_MapLen(const RSValue *v);
  * @param key Output parameter for the key (can be NULL)
  * @param val Output parameter for the value (can be NULL)
  */
-void RSValue_MapEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue **val);
+void RSValue_MapGetEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue **val);
 
 /**
  * Convert an RSValue to undefined type in-place.
@@ -457,8 +469,8 @@ static inline uint64_t RSValue_Hash(const RSValue *v, uint64_t hval) {
 
     case RSValue_Map:
       for (uint32_t i = 0; i < v->_mapval.len; i++) {
-        hval = RSValue_Hash(v->_mapval.pairs[RSVALUE_MAP_KEYPOS(i)], hval);
-        hval = RSValue_Hash(v->_mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], hval);
+        hval = RSValue_Hash(v->_mapval.entries[i].key, hval);
+        hval = RSValue_Hash(v->_mapval.entries[i].value, hval);
       }
       return hval;
 
@@ -501,11 +513,30 @@ static inline RSValue **RSValue_AllocateArray(uint32_t len) {
 }
 
 /**
- * Create a new map from existing pairs
- * @param pairs the <key,value> pair array to use for the map.
- * @param numPairs number of the pairs in the array (not the number of elements)
+ * Create a new RSValueMap with space for the specified number of entries.
+ * The map entries are uninitialized and must be set using RSValueMap_SetEntry.
+ * @param len The number of entries to allocate space for
+ * @return A new RSValueMap with allocated but uninitialized entries
  */
-RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs);
+RSValueMap RSValueMap_Create_Uninit(uint32_t len);
+
+/**
+ * Set a key-value pair at a specific index in the map.
+ * Takes ownership of both the key and value RSValues.
+ * @param map The map to modify
+ * @param i The index where to set the entry (must be < map->len)
+ * @param key The key RSValue (ownership is transferred to the map)
+ * @param value The value RSValue (ownership is transferred to the map)
+ */
+void RSValueMap_SetEntry(RSValueMap *map, size_t i, RSValue *key, RSValue *value);
+
+/**
+ * Create a new RSValue of type RSValue_Map from an RSValueMap.
+ * Takes ownership of the map structure and all its entries.
+ * @param map The RSValueMap to wrap (ownership is transferred)
+ * @return A new RSValue of type RSValue_Map
+ */
+RSValue *RSValue_NewMap(RSValueMap map);
 
 /** Accesses the array element at a given position as an l-value */
 #define RSVALUE_ARRELEM(vv, pos) ((vv)->_arrval.vals[pos])

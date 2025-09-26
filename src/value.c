@@ -9,6 +9,7 @@
 #include <pthread.h>
 
 #include "value.h"
+#include "rmalloc.h"
 #include "util/mempool.h"
 #include "module.h"
 #include "query_error.h"
@@ -154,10 +155,11 @@ uint32_t RSValue_MapLen(const RSValue *v) {
   return v->_mapval.len;
 }
 
-void RSValue_MapEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue **val) {
+void RSValue_MapGetEntry(const RSValue *map, uint32_t i, RSValue **key, RSValue **val) {
   RS_ASSERT(i < RSValue_MapLen(map));
-  *key = map->_mapval.pairs[RSVALUE_MAP_KEYPOS(i)];
-  *val = map->_mapval.pairs[RSVALUE_MAP_VALUEPOS(i)];
+
+  *key = map->_mapval.entries[i].key;
+  *val = map->_mapval.entries[i].value;
 }
 
 void RSValue_IntoUndefined(RSValue *v) {
@@ -219,10 +221,12 @@ void RSValue_Clear(RSValue *v) {
       break;
     case RSValue_Map:
       for (uint32_t i = 0; i < v->_mapval.len; i++) {
-        RSValue_Decref(v->_mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
-        RSValue_Decref(v->_mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
+        RSValue_Decref(v->_mapval.entries[i].key);
+        RSValue_Decref(v->_mapval.entries[i].value);
       }
-      rm_free(v->_mapval.pairs);
+      if (v->_mapval.len > 0) {
+        rm_free(v->_mapval.entries);
+      }
       break;
     default:   // no free
       break;
@@ -508,11 +512,27 @@ RSValue *RSValue_NewArray(RSValue **vals, uint32_t len) {
   return arr;
 }
 
-RSValue *RSValue_NewMap(RSValue **pairs, uint32_t numPairs) {
-  RSValue *map = RS_NewValue(RSValue_Map);
-  map->_mapval.pairs = pairs;
-  map->_mapval.len = numPairs;
+RSValueMap RSValueMap_Create_Uninit(uint32_t len) {
+  RSValueMapEntry *entries =
+    (len > 0) ? (RSValueMapEntry*) rm_malloc(len * sizeof(RSValueMapEntry)) : NULL;
+  RSValueMap map = {
+    .len = len,
+    .entries = entries,
+  };
+
   return map;
+}
+
+void RSValueMap_SetEntry(RSValueMap *map, size_t i, RSValue *key, RSValue *value) {
+  RS_ASSERT(i < map->len);
+  map->entries[i].key = key;
+  map->entries[i].value = value;
+}
+
+RSValue *RSValue_NewMap(RSValueMap map) {
+  RSValue *v = RS_NewValue(RSValue_Map);
+  v->_mapval = map;
+  return v;
 }
 
 RSValue *RS_VStringArray(uint32_t sz, ...) {
@@ -786,9 +806,9 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       for (uint32_t i = 0; i < v->_mapval.len; i++) {
         if (i > 0)
           s = sdscat(s, ", ");
-        s = RSValue_DumpSds(v->_mapval.pairs[RSVALUE_MAP_KEYPOS(i)], s, obfuscate);
+        s = RSValue_DumpSds(v->_mapval.entries[i].key, s, obfuscate);
         s = sdscat(s, ": ");
-        s = RSValue_DumpSds(v->_mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], s, obfuscate);
+        s = RSValue_DumpSds(v->_mapval.entries[i].value, s, obfuscate);
       }
       s = sdscat(s, "}");
       break;
