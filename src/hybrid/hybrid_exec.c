@@ -98,8 +98,6 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
   if (!(options & QEXEC_F_SEND_NOFIELDS)) {
     const RLookup *lk = cv->lastLookup;
 
-    RedisModule_ReplyKV_Map(reply, "attributes"); // >attributes
-
     if (r->flags & Result_ExpiredDoc) {
       RedisModule_Reply_Null(reply);
     } else {
@@ -146,7 +144,6 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
         RSValue_SendReply(reply, v, flags);
       }
     }
-    RedisModule_Reply_MapEnd(reply); // >attributes
   }
   RedisModule_Reply_MapEnd(reply); // >result
 }
@@ -227,13 +224,8 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
 
     RedisModule_Reply_Map(reply);
 
-    // <format>
-    QEFlags reqFlags = HREQ_RequestFlags(hreq);
-    if (reqFlags & QEXEC_FORMAT_EXPAND) {
-      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
-    } else {
-      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
-    }
+    // <total_results>
+    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
@@ -259,9 +251,6 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
 
 done:
     RedisModule_Reply_ArrayEnd(reply); // >results
-
-    // <total_results>
-    RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
 
     // warnings
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
@@ -546,7 +535,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
 
-  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status) != REDISMODULE_OK) {
+  if (parseHybridCommand(ctx, argv, argc, sctx, indexname, &cmd, &status, internal) != REDISMODULE_OK) {
     return CleanupAndReplyStatus(ctx, hybrid_ref, cmd.hybridParams, &status);
   }
   if (HybridRequest_BuildPipelineAndExecute(hybrid_ref, cmd.hybridParams, ctx, hybridRequest->sctx, &status, internal) != REDISMODULE_OK) {

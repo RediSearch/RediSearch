@@ -1001,19 +1001,10 @@ def get_results_from_hybrid_response(response) -> Dict[str, Dict[str, any]]:
     results = {}
     for result in access_nested_list(response, res_results_index):
         # Each result has structure: ['attributes', [flat_key_value_list]]
-        if (len(result) >= 2 and
-            result[0] == 'attributes' and
-            result[1] and
-            isinstance(result[1], list)):
-
-            # Convert flat key-value list to dict using zip with slicing
-            attr_list = result[1]
-            attrs = dict(zip(attr_list[::2], attr_list[1::2]))
-
-            # Extract key - let caller do any casting needed
-            if '__key' in attrs:
-                key = attrs['__key']
-                results[key] = attrs
+        result = dict(zip(result[::2], result[1::2]))
+        if '__key' in result:
+            key = result['__key']
+            results[key] = result
 
     return results
 

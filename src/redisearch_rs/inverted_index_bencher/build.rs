@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     link_static_libraries(&[
         ("src/inverted_index", "inverted_index"),
         ("src/buffer", "buffer"),
+        ("src/util/arr", "arr"),
     ]);
 
     // Generate C bindings - fail build if this doesn't work
