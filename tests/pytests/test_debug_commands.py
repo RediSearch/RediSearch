@@ -57,7 +57,6 @@ class TestDebugCommands(object):
             'GET_HIDE_USER_DATA_FROM_LOGS',
             'YIELDS_ON_LOAD_COUNTER',
             'BG_SCAN_CONTROLLER',
-            'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'FT.AGGREGATE',
             'FT.SEARCH',
         ]
