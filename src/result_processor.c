@@ -2011,3 +2011,273 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
 
    return &ret->base;
  }
+
+ /*******************************************************************************************************************
+ *  Debug only result processors
+ *
+ * *******************************************************************************************************************/
+
+// Insert the result processor between the last result processor and its downstream result processor
+static void addResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
+  ResultProcessor *cur = qctx->endProc;
+  ResultProcessor dummyHead = { .upstream = cur };
+  ResultProcessor *downstream = &dummyHead;
+
+  // Search for the last result processor
+  while (cur) {
+    if (!cur->upstream) {
+      rp->parent = qctx;
+      downstream->upstream = rp;
+      rp->upstream = cur;
+      break;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+  // Update the endProc to the new head in case it was changed
+  qctx->endProc = dummyHead.upstream;
+}
+
+// Insert the result processor before the first occurrence of a specific RP type in the upstream
+static bool addResultProcessorBeforeType(QueryProcessingCtx *qctx, ResultProcessor *rp, ResultProcessorType target_type) {
+  ResultProcessor *cur = qctx->endProc;
+  ResultProcessor *downstream = NULL;
+
+  // Search for the target result processor type
+  while (cur) {
+    // Change downstream -> cur(type) -> cur->upstream
+    // To: downstream -> rp -> cur(type) -> cur->upstream
+
+    if (cur->type == target_type) {
+      rp->parent = qctx;
+      rp->upstream = cur;
+      // Checking edge case: we are the first RP in the stream
+      if (cur == qctx->endProc) {
+        qctx->endProc = rp;
+      } else {
+        downstream->upstream = rp;
+      }
+      return true;
+    }
+
+    downstream = cur;
+    cur = cur->upstream;
+  }
+
+  return false;
+}
+
+// Insert the result processor after the first occurrence of a specific RP type in the upstream
+// Cannot be the last RP in the stream
+static bool addResultProcessorAfterType(QueryProcessingCtx *qctx, ResultProcessor *rp, ResultProcessorType target_type) {
+  ResultProcessor *cur = qctx->endProc;
+  ResultProcessor *downstream = cur;
+
+  bool found = false;
+
+  // Search for the target result processor type
+  while (cur) {
+    // Change downstream -> cur(type) -> cur->upstream
+    // To: downstream -> cur(type) -> rp-> cur->upstream
+    if (cur->type == target_type) {
+      if (!cur->upstream) {
+        return false;
+      }
+      rp->upstream = cur->upstream;
+      cur->upstream = rp;
+      rp->parent = qctx;
+      return true;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+
+  return false;
+}
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ * If N is larger than the actual results, EOF is returned.
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  uint32_t count;
+  uint32_t remaining;
+  RedisSearchCtx *sctx;
+} RPTimeoutAfterCount;
+
+/** For debugging purposes
+ * Will add a result processor that will return timeout according to the results count specified.
+ * @param results_count: number of results to return. should be greater equal 0.
+ * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
+ */
+void PipelineAddTimeoutAfterCount(QueryProcessingCtx *qctx, RedisSearchCtx *sctx, size_t results_count) {
+  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, sctx);
+  addResultProcessor(qctx, RPTimeoutAfterCount);
+}
+
+static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout, RedisSearchCtx *sctx) {
+    // set timeout to now for the RP up the chain to handle
+    static struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+    sctx->time.timeout = now;
+
+    // search upstream for rpQueryItNext to set timeout limiter
+    ResultProcessor *cur = rp_timeout->upstream;
+    while (cur && cur->type != RP_INDEX) {
+        cur = cur->upstream;
+    }
+
+    if (cur) { // This is a shard pipeline
+      RPQueryIterator *rp_index = (RPQueryIterator *)cur;
+      rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
+    }
+}
+
+static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
+  RPTimeoutAfterCount *self = (RPTimeoutAfterCount *)base;
+
+  // If we've reached COUNT:
+  if (!self->remaining) {
+
+    RPTimeoutAfterCount_SimulateTimeout(base, self->sctx);
+
+    int rc = base->upstream->Next(base->upstream, r);
+    if (rc == RS_RESULT_TIMEDOUT) {
+      // reset the counter for the next run in cursor mode
+      self->remaining = self->count;
+    }
+
+    return rc;
+  }
+
+  self->remaining--;
+  return base->upstream->Next(base->upstream, r);
+}
+
+static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sctx) {
+  RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
+  ret->count = count;
+  ret->remaining = count;
+  ret->sctx = sctx;
+  ret->base.type = RP_TIMEOUT;
+  ret->base.Next = RPTimeoutAfterCount_Next;
+  ret->base.Free = RPTimeoutAfterCount_Free;
+
+  return &ret->base;
+}
+
+typedef struct {
+  ResultProcessor base;
+} RPCrash;
+
+static void RPCrash_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+static int RPCrash_Next(ResultProcessor *base, SearchResult *r) {
+  RPCrash *self = (RPCrash *)base;
+  abort();
+  return base->upstream->Next(base->upstream, r);
+}
+
+ResultProcessor *RPCrash_New() {
+  RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
+  ret->base.type = RP_CRASH;
+  ret->base.Next = RPCrash_Next;
+  ret->base.Free = RPCrash_Free;
+  return &ret->base;
+}
+
+void PipelineAddCrash(struct AREQ *r) {
+  ResultProcessor *crash = RPCrash_New();
+  addResultProcessor(AREQ_QueryProcessingCtx(r), crash);
+}
+
+/*******************************************************************************************************************
+ *  Pause Processor - DEBUG ONLY
+ *
+ * Pauses the query after N results, N >= 0.
+ *******************************************************************************************************************/
+typedef struct {
+  ResultProcessor base;
+  uint32_t count;
+  uint32_t remaining;
+} RPPauseAfterCount;
+
+bool PipelineAddPauseRPcount(QueryProcessingCtx *qctx, size_t results_count, bool before, ResultProcessorType rp_type, QueryError *status) {
+  ResultProcessor *RPPauseAfterCount = RPPauseAfterCount_New(results_count);
+
+  if (!RPPauseAfterCount) {
+    // Set query error
+    QueryError_SetError(status, QUERY_EGENERIC, "Failed to create pause RP or another debug RP is already set");
+    return false;
+  }
+
+  bool success = false;
+  if (before) {
+    success = addResultProcessorBeforeType(qctx, RPPauseAfterCount, rp_type);
+  } else {
+    success = addResultProcessorAfterType(qctx, RPPauseAfterCount, rp_type);
+  }
+  // Free if failed
+  if (!success) {
+    RPPauseAfterCount->Free(RPPauseAfterCount);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "%s RP type not found in stream or tried to insert after last RP", RPTypeToString(rp_type));
+  }
+  return success;
+
+}
+
+static void RPPauseAfterCount_Pause(RPPauseAfterCount *self) {
+
+  QueryDebugCtx_SetPause(true);
+  while (QueryDebugCtx_IsPaused()) { // volatile variable
+    usleep(1000);
+  }
+}
+
+static int RPPauseAfterCount_Next(ResultProcessor *base, SearchResult *r) {
+  RPPauseAfterCount *self = (RPPauseAfterCount *)base;
+
+  // If we've reached COUNT:
+  if (!self->remaining) {
+    RPPauseAfterCount_Pause(self);
+  }
+
+  self->remaining--;
+  return base->upstream->Next(base->upstream, r);
+}
+
+static void RPPauseAfterCount_Free(ResultProcessor *base) {
+  RS_LOG_ASSERT(QueryDebugCtx_GetDebugRP() == base, "Freed debug RP tried to change DebugCTX debugRP but it's not the current debug RP");
+  rm_free(base);
+  QueryDebugCtx_SetDebugRP(NULL);
+}
+
+ResultProcessor *RPPauseAfterCount_New(size_t count) {
+
+  // Validate no other debug RP is set
+  // If so, don't set it and return NULL
+  if (QueryDebugCtx_HasDebugRP()) {
+    return NULL;
+  }
+
+  RPPauseAfterCount *ret = rm_calloc(1, sizeof(RPPauseAfterCount));
+  ret->count = count;
+  ret->remaining = count;
+  ret->base.type = RP_PAUSE;
+  ret->base.Next = RPPauseAfterCount_Next;
+  ret->base.Free = RPPauseAfterCount_Free;
+
+  QueryDebugCtx_SetDebugRP(&ret->base);
+
+  return &ret->base;
+}
