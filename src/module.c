@@ -69,6 +69,7 @@
 #include "legacy_types.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "util/redis_mem_info.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -156,6 +157,22 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
   return !IsEnterprise() || ACLUserMayAccessIndex(ctx, sp);
 }
+
+// OOM guardrail with heuristics
+// TODO: add heuristics
+// If different heuristics are needed for different code path,
+// implement a dedicated function in the relevant file
+bool estimateOOM(RedisModuleCtx *ctx, bool lockGIL) {
+  if (lockGIL) {
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
+  bool oom = RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
+  if (lockGIL) {
+    RedisModule_ThreadSafeContextUnlock(ctx);
+  }
+  return oom;
+}
+
 
 // Returns true if the current context has permission to execute debug commands
 // See redis docs regarding `enable-debug-command` for more information
@@ -3156,6 +3173,15 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     dist_callback = DEBUG_RSExecDistAggregate;
   }
 
+  // Check OOM if OOM policy is not ignore
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // No need to hold the GIL since we are not in a background thread
+    if (estimateOOM(ctx, false)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    }
+  }
+
   // Prepare the spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
   IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
@@ -3495,6 +3521,15 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     argv++;
     argc--;
     dist_callback = DEBUG_DistSearchCommandHandler;
+  }
+
+  // Check OOM if OOM policy is not ignore
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // No need to hold the GIL since we are not in a background thread
+    if (estimateOOM(ctx, false)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    }
   }
 
   // Prepare spec ref for the background thread

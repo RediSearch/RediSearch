@@ -125,6 +125,8 @@ void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
 bool should_return_error(MRReply *reply);
 
+bool estimateOOM(RedisModuleCtx *ctx, bool lockGIL);
+
 #ifdef __cplusplus
 }
 #endif
