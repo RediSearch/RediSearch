@@ -78,7 +78,6 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
       MRClusterShard_AddNode(&new_shard, node);
     }
     for (int n = 0; n < new_shard.numNodes; n++) {
-      // Take an  actual copy of the node ID string, as it's going to be handled by another thread (HoldString and FreeString are not thread-safe)
       new_shard.nodes[n].id = rm_strdup(original_shard->nodes[n].id);
       MREndpoint_Copy(&new_shard.nodes[n].endpoint, &original_shard->nodes[n].endpoint);
       new_shard.nodes[n].endpoint.port = original_shard->nodes[n].endpoint.port;

@@ -455,8 +455,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
           MRClusterNode *node = &sh->nodes[j];
           RedisModule_Reply_Map(reply); // >>>>(node)
 
-          const char *node_id_str = RedisModule_StringPtrLen(node->id, NULL);
-          REPLY_KVSTR_SAFE("id", node_id_str);
+          REPLY_KVSTR_SAFE("id", node->id);
           REPLY_KVSTR_SAFE("host", node->endpoint.host);
           RedisModule_ReplyKV_LongLong(reply, "port", node->endpoint.port);
           RedisModule_ReplyKV_SimpleStringf(reply, "role", "%s%s",                        // TODO: move the space to "self"
@@ -506,8 +505,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
         for (int j = 0; j < sh->numNodes; j++) {
           MRClusterNode *node = &sh->nodes[j];
           RedisModule_Reply_Array(reply); // >>node
-            const char *node_id_str = RedisModule_StringPtrLen(node->id, NULL);
-            REPLY_SIMPLE_SAFE(node_id_str);
+            REPLY_SIMPLE_SAFE(node->id);
             REPLY_SIMPLE_SAFE(node->endpoint.host);
             RedisModule_Reply_LongLong(reply, node->endpoint.port);
             RedisModule_Reply_SimpleStringf(reply, "%s%s",                                // TODO: move the space to "self"

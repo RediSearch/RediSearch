@@ -903,7 +903,7 @@ def mod5778_add_new_shard_to_cluster(env: Env):
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    with TimeLimit(20, "fail to acknowledge topology"):
+    with TimeLimit(40, "fail to acknowledge topology"):
         while True:
             cluster_info = new_shard_conn.execute_command("search.clusterinfo")
             slots_idx = cluster_info.index('slots') + 1

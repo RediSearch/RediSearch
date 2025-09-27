@@ -32,7 +32,7 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
     }
     // Check if the master node already exists in the shard, in which case we can just
     for (int n = 0; n < t->shards[i].numNodes; n++) {
-      if (!RedisModule_StringCompare(sh->node.id, t->shards[i].nodes[n].id)) {
+      if (!strcmp(sh->node.id, t->shards[i].nodes[n].id)) {
         // Same node, extend the slot ranges (for all the nodes in the shard)
         MRClusterShard_AddRange(&t->shards[i], sh->startSlot, sh->endSlot);
         // Consume the node, we don't need to add it again
@@ -84,7 +84,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
                                                  int argc) {
   ArgsCursor ac; // Name is important for error macros, same goes for `ctx`
   ArgsCursor_InitRString(&ac, argv + 1, argc - 1);
-  RedisModuleString *myID = NULL;          // Mandatory. No default.
+  const char *myID = NULL;                 // Mandatory. No default.
   size_t numShards = 0;                    // Mandatory. No default.
   size_t numSlots = 16384;                 // Default.
   MRHashFunc hashFunc = MRHashFunc_CRC16;  // Default.
@@ -92,7 +92,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   // Parse general arguments. No allocation is done here, so we can just return on error
   while (!AC_IsAtEnd(&ac)) {
     if (AC_AdvanceIfMatch(&ac, "MYID")) {
-      AC_GetRString(&ac, &myID, 0);  // Verified after breaking out of loop
+      myID = AC_GetStringNC(&ac, NULL);  // Verified after breaking out of loop
     } else if (AC_AdvanceIfMatch(&ac, "HASHFUNC")) {
       const char *hashFuncStr = AC_GetStringNC(&ac, NULL);
       if (!hashFuncStr) {
@@ -143,7 +143,8 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
     int rc;
     /* Mandatory: SHARD <shard_id> SLOTRANGE <start_slot> <end_slot> ADDR <tcp> */
     VERIFY_ARG("SHARD");
-    if (AC_GetRString(&ac, &sh.node.id, 0) != AC_OK) {
+    sh.node.id = AC_GetStringNC(&ac, NULL);
+    if (!sh.node.id) {
       ERROR_MISSING("SHARD");
       goto error;
     }
@@ -184,13 +185,12 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
       goto error;
     }
     // All good. Finish up the node
-    sh.node.id = RedisModule_CreateStringFromString(NULL, sh.node.id);  // Take ownership of the string
-    RedisModule_TrimStringAllocation(sh.node.id);
+    sh.node.id = rm_strdup(sh.node.id);  // Take ownership of the string
     if (unixSock) {
       sh.node.endpoint.unixSock = rm_strdup(unixSock);
     }
     sh.node.flags = 0;
-    if (!RedisModule_StringCompare(sh.node.id, myID)) {
+    if (!strcmp(sh.node.id, myID)) {
       sh.node.flags |= MRNode_Self;
     }
     /* Optional MASTER */
