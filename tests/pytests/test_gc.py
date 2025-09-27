@@ -447,6 +447,8 @@ def test_gc_oom(env):
     for i in range(num_docs):
         env.expect('DEL', f'doc{i}').equal(1)
         forceInvokeGC(env)
+        # Wait for the gc to finish
+        env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
         # Verify no open file descriptors were left behind
         open_files_after_skip_gc = get_open_file_count(redis_server_pid)
         env.assertEqual(open_files_before_gc, open_files_after_skip_gc)
