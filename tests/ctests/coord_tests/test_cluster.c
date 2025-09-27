@@ -73,16 +73,20 @@ static MRClusterTopology *getTopology(size_t numSlots, size_t numNodes,  const c
       return NULL;
     }
     nodes[i].flags = MRNode_Master;
-    nodes[i].id = rm_strdup(hosts[i]);
+    nodes[i].id = RedisModule_CreateString(NULL, hosts[i], strlen(hosts[i]));
   }
   int i = 0;
   for (size_t slot = 0; slot < topo->numSlots; slot += slotRange) {
     topo->shards[i] = (MRClusterShard){
-        .startSlot = slot, .endSlot = slot + slotRange - 1, .numNodes = 1,
-
+      .numNodes = 1,
     };
     topo->shards[i].nodes = rm_calloc(1, sizeof(MRClusterNode)),
     topo->shards[i].nodes[0] = nodes[i];
+    topo->shards[i].ranges = rm_calloc(1, sizeof(mr_slot_range_t));
+    topo->shards[i].capRanges = 1;
+    topo->shards[i].numRanges = 1;
+    topo->shards[i].ranges[0].start = slot;
+    topo->shards[i].ranges[0].end = slot + slotRange - 1;
 
     i++;
   }
@@ -95,10 +99,6 @@ static const char *GetShardKey(const MRCommand *cmd, size_t *len) {
   return cmd->strs[1];
 }
 static mr_slot_t CRCShardFunc(const MRCommand *cmd, const IORuntimeCtx *ioRuntime) {
-
-  if(cmd->targetSlot >= 0){
-    return cmd->targetSlot;
-  }
 
   size_t len;
   const char *k = GetShardKey(cmd, &len);
@@ -143,8 +143,8 @@ void testClusterTopology_Clone() {
     MRClusterShard *original_sh = &topo->shards[j];
     MRClusterShard *cloned_sh = &cloned->shards[j];
 
-    mu_check(cloned_sh->startSlot == original_sh->startSlot);
-    mu_check(cloned_sh->endSlot == original_sh->endSlot);
+    mu_check(cloned_sh->ranges[0].start == original_sh->ranges[0].start);
+    mu_check(cloned_sh->ranges[0].end == original_sh->ranges[0].end);
     mu_check(cloned_sh->numNodes == original_sh->numNodes);
 
     // Verify each node in the shard
@@ -159,11 +159,11 @@ void testClusterTopology_Clone() {
 
   // Modify the original to prove independence
   topo->numSlots = 8192;
-  topo->shards[0].startSlot = 999;
+  topo->shards[0].ranges[0].start = 999;
 
   // Verify the clone remains unchanged
   mu_check(cloned->numSlots == 4096);
-  mu_check(cloned->shards[0].startSlot != 999);
+  mu_check(cloned->shards[0].ranges[0].start != 999);
 
   // Clean up
   MRClusterTopology_Free(topo);
@@ -183,8 +183,8 @@ void testCluster() {
     for (int j = 0; j < topo->numShards; j++) {
       MRClusterShard *sh = &topo->shards[j];
       mu_check(sh->numNodes == 1);
-      mu_check(sh->startSlot == j * (4096 / n));
-      mu_check(sh->endSlot == sh->startSlot + (4096 / n) - 1);
+      mu_check(sh->ranges[0].start == j * (4096 / n));
+      mu_check(sh->ranges[0].end == sh->ranges[0].start + (4096 / n) - 1);
       mu_check(!strcmp(sh->nodes[0].id, hosts[j]));
     }
 
@@ -198,8 +198,8 @@ void testCluster() {
       for (int j = 0; j < ioRuntime->topo->numShards; j++) {
         MRClusterShard *sh = &ioRuntime->topo->shards[j];
         mu_check(sh->numNodes == 1);
-        mu_check(sh->startSlot == j * (4096 / n));
-        mu_check(sh->endSlot == sh->startSlot + (4096 / n) - 1);
+        mu_check(sh->ranges[0].start == j * (4096 / n));
+        mu_check(sh->ranges[0].end == sh->ranges[0].start + (4096 / n) - 1);
         mu_check(!strcmp(sh->nodes[0].id, hosts[j]));
       }
     }

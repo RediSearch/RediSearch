@@ -889,10 +889,9 @@ def mod5778_add_new_shard_to_cluster(env: Env):
     env.addShardToClusterIfExists()
     new_shard_conn = env.getConnection(shardId=initial_shards_count+1)
     verify_shard_init(new_shard_conn)
-    # Expect that the cluster will be aware of the new shard, but for redisearch coordinator, the new shard isn't
-    # considered part of the partition yet as it does not contain any slots.
+    # Expect that the cluster will be aware of the new shard.
     env.assertEqual(int(new_shard_conn.execute_command("cluster info")['cluster_known_nodes']), initial_shards_count+1)
-    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count)])
+    env.assertEqual(new_shard_conn.execute_command("search.clusterinfo")[:2], ['num_partitions', int(initial_shards_count) + 1])
 
     # Move one slot (0) to the new shard (according to https://redis.io/commands/cluster-setslot/)
     new_shard_id = new_shard_conn.execute_command('CLUSTER MYID')
@@ -904,12 +903,13 @@ def mod5778_add_new_shard_to_cluster(env: Env):
 
     # Now we expect that the new shard will be a part of the cluster partition in redisearch (allow some time
     # for the cluster refresh to occur and acknowledged by all shards)
-    with TimeLimit(40, "fail to acknowledge topology"):
+    with TimeLimit(20, "fail to acknowledge topology"):
         while True:
-            time.sleep(0.5)
             cluster_info = new_shard_conn.execute_command("search.clusterinfo")
-            if cluster_info[:2] == ['num_partitions', int(initial_shards_count+1)]:
+            slots_idx = cluster_info.index('slots') + 1
+            if any([range[:2] == [0, 0] for range in cluster_info[slots_idx:]]):
                 break
+            time.sleep(0.5)
     # search.clusterinfo response format is the following:
     # ['num_partitions', 4, 'cluster_type', 'redis_oss', 'hash_func', 'CRC16', 'num_slots', 16384, 'slots',
     # [0, 0, ['1f834c5c207bbe8d6dab0c6f050ff06292eb333c', '127.0.0.1', 6385, 'master self']],
