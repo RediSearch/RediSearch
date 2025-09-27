@@ -36,10 +36,9 @@ typedef struct {
 } MRClusterShard;
 
 /* Create a new cluster shard to be added to a topology */
-MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlots, uint32_t capNodes);
+MRClusterShard MR_NewClusterShard(uint32_t capNodes);
 void MRClusterShard_AddNode(MRClusterShard *sh, MRClusterNode *n);
 void MRClusterShard_AddRange(MRClusterShard *sh, mr_slot_t start, mr_slot_t end);
-RedisModuleString *MRClusterShard_HoldMasterID(MRClusterShard *sh);
 
 #define MRHASHFUNC_CRC12_STR "CRC12"
 #define MRHASHFUNC_CRC16_STR "CRC16"

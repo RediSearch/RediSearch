@@ -22,13 +22,17 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   for (int i = 0; i < t->numShards; i++) {
     for (int r = 0; r < t->shards[i].numRanges; r++) {
       if (sh->startSlot == t->shards[i].ranges[r].start && sh->endSlot == t->shards[i].ranges[r].end) {
-        // New node in the same shard (slot range)
+        // New node in the same shard
         MRClusterShard_AddNode(&t->shards[i], &sh->node);
         return;
       }
     }
+    if (!(sh->node.flags & MRNode_Master)) {
+      continue; // Only master nodes can cause shard merging
+    }
+    // Check if the master node already exists in the shard, in which case we can just
     for (int n = 0; n < t->shards[i].numNodes; n++) {
-      if ((sh->node.flags & MRNode_Master) && !RedisModule_StringCompare(sh->node.id, t->shards[i].nodes[n].id)) {
+      if (!RedisModule_StringCompare(sh->node.id, t->shards[i].nodes[n].id)) {
         // Same node, extend the slot ranges (for all the nodes in the shard)
         MRClusterShard_AddRange(&t->shards[i], sh->startSlot, sh->endSlot);
         // Consume the node, we don't need to add it again
@@ -39,8 +43,9 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
   }
 
   // New shard
-  MRClusterShard csh = MR_NewClusterShard(sh->startSlot, sh->endSlot, 2);
+  MRClusterShard csh = MR_NewClusterShard(2);
   MRClusterShard_AddNode(&csh, &sh->node);
+  MRClusterShard_AddRange(&csh, sh->startSlot, sh->endSlot);
   MRClusterTopology_AddShard(t, &csh);
 }
 

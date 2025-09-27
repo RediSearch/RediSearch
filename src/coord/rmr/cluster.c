@@ -115,22 +115,24 @@ MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *
 
   if (!ioRuntime->topo) return NULL;
 
-  RedisModuleString *target_id = cmd->target_id;
-  if (!target_id) {
+  MRClusterShard *sh;
+  if (cmd->targetShard != -1 && cmd->targetShard < ioRuntime->topo->numShards) {
+    /* Get the shard directly by the targetShard field */
+    sh = &ioRuntime->topo->shards[cmd->targetShard];
+
+  } else {
     /* Get the cluster slot from the sharder */
     unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
 
     /* Get the shard from the slot map */
-    MRClusterShard *sh = _MRCluster_FindShard(ioRuntime->topo, slot);
+    sh = _MRCluster_FindShard(ioRuntime->topo, slot);
     if (!sh) return NULL;
-
-    MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
-    if (!node) return NULL;
-
-    target_id = node->id;
   }
 
-  return MRConn_Get(&ioRuntime->conn_mgr, target_id);
+  MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
+  if (!node) return NULL;
+
+  return MRConn_Get(&ioRuntime->conn_mgr, node->id);
 }
 
 /* Send a single command to the right shard in the cluster, with an optional control over node

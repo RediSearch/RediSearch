@@ -37,8 +37,7 @@ static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
     const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len); // TODO: fix this
 
     if (STR_EQ(key_str, key_len, "id")) {
-      n->id = RedisModule_CreateString(NULL, val_str, val_len);
-      RedisModule_TrimStringAllocation(n->id);
+      n->id = rm_strndup(val_str, val_len);
     } else if (STR_EQ(key_str, key_len, "endpoint")) {
       n->endpoint.host = rm_strndup(val_str, val_len);
     } else if (STR_EQ(key_str, key_len, "port") && n->endpoint.port == -1) {
@@ -67,8 +66,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
   }
 
   size_t idlen;
-  const char *myID_c = RedisModule_CallReplyStringPtr(myID_reply, &idlen);
-  RedisModuleString *myID = RedisModule_CreateString(ctx, myID_c, idlen);
+  const char *myID = RedisModule_CallReplyStringPtr(myID_reply, &idlen);
 
   RedisModuleCallReply *cluster_shards = RedisModule_Call(ctx, "CLUSTER", "c", "SHARDS");
   if (cluster_shards == NULL || RedisModule_CallReplyType(cluster_shards) != REDISMODULE_REPLY_ARRAY) {
@@ -142,7 +140,7 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     for (size_t n = 0; n < topo->shards[i].numNodes; n++) {
       parseNode(RedisModule_CallReplyArrayElement(nodes, n), &topo->shards[i].nodes[n]);
       // Mark the node as self if its ID matches our ID
-      if (!RedisModule_StringCompare(myID, topo->shards[i].nodes[n].id)) {
+      if (STR_EQ(myID, idlen, topo->shards[i].nodes[n].id)) {
         topo->shards[i].nodes[n].flags |= MRNode_Self;
       }
     }

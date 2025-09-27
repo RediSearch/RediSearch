@@ -30,23 +30,11 @@ void MRClusterShard_AddRange(MRClusterShard *sh, mr_slot_t start, mr_slot_t end)
   sh->numRanges++;
 }
 
-RedisModuleString *MRClusterShard_HoldMasterID(MRClusterShard *sh) {
-  for (int i = 0; i < sh->numNodes; i++) {
-    if (sh->nodes[i].flags & MRNode_Master) {
-      return RedisModule_HoldString(NULL, sh->nodes[i].id);
-    }
-  }
-  return NULL;
-}
-
-MRClusterShard MR_NewClusterShard(mr_slot_t startSlot, mr_slot_t endSlot, uint32_t capNodes) {
-  mr_slot_range_t *ranges = rm_malloc(sizeof(mr_slot_range_t));
-  ranges[0].start = startSlot;
-  ranges[0].end = endSlot;
+MRClusterShard MR_NewClusterShard(uint32_t capNodes) {
   MRClusterShard ret = (MRClusterShard){
-      .numRanges = 1,
+      .numRanges = 0,
       .capRanges = 1,
-      .ranges = ranges,
+      .ranges = rm_calloc(1, sizeof(mr_slot_range_t)),
       .numNodes = 0,
       .capNodes = capNodes,
       .nodes = rm_calloc(capNodes, sizeof(MRClusterNode)),
@@ -79,23 +67,19 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
   MRClusterTopology *topo = MR_NewTopology(t->numShards, t->numSlots, t->hashFunc);
   for (int s = 0; s < t->numShards; s++) {
     MRClusterShard *original_shard = &t->shards[s];
-    MRClusterShard new_shard = MR_NewClusterShard(original_shard->ranges[0].start, original_shard->ranges[0].end, original_shard->numNodes);
-    if (original_shard->numRanges > 1) {
-      new_shard.capRanges = original_shard->numRanges;
-      new_shard.ranges = rm_realloc(new_shard.ranges, new_shard.capRanges * sizeof(mr_slot_range_t));
-      for (size_t r = 1; r < original_shard->numRanges; r++) {
-        new_shard.ranges[r] = original_shard->ranges[r];
-      }
-      new_shard.numRanges = original_shard->numRanges;
-    }
+    MRClusterShard new_shard = MR_NewClusterShard(original_shard->numNodes);
+    new_shard.numRanges = original_shard->numRanges;
+    new_shard.capRanges = original_shard->numRanges;
+    new_shard.ranges = rm_realloc(new_shard.ranges, new_shard.capRanges * sizeof(mr_slot_range_t));
+    memcpy(new_shard.ranges, original_shard->ranges, original_shard->numRanges * sizeof(mr_slot_range_t));
+
     for (int n = 0; n < original_shard->numNodes; n++) {
       MRClusterNode *node = &original_shard->nodes[n];
       MRClusterShard_AddNode(&new_shard, node);
     }
     for (int n = 0; n < new_shard.numNodes; n++) {
       // Take an  actual copy of the node ID string, as it's going to be handled by another thread (HoldString and FreeString are not thread-safe)
-      new_shard.nodes[n].id = RedisModule_CreateStringFromString(NULL, original_shard->nodes[n].id);
-      RedisModule_TrimStringAllocation(new_shard.nodes[n].id);
+      new_shard.nodes[n].id = rm_strdup(original_shard->nodes[n].id);
       MREndpoint_Copy(&new_shard.nodes[n].endpoint, &original_shard->nodes[n].endpoint);
       new_shard.nodes[n].endpoint.port = original_shard->nodes[n].endpoint.port;
       new_shard.nodes[n].flags = 0;
@@ -108,7 +92,7 @@ MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t) {
 
 void MRClusterNode_Free(MRClusterNode *n) {
   MREndpoint_Free(&n->endpoint);
-  RedisModule_FreeString(NULL, n->id);
+  rm_free((char *)n->id);
 }
 
 void MRClusterTopology_Free(MRClusterTopology *t) {
