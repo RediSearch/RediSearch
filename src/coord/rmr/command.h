@@ -15,6 +15,10 @@
 #include <assert.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2 } MRRootCommand;
 
 /* A redis command is represented with all its arguments and its flags as MRCommand */
@@ -100,3 +104,7 @@ void MRCommand_SetProtocol(MRCommand *cmd, RedisModuleCtx *ctx);
 
 /* Create a copy of a command by duplicating all strings */
 MRCommand MRCommand_Copy(const MRCommand *cmd);
+
+#ifdef __cplusplus
+}
+#endif

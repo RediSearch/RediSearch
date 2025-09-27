@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "dist_hybrid.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/dist_hybrid_plan.h"
@@ -56,19 +57,41 @@ static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
-static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                                       AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
-                                       IndexSpec *sp, HybridPipelineParams *hybridParams) {
+void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
+                            AREQDIST_UpstreamInfo *us, MRCommand *xcmd,
+                            IndexSpec *sp, HybridPipelineParams *hybridParams) {
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
   // Build _FT.HYBRID command (no profiling support)
   *xcmd = MR_NewCommand(2, "_FT.HYBRID", index_name);
 
-  int vsim_index = RMUtil_ArgIndex("VSIM", argv + 2, argc - 2);
-  RedisModule_Log(NULL, "warning", "HybridRequest_buildMRCommand: vsim_index=%d", vsim_index);
+  // Find the indices of the hybrid query components
+  // SEARCH and VSIM are mandatory, COMBINE and PARAMS are optional
+  int search_index = RMUtil_ArgIndex("SEARCH", argv + 2, argc - 2) + 2;
+  int vsim_index = RMUtil_ArgIndex("VSIM", argv + search_index, argc - search_index) + search_index;
 
-  // Add the hybrid query arguments (SEARCH ... VSIM ...)
-  for (int i = 2; i < argc; i++) {
+  // PARAMS is optional, but if present, it must come after VSIM + 2
+  int params_index = RMUtil_ArgIndex("PARAMS", argv + vsim_index + 2, argc - (vsim_index + 2) );
+  if (params_index != -1) {
+    params_index += vsim_index + 2;
+  }
+  long long nparams;
+  if (params_index == -1) {
+    nparams = 0;
+  } else {
+    RedisModule_StringToLongLong(argv[params_index + 1], &nparams);
+  }
+
+  // Add SEARCH arguments
+  int current_index = 2; // Skip the command and index name
+  for (int i = current_index; i < vsim_index + 2; i++) {
+    MRCommand_AppendRstr(xcmd, argv[i]);
+  }
+  current_index = vsim_index + 2;
+
+  // Add VSIM + COMBINE arguments
+  int limit = (params_index == -1 ? argc : params_index);
+  for (int i = current_index; i < limit; i++) {
     if (i == vsim_index + 2 && argv[i] != '$') {
       MRCommand_AppendRstr(xcmd, argv[i]);
     } else {
@@ -77,55 +100,32 @@ static void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
       MRCommand_Append(xcmd, str, len);
     }
   }
+  current_index = limit;
+
+  // Add PARAMS arguments if present
+  if (params_index != -1) {
+    for (int i = params_index; i < params_index + nparams + 2; i++) {
+      MRCommand_AppendRstr(xcmd, argv[i]);
+    }
+    current_index = params_index + nparams + 2;
+  }
+
+  // Add the remaining arguments (TIMEOUT, DIALECT, FILTER, etc.)
+  for (int i = current_index; i < argc; i++) {
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(argv[i], &len);
+    MRCommand_Append(xcmd, str, len);
+  }
 
   // Add WITHCURSOR
   MRCommand_Append(xcmd, "WITHCURSOR", strlen("WITHCURSOR"));
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
-  // Add the index prefixes to the command, for validation in the shard
-  // MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
-  // arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
-  // char *n_prefixes;
-  // rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  // MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
-  // for (uint i = 0; i < array_len(prefixes); i++) {
-  //   MRCommand_Append(xcmd, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL), strlen(HiddenUnicodeString_GetUnsafe(prefixes[i], NULL)));
-  // }
-
-  // Add upstream serialized parameters
-  for (size_t ii = 0; ii < us->nserialized; ++ii) {
-    MRCommand_Append(xcmd, us->serialized[ii], strlen(us->serialized[ii]));
+// Log the command - only for debugging
+  for (int i = 0; i < xcmd->num; i++) {
+    RedisModule_Log(NULL, "warning", "xcmd->strs[%d]=%s", i, xcmd->strs[i]);
   }
-
-  // Handle PARAMS if present
-  int loc = RMUtil_ArgIndex("PARAMS", argv + 2, argc - 2);
-  if (loc != -1) {
-    long long nargs;
-    int rc = RedisModule_StringToLongLong(argv[loc + 2 + 1], &nargs);
-
-    // append params string including PARAMS keyword and nargs
-    for (int i = 0; i < nargs + 2; ++i) {
-      MRCommand_AppendRstr(xcmd, argv[loc + 2 + i]);
-    }
-  }
-
-  // Handle TIMEOUT if present
-  int timeout_index = RMUtil_ArgIndex("TIMEOUT", argv + 2, argc - 3);
-  if (timeout_index != -1) {
-    MRCommand_AppendRstr(xcmd, argv[timeout_index + 2]);
-    MRCommand_AppendRstr(xcmd, argv[timeout_index + 3]);
-  }
-
-  // Handle DIALECT if present
-  int dialect_index = RMUtil_ArgIndex("DIALECT", argv + 2, argc - 3);
-  if (dialect_index != -1) {
-    MRCommand_AppendRstr(xcmd, argv[dialect_index + 2]);
-    MRCommand_AppendRstr(xcmd, argv[dialect_index + 3]);
-  }
-
-
-  // rm_free(n_prefixes);
 }
 
 // TODO: Fix this
