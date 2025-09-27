@@ -429,11 +429,11 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
 def test_gc_oom(env):
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
     env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
-    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
-    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
     num_docs = 10
     # Create index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
     # Add some documents
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 't', f'name{i}').equal(1)
