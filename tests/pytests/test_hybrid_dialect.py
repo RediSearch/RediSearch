@@ -105,6 +105,71 @@ def test_hybrid_dialects():
         ]
         exec_and_validate_query(env, hybrid_cmd)
 
+    # Inspect the info command output showing dialect 1 was not used
+    info = env.cmd('FT.INFO', 'idx')
+    dialect_stats = info[info.index('dialect_stats') + 1]
+    env.assertEqual(dialect_stats, ['dialect_1', 0, 'dialect_2', 1, 'dialect_3', 1, 'dialect_4', 1])
+
+# TODO: remove once FT.HYBRID for cluster is implemented
+@skip(cluster=True)
+def test_hybrid_dialect_stats_tracking():
+    """Test that FT.HYBRID updates dialect statistics correctly - only on success, not on errors"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.2]).astype(np.float32).tobytes()
+
+    # Check initial dialect stats - should be all zeros
+    info = env.cmd('FT.INFO', 'idx')
+    dialect_stats = info[info.index('dialect_stats') + 1]
+    env.assertEqual(dialect_stats, ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 0, 'dialect_4', 0])
+
+    # Test 1: Execute invalid FT.HYBRID command that should fail during parsing
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)', 'DIALECT', '2',  # DIALECT not allowed in SEARCH subquery
+        'VSIM', '@vector', query_vector
+    ).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries')
+
+    # Check that dialect stats were NOT updated after parsing error
+    info = env.cmd('FT.INFO', 'idx')
+    dialect_stats = info[info.index('dialect_stats') + 1]
+    env.assertEqual(dialect_stats, ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 0, 'dialect_4', 0])
+
+    # Test 2: Execute invalid FT.HYBRID command that should fail during execution (invalid field)
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@nonexistent_field:(apples)',  # Field doesn't exist
+        'VSIM', '@vector', query_vector
+    ).error()
+
+    # Check that dialect stats were NOT updated after execution error
+    info = env.cmd('FT.INFO', 'idx')
+    dialect_stats = info[info.index('dialect_stats') + 1]
+    env.assertEqual(dialect_stats, ['dialect_1', 0, 'dialect_2', 0, 'dialect_3', 0, 'dialect_4', 0])
+
+    # Test 3: Execute valid FT.HYBRID command (uses default dialect which should be >= 2)
+    hybrid_cmd = [
+        'FT.HYBRID', 'idx',
+        'SEARCH', '@text:(apples)',
+        'VSIM', '@vector', query_vector
+    ]
+    exec_and_validate_query(env, hybrid_cmd)
+
+    # Check that dialect stats were updated after successful execution
+    info = env.cmd('FT.INFO', 'idx')
+    dialect_stats = info[info.index('dialect_stats') + 1]
+    expected_stats = ['dialect_1', 0, 'dialect_2', 1, 'dialect_3', 0, 'dialect_4', 0]
+    env.assertEqual(dialect_stats, expected_stats)
+
+    # Test 4: Change default dialect to 3 and execute another successful command
+    env.expect('CONFIG', 'SET', 'search-default-dialect', 3).ok()
+    exec_and_validate_query(env, hybrid_cmd)
+
+    # Check that dialect stats were updated for both dialect 2 and 3
+    info = env.cmd('FT.INFO', 'idx')
+    dialect_stats = info[info.index('dialect_stats') + 1]
+    expected_stats = ['dialect_1', 0, 'dialect_2', 1, 'dialect_3', 1, 'dialect_4', 0]
+    env.assertEqual(dialect_stats, expected_stats)
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)

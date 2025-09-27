@@ -178,10 +178,8 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     ArgParser_Free(parser);
 
-    // Handle dialect-specific validation (replicated from original)
-    if (ctx->specifiedArgs & SPECIFIED_ARG_DIALECT && ctx->reqConfig->dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST &&
-        (*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not supported in this dialect version");
+    if ((*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
+        QueryError_SetError(status, QUERY_EPARSEARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
         return REDISMODULE_ERR;
     }
 

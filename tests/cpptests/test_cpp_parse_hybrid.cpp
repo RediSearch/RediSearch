@@ -1093,7 +1093,17 @@ TEST_F(ParseHybridTest, testDialectInVectorRangeSubquery) {
 }
 
 TEST_F(ParseHybridTest, testDialectInTail) {
-  // Test DIALECT in tail (after subqueries) - should work correctly
+  // Test DIALECT in tail (after subqueries) - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "DIALECT", "2");
   testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+}
+
+// ============================================================================
+// Test not yet supported arguments
+// ============================================================================
+
+TEST_F(ParseHybridTest, testExplainScore) {
+  // Test EXPLAINSCORE - currently should fail with specific error
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "EXPLAINSCORE");
+  testErrorCode(args, QUERY_EPARSEARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
 }
