@@ -69,10 +69,11 @@ extern "C" {
   X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                   \
   X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed") \
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")         \
-  X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")   \
+  X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")                   \
   X(QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed")             \
   X(QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed")                \
   X(QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM")        \
+  X(QUERY_EOOM, "Not enough memory available to execute the query")    \
   //TODO: remove QUERY_EHYBRID_HYBRID_ALIAS after YIELD_DISTANCE_AS is enabled
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
