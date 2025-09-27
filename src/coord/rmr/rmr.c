@@ -616,7 +616,7 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
       "%zu, target_id: %s",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
-      MRChannel_Size(ctx->it->ctx.chan), RedisModule_StringPtrLen(ctx->cmd.target_id, NULL));
+      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.target_id ? RedisModule_StringPtrLen(ctx->cmd.target_id, NULL) : "n/a");
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);

@@ -26,8 +26,10 @@ static void MRTopology_AddRLShard(MRClusterTopology *t, RLShard *sh) {
         MRClusterShard_AddNode(&t->shards[i], &sh->node);
         return;
       }
-      if ((sh->node.flags & MRNode_Master) && !RedisModule_StringCompare(sh->node.id, t->shards[i].nodes[r].id)) {
-        // Same node, extend the slot range
+    }
+    for (int n = 0; n < t->shards[i].numNodes; n++) {
+      if ((sh->node.flags & MRNode_Master) && !RedisModule_StringCompare(sh->node.id, t->shards[i].nodes[n].id)) {
+        // Same node, extend the slot ranges (for all the nodes in the shard)
         MRClusterShard_AddRange(&t->shards[i], sh->startSlot, sh->endSlot);
         // Consume the node, we don't need to add it again
         MRClusterNode_Free(&sh->node);
