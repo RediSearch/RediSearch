@@ -442,8 +442,13 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
         MRClusterShard *sh = &topo->shards[i];
 
         RedisModule_Reply_Map(reply); // >>(shards)
-        RedisModule_ReplyKV_LongLong(reply, "start", sh->startSlot);
-        RedisModule_ReplyKV_LongLong(reply, "end", sh->endSlot);
+        long long start = -1, end = -1;
+        if (sh->numRanges > 0) {
+          start = sh->ranges[0].start;
+          end = sh->ranges[0].end;
+        }
+        RedisModule_ReplyKV_LongLong(reply, "start", start);
+        RedisModule_ReplyKV_LongLong(reply, "end", end);
 
         RedisModule_ReplyKV_Array(reply, "nodes"); // >>>nodes
         for (int j = 0; j < sh->numNodes; j++) {
@@ -490,8 +495,13 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
         MRClusterShard *sh = &topo->shards[i];
         RedisModule_Reply_Array(reply); // >shards
 
-        RedisModule_Reply_LongLong(reply, sh->startSlot);
-        RedisModule_Reply_LongLong(reply, sh->endSlot);
+        long long start = -1, end = -1;
+        if (sh->numRanges > 0) {
+          start = sh->ranges[0].start;
+          end = sh->ranges[0].end;
+        }
+        RedisModule_Reply_LongLong(reply, start);
+        RedisModule_Reply_LongLong(reply, end);
         for (int j = 0; j < sh->numNodes; j++) {
           MRClusterNode *node = &sh->nodes[j];
           RedisModule_Reply_Array(reply); // >>node
@@ -602,9 +612,9 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
   RS_DEBUG_LOG_FMT(
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
-      "%zu, shard_slot: %d",
+      "%zu, target_idx: %d",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
-      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetSlot);
+      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShard);
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);
@@ -634,12 +644,12 @@ void iterStartCb(void *p) {
 
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
-  cmd->targetSlot = io_runtime_ctx->topo->shards[0].startSlot; // Set the first command to target the first shard
+  cmd->targetShard = 0; // Set the first command to target the first shard
   for (size_t i = 1; i < numShards; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
-    it->cbxs[i].cmd.targetSlot = io_runtime_ctx->topo->shards[i].startSlot;
+    it->cbxs[i].cmd.targetShard = i;
   }
 
   // This implies that every connection to each shard will work inside a single IO thread
@@ -764,7 +774,7 @@ void MRIterator_Release(MRIterator *it) {
     for (size_t i = 0; i < it->len; i++) {
       MRCommand *cmd = &it->cbxs[i].cmd;
       if (!cmd->depleted) {
-        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %d", cmd->strs[1], cmd->targetSlot);
+        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %d", cmd->strs[1], cmd->targetShard);
         RS_LOG_ASSERT_FMT(cmd->rootCommand != C_DEL, "DEL command should be sent only once to a shard. pending = %d", it->ctx.pending);
         cmd->rootCommand = C_DEL;
         strcpy(cmd->strs[1], "DEL");

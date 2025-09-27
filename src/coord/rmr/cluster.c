@@ -33,8 +33,10 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
 MRClusterShard *_MRCluster_FindShard(MRClusterTopology *topo, unsigned slot) {
   // TODO: Switch to binary search
   for (int i = 0; i < topo->numShards; i++) {
-    if (topo->shards[i].startSlot <= slot && topo->shards[i].endSlot >= slot) {
-      return &topo->shards[i];
+    for (int r = 0; r < topo->shards[i].numRanges; r++) {
+      if (topo->shards[i].ranges[r].start <= slot && topo->shards[i].ranges[r].end >= slot) {
+        return &topo->shards[i];
+      }
     }
   }
   return NULL;
@@ -101,11 +103,6 @@ static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
 
 
 static mr_slot_t getSlotByCmd(const MRCommand *cmd, const MRClusterTopology *topo) {
-
-  if(cmd->targetSlot >= 0){
-    return cmd->targetSlot;
-  }
-
   size_t len;
   const char *k = MRGetShardKey(cmd, &len);
   if (!k) return 0;
@@ -118,12 +115,19 @@ MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *
 
   if (!ioRuntime->topo) return NULL;
 
-  /* Get the cluster slot from the sharder */
-  unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
+  MRClusterShard *sh;
+  if (cmd->targetShard != -1 && cmd->targetShard < ioRuntime->topo->numShards) {
+    /* Get the shard directly by the targetShard field */
+    sh = &ioRuntime->topo->shards[cmd->targetShard];
 
-  /* Get the shard from the slot map */
-  MRClusterShard *sh = _MRCluster_FindShard(ioRuntime->topo, slot);
-  if (!sh) return NULL;
+  } else {
+    /* Get the cluster slot from the sharder */
+    unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
+
+    /* Get the shard from the slot map */
+    sh = _MRCluster_FindShard(ioRuntime->topo, slot);
+    if (!sh) return NULL;
+  }
 
   MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
   if (!node) return NULL;
