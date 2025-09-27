@@ -16,6 +16,47 @@
 #include "hiredis/hiredis.h"
 #include "rmutil/alloc.h"
 
+struct RedisModuleString {
+  char *str;
+  size_t len;
+  size_t refcount;
+};
+
+static RedisModuleString *Mock_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t len) {
+  RedisModuleString *str = rm_malloc(sizeof(*str));
+  str->str = rm_strndup(ptr, len);
+  str->len = len;
+  str->refcount = 1;
+  return str;
+}
+
+static RedisModuleString *Mock_CreateStringFromString(RedisModuleCtx *ctx, const RedisModuleString *str) {
+  return Mock_CreateString(ctx, str->str, str->len);
+}
+
+static RedisModuleString *Mock_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
+  if (!str) return NULL;
+  str->refcount++;
+  return str;
+}
+
+static void Mock_FreeString(RedisModuleCtx *ctx, RedisModuleString *str) {
+  if (!str) return;
+  if (--str->refcount == 0) {
+    rm_free(str->str);
+    rm_free(str);
+  }
+}
+
+static int Mock_StringCompare(const RedisModuleString *s1, const RedisModuleString *s2) {
+  return strcmp(s1->str, s2->str);
+}
+
+static void Mock_TrimStringAllocation(RedisModuleString *str) {
+  // No-op for the mock
+}
+
+
 void testEndpoint() {
 
   MREndpoint ep;
@@ -149,7 +190,7 @@ void testClusterTopology_Clone() {
 
     // Verify each node in the shard
     for (int k = 0; k < original_sh->numNodes; k++) {
-      mu_check(strcmp(cloned_sh->nodes[k].id, original_sh->nodes[k].id) == 0);
+      mu_check(strcmp(cloned_sh->nodes[k].id->str, original_sh->nodes[k].id->str) == 0);
       mu_check(cloned_sh->nodes[k].id != original_sh->nodes[k].id); // Different memory address
       mu_check(strcmp(cloned_sh->nodes[k].endpoint.host, original_sh->nodes[k].endpoint.host) == 0);
       mu_check(cloned_sh->nodes[k].endpoint.port == original_sh->nodes[k].endpoint.port);
@@ -185,7 +226,7 @@ void testCluster() {
       mu_check(sh->numNodes == 1);
       mu_check(sh->ranges[0].start == j * (4096 / n));
       mu_check(sh->ranges[0].end == sh->ranges[0].start + (4096 / n) - 1);
-      mu_check(!strcmp(sh->nodes[0].id, hosts[j]));
+      mu_check(!strcmp(sh->nodes[0].id->str, hosts[j]));
     }
 
     MRCluster *cl = MR_NewCluster(topo, 2, num_io_threads);
@@ -200,7 +241,7 @@ void testCluster() {
         mu_check(sh->numNodes == 1);
         mu_check(sh->ranges[0].start == j * (4096 / n));
         mu_check(sh->ranges[0].end == sh->ranges[0].start + (4096 / n) - 1);
-        mu_check(!strcmp(sh->nodes[0].id, hosts[j]));
+        mu_check(!strcmp(sh->nodes[0].id->str, hosts[j]));
       }
     }
 
@@ -222,7 +263,7 @@ void testClusterSharding() {
     MRClusterShard *sh = _MRCluster_FindShard(ioRuntime->topo, slot);
     mu_check(sh != NULL);
     mu_check(sh->numNodes == 1);
-    mu_check(!strcmp(sh->nodes[0].id, hosts[3]));
+    mu_check(!strcmp(sh->nodes[0].id->str, hosts[3]));
   }
   MRCommand_Free(&cmd);
   MRCluster_Free(cl);
@@ -233,6 +274,12 @@ static void dummyLog(RedisModuleCtx *ctx, const char *level, const char *fmt, ..
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   RedisModule_Log = dummyLog;
+  RedisModule_CreateString = Mock_CreateString;
+  RedisModule_CreateStringFromString = Mock_CreateStringFromString;
+  RedisModule_HoldString = Mock_HoldString;
+  RedisModule_FreeString = Mock_FreeString;
+  RedisModule_StringCompare = Mock_StringCompare;
+  RedisModule_TrimStringAllocation = Mock_TrimStringAllocation;
   MU_RUN_TEST(testEndpoint);
   MU_RUN_TEST(testShardingFunc);
   MU_RUN_TEST(testCluster);

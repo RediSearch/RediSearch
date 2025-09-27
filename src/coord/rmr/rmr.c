@@ -777,7 +777,7 @@ void MRIterator_Release(MRIterator *it) {
     for (size_t i = 0; i < it->len; i++) {
       MRCommand *cmd = &it->cbxs[i].cmd;
       if (!cmd->depleted) {
-        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %s", cmd->strs[1], RedisModule_StringPtrLen(cmd->target_id, NULL));
+        RS_DEBUG_LOG_FMT("changing command from %s to DEL for shard: %s", cmd->strs[1], cmd->target_id ? RedisModule_StringPtrLen(cmd->target_id, NULL) : "n/a");
         RS_LOG_ASSERT_FMT(cmd->rootCommand != C_DEL, "DEL command should be sent only once to a shard. pending = %d", it->ctx.pending);
         cmd->rootCommand = C_DEL;
         strcpy(cmd->strs[1], "DEL");
