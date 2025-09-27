@@ -23,11 +23,11 @@ typedef struct {
   char **strs;
   size_t *lens;
 
+  /* if not NULL, this value indicate to which node the command should be sent */
+  RedisModuleString *target_id;
+
   /* Number of arguments */
   uint32_t num;
-
-  /* if not -1, this value indicate to which slot the command should be sent */
-  int16_t targetSlot;
 
   /* 0 (undetermined), 2, or 3 */
   unsigned char protocol;

@@ -56,7 +56,7 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
       newCmd.rootCommand = C_READ;
     }
 
-    newCmd.targetSlot = cmd->targetSlot;
+    newCmd.target_id = cmd->target_id ? RedisModule_HoldString(NULL, cmd->target_id) : NULL;
     newCmd.protocol = cmd->protocol;
     newCmd.forCursor = cmd->forCursor;
     newCmd.forProfiling = cmd->forProfiling;

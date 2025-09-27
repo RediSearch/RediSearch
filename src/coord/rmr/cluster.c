@@ -101,11 +101,6 @@ static const char *MRGetShardKey(const MRCommand *cmd, size_t *len) {
 
 
 static mr_slot_t getSlotByCmd(const MRCommand *cmd, const MRClusterTopology *topo) {
-
-  if(cmd->targetSlot >= 0){
-    return cmd->targetSlot;
-  }
-
   size_t len;
   const char *k = MRGetShardKey(cmd, &len);
   if (!k) return 0;
@@ -118,17 +113,22 @@ MRConn* MRCluster_GetConn(IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *
 
   if (!ioRuntime->topo) return NULL;
 
-  /* Get the cluster slot from the sharder */
-  unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
+  RedisModuleString *target_id = cmd->target_id;
+  if (!target_id) {
+    /* Get the cluster slot from the sharder */
+    unsigned slot = getSlotByCmd(cmd, ioRuntime->topo);
 
-  /* Get the shard from the slot map */
-  MRClusterShard *sh = _MRCluster_FindShard(ioRuntime->topo, slot);
-  if (!sh) return NULL;
+    /* Get the shard from the slot map */
+    MRClusterShard *sh = _MRCluster_FindShard(ioRuntime->topo, slot);
+    if (!sh) return NULL;
 
-  MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
-  if (!node) return NULL;
+    MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
+    if (!node) return NULL;
 
-  return MRConn_Get(&ioRuntime->conn_mgr, node->id);
+    target_id = node->id;
+  }
+
+  return MRConn_Get(&ioRuntime->conn_mgr, target_id);
 }
 
 /* Send a single command to the right shard in the cluster, with an optional control over node

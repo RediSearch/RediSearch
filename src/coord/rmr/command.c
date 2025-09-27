@@ -27,6 +27,9 @@ void MRCommand_Free(MRCommand *cmd) {
   }
   rm_free(cmd->strs);
   rm_free(cmd->lens);
+  if (cmd->target_id) {
+    RedisModule_FreeString(NULL, cmd->target_id);
+  }
 }
 
 static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
@@ -58,7 +61,7 @@ static void MRCommand_Init(MRCommand *cmd, size_t len) {
   cmd->num = len;
   cmd->strs = rm_malloc(sizeof(*cmd->strs) * len);
   cmd->lens = rm_malloc(sizeof(*cmd->lens) * len);
-  cmd->targetSlot = -1;
+  cmd->target_id = NULL;
   cmd->cmd = NULL;
   cmd->protocol = 0;
   cmd->depleted = false;
@@ -85,7 +88,10 @@ MRCommand MRCommand_Copy(const MRCommand *cmd) {
   ret.forProfiling = cmd->forProfiling;
   ret.rootCommand = cmd->rootCommand;
   ret.depleted = cmd->depleted;
-
+  if (cmd->target_id) {
+    ret.target_id = RedisModule_CreateStringFromString(NULL, cmd->target_id);
+    RedisModule_TrimStringAllocation(ret.target_id);
+  }
   for (int i = 0; i < cmd->num; i++) {
     copyStr(&ret, i, cmd, i);
   }
