@@ -33,8 +33,10 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
 MRClusterShard *_MRCluster_FindShard(MRClusterTopology *topo, unsigned slot) {
   // TODO: Switch to binary search
   for (int i = 0; i < topo->numShards; i++) {
-    if (topo->shards[i].startSlot <= slot && topo->shards[i].endSlot >= slot) {
-      return &topo->shards[i];
+    for (int r = 0; r < topo->shards[i].numRanges; r++) {
+      if (topo->shards[i].ranges[r].start <= slot && topo->shards[i].ranges[r].end >= slot) {
+        return &topo->shards[i];
+      }
     }
   }
   return NULL;

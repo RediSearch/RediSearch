@@ -119,11 +119,11 @@ static MRConn *MRConnPool_Get(MRConnPool *pool) {
 }
 
 static dictType nodeIdToConnPoolType = {
-  .hashFunction = stringsHashFunction,
-  .keyDup = stringsKeyDup,
+  .hashFunction = redisStringsHashFunction,
+  .keyDup = redisStringsKeyDup,
   .valDup = NULL,
-  .keyCompare = stringsKeyCompare,
-  .keyDestructor = stringsKeyDestructor,
+  .keyCompare = redisStringsKeyCompare,
+  .keyDestructor = redisStringsKeyDestructor,
   .valDestructor = MRConnPool_Free,
 };
 
@@ -227,7 +227,7 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
 
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
-MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
+MRConn *MRConn_Get(MRConnManager *mgr, RedisModuleString *id) {
 
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
@@ -258,7 +258,7 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
 }
 
 /* Add a node to the connection manager. Return 1 if it's been added or 0 if it hasn't */
-int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep, int connect) {
+int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, RedisModuleString *id, MREndpoint *ep, int connect) {
   /* First try to see if the connection is already in the manager */
   dictEntry *ptr = dictFind(m->map, id);
   if (ptr) {
@@ -317,7 +317,7 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
 }
 
 /* Explicitly disconnect a connection and remove it from the connection pool */
-int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
+int MRConnManager_Disconnect(MRConnManager *m, RedisModuleString *id) {
   if (dictDelete(m->map, id)) {
     return REDIS_OK;
   }

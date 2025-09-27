@@ -79,18 +79,18 @@ void MRConnManager_ReplyState(dict *stateDict, RedisModuleCtx *ctx);
 void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict);
 
 /* Get the connection for a specific node by id, return NULL if this node is not in the pool */
-MRConn *MRConn_Get(MRConnManager *mgr, const char *id);
+MRConn *MRConn_Get(MRConnManager *mgr, RedisModuleString *id);
 
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
 /* Add a node to the connection manager */
-int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep, int connect);
+int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, RedisModuleString *id, MREndpoint *ep, int connect);
 
 /* Connect all nodes to their destinations */
 int MRConnManager_ConnectAll(MRConnManager *m);
 
 /* Disconnect a node */
-int MRConnManager_Disconnect(MRConnManager *m, const char *id);
+int MRConnManager_Disconnect(MRConnManager *m, RedisModuleString *id);
 
 /*
  * Set number of connections to each node to `num`, disconnect from extras.

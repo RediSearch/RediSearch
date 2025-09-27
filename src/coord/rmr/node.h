@@ -11,12 +11,13 @@
 
 #include "common.h"
 #include "endpoint.h"
+#include "redismodule.h"
 
 typedef enum { MRNode_Master = 0x1, MRNode_Self = 0x2} MRNodeFlags;
 
 typedef struct {
   MREndpoint endpoint;
-  const char *id;
+  RedisModuleString *id;
   MRNodeFlags flags;
 } MRClusterNode;
 
