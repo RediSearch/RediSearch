@@ -54,6 +54,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   ArgsCursor timeoutArgs = {0};
   int crash = 0;
   int internal_only = 0;
+  ArgsCursor pauseBeforeArgs = {0};
+  ArgsCursor pauseAfterArgs = {0};
   ACArgSpec debugArgsSpec[] = {
       // Getting TIMEOUT_AFTER_N as an array to use AC_IsInitialized API.
       {.name = "TIMEOUT_AFTER_N",
@@ -64,6 +66,16 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       {.name = "CRASH", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash},
       // optional arg for TIMEOUT_AFTER_N
       {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
+      // pause after specific RP after N results
+      {.name = "PAUSE_AFTER_RP_N",
+       .type = AC_ARGTYPE_SUBARGS_N,
+       .target = &pauseAfterArgs,
+       .slicelen = 2},
+      // pause after specific RP before N results
+      {.name = "PAUSE_BEFORE_RP_N",
+       .type = AC_ARGTYPE_SUBARGS_N,
+       .target = &pauseBeforeArgs,
+       .slicelen = 2},
       {NULL}};
 
   ACArgSpec *errSpec = NULL;
@@ -82,10 +94,19 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
+  // Handle crash
   if (crash) {
+    // Verify internal_only is not used with CRASH
+    if (internal_only) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "INTERNAL_ONLY is not supported with CRASH");
+      return REDISMODULE_ERR;
+    }
+
     PipelineAddCrash(&debug_req->r);
   }
 
+
+  // Handle timeout
   if (AC_IsInitialized(&timeoutArgs)) {
     unsigned long long results_count = -1;
     if (AC_GetUnsignedLongLong(&timeoutArgs, &results_count, AC_F_GE0) != AC_OK) {
@@ -115,12 +136,59 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       // Take this into account when adding more debug types that are modifying the rp pipeline.
       PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
     }
-  } else {
-    if (internal_only) {
-      QueryError_SetError(status, QUERY_EPARSEARGS,
-                          "INTERNAL_ONLY must be used with TIMEOUT_AFTER_N");
+    return REDISMODULE_OK;
+  }
+
+  // Handle pause before/after RP after N (contains the same logic)
+  // Args order: RP_TYPE, N
+  if (AC_IsInitialized(&pauseAfterArgs) || AC_IsInitialized(&pauseBeforeArgs)) {
+
+    // In FT.AGGREGATE - Check if INTERNAL_ONLY is set
+    // If it is set - if we are in a cluster coordinator - do nothing
+    // If it is not set - if we are not cluster coordinator - do nothing
+    // This can be checked by comparing isClusterCoord(debug_req) and internal_only
+    if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
+          isClusterCoord(debug_req) == internal_only) {
+      return REDISMODULE_OK;
+    }
+
+    bool before = AC_IsInitialized(&pauseBeforeArgs);
+    ArgsCursor *pauseArgs = before ? &pauseBeforeArgs : &pauseAfterArgs;
+    const char *invalidStr = before ? "PAUSE_BEFORE_RP_N" : "PAUSE_AFTER_RP_N";
+    const char *rp_type_str = NULL;
+    if (!isClusterCoord(debug_req) && !(debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Query %s is only supported with WORKERS", invalidStr);
       return REDISMODULE_ERR;
     }
+
+    if (AC_GetString(pauseArgs, &rp_type_str, NULL, 0) != AC_OK) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s RP type", invalidStr);
+      return REDISMODULE_ERR;
+    }
+    unsigned long long results_count = -1;
+    ResultProcessorType rp_type = StringToRPType(rp_type_str);
+    // Verify the RP type is valid, not a debug RP type
+    if (rp_type == RP_MAX) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "%s is an invalid %s RP type", rp_type_str, invalidStr);
+      return REDISMODULE_ERR;
+    }
+
+    if (AC_GetUnsignedLongLong(pauseArgs, &results_count, AC_F_GE0) != AC_OK) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s count", invalidStr);
+      return REDISMODULE_ERR;
+    }
+
+    if (!PipelineAddPauseRPcount(AREQ_QueryProcessingCtx(&debug_req->r), results_count, before, rp_type, status)) {
+      // The query error is handled by each error case
+      return REDISMODULE_ERR;
+    }
+    return REDISMODULE_OK;
+  }
+
+  // Verify internal_only is not used without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N
+  if (internal_only) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "INTERNAL_ONLY is not supported without TIMEOUT_AFTER_N or PAUSE_AFTER_RP_N/PAUSE_BEFORE_RP_N");
+    return REDISMODULE_ERR;
   }
 
   return REDISMODULE_OK;
