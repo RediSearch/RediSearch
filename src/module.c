@@ -162,7 +162,7 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // OOM guardrail with heuristics
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
-static bool estimateOOM(RedisModuleCtx *ctx) {
+bool estimateOOM(RedisModuleCtx *ctx) {
   return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
 }
 
