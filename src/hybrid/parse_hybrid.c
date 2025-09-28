@@ -30,6 +30,7 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
+#include "hybrid/parse/hybrid_optional_args.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -285,75 +286,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
   return REDISMODULE_OK;
 }
 
-static int parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
-  // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
-  //        ^
-  unsigned int argumentCount;
-  if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument count");
-    return REDISMODULE_ERR;
-  }
-  if (AC_GetUnsigned(ac, &argumentCount, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid argument count: expected an unsigned integer");
-    return REDISMODULE_ERR;
-  } else if (argumentCount == 0 || argumentCount % 2 != 0) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid argument count", ": %u (must be a positive even number for key/value pairs)", argumentCount);
-    return REDISMODULE_ERR;
-  }
-
-  bool hasAlpha = false;
-  bool hasBeta = false;
-
-  for (int i=0; i<argumentCount; i+=2) {
-    if (AC_IsAtEnd(ac)) {
-      setExpectedArgumentsError(status, argumentCount, i);
-      return REDISMODULE_ERR;
-    }
-    if (AC_AdvanceIfMatch(ac, "ALPHA")) {
-      if (hasAlpha) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate ALPHA argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "ALPHA", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      double alphaValue;
-      if (AC_GetDouble(ac, &alphaValue, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid ALPHA value");
-        return REDISMODULE_ERR;
-      }
-      linearCtx->linearWeights[0] = alphaValue;
-      hasAlpha = true;
-
-    } else if (AC_AdvanceIfMatch(ac, "BETA")) {
-      if (hasBeta) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate BETA argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "BETA", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      double betaValue;
-      if (AC_GetDouble(ac, &betaValue, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid BETA value");
-        return REDISMODULE_ERR;
-      }
-      linearCtx->linearWeights[1] = betaValue;
-      hasBeta = true;
-
-    } else {
-      const char *current;
-      AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
-      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in LINEAR", current);
-      return REDISMODULE_ERR;
-    }
-  }
-
-  if (!(hasAlpha && hasBeta)) {
-    bool bothMissing = !hasAlpha && !hasBeta;
-    const char *missingArgs = bothMissing ? "ALPHA, BETA" : !hasAlpha ? "ALPHA" : "BETA";
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Missing value for ", missingArgs);
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
 static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   // VSIM @vectorfield vector [KNN/RANGE ...] FILTER ...
   //                                                 ^
@@ -467,92 +399,6 @@ error:
   ParsedVectorData_Free(pvd);
   return REDISMODULE_ERR;
 }
-
-/**
- * Parse COMBINE clause arguments for hybrid scoring configuration.
- *
- * Supports LINEAR (requires numWeights weight values) and RRF (optional CONSTANT and WINDOW arguments).
- * Defaults to RRF if no method specified. Uses hybrid-specific defaults: RRF CONSTANT=60, WINDOW=20.
- * WINDOW argument controls the number of results consumed from each subquery before fusion.
- * When WINDOW is not explicitly set, it can be overridden by LIMIT argument in fallback logic.
- *
- * @param ac Arguments cursor positioned after "COMBINE"
- * @param combineCtx Hybrid scoring context to populate (window field and hasExplicitWindow flag are set)
- * @param numWeights Number of weight values required for LINEAR scoring
- * @param status Output parameter for error reporting
- * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
- */
-static int parseCombine(ArgsCursor *ac, HybridScoringContext *combineCtx, size_t numWeights, QueryError *status) {
-  // Check if a specific method is provided
-  if (AC_AdvanceIfMatch(ac, "LINEAR")) {
-    combineCtx->scoringType = HYBRID_SCORING_LINEAR;
-  } else if (AC_AdvanceIfMatch(ac, "RRF")) {
-    combineCtx->scoringType = HYBRID_SCORING_RRF;
-  } else {
-    combineCtx->scoringType = HYBRID_SCORING_RRF;
-  }
-
-  // Parse arguments based on scoring type
-  if (combineCtx->scoringType == HYBRID_SCORING_LINEAR) {
-    combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
-    combineCtx->linearCtx.numWeights = numWeights;
-
-    if (parseLinearClause(ac, &combineCtx->linearCtx, status) != REDISMODULE_OK) {
-      goto error;
-    }
-  } else if (combineCtx->scoringType == HYBRID_SCORING_RRF) {
-    // For RRF, we need constant and window arguments
-    ArgsCursor params = {0};
-    int rv = AC_GetVarArgs(ac, &params);
-
-    // Initialize with defaults
-    combineCtx->rrfCtx.constant = HYBRID_DEFAULT_RRF_CONSTANT;
-    combineCtx->rrfCtx.window = HYBRID_DEFAULT_WINDOW;
-    combineCtx->rrfCtx.hasExplicitWindow = false;
-
-    if (rv == AC_OK) {
-      // Parameters were provided
-      if (params.argc % 2 != 0) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "RRF arguments must be in name-value pairs");
-        goto error;
-      }
-
-      // Parse the specified arguments
-      while (!AC_IsAtEnd(&params)) {
-        const char *paramName = AC_GetStringNC(&params, NULL);
-        if (!paramName) {
-          QueryError_SetError(status, QUERY_ESYNTAX, "Missing argument name in RRF");
-          goto error;
-        }
-
-        if (strcasecmp(paramName, "CONSTANT") == 0) {
-          double constant;
-          if (AC_GetDouble(&params, &constant, 0) != AC_OK || constant <= 0) {
-            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid CONSTANT value in RRF");
-            goto error;
-          }
-          combineCtx->rrfCtx.constant = constant;
-        } else if (strcasecmp(paramName, "WINDOW") == 0) {
-          long long window;
-          if (AC_GetLongLong(&params, &window, 0) != AC_OK || window <= 0) {
-            QueryError_SetError(status, QUERY_ESYNTAX, "Invalid WINDOW value in RRF");
-            goto error;
-          }
-          combineCtx->rrfCtx.window = window;
-          combineCtx->rrfCtx.hasExplicitWindow = true;
-        } else {
-          QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s` in RRF", paramName);
-          goto error;
-        }
-      }
-    }
-  }
-
-  return REDISMODULE_OK;
-error:
-  return REDISMODULE_ERR;
-}
-
 
 // Copy request configuration from source to destination
 static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
@@ -690,7 +536,7 @@ static PLN_LoadStep *createImplicitLoadStep(void) {
  */
 int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                        RedisSearchCtx *sctx, const char *indexname, ParseHybridCommandCtx *parsedCmdCtx,
-                       QueryError *status) {
+                       QueryError *status, bool internal) {
   HybridPipelineParams *hybridParams = parsedCmdCtx->hybridParams;
   hybridParams->scoringCtx = HybridScoringContext_NewDefault();
 
@@ -700,8 +546,8 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   RS_ASSERT(*mergeReqflags == 0);
   *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
   RSSearchOptions mergeSearchopts = {0};
-  size_t mergeMaxSearchResults = RSGlobalConfig.maxSearchResults;
-  size_t mergeMaxAggregateResults = RSGlobalConfig.maxAggregateResults;
+  RSSearchOptions_Init(&mergeSearchopts);
+  size_t maxHybridResults = RSGlobalConfig.maxSearchResults;
 
   AREQ *vectorRequest = parsedCmdCtx->vector;
   AREQ *searchRequest = parsedCmdCtx->search;
@@ -727,11 +573,20 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  // Look for optional COMBINE argument
-  if (AC_AdvanceIfMatch(&ac, "COMBINE")) {
-    if (parseCombine(&ac, hybridParams->scoringCtx, HYBRID_REQUEST_NUM_SUBQUERIES, status) != REDISMODULE_OK) {
-      goto error;
-    }
+  HybridParseContext hybridParseCtx = {
+      .status = status,
+      .specifiedArgs = 0,
+      .hybridScoringCtx = hybridParams->scoringCtx,
+      .numSubqueries = HYBRID_REQUEST_NUM_SUBQUERIES,
+      .plan = parsedCmdCtx->tailPlan,
+      .reqFlags = mergeReqflags,
+      .searchopts = &mergeSearchopts,
+      .cursorConfig = parsedCmdCtx->cursorConfig,
+      .reqConfig = parsedCmdCtx->reqConfig,
+      .maxResults = &maxHybridResults,
+  };
+  if (HybridParseOptionalArgs(&hybridParseCtx, &ac, internal) != REDISMODULE_OK) {
+    goto error;
   }
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
@@ -754,34 +609,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
-  // Save the current position to determine remaining arguments for the merge part
-  const int remainingOffset = (int) ac.offset;
-  const int remainingArgs = argc - 2 - remainingOffset;
-
-  // If there are remaining arguments, parse them into the aggregate plan
-  if (remainingArgs > 0) {
+  if (hybridParseCtx.specifiedArgs != 0) {
     *mergeReqflags |= QEXEC_F_IS_HYBRID_TAIL;
-    RSSearchOptions_Init(&mergeSearchopts);
-
-    ParseAggPlanContext papCtx = {
-      .plan = parsedCmdCtx->tailPlan,
-      .reqflags = mergeReqflags,
-      .reqConfig = parsedCmdCtx->reqConfig,
-      .searchopts = &mergeSearchopts,
-      .prefixesOffset = NULL,               // Invalid in FT.HYBRID
-      .cursorConfig = parsedCmdCtx->cursorConfig,
-      .requiredFields = NULL,               // Invalid in FT.HYBRID
-      .maxSearchResults = &mergeMaxSearchResults,
-      .maxAggregateResults = &mergeMaxAggregateResults
-    };
-    if (parseAggPlan(&papCtx, &ac, status) != REDISMODULE_OK) {
-      goto error;
-    }
-
     if (mergeSearchopts.params) {
       searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       vectorRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
       Param_DictFree(mergeSearchopts.params);
+      mergeSearchopts.params = NULL;
     }
 
     if (*mergeReqflags & QEXEC_F_IS_CURSOR) {
@@ -798,10 +632,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     copyRequestConfig(&vectorRequest->reqConfig, parsedCmdCtx->reqConfig);
 
     // Copy max results limits
-    searchRequest->maxSearchResults = mergeMaxSearchResults;
-    searchRequest->maxAggregateResults = mergeMaxAggregateResults;
-    vectorRequest->maxSearchResults = mergeMaxSearchResults;
-    vectorRequest->maxAggregateResults = mergeMaxAggregateResults;
+    searchRequest->maxSearchResults = maxHybridResults;
+    searchRequest->maxAggregateResults = maxHybridResults;
+    vectorRequest->maxSearchResults = maxHybridResults;
+    vectorRequest->maxAggregateResults = maxHybridResults;
 
     if (QAST_EvalParams(&vectorRequest->ast, &vectorRequest->searchopts, 2, status) != REDISMODULE_OK) {
       goto error;
@@ -855,7 +689,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
               .optimizer = NULL,  // is it?
           },
       .outFields = NULL,
-      .maxResultsLimit = mergeMaxAggregateResults,
+      .maxResultsLimit = maxHybridResults,
       .language = searchRequest->searchopts.language,
   };
 
@@ -865,6 +699,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   return REDISMODULE_OK;
 
 error:
+  if (mergeSearchopts.params) {
+    Param_DictFree(mergeSearchopts.params);
+  }
   if (hybridParams->scoringCtx) {
     HybridScoringContext_Free(hybridParams->scoringCtx);
     hybridParams->scoringCtx = NULL;

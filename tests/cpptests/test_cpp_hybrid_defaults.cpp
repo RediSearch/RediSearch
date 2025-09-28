@@ -79,7 +79,7 @@ protected:
     cmd.reqConfig = &result->reqConfig;
     cmd.cursorConfig = &result->cursorConfig;
 
-    int rc =  parseHybridCommand(ctx, args, args.size(), result->sctx, index_name.c_str(), &cmd, &status);
+    int rc =  parseHybridCommand(ctx, args, args.size(), result->sctx, index_name.c_str(), &cmd, &status, true);
     if (rc != REDISMODULE_OK) {
       HybridRequest_Free(result);
       result = nullptr;
