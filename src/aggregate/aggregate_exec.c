@@ -46,22 +46,16 @@ typedef struct {
 
 // OOM guardrail with heuristics
 // TODO: add heuristics
-static bool estimateOOM(RedisModuleCtx *ctx, bool lockGIL) {
-  if (lockGIL) {
-    RedisModule_ThreadSafeContextLock(ctx);
-  }
-  bool oom = RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
-  if (lockGIL) {
-    RedisModule_ThreadSafeContextUnlock(ctx);
-  }
-  return oom;
+// Assumes the GIL is held by the caller
+static bool estimateOOM(RedisModuleCtx *ctx) {
+  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
 }
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 
 // Temporary function to check if we are in a cluster environment
 // TODO : Remove this function once it's no longer needed
-static bool isClusterEnv() {
+static bool isClusterEnv_TempOOM_DoNotUse() {
   return GetNumShards_UnSafe() > 1;
 }
 
@@ -811,18 +805,6 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock);
   }
 
-  // Currently supporting OOM policy only in standalone env
-  if (req->reqConfig.oomPolicy != OomPolicy_Ignore && !isClusterEnv())
-  {
-    // OOM guardrail
-    // Hold the GIL if necessary before check OOM
-    bool background = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
-    if (estimateOOM(sctx->redisCtx, background)) {
-      RedisModule_Log(sctx->redisCtx, "notice", "Not enough memory available to execute the query");
-      QueryError_SetError(status, QUERY_EOOM, NULL);
-      return REDISMODULE_ERR;
-    }
-  }
   rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
@@ -993,8 +975,20 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  AREQ *r = AREQ_New();
   QueryError status = {0};
+
+  // Currently supporting OOM policy only in standalone env
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore && !isClusterEnv_TempOOM_DoNotUse())
+  {
+    // OOM guardrail
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      QueryError_SetCode(&status, QUERY_EOOM);
+      goto error;
+    }
+  }
+
+  AREQ *r = AREQ_New();
 
   if (prepareRequest(&r, ctx, argv, argc, type, execOptions, &status) != REDISMODULE_OK) {
     goto error;
