@@ -97,16 +97,10 @@ def read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback=None
 
         # Extract document keys from cursor results (RESP 2 doesn't include scores)
         for result in batch_results:
-            result_dict = {}
-            # Parse the result list to extract key-value pairs
-            for i in range(0, len(result), 2):
-                if i + 1 < len(result):
-                    key = result[i]
-                    value = result[i + 1]
-                    result_dict[key] = value
+            result_dict = dict(zip(result[::2], result[1::2]))
             all_results.append(result_dict.get('__key'))
 
-    return sorted(all_results, key=lambda x: x['key'] if isinstance(x, dict) else x)
+    return sorted(all_results)
 
 
 def read_cursor_completely(env, index_name, cursor_id, batch_callback=None):
