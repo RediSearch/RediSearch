@@ -797,9 +797,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     req->profileParseTime = rs_wall_clock_diff_ns(&req->initClock, &parseClock);
   }
 
-  // Currently supporting OOM policy only in standalone env
-  if (req->reqConfig.oomPolicy != OomPolicy_Ignore && !(isClusterEnv() && req->reqConfig.oomPolicy == OomPolicy_Return))
-  {
+  if (req->reqConfig.oomPolicy != OomPolicy_Ignore) {
     // OOM guardrail
     // Hold the GIL if necessary before check OOM
     bool background = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;

@@ -139,7 +139,7 @@ def test_query_oom_cluster_shards_return():
     set_unlimited_maxmemory_for_oom(env)
 
     # Verify partial results in search/aggregate
-    res = env.cmd('FT.SEARCH', 'idx', '*')
+    res = env.cmd('FT.SEARCH', 'idx', '@name:*hello*')
     env.assertLess(res[0] , n_docs)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
     env.assertLess(len(res), n_docs + 1)
