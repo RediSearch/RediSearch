@@ -174,7 +174,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       if (CheckEnd(ac, "YIELD_DISTANCE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid YIELD_DISTANCE_AS value");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_DISTANCE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -264,7 +264,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       if (CheckEnd(ac, "YIELD_DISTANCE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid distance alias name");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_DISTANCE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -277,10 +277,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       pvd->vectorDistanceFieldAlias = rm_strdup(value);
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      // YIELD_SCORE_AS is no longer supported in VSIM clauses
-      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, NULL);
-      return REDISMODULE_ERR;
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);

@@ -1456,8 +1456,9 @@ static int RPVectorNormalizer_Next(ResultProcessor *rp, SearchResult *r) {
   r->score = normalizedScore;
 
   // Update distance field 
-  RLookup_WriteOwnKey(self->distanceKey, &r->rowdata, RS_NumVal(normalizedScore));
-
+  if (self->distanceKey) {
+    RLookup_WriteOwnKey(self->distanceKey, &r->rowdata, RS_NumVal(normalizedScore));
+  }
   return RS_RESULT_OK;
 }
 
