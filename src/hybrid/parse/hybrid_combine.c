@@ -24,7 +24,7 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
   }
 
   rc = AC_GetSlice(ac, target, count);
-  if (rc == AC_ERRNot enough arguments_NOARG) {
+  if (rc == AC_ERR_NOARG) {
     QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments", "in %s, specified %u but provided only %u", clause, count, AC_NumRemaining(ac));
     return false;
   } else if (rc != AC_OK) {
