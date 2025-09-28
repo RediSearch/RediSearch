@@ -24,6 +24,7 @@
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "vector_normalization.h"
+#include "result_processor_rs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -79,6 +80,7 @@ struct ResultProcessor;
 struct RLookup;
 
 // Define our own structures to avoid conflicts with the iterator_api.h QueryIterator
+/// <div rustbindgen hide></div>
 typedef struct QueryProcessingCtx {
   // First processor
   struct ResultProcessor *rootProc;
@@ -275,17 +277,9 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
  *******************************************************************************************************************/
 ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
-
-/*******************************************************************************************************************
- *  Counter Processor
- *
- * This processor counts the search results.
- *
- *******************************************************************************************************************/
-ResultProcessor *RPCounter_New();
-
 rs_wall_clock_ns_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
+void RPProfile_IncrementCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qctx);
 
