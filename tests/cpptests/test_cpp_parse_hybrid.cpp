@@ -103,15 +103,10 @@ class ParseHybridTest : public ::testing::Test {
    * @param args The command arguments to parse
    * @return REDISMODULE_OK if parsing succeeded, REDISMODULE_ERR otherwise
    */
-  int parseCommand(RMCK::ArgvList& args) {
+  int parseCommandInternal(RMCK::ArgvList& args) {
     QueryError status = {QueryErrorCode(0)};
-
-    EXPECT_TRUE(hybridRequest->sctx != NULL) << "Failed to create search context";
-
     int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
-
-    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-    EXPECT_TRUE(rc == REDISMODULE_OK) << "parseHybridCommand returned REDISMODULE_ERR";
+    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
 
@@ -119,6 +114,8 @@ class ParseHybridTest : public ::testing::Test {
   void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail);
 
 };
+
+#define parseCommand(args) int rc = parseCommandInternal(args); ASSERT_EQ(rc, REDISMODULE_OK) << "parseCommandInternal failed";
 
 
 #define assertLinearScoringCtx(Weight0, Weight1) { \
@@ -206,7 +203,7 @@ TEST_F(ParseHybridTest, testWithCombineLinear) {
 
 TEST_F(ParseHybridTest, testWithCombineRRF) {
   // Test with RRF combine method
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
@@ -920,7 +917,7 @@ TEST_F(ParseHybridTest, testLinearPartialWeightsBeta) {
 
 TEST_F(ParseHybridTest, testLinearNegativeArgumentCount) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "-2", "ALPHA", "0.6", "BETA", "0.4");
-  testErrorCode(args, QUERY_EPARSEARGS, "Invalid LINEAR argument count");
+  testErrorCode(args, QUERY_EPARSEARGS, "Invalid LINEAR argument count, error: Value is outside acceptable bounds");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingArgumentCount) {

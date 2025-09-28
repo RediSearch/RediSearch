@@ -19,16 +19,16 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
     QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Missing %s argument count", clause);
     return false;
   } else if (rc != AC_OK) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s argument count", clause);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s argument count, error: %s", clause, AC_Strerror(rc));
     return false;
   }
 
   rc = AC_GetSlice(ac, target, count);
   if (rc == AC_ERR_NOARG) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments", "in %s, specified %u but provided only %u", clause, count, AC_NumRemaining(ac));
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments", " in %s, specified %u but provided only %u", clause, count, AC_NumRemaining(ac));
     return false;
   } else if (rc != AC_OK) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments", "in %s: %s", clause, AC_Strerror(rc));
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments", " in %s: %s", clause, AC_Strerror(rc));
     return false;
   }
   return true;

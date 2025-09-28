@@ -85,8 +85,8 @@ protected:
       result = nullptr;
     }
 
-    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << (status.detail ? status.detail : "NULL");
-    EXPECT_TRUE(result != nullptr) << "parseHybridCommand returned NULL";
+    EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
+    EXPECT_NE(result, nullptr) << "parseHybridCommand returned NULL";
 
     return result;
   }
@@ -270,7 +270,7 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
 TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "25", "COMBINE", "RRF", "LIMIT", "0", "18");
+                      "KNN", "2", "K", "25", "COMBINE", "RRF", "0", "LIMIT", "0", "18");
 
   parseCommand(args);
   // K should be capped to WINDOW (18 from LIMIT fallback) even though K was explicitly set to 25
