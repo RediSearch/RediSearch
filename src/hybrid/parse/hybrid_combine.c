@@ -142,7 +142,7 @@ static bool parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   bool hasExplicitWindow = false;
 
   if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status)) {
-    return REDISMODULE_CTX_FLAGS_REPLICA_IS_CONNECTING;
+    return false;
   }
   
   // Store the parsed values

@@ -394,7 +394,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
       }
     }
     if (params->common.scoreAlias && !scoreKey) {
-      QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", params->common.scoreAlias);
+      QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
       return;
     } 
 
