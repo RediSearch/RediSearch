@@ -984,7 +984,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     if (estimateOOM(ctx)) {
       RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
       QueryError_SetCode(&status, QUERY_EOOM);
-      goto error;
+      return QueryError_ReplyAndClear(ctx, &status);
     }
   }
 
