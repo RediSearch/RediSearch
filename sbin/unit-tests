@@ -118,7 +118,7 @@ run_with_gdb() {
     create_gdb_command_file
 
     # Use environment variables to disable paging completely and reduce startup text
-    LINES=50000 COLUMNS=200 PAGER= GDB_COLORS= gdb --quiet -iex "set pagination off" -iex "set height 0" -iex "set width 0" -iex "set startup-quietly on" -iex "set verbose off" -x "$GDB_CMD_FILE" --args "${test_command[@]}" 2>/dev/null || true
+    LINES=50000 COLUMNS=200 PAGER= GDB_COLORS= gdb --quiet -iex "set pagination off" -iex "set height 0" -iex "set width 0" -iex "set startup-quietly on" -iex "set verbose off" -x "$GDB_CMD_FILE" --args "${test_command[@]}" 2>/dev/null
     local test_result=$?
     (( EXIT_CODE |= $test_result ))
     echo "----------------------------------------"
@@ -160,20 +160,23 @@ run_single_test() {
 
     # Run the test
     if [[ $GDB == 1 ]]; then
-        run_with_gdb "$test_name" "$test_path"
-        return
+        echo -n "Running test: $test_name (with GDB) ... "
+        if run_with_gdb "$test_name" "$test_path"; then
+            echo "PASS"
+        else
+            echo "FAIL"
+        fi
     else
         echo -n "Running test: $test_name (log: $LOG_FILE) ... "
         { $test_path > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-    fi
-
-    # Report results
-    if [[ $test_result -eq 0 ]]; then
-        echo "PASS"
-    else
-        echo "FAIL"
-        echo "Test failed! Log output:"
-        cat "$LOG_FILE"
+        # Report results
+        if [[ $test_result -eq 0 ]]; then
+            echo "PASS"
+        else
+            echo "FAIL"
+            echo "Test failed! Log output:"
+            cat "$LOG_FILE"
+        fi
     fi
 }
 
@@ -225,7 +228,11 @@ run_cpp_tests() {
         # Run all C++ tests
         LOG_FILE="${LOGS_DIR}/rstest.log"
         if [[ $GDB == 1 ]]; then
-            run_with_gdb "rstest (all C++ tests)" "$CPP_TESTS_DIR/rstest"
+            if run_with_gdb "rstest (all C++ tests)" "$CPP_TESTS_DIR/rstest"; then
+                echo "C++ tests: PASS"
+            else
+                echo "C++ tests: FAIL"
+            fi
         else
             echo "Running all C++ tests (log: $LOG_FILE)"
             { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
@@ -238,6 +245,13 @@ run_cpp_tests() {
             LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
             if [[ $GDB == 1 ]]; then
                 run_with_gdb "rstest --gtest_filter=$TEST" "$CPP_TESTS_DIR/rstest" "--gtest_filter=$TEST"
+                test_result=$?
+                # Report GDB test result
+                if [[ $test_result -eq 0 ]]; then
+                    echo "C++ test $TEST: PASS"
+                else
+                    echo "C++ test $TEST: FAIL"
+                fi
             else
                 echo "Running C++ test: $TEST (log: $LOG_FILE)"
                 { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
@@ -359,6 +373,13 @@ run_cpp_coord_tests() {
         LOG_FILE="${LOGS_DIR}/rstest_coord.log"
         if [[ $GDB == 1 ]]; then
             run_with_gdb "rstest_coord (all C++ coordinator tests)" "$CPP_COORD_TESTS_DIR/rstest_coord"
+            test_result=$?
+            # Report GDB test result
+            if [[ $test_result -eq 0 ]]; then
+                echo "C++ coordinator tests: PASS"
+            else
+                echo "C++ coordinator tests: FAIL"
+            fi
         else
             echo "Running all C++ coordinator tests (log: $LOG_FILE)"
             { $CPP_COORD_TESTS_DIR/rstest_coord > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
@@ -371,6 +392,13 @@ run_cpp_coord_tests() {
             LOG_FILE="${LOGS_DIR}/rstest_coord_${TEST}.log"
             if [[ $GDB == 1 ]]; then
                 run_with_gdb "rstest_coord --gtest_filter=$TEST" "$CPP_COORD_TESTS_DIR/rstest_coord" "--gtest_filter=$TEST"
+                test_result=$?
+                # Report GDB test result
+                if [[ $test_result -eq 0 ]]; then
+                    echo "C++ coordinator test $TEST: PASS"
+                else
+                    echo "C++ coordinator test $TEST: FAIL"
+                fi
             else
                 echo "Running C++ coordinator test: $TEST (log: $LOG_FILE)"
                 { $CPP_COORD_TESTS_DIR/rstest_coord --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
