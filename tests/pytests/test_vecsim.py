@@ -2541,6 +2541,18 @@ def test_svs_vamana_info_with_compression():
         except (IOError, FileNotFoundError):
             return False
 
+    def is_alpine():
+        """Parse /etc/os-release into a dictionary (Linux only)"""
+        try:
+            with open("/etc/os-release") as f:
+                for line in f:
+                    if '=' in line:
+                        k, v = line.strip().split('=', 1)
+                        if k == 'ID' and v.strip('"') == 'alpine':
+                            return True
+        except FileNotFoundError:
+            pass
+        return False
 
     # Create SVS VAMANA index with all compression flavors (except for global SQ8).
     for compression_type in ['LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
@@ -2549,7 +2561,8 @@ def test_svs_vamana_info_with_compression():
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression
         # compression in runtime is LVQ8 if we are running on intel machine and GlobalSQ otherwise.
-        compression_runtime = compression_type if is_intel_cpu() and BUILD_INTEL_SVS_OPT else 'GlobalSQ8'
+        is_intel_opt_supported = is_intel_cpu() and not is_alpine()
+        compression_runtime = compression_type if is_intel_opt_supported and BUILD_INTEL_SVS_OPT else 'GlobalSQ8'
         expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
                           'data_type', 'FLOAT32', 'dim', 16, 'distance_metric', 'L2', 'graph_max_degree', 32,
                           'construction_window_size', 200, 'compression', compression_runtime, 'training_threshold',
