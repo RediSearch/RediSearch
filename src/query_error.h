@@ -70,8 +70,10 @@ extern "C" {
   X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed") \
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")         \
   X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")   \
-  X(QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed")             \
-  X(QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed")                \
+  X(QUERY_EWEIGHT_NOT_ALLOWED, "Weight attributes are not allowed")              \
+  X(QUERY_EVECTOR_NOT_ALLOWED, "Vector queries are not allowed")                 \
+  X(QUERY_EOOM, "Not enough memory available to execute the query")              \
+
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 #define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"

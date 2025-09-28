@@ -27,6 +27,8 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 #include "hybrid/hybrid_request.h"
+#include "util/redis_mem_info.h"
+#include "module.h"
 
 typedef enum {
   EXEC_NO_FLAGS = 0x00,
@@ -42,7 +44,20 @@ typedef struct {
   WeakRef spec_ref;
 } blockedClientReqCtx;
 
+// OOM guardrail with heuristics
+// TODO: add heuristics
+// Assumes the GIL is held by the caller
+static bool estimateOOM(RedisModuleCtx *ctx) {
+  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
+}
+
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
+
+// Temporary function to check if we are in a cluster environment
+// TODO : Remove this function once it's no longer needed
+static bool isClusterEnv_TempOOM_DoNotUse() {
+  return GetNumShards_UnSafe() > 1;
+}
 
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
@@ -960,8 +975,20 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  AREQ *r = AREQ_New();
   QueryError status = {0};
+
+  // Currently supporting OOM policy only in standalone env
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore && !isClusterEnv_TempOOM_DoNotUse())
+  {
+    // OOM guardrail
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      QueryError_SetCode(&status, QUERY_EOOM);
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+  }
+
+  AREQ *r = AREQ_New();
 
   if (prepareRequest(&r, ctx, argv, argc, type, execOptions, &status) != REDISMODULE_OK) {
     goto error;
