@@ -879,9 +879,9 @@ def allShards_getIsRPPaused(env):
         results.append(result)
     return results
 
-def allShards_setPauseRPResume(env):
+def allShards_setPauseRPResume(env, start_shard=1):
     results = []
-    for shardId in range(1, env.shardsCount + 1):
+    for shardId in range(start_shard, env.shardsCount + 1):
         result = env.getConnection(shardId).execute_command(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_RP_RESUME')
         results.append(result)
     return results
