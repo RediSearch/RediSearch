@@ -389,14 +389,14 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
     if (HasScoreInPipeline(&params->common)) {
       if (params->common.scoreAlias) {
         scoreKey = RLookup_GetKey_Write(first, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
+        if (!scoreKey) {
+          QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
+          return;
+        }
       } else {
         scoreKey = RLookup_GetKey_Write(first, UNDERSCORE_SCORE, RLOOKUP_F_OVERRIDE);
       }
     }
-    if (params->common.scoreAlias && !scoreKey) {
-      QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
-      return;
-    } 
 
     rp = getScorerRP(pipeline, first, scoreKey, params);
     PUSH_RP();

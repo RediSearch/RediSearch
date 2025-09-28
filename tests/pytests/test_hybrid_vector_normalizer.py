@@ -126,7 +126,7 @@ class TestHybridVectorNormalizer:
 
         for vector_query in [['KNN', '4', 'K', '10'], ['RANGE', '4', 'RADIUS', '10']]:
             response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
-                                *vector_query, 'YIELD_SCORE_AS', 'vector_score')
+                                *vector_query, 'YIELD_DISTANCE_AS', 'vector_score')
             results = get_results_from_hybrid_response(response)
 
             for doc_key in results:
