@@ -64,13 +64,12 @@
    return results;
  }
 
- void startPipelineCommon(RSTimeoutPolicy timeoutPolicy, struct timespec *timeout,
-                                ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (timeoutPolicy == TimeoutPolicy_Fail) {
+ void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
+   if (ctx->timeoutPolicy == TimeoutPolicy_Fail || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, rc);
      // Check timeout after aggregation
-     if (TimedOut(timeout) == TIMED_OUT) {
+     if (TimedOut(ctx->timeout) == TIMED_OUT) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {

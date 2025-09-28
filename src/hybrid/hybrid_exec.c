@@ -149,9 +149,12 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
 }
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  startPipelineCommon(hreq->reqConfig.timeoutPolicy,
-          &hreq->sctx->time.timeout,
-          rp, results, r, rc);
+  CommonPipelineCtx ctx = {
+    .timeoutPolicy = hreq->reqConfig.timeoutPolicy,
+    .timeout = &hreq->sctx->time.timeout,
+    .oomPolicy = hreq->reqConfig.oomPolicy,
+  };
+  startPipelineCommon(&ctx, rp, results, r, rc);
 }
 
 static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, SearchResult *r, clock_t duration) {

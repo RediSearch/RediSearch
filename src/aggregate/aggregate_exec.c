@@ -319,8 +319,13 @@ static size_t getResultsFactor(AREQ *req) {
 }
 
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-  startPipelineCommon(req->reqConfig.timeoutPolicy, &req->sctx->time.timeout,
-                      rp, results, r, rc);
+  CommonPipelineCtx ctx = {
+    .timeoutPolicy = req->reqConfig.timeoutPolicy,
+    .timeout = &req->sctx->time.timeout,
+    .oomPolicy = req->reqConfig.oomPolicy,
+  };
+  startPipelineCommon(&ctx, rp, results, r, rc);
+
 }
 
 static int populateReplyWithResults(RedisModule_Reply *reply,
