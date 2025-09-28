@@ -74,29 +74,29 @@ def calculate_l2_distance_raw(vec1_bytes, vec2_bytes):
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
-def test_hybrid_vsim_knn_yield_distance_as():
+def test_hybrid_vsim_knn_yield_score_as():
     """Test VSIM KNN with YIELD_SCORE_AS parameter"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_distance')
+                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
     results = get_results_from_hybrid_response(response)
 
-    # Validate the vector_distance field for all returned results
+    # Validate the score field for all returned results
     env.assertGreater(len(results.keys()), 0)  # Should return docs with "shoes" in description
 
     for doc_key in results:
         doc_result = results[doc_key]
-        env.assertTrue('vector_distance' in doc_result)
-        returned_distance = float(doc_result['vector_distance'])
+        env.assertTrue('vector_score' in doc_result)
+        returned_distance = float(doc_result['vector_score'])
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
-def test_hybrid_vsim_range_yield_distance_as():
+def test_hybrid_vsim_range_yield_score_as():
     """Test VSIM RANGE with YIELD_SCORE_AS parameter"""
     env = Env()
     setup_basic_index(env)
@@ -104,16 +104,16 @@ def test_hybrid_vsim_range_yield_distance_as():
     radius = 2
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_distance')
+                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score')
     results = get_results_from_hybrid_response(response)
 
-    # Validate the vector_distance field for all returned results
+    # Validate the vector_score field for all returned results
     env.assertGreater(len(results.keys()), 0)
 
     for doc_key in results:
         doc_result = results[doc_key]
-        env.assertTrue('vector_distance' in doc_result)
-        returned_distance = float(doc_result['vector_distance'])
+        env.assertTrue('vector_score' in doc_result)
+        returned_distance = float(doc_result['vector_score'])
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
 
@@ -226,7 +226,7 @@ def test_hybrid_yield_with_custom_field_names():
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
-def test_hybrid_yield_distance_as_after_combine_error():
+def test_hybrid_yield_score_as_after_combine_error():
     """Test that YIELD_SCORE_AS after COMBINE keyword fails"""
     env = Env()
     setup_basic_index(env)

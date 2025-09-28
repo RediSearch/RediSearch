@@ -166,18 +166,18 @@ class testHybridSearch:
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
-    # # TODO: Enable this test after adding support for YIELD_SCORE_AS in VSIM
-    # def test_knn_yield_distance_as(self):
-    #     """Test hybrid search using KNN + YIELD_SCORE_AS parameter"""
-    #     if CLUSTER:
-    #         raise SkipTest()
-    #     scenario = {
-    #         "test_name": "KNN query with parameters",
-    #         "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 4 K 10 YIELD_SCORE_AS vector_distance",
-    #         "search_equivalent": "even",
-    #         "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_SCORE_AS: vector_distance}"
-    #     }
-    #     run_test_scenario(self.env, self.index_name, scenario)
+    # TODO: Enable this test after adding support for YIELD_SCORE_AS in VSIM
+    def test_knn_yield_score_as(self):
+         """Test hybrid search using KNN + YIELD_SCORE_AS parameter"""
+         if CLUSTER:
+             raise SkipTest()
+         scenario = {
+             "test_name": "KNN query with parameters",
+             "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 4 K 10 YIELD_SCORE_AS vector_distance",
+             "search_equivalent": "even",
+             "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_SCORE_AS: vector_distance}"
+         }
+         run_test_scenario(self.env, self.index_name, scenario)
 
     def test_knn_text_vector_prefilter(self):
         """Test hybrid search using KNN + VSIM text prefilter"""

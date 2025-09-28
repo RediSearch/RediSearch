@@ -150,7 +150,6 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, RSSearchOpt
   rrfCtx->constant = constantValue;
   rrfCtx->window = windowValue;
   rrfCtx->hasExplicitWindow = hasExplicitWindow;
-  return;
 }
 
 // COMBINE callback - implements exact ParseCombine behavior from hybrid_args.c
