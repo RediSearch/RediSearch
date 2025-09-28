@@ -15,17 +15,17 @@ use crate::{RQEIterator, RQEIteratorError, SkipToOutcome};
 
 /// An iterator that yields all ids within a given range, from 1 to max id (inclusive) in an index.
 #[derive(Default)]
-pub struct Wildcard {
+pub struct Wildcard<'a> {
     // Supposed to be the max id in the index
     top_id: t_docId,
 
     current_id: t_docId,
 
     /// A reusable result object to avoid allocations on each `read` call.
-    result: RSIndexResult<'static>,
+    result: RSIndexResult<'a>,
 }
 
-impl Wildcard {
+impl<'a> Wildcard<'a> {
     pub fn new(top_id: t_docId) -> Self {
         Wildcard {
             top_id,
@@ -35,7 +35,7 @@ impl Wildcard {
     }
 }
 
-impl RQEIterator for Wildcard {
+impl<'a> RQEIterator for Wildcard<'a> {
     fn read(&mut self) -> Result<Option<&RSIndexResult<'_>>, RQEIteratorError> {
         if self.at_eof() {
             return Ok(None);
