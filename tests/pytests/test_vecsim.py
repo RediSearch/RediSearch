@@ -1708,11 +1708,8 @@ class TestTimeoutReached(object):
         # STANDARD KNN
         large_k = 1000
         # run query with no timeout. should succeed.
-        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]=>{$yield_distance_as:dist}',
+        res = self.env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'NOCONTENT', 'LIMIT', 0, large_k,
                                    'PARAMS', 4, 'K', large_k, 'vec_param', query_vec.tobytes(),
-                                   'SORTBY', 'dist',
-                                   'RETURN', 1, 'dist',
-                                   'LIMIT', 0, n_vec,
                                    'TIMEOUT', 0)
         self.env.assertEqual(res[0], large_k)
         # run query with 1 millisecond timeout. should fail.
