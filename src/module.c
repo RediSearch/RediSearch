@@ -2798,11 +2798,23 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 }
 
 static bool should_return_error(MRReply *reply) {
-  // TODO: Replace third condition with a var instead of hard-coded string
   const char *errStr = MRReply_String(reply, NULL);
-  return (!errStr
-          || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
-          || strcmp(errStr, "Timeout limit was reached"));
+  if (!errStr) {
+    return true;  // No error string means we should return error
+  }
+
+  // Check if this is a timeout error with non-fail policy
+  if (!strcmp(errStr, QueryError_Strerror(QUERY_ETIMEDOUT))) {
+    return RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail;
+  }
+
+  // Check if this is an OOM error with non-fail policy
+  if (!strcmp(errStr, QueryError_Strerror(QUERY_EOOM))) {
+    return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
+  }
+
+  // For any other error, return it
+  return true;
 }
 
 static bool should_return_timeout_error(searchRequestCtx *req) {

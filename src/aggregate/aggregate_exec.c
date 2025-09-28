@@ -978,8 +978,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   QueryError status = {0};
 
   // Currently supporting OOM policy only in standalone env
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore && !isClusterEnv_TempOOM_DoNotUse())
-  {
+    if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore && !(isClusterEnv_TempOOM_DoNotUse() && RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return))
+
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore &&
+      !(isClusterEnv_TempOOM_DoNotUse() && RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return)) {
     // OOM guardrail
     if (estimateOOM(ctx)) {
       RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
