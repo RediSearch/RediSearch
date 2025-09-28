@@ -350,6 +350,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, const QueryPipelineParams *para
   RLookup_Init(first, cache);
 
   ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->common.sctx);
+  ((QueryPipelineParams *)params)->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();
