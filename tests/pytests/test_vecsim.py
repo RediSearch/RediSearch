@@ -7,6 +7,7 @@ from common import *
 from includes import *
 from random import randrange
 from redis import ResponseError
+import distro
 
 '''************* Helper methods for vecsim tests ************'''
 EPSILONS = {'FLOAT32': 1E-6, 'FLOAT64': 1E-9, 'FLOAT16': 1E-2, 'BFLOAT16': 1E-2}
@@ -2542,17 +2543,7 @@ def test_svs_vamana_info_with_compression():
             return False
 
     def is_alpine():
-        """Parse /etc/os-release into a dictionary (Linux only)"""
-        try:
-            with open("/etc/os-release") as f:
-                for line in f:
-                    if '=' in line:
-                        k, v = line.strip().split('=', 1)
-                        if k == 'ID' and v.strip('"') == 'alpine':
-                            return True
-        except FileNotFoundError:
-            pass
-        return False
+        return distro.name().lower() == 'alpine linux'
 
     # Create SVS VAMANA index with all compression flavors (except for global SQ8).
     for compression_type in ['LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']:
