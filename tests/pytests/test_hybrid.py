@@ -162,7 +162,7 @@ class testHybridSearch:
             "test_name": "KNN query with parameters",
             "hybrid_query": "SEARCH even VSIM @vector_hnsw $BLOB KNN 4 K 10 EF_RUNTIME 100",
             "search_equivalent": "even",
-            "vector_equivalent": "*=>[KNN 10 @vector_hnsw $BLOB EF_RUNTIME 100]=>{$YIELD_SCORE_AS: vector_distance}"
+            "vector_equivalent": "*=>[KNN 10 @vector_hnsw $BLOB EF_RUNTIME 100]=>{$YIELD_DISTANCE_AS: vector_distance}"
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
@@ -175,7 +175,7 @@ class testHybridSearch:
              "test_name": "KNN query with parameters",
              "hybrid_query": "SEARCH even VSIM @vector $BLOB KNN 4 K 10 YIELD_SCORE_AS vector_distance",
              "search_equivalent": "even",
-             "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_SCORE_AS: vector_distance}"
+             "vector_equivalent": "*=>[KNN 10 @vector $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
          }
          run_test_scenario(self.env, self.index_name, scenario)
 
@@ -610,7 +610,7 @@ class testHybridSearch:
             "test_name": "Range query",
             "hybrid_query": "SEARCH @text:(four|even) VSIM @vector $BLOB RANGE 2 RADIUS 5",
             "search_equivalent": "@text:(four|even)",
-            "vector_equivalent": "@vector:[VECTOR_RANGE 5 $BLOB]=>{$YIELD_SCORE_AS: vector_distance}"
+            "vector_equivalent": "@vector:[VECTOR_RANGE 5 $BLOB]=>{$YIELD_DISTANCE_AS: vector_distance}"
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 
@@ -623,7 +623,7 @@ class testHybridSearch:
     #         "test_name": "Range query",
     #         "hybrid_query": "SEARCH @text:(four|even) VSIM @vector_hnsw $BLOB RANGE 4 RADIUS 5 EPSILON 0.5",
     #         "search_equivalent": "@text:(four|even)",
-    #         "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_SCORE_AS: vector_distance}"
+    #         "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
     #     }
     #     run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
 

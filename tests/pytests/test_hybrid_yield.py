@@ -186,19 +186,7 @@ def test_hybrid_vsim_range_both_yield_distance_and_score():
     # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'RANGE', '6', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
-
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
-def test_hybrid_yield_with_custom_field_names():
-    """Test YIELD parameters with custom field names - should fail because YIELD_SCORE_AS is not supported in VSIM"""
-    env = Env()
-    setup_basic_index(env)
-    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-
-    # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'YIELD_SCORE_AS', 'my_search_score',
-               'VSIM', '@embedding', query_vector,
-               'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'my_vector_score').error()
+    
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
