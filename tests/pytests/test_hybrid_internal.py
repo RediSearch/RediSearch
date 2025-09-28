@@ -104,7 +104,7 @@ def read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback=None
                     key = result[i]
                     value = result[i + 1]
                     result_dict[key] = value
-            all_results.append({'key': result_dict.get('__key')})
+            all_results.append(result_dict.get('__key'))
 
     return sorted(all_results, key=lambda x: x['key'] if isinstance(x, dict) else x)
 
