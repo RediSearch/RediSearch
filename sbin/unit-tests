@@ -41,7 +41,6 @@ show_help() {
         BINDIR=path   Path to repo binary dir
         TEST=name      Run only the specified test
         VERBOSE=1      Show more detailed output
-        GDB=1          Run tests with interactive gdb debugger (stops on crashes)
         HELP=1         Show this help message
 END
 }
@@ -72,78 +71,6 @@ detect_platform() {
 }
 
 #------------------------------------------------------------------------------
-# Create GDB command file (once per script run)
-#------------------------------------------------------------------------------
-create_gdb_command_file() {
-    if [[ -z "$GDB_CMD_FILE" ]]; then
-        GDB_CMD_FILE=$(mktemp)
-        cat > "$GDB_CMD_FILE" << 'EOF'
-set confirm off
-set pagination off
-set height 0
-set width 0
-set startup-quietly on
-set verbose off
-handle SIGSEGV stop print nopass
-handle SIGABRT stop print nopass
-define hook-stop
-  if $_exitcode != -1
-    quit
-  end
-  echo \n=== Program stopped due to signal ===\n
-  bt
-  echo \n=== Use 'continue' to proceed, 'quit' to exit ===\n
-end
-run
-EOF
-        # Register cleanup function to remove the file on exit
-        trap 'rm -f "$GDB_CMD_FILE"' EXIT
-    fi
-}
-
-#------------------------------------------------------------------------------
-# Run a test with GDB for debugging crashes
-#------------------------------------------------------------------------------
-run_with_gdb() {
-    local test_name="$1"
-    shift
-    local test_command=("$@")
-
-    echo "Running test with gdb: $test_name"
-    echo "GDB will stop on crashes/signals for debugging. Test will exit automatically on success."
-    echo "Starting GDB session for: $test_name"
-    echo "----------------------------------------"
-
-    # Create GDB command file if it doesn't exist
-    create_gdb_command_file
-
-    # Use environment variables to disable paging completely and reduce startup text
-    LINES=50000 COLUMNS=200 PAGER= GDB_COLORS= gdb --quiet -iex "set pagination off" -iex "set height 0" -iex "set width 0" -iex "set startup-quietly on" -iex "set verbose off" -x "$GDB_CMD_FILE" --args "${test_command[@]}" 2>/dev/null || true
-    local test_result=$?
-    (( EXIT_CODE |= $test_result ))
-    echo "----------------------------------------"
-    echo "GDB session ended for: $test_name"
-
-    return $test_result
-}
-
-start_group() {
-    local title="$1"
-    if [[ -n $GITHUB_ACTIONS ]]; then
-	    echo "::group::$title"
-	else
-	    printf "# Running $title:\n"
-	fi
-}
-
-end_group() {
-    if [[ -n $GITHUB_ACTIONS ]]; then
-	    echo "::endgroup::"
-	fi
-}
-
-
-#------------------------------------------------------------------------------
 # Run a single test and report results
 #------------------------------------------------------------------------------
 run_single_test() {
@@ -159,13 +86,8 @@ run_single_test() {
     LOG_FILE="${LOGS_DIR}/${log_prefix}${test_name}.log"
 
     # Run the test
-    if [[ $GDB == 1 ]]; then
-        run_with_gdb "$test_name" "$test_path"
-        return
-    else
-        echo -n "Running test: $test_name (log: $LOG_FILE) ... "
-        { $test_path > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-    fi
+    echo -n "Running test: $test_name (log: $LOG_FILE) ... "
+    { $test_path > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
     # Report results
     if [[ $test_result -eq 0 ]]; then
@@ -181,19 +103,14 @@ run_single_test() {
 # Run C unit tests
 #------------------------------------------------------------------------------
 run_c_tests() {
-    print_separator    
-    C_TESTS_DIR="$BINDIR/tests/ctests"
-    if [[ ! -d "$C_TESTS_DIR" ]]; then
-        echo "C tests directory not found: $C_TESTS_DIR"
-        return 0
-    fi
-
-    start_group "C unit tests"
+    print_separator
+    echo "# Running C unit tests"
+    C_TESTS_DIR="$(cd $BINDIR/tests/ctests; pwd)"
     cd $ROOT_DIR/tests/ctests
 
     if [[ -z $TEST ]]; then
         # Run all C tests
-        for test in $(find $C_TESTS_DIR -maxdepth 1 -name "test_*" -type f -executable -print); do
+        for test in $(find $C_TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
             run_single_test "$test" ""
         done
     elif [[ -f $C_TESTS_DIR/$TEST ]]; then
@@ -202,7 +119,6 @@ run_c_tests() {
     else
         echo "Test not found: $TEST in $C_TESTS_DIR"
     fi
-    end_group
 }
 
 #------------------------------------------------------------------------------
@@ -210,12 +126,8 @@ run_c_tests() {
 #------------------------------------------------------------------------------
 run_cpp_tests() {
     print_separator
-    CPP_TESTS_DIR="$BINDIR/tests/cpptests"
-    if [[ ! -d "$CPP_TESTS_DIR" ]]; then
-        echo "C++ tests directory not found: $CPP_TESTS_DIR"
-        return 0
-    fi
-    start_group "C++ unit tests"
+    echo "# Running C++ unit tests"
+    CPP_TESTS_DIR="$(cd $BINDIR/tests/cpptests; pwd)"
     cd $ROOT_DIR/tests/cpptests
     TEST_NAME=rstest setup_sanitizer
 
@@ -224,31 +136,24 @@ run_cpp_tests() {
     if [[ -z $TEST ]]; then
         # Run all C++ tests
         LOG_FILE="${LOGS_DIR}/rstest.log"
-        if [[ $GDB == 1 ]]; then
-            run_with_gdb "rstest (all C++ tests)" "$CPP_TESTS_DIR/rstest"
-        else
-            echo "Running all C++ tests (log: $LOG_FILE)"
-            { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-            # Parse and display individual test results
-            parse_cpp_test_results "$LOG_FILE"
-        fi
+        echo "Running all C++ tests (log: $LOG_FILE)"
+        { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+        # Parse and display individual test results
+        parse_cpp_test_results "$LOG_FILE"
     else
         # Run single C++ test if requested
         if [[ -f $CPP_TESTS_DIR/rstest ]]; then
             LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
-            if [[ $GDB == 1 ]]; then
-                run_with_gdb "rstest --gtest_filter=$TEST" "$CPP_TESTS_DIR/rstest" "--gtest_filter=$TEST"
-            else
-                echo "Running C++ test: $TEST (log: $LOG_FILE)"
-                { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-                # Parse and display results
-                parse_cpp_test_results "$LOG_FILE"
-            fi
+            echo "Running C++ test: $TEST (log: $LOG_FILE)"
+            { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+            # Parse and display results
+            parse_cpp_test_results "$LOG_FILE"
         else
             echo "C++ test binary not found: $CPP_TESTS_DIR/rstest"
         fi
     fi
-    end_group
 }
 
 #------------------------------------------------------------------------------
@@ -289,51 +194,19 @@ parse_cpp_test_results() {
 #------------------------------------------------------------------------------
 run_coordinator_tests() {
     print_separator
-    start_group "coordinator unit tests"
+    echo "# Running coordinator unit tests"
 
-    # Define test directories with proper existence checking
-    declare -a TEST_DIRS=()
-
-    # Check C coordinator tests directory
-    C_COORD_TESTS_DIR="$BINDIR/tests/ctests/coord_tests"
-    if [[ -d "$C_COORD_TESTS_DIR" ]]; then
-        TEST_DIRS+=("$C_COORD_TESTS_DIR")
-    fi
-
-    # Check C++ coordinator tests directory (for individual test binaries)
-    CPP_COORD_TESTS_DIR="$BINDIR/tests/cpptests"
-    if [[ -d "$CPP_COORD_TESTS_DIR" ]]; then
-        TEST_DIRS+=("$CPP_COORD_TESTS_DIR")
-    fi
-
-    if [[ ${#TEST_DIRS[@]} -eq 0 ]]; then
-        echo "No coordinator test directories found"
-        end_group
-        return 0
-    fi
-
-    # Track if we found the specific test when TEST is specified
-    local test_found=0
-
-    for TESTS_DIR in "${TEST_DIRS[@]}"; do
+    for TESTS_DIR in "$(cd $BINDIR/tests/ctests/coord_tests; pwd)" "$(cd $BINDIR/tests/cpptests; pwd)"; do
         if [[ -z $TEST ]]; then
             # Run all coordinator tests
-            for test in $(find "$TESTS_DIR" -maxdepth 1 -name "test_*" -type f -executable -print); do
+            for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
                 run_single_test "$test" "coord_"
             done
-        elif [[ -f "$TESTS_DIR/$TEST" ]]; then
+        elif [[ -f $TESTS_DIR/$TEST ]]; then
             # Run single coordinator test
             run_single_test "$TESTS_DIR/$TEST" "coord_"
-            test_found=1
         fi
     done
-
-    # Only show error if we were looking for a specific test and didn't find it
-    if [[ -n $TEST && $test_found -eq 0 ]]; then
-        echo "Coordinator test not found: $TEST"
-    fi
-
-    end_group
 }
 
 #------------------------------------------------------------------------------
@@ -341,47 +214,32 @@ run_coordinator_tests() {
 #------------------------------------------------------------------------------
 run_cpp_coord_tests() {
     print_separator
-    start_group "C++ coordinator unit tests"
-
-    CPP_COORD_TESTS_DIR="$BINDIR/tests/cpptests/coord_tests"
-    if [[ ! -d "$CPP_COORD_TESTS_DIR" ]]; then
-        echo "C++ coordinator tests directory not found: $CPP_COORD_TESTS_DIR"
-        end_group
-        return 0
-    fi
-
+    echo "# Running C++ coordinator unit tests"
+    CPP_COORD_TESTS_DIR="$(cd $BINDIR/tests/cpptests/coord_tests; pwd)"
     cd $ROOT_DIR/tests/cpptests/coord_tests
     TEST_NAME=rstest_coord setup_sanitizer
 
-    # C++ coordinator tests use Google Test framework like regular C++ tests
     if [[ -z $TEST ]]; then
         # Run all C++ coordinator tests
         LOG_FILE="${LOGS_DIR}/rstest_coord.log"
-        if [[ $GDB == 1 ]]; then
-            run_with_gdb "rstest_coord (all C++ coordinator tests)" "$CPP_COORD_TESTS_DIR/rstest_coord"
-        else
-            echo "Running all C++ coordinator tests (log: $LOG_FILE)"
-            { $CPP_COORD_TESTS_DIR/rstest_coord > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-            # Parse and display individual test results
-            parse_cpp_test_results "$LOG_FILE"
-        fi
+        echo "Running all C++ coordinator tests (log: $LOG_FILE)"
+        { $CPP_COORD_TESTS_DIR/rstest_coord > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+        # Parse and display individual test results
+        parse_cpp_test_results "$LOG_FILE"
     else
         # Run single C++ coordinator test if requested
         if [[ -f $CPP_COORD_TESTS_DIR/rstest_coord ]]; then
             LOG_FILE="${LOGS_DIR}/rstest_coord_${TEST}.log"
-            if [[ $GDB == 1 ]]; then
-                run_with_gdb "rstest_coord --gtest_filter=$TEST" "$CPP_COORD_TESTS_DIR/rstest_coord" "--gtest_filter=$TEST"
-            else
-                echo "Running C++ coordinator test: $TEST (log: $LOG_FILE)"
-                { $CPP_COORD_TESTS_DIR/rstest_coord --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-                # Parse and display results
-                parse_cpp_test_results "$LOG_FILE"
-            fi
+            echo "Running C++ coordinator test: $TEST (log: $LOG_FILE)"
+            { $CPP_COORD_TESTS_DIR/rstest_coord --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+            # Parse and display results
+            parse_cpp_test_results "$LOG_FILE"
         else
             echo "C++ coordinator test binary not found: $CPP_COORD_TESTS_DIR/rstest_coord"
         fi
     fi
-    end_group
 }
 
 #------------------------------------------------------------------------------
@@ -433,23 +291,6 @@ generate_summary() {
 detect_platform
 
 # Setup paths and variables
-# Calculate BINDIR from BINROOT if not already set
-if [[ -z $BINDIR ]]; then
-    if [[ -n $BINROOT ]]; then
-        # Default to OSS build path - make it absolute
-        if [[ "$BINROOT" = /* ]]; then
-            # BINROOT is already absolute
-            BINDIR="$BINROOT/search-community"
-        else
-            # BINROOT is relative to ROOT_DIR
-            BINDIR="$ROOT_DIR/$BINROOT/search-community"
-        fi
-    else
-        echo "Error: Neither BINDIR nor BINROOT is set"
-        exit 1
-    fi
-fi
-
 export EXT_TEST_PATH=${BINDIR}/example_extension/libexample_extension.so
 
 # No test scope configuration needed

@@ -169,9 +169,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       size_t nkeys = array_len(astp->sortKeys);
       astp->sortkeysLK = rm_malloc(sizeof(*astp->sortKeys) * nkeys);
 
-      RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
-
       const RLookupKey **sortkeys = astp->sortkeysLK;
+
+      RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
 
       for (size_t ii = 0; ii < nkeys; ++ii) {
         const char *keystr = astp->sortKeys[ii];
@@ -583,9 +583,9 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         // Get score key for writing normalized scores
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         RS_ASSERT(curLookup);
-        const RLookupKey *distanceKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
+        const RLookupKey *scoreKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
         // Create vector normalizer result processor
-        rp = RPVectorNormalizer_New(normFunc, distanceKey);
+        rp = RPVectorNormalizer_New(normFunc, scoreKey);
         PUSH_RP();
         break;
       }

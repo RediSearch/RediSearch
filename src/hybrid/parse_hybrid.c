@@ -129,7 +129,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
-  RS_ASSERT(pvd->vectorDistanceFieldAlias == NULL);
+  RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
@@ -167,7 +167,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       hasEF = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (pvd->vectorDistanceFieldAlias != NULL) {
+      if (pvd->vectorScoreFieldAlias != NULL) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
         return REDISMODULE_ERR;
       }
@@ -185,7 +185,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      pvd->vectorDistanceFieldAlias = rm_strdup(value);
+      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -219,7 +219,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
   bool hasRadius = false;
   bool hasEpsilon = false;
-  RS_ASSERT(pvd->vectorDistanceFieldAlias == NULL);
+  RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
     if (AC_IsAtEnd(ac)) {
@@ -257,7 +257,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       hasEpsilon = true;
 
     } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (pvd->vectorDistanceFieldAlias != NULL) {
+      if (pvd->vectorScoreFieldAlias != NULL) {
         QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
         return REDISMODULE_ERR;
       }
@@ -275,8 +275,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
         .vallen = strlen(value)
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
-      pvd->vectorDistanceFieldAlias = rm_strdup(value);
-
+      pvd->vectorScoreFieldAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -596,12 +595,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
-  const char *vectorDistanceFieldAlias = NULL;
-  if (vectorRequest->parsedVectorData->vectorDistanceFieldAlias != NULL) {
-    vectorDistanceFieldAlias = vectorRequest->parsedVectorData->vectorDistanceFieldAlias;
-    vectorRequest->parsedVectorData->vectorDistanceFieldAlias = NULL;
+  const char *vectorScoreFieldAlias = NULL;
+  if (vectorRequest->parsedVectorData->vectorScoreFieldAlias != NULL) {
+    vectorScoreFieldAlias = vectorRequest->parsedVectorData->vectorScoreFieldAlias;
+    vectorRequest->parsedVectorData->vectorScoreFieldAlias = NULL;
   } else {
-    vectorDistanceFieldAlias = VectorQuery_GetDefaultScoreFieldName(
+    vectorScoreFieldAlias = VectorQuery_GetDefaultScoreFieldName(
       vectorRequest->parsedVectorData->fieldName,
       strlen(vectorRequest->parsedVectorData->fieldName)
     );
@@ -610,7 +609,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Store the key string so it could fetch the distance from the RlookupRow
   PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(
     vectorRequest->parsedVectorData->fieldName,
-    vectorDistanceFieldAlias
+    vectorScoreFieldAlias
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
