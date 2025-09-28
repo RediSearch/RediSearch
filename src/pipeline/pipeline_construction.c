@@ -584,12 +584,8 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);
         RS_ASSERT(curLookup);
         const RLookupKey *distanceKey = RLookup_GetKey_Read(curLookup, vnStep->distanceFieldAlias, RLOOKUP_F_NOFLAGS);
-        const RLookupKey *scoreKey = NULL;
-        if (vnStep->scoreAlias) {
-          scoreKey = RLookup_GetKey_Write(curLookup, vnStep->scoreAlias, RLOOKUP_F_NOFLAGS);
-        }
         // Create vector normalizer result processor
-        rp = RPVectorNormalizer_New(normFunc, distanceKey, scoreKey);
+        rp = RPVectorNormalizer_New(normFunc, distanceKey);
         PUSH_RP();
         break;
       }

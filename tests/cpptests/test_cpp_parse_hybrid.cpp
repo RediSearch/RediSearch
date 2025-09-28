@@ -492,14 +492,14 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
-  // Parse hybrid request
+  // YIELD_DISTANCE_AS should work
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "4", "K", "8", "YIELD_DISTANCE_AS", "distance_score", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
 
   AREQ* vecReq = result.vector;
 
-  // Verify AST structure for KNN query with YIELD_SCORE_AS only
+  // Verify AST structure for KNN query with YIELD_DISTANCE_AS
   ASSERT_TRUE(vecReq->ast.root != NULL);
   ASSERT_EQ(vecReq->ast.root->type, QN_VECTOR);
 
@@ -975,6 +975,19 @@ TEST_F(ParseHybridTest, testRangeMissingYieldScoreAsValue) {
   // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS");
   testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
+}
+
+// YIELD_SCORE_AS error tests - No longer supported in VSIM
+TEST_F(ParseHybridTest, testKNNYieldScoreAsNotSupported) {
+  // Test KNN with YIELD_SCORE_AS - should fail as it's no longer supported in VSIM
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "YIELD_SCORE_AS", "score_field");
+  testErrorCode(args, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
+}
+
+TEST_F(ParseHybridTest, testRangeYieldScoreAsNotSupported) {
+  // Test RANGE with YIELD_SCORE_AS - should fail as it's no longer supported in VSIM
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS", "score_field");
+  testErrorCode(args, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
 }
 
 // ============================================================================

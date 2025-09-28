@@ -141,21 +141,17 @@ static void vectorNormalizerDtor(PLN_BaseStep *bstp) {
   if (vnStep->distanceFieldAlias) {
     rm_free(vnStep->distanceFieldAlias);
   }
-  if (vnStep->scoreAlias) {
-    rm_free(vnStep->scoreAlias);
-  }
   rm_free(vnStep);
 
 }
 
-PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName, const char *distanceFieldAlias, const char *scoreAlias) {
+PLN_VectorNormalizerStep *PLNVectorNormalizerStep_New(const char *vectorFieldName, const char *distanceFieldAlias) {
   PLN_VectorNormalizerStep *vnStep = rm_calloc(1, sizeof(*vnStep));
   vnStep->base.type = PLN_T_VECTOR_NORMALIZER;
   vnStep->base.dtor = vectorNormalizerDtor;
   vnStep->base.getLookup = NULL;  // No lookup for this step
   vnStep->vectorFieldName = vectorFieldName;
   vnStep->distanceFieldAlias = distanceFieldAlias;
-  vnStep->scoreAlias = scoreAlias;
   return vnStep;
 }
 

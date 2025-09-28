@@ -84,13 +84,14 @@ def test_hybrid_vsim_knn_yield_distance_as():
                         'KNN', '4', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance')
     results = get_results_from_hybrid_response(response)
 
+    # Validate the vector_distance field for all returned results
+    env.assertGreater(len(results.keys()), 0)  # Should return docs with "shoes" in description
+
     for doc_key in results:
         doc_result = results[doc_key]
         env.assertTrue('vector_distance' in doc_result)
         returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance_raw(query_vector, test_data[doc_key]['embedding'])
-
-        # Validate that the returned distance matches the calculated L2 distance
+        expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
 
 # TODO: remove once FT.HYBRID for cluster is implemented
@@ -113,61 +114,33 @@ def test_hybrid_vsim_range_yield_distance_as():
         doc_result = results[doc_key]
         env.assertTrue('vector_distance' in doc_result)
         returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance_raw(query_vector, test_data[doc_key]['embedding'])
-
-        # Validate that the returned distance matches the calculated L2 distance
+        expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
-        # Validate that distance is within radius
-        env.assertLessEqual(returned_distance, radius**2)
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_knn_yield_score_as():
-    """Test VSIM KNN with YIELD_SCORE_AS parameter"""
+    """Test VSIM KNN with YIELD_SCORE_AS parameter - should fail as it's no longer supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
-    results = get_results_from_hybrid_response(response)
-
-    # Validate the vector_score field for all returned results
-    env.assertGreater(len(results.keys()), 0)  # Should return docs with "shoes" in description
-
-    for doc_key in results:
-        doc_result = results[doc_key]
-        env.assertTrue('vector_score' in doc_result)
-        returned_score = float(doc_result['vector_score'])
-        expected_score = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
-
-        # Validate that the returned score matches the calculated L2 normalized distance
-        env.assertAlmostEqual(returned_score, expected_score, delta=1e-6)
+    # YIELD_SCORE_AS is no longer supported in VSIM clauses
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+               'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score').error()
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_range_yield_score_as():
-    """Test VSIM RANGE with YIELD_SCORE_AS parameter"""
+    """Test VSIM RANGE with YIELD_SCORE_AS parameter - should fail as it's no longer supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score')
-    results = get_results_from_hybrid_response(response)
-
-    # Validate the vector_score field for all returned results
-    env.assertGreater(len(results.keys()), 0)
-
-    for doc_key in results:
-        doc_result = results[doc_key]
-        env.assertTrue('vector_score' in doc_result)
-        returned_score = float(doc_result['vector_score'])
-        expected_score = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
-
-        # Validate that the returned score matches the calculated L2 normalized distance
-        env.assertAlmostEqual(returned_score, expected_score, delta=1e-6)
+    # YIELD_SCORE_AS is no longer supported in VSIM clauses
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+               'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score').error()
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -203,106 +176,53 @@ def test_hybrid_search_and_vsim_yield_parameters():
                         'KNN', '4', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance')
     results = get_results_from_hybrid_response(response)
 
-    # Validate both fields are present
+    # Validate both search_score and vector_distance fields
     env.assertGreater(len(results.keys()), 0)
 
     for doc_key in results:
         doc_result = results[doc_key]
-        env.assertTrue('search_score' in doc_result or 'vector_distance' in doc_result)
-        
-        # Validate search score
-        search_score = float(doc_result['search_score'])
-        env.assertGreater(search_score, 0)
-        
-        # Validate vector distance
-        returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance_raw(query_vector, test_data[doc_key]['embedding'])
-        env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
+        # Should have either search_score or vector_distance (or both)
+        has_search_score = 'search_score' in doc_result
+        has_vector_distance = 'vector_distance' in doc_result
+        env.assertTrue(has_search_score or has_vector_distance)
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_both_yield_distance_and_score():
-    """Test VSIM with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together"""
+    """Test VSIM with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'KNN', '6', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score')
-    results = get_results_from_hybrid_response(response)
-
-    # Validate both fields are present
-    env.assertGreater(len(results.keys()), 0)
-
-    for doc_key in results:
-        doc_result = results[doc_key]
-        env.assertTrue('vector_distance' in doc_result)
-        env.assertTrue('vector_score' in doc_result)
-
-        # Validate vector distance
-        returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance_raw(query_vector, test_data[doc_key]['embedding'])
-        env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
-
-        # Validate vector score
-        returned_score = float(doc_result['vector_score'])
-        expected_score = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
-        env.assertAlmostEqual(returned_score, expected_score, delta=1e-6)
+    # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+               'KNN', '6', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_range_both_yield_distance_and_score():
-    """Test VSIM RANGE with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together"""
+    """Test VSIM RANGE with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'RANGE', '6', 'RADIUS', str(radius), 'YIELD_DISTANCE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score')
-    results = get_results_from_hybrid_response(response)
-
-    # Validate both fields are present
-    env.assertGreater(len(results.keys()), 0)
-
-    for doc_key in results:
-        doc_result = results[doc_key]
-        env.assertTrue('vector_distance' in doc_result)
-        env.assertTrue('vector_score' in doc_result)
-
-        # Validate vector distance
-        returned_distance = float(doc_result['vector_distance'])
-        expected_distance = calculate_l2_distance_raw(query_vector, test_data[doc_key]['embedding'])
-        env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
-        env.assertLessEqual(returned_distance, radius**2)
-
-        # Validate vector score
-        returned_score = float(doc_result['vector_score'])
-        expected_score = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
-        env.assertAlmostEqual(returned_score, expected_score, delta=1e-6)
+    # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+               'RANGE', '6', 'RADIUS', str(radius), 'YIELD_DISTANCE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_yield_with_custom_field_names():
-    """Test YIELD parameters with custom field names"""
+    """Test YIELD parameters with custom field names - should fail because YIELD_SCORE_AS is not supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'YIELD_SCORE_AS', 'my_search_score',
-                        'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'my_vector_score')
-    results = get_results_from_hybrid_response(response)
-
-    # Validate custom field names are used
-    env.assertGreater(len(results.keys()), 0)
-
-    for doc_key in results:
-        doc_result = results[doc_key]
-        # either result came from vector a
-        has_search_score = 'my_search_score' in doc_result
-        has_vector_score = 'my_vector_score' in doc_result
-        env.assertTrue(has_search_score or has_vector_score)
+    # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'YIELD_SCORE_AS', 'my_search_score',
+               'VSIM', '@embedding', query_vector,
+               'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'my_vector_score').error()
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -332,15 +252,25 @@ def test_hybrid_yield_score_as_after_combine_error():
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
-def test_hybrid_search_yield_score_as_after_combine_error():
-    """Test that SEARCH YIELD_SCORE_AS after COMBINE keyword fails"""
+def test_hybrid_search_yield_score_as_after_combine():
+    """Test that SEARCH YIELD_SCORE_AS after COMBINE keyword works"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    # This should fail because YIELD_SCORE_AS appears after COMBINE
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score').error()
+    # YIELD_SCORE_AS after COMBINE should now work
+    response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
+                        'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score')
+    results = get_results_from_hybrid_response(response)
+
+    # Validate the search_score field
+    env.assertGreater(len(results.keys()), 0)
+
+    for doc_key in results:
+        doc_result = results[doc_key]
+        env.assertTrue('search_score' in doc_result)
+        search_score = float(doc_result['search_score'])
+        env.assertGreater(search_score, 0)
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)

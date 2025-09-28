@@ -12,7 +12,7 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
-static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
+static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
   // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
   //        ^
 
@@ -25,27 +25,27 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   int rc = AC_GetUnsigned(ac, &count, 0);
   if (rc == AC_ERR_NOARG) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Missing LINEAR argument count");
-    return;
+    return false;
   } else if (rc != AC_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid LINEAR argument count");
-    return;
+    return false;
   }
 
   ArgsCursor linear;
   rc = AC_GetSlice(ac, &linear, count);
   if (rc == AC_ERR_NOARG) {
     QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments in LINEAR", ", specified %u but only %u provided", count, AC_NumRemaining(ac));
-    return;
+    return false;
   } else if (rc != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments in LINEAR", ": %s", AC_Strerror(rc));
-    return;
+    return false;
   }
 
   // Create ArgParser for clean argument parsing
   ArgParser *parser = ArgParser_New(&linear, "LINEAR");
   if (!parser) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create LINEAR argument parser");
-    return;
+    return false;
   }
 
   // Define the required arguments
@@ -57,19 +57,19 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   if (!result.success) {
     QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
-    return;
+    return false;
   }
 
   // Check that both required arguments were parsed
   if (!ArgParser_WasParsed(parser, "ALPHA")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for ALPHA");
     ArgParser_Free(parser);
-    return;
+    return false;
   }
   if (!ArgParser_WasParsed(parser, "BETA")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for BETA");
     ArgParser_Free(parser);
-    return;
+    return false;
   }
 
   // Store the parsed values
@@ -77,9 +77,10 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   linearCtx->linearWeights[1] = betaValue;
 
   ArgParser_Free(parser);
+  return true;
 }
 
-static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
+static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
   *hasExplicitWindow = false;
   ArgsCursor rrf;
   int rc = AC_GetVarArgs(ac, &rrf);
@@ -87,22 +88,22 @@ static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *has
     // Apparently we allow no arguments for RRF
     *constant = HYBRID_DEFAULT_RRF_CONSTANT;
     *window = HYBRID_DEFAULT_WINDOW;
-    return AC_OK;
+    return true;
   } else if (rc == AC_ERR_PARSE) {
     // We also allow a different keyword after it, e.g LIMIT
     // This means if it a different keyword the error will be more ambiguous
     *constant = HYBRID_DEFAULT_RRF_CONSTANT;
     *window = HYBRID_DEFAULT_WINDOW;
-    return AC_OK;
+    return true;
   } else if (rc != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for RRF: %s", AC_Strerror(rc));
-    return rc;
+    return false;
   }
 
   ArgParser *parser = ArgParser_New(&rrf, "RRF");
   if (!parser) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create RRF argument parser");
-    return AC_ERR_PARSE;
+    return false;
   }
 
   double defaultConstant = HYBRID_DEFAULT_RRF_CONSTANT;
@@ -122,15 +123,15 @@ static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *has
   if (!result.success) {
     QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
-    return AC_ERR_PARSE;
+    return false;
   }
   *hasExplicitWindow = ArgParser_WasParsed(parser, "WINDOW");
   ArgParser_Free(parser);
-  return AC_OK;
+  return true;
 }
 
 
-static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError *status) {
+static bool parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError *status) {
   // RRF 4 CONSTANT 6 WINDOW 20 ...
   //     ^
   // RRF LIMIT
@@ -140,15 +141,15 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   int windowValue = HYBRID_DEFAULT_WINDOW;
   bool hasExplicitWindow = false;
 
-  if (parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status) != AC_OK) {
-    return;
+  if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status)) {
+    return REDISMODULE_CTX_FLAGS_REPLICA_IS_CONNECTING;
   }
   
   // Store the parsed values
   rrfCtx->constant = constantValue;
   rrfCtx->window = windowValue;
   rrfCtx->hasExplicitWindow = hasExplicitWindow;
-
+  return true;
 }
 
 // COMBINE callback - implements exact ParseCombine behavior from hybrid_args.c
@@ -174,11 +175,30 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
 
   combineCtx->scoringType = parsedScoringType;
   ArgsCursor *ac = parser->cursor;
+  bool parsed = false;
   if (parsedScoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
-    parseLinearClause(ac, &combineCtx->linearCtx, status);
+    parsed = parseLinearClause(ac, &combineCtx->linearCtx, status);
   } else if (parsedScoringType == HYBRID_SCORING_RRF) {
-    parseRRFClause(ac, &combineCtx->rrfCtx, status);
+    parsed = parseRRFClause(ac, &combineCtx->rrfCtx, status);
+  }
+  if (!parsed) {
+    return;
+  }
+
+  ACArgSpec remainingSpec = {.name = "YIELD_SCORE_AS", .type = AC_ARGTYPE_STRING, .target = &ctx->searchopts->scoreAlias};
+  while (!AC_IsAtEnd(ac)) { 
+    int rv = AC_ParseArgSpec(ac, &remainingSpec, NULL);
+    if (rv == AC_OK) {
+      continue;
+    }
+    else if (rv == AC_ERR_ENOENT) {
+      // Could be a keyword like LOAD or something like that, can't fail here.
+      break;
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments after COMBINE", ": %s", AC_Strerror(rv));
+      return;
+    }
   }
 }

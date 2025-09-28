@@ -24,10 +24,6 @@ void ParsedVectorData_Free(ParsedVectorData *pvd) {
     array_free_ex(pvd->attributes, rm_free((char*)((QueryAttribute*)ptr)->value));
   }
 
-  if (pvd->vectorScoreAlias) {
-    rm_free(pvd->vectorScoreAlias);
-  }
-
   if (pvd->vectorDistanceFieldAlias) {
     rm_free(pvd->vectorDistanceFieldAlias);
   }

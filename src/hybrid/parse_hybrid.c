@@ -129,7 +129,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
-  RS_ASSERT(pvd->vectorScoreAlias == NULL);
   RS_ASSERT(pvd->vectorDistanceFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -175,7 +174,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       if (CheckEnd(ac, "YIELD_DISTANCE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid distance alias name");
+        QueryError_SetError(status, QUERY_ESYNTAX, "Invalid YIELD_DISTANCE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -187,18 +186,6 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       pvd->vectorDistanceFieldAlias = rm_strdup(value);
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (pvd->vectorScoreAlias != NULL) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      const char *value;
-      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid score alias name");
-        return REDISMODULE_ERR;
-      }
-      pvd->vectorScoreAlias = rm_strdup(value);
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -232,7 +219,6 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
   bool hasRadius = false;
   bool hasEpsilon = false;
-  RS_ASSERT(pvd->vectorScoreAlias == NULL);
   RS_ASSERT(pvd->vectorDistanceFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -290,18 +276,11 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       };
       pvd->attributes = array_ensure_append_1(pvd->attributes, attr);
       pvd->vectorDistanceFieldAlias = rm_strdup(value);
+
     } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-      if (pvd->vectorScoreAlias != NULL) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
-        return REDISMODULE_ERR;
-      }
-      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
-      const char *value;
-      if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid score alias name");
-        return REDISMODULE_ERR;
-      }
-      pvd->vectorScoreAlias = rm_strdup(value);
+      // YIELD_SCORE_AS is no longer supported in VSIM clauses
+      QueryError_SetError(status, QUERY_EHYBRID_HYBRID_ALIAS, NULL);
+      return REDISMODULE_ERR;
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -622,8 +601,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // If YIELD_SCORE_AS was specified, use its string (pass ownership from pvd to vnStep),
   // otherwise, store the vector score in a default key.
   const char *vectorDistanceFieldAlias = NULL;
-  const char *vectorScoreAlias = vectorRequest->parsedVectorData->vectorScoreAlias;
-  vectorRequest->parsedVectorData->vectorScoreAlias = NULL;
   if (vectorRequest->parsedVectorData->vectorDistanceFieldAlias != NULL) {
     vectorDistanceFieldAlias = vectorRequest->parsedVectorData->vectorDistanceFieldAlias;
     vectorRequest->parsedVectorData->vectorDistanceFieldAlias = NULL;
@@ -637,8 +614,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   // Store the key string so it could fetch the distance from the RlookupRow
   PLN_VectorNormalizerStep *vnStep = PLNVectorNormalizerStep_New(
     vectorRequest->parsedVectorData->fieldName,
-    vectorDistanceFieldAlias,
-    vectorScoreAlias
+    vectorDistanceFieldAlias
   );
   AGPLN_AddStep(&vectorRequest->pipeline.ap, &vnStep->base);
 
@@ -720,7 +696,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
               .sctx = sctx,  // should be a separate context?
               .reqflags = *mergeReqflags | QEXEC_F_IS_HYBRID_TAIL,
               .optimizer = NULL,  // is it?
-              .scoreAlias = NULL, // tail does not support a score alias at this time, the hybrid merger should use the score directly
+              .scoreAlias = mergeSearchopts.scoreAlias,
           },
       .outFields = NULL,
       .maxResultsLimit = maxHybridResults,
