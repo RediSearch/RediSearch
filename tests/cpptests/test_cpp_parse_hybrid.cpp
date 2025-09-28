@@ -910,7 +910,7 @@ TEST_F(ParseHybridTest, testLinearPartialWeightsAlpha) {
 
 TEST_F(ParseHybridTest, testLinearMissingArgs) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "4", "ALPHA", "0.6");
-  testErrorCode(args, QUERY_ESYNTAX, "Not enough arguments in LINEAR, specified 4 but only 2 provided");
+  testErrorCode(args, QUERY_ESYNTAX, "Not enough arguments in LINEAR, specified 4 but provided only 2");
 }
 
 TEST_F(ParseHybridTest, testLinearPartialWeightsBeta) {
@@ -956,13 +956,13 @@ TEST_F(ParseHybridTest, testRangeMissingEpsilonValue) {
 TEST_F(ParseHybridTest, testLinearMissingAlphaValue) {
   // Test LINEAR with missing ALPHA value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "ALPHA");
-  testErrorCode(args, QUERY_ESYNTAX, "Not enough arguments in LINEAR, specified 2 but only 1 provided");
+  testErrorCode(args, QUERY_ESYNTAX, "Not enough arguments in LINEAR, specified 2 but provided only 1");
 }
 
 TEST_F(ParseHybridTest, testLinearMissingBetaValue) {
   // Test LINEAR with missing BETA value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "COMBINE", "LINEAR", "2", "BETA");
-  testErrorCode(args, QUERY_ESYNTAX,"Not enough arguments in LINEAR, specified 2 but only 1 provided");
+  testErrorCode(args, QUERY_ESYNTAX,"Not enough arguments in LINEAR, specified 2 but provided only 1");
 }
 
 TEST_F(ParseHybridTest, testKNNMissingYieldScoreAsValue) {
