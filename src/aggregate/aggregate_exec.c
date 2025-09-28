@@ -45,12 +45,6 @@ typedef struct {
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 
-// Temporary function to check if we are in a cluster environment
-// TODO : Remove this function once it's no longer needed
-static bool isClusterEnv_TempOOM_DoNotUse() {
-  return GetNumShards_UnSafe() > 1;
-}
-
 /**
  * Get the sorting key of the result. This will be the sorting key of the last
  * RLookup registry. Returns NULL if there is no sorting key
@@ -969,11 +963,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   QueryError status = {0};
 
-  // Currently supporting OOM policy only in standalone env
-    if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore && !(isClusterEnv_TempOOM_DoNotUse() && RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return))
-
-  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore &&
-      !(isClusterEnv_TempOOM_DoNotUse() && RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Return)) {
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // OOM guardrail
     if (estimateOOM(ctx)) {
       RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");

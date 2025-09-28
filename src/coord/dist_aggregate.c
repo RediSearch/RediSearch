@@ -423,7 +423,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   bool new_reply = !root;
 
   // get the next reply from the channel
-  while (!root) {
+  while (!root || !rows) {
     if (TimedOut(&nc->areq->sctx->time.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
