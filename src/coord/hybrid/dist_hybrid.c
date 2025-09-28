@@ -21,36 +21,35 @@
 
 
 static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-  RedisModule_Log(NULL, "warning", "nopCallback: cmd is %s, reply type is %d", MRCommand_SafeToString(MRIteratorCallback_GetCommand(ctx)), MRReply_Type(rep));
-  RedisModule_Log(NULL, "warning", "nopCallback: reply length is %d", MRReply_Length(rep));
+  //debug
+  printMRReplyRecursive(rep, 0);
+
   MRIteratorCallback_AddReply(ctx, rep);
   MRIteratorCallback_Done(ctx, 0);
 }
 
 static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
-  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher");
   RPNet *nc = (RPNet *)rp;
   HybridDispatcher *dispatcher = StrongRef_Get(nc->dispatchCtx->dispatcher_ref);
 
-  if (!HybridDispatcher_IsStarted(dispatcher)) {
+  if (!HybridDispatcher_Started(dispatcher)) {
     HybridDispatcher_Dispatch(dispatcher);
   } else {
     // Wait for completion - this can be called from multiple threads
     HybridDispatcher_WaitForMappingsComplete(dispatcher);
   }
 
+  //todo : fix the race condition here, HybridDispatcher_TakeMapping can be called before the second thread finish HybridDispatcher_WaitForMappingsComplete,
+  //affecting the condition check in HybridDispatcher_WaitForMappingsComplete (and deadlock)
   nc->dispatchCtx->mappings = HybridDispatcher_TakeMapping(nc->dispatchCtx->dispatcher_ref, nc->dispatchCtx->isSearch);
   if (!nc->dispatchCtx->mappings) {
-    RedisModule_Log(NULL, "error", "Failed to take mappings for %s RPNet", nc->dispatchCtx->isSearch ? "search" : "vsim");
     return REDISMODULE_ERR;
   }
-  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: taking mappings, isSearch=%d", nc->dispatchCtx->isSearch);
-  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: mappings is %p, array_len(mappings) is %zu", nc->dispatchCtx->mappings, array_len(nc->dispatchCtx->mappings));
+
   // NEW: Take ownership of the appropriate mapping array
 
   // for hybrid commands, the index name is at position 1
   const char *idx = MRCommand_ArgStringPtrLen(&dispatcher->cmd, 1, NULL);
-  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: idx=%s, type=%s", idx, nc->dispatchCtx->isSearch ? "search" : "vsim");
 
   // sleep(60);
 
@@ -129,10 +128,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // Numeric responses are encoded as simple strings.
   MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
 
-// Log the command - only for debugging
-  for (int i = 0; i < xcmd->num; i++) {
-    RedisModule_Log(NULL, "warning", "xcmd->strs[%d]=%s", i, xcmd->strs[i]);
-  }
+\
 }
 
 // UPDATED: Set RPNet types when creating them
@@ -142,7 +138,6 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
                           int (*nextFunc)(ResultProcessor *, SearchResult *),
                           StrongRef dispatcher_ref, bool isSearch) {
   // Establish our root processor, which is the distributed processor
-  RedisModule_Log(NULL, "debug", "HybridRequest_buildDistRPChain");
   MRCommand cmd = MRCommand_Copy(xcmd);
 
   RPNet *rpRoot = RPNet_New(&cmd, rpnetNext_StartDispatcher);

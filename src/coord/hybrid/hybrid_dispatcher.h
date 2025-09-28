@@ -37,7 +37,7 @@ typedef struct HybridDispatcher {
     MRCommand cmd;                            // The command to execute
 
     // State management - using atomics for efficiency
-    atomic_bool started;                      // Whether the dispatcher has started processing
+    bool started;                      // Whether the dispatcher has started processing
 
     size_t numShards;
 } HybridDispatcher;
@@ -67,7 +67,7 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher);
  * @param dispatcher The dispatcher instance
  * @return true if started, false otherwise
  */
-bool HybridDispatcher_IsStarted(const HybridDispatcher *dispatcher);
+bool HybridDispatcher_Started(const HybridDispatcher *dispatcher);
 
 /**
  * Takes ownership of mapping arrays (thread-safe)

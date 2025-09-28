@@ -70,3 +70,7 @@ int MRReply_ToDouble(MRReply *reply, double *d);
 
 int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep);
 int RedisModule_ReplyKV_MRReply(RedisModule_Reply *reply, const char *key, MRReply *rep);
+
+//debug
+//todo: remove this
+void printMRReplyRecursive(MRReply *reply, int depth) ;
