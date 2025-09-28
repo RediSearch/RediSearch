@@ -12,7 +12,7 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
-static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RSSearchOptions* searchOpts, QueryError *status) {
+static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RSSearchOptions* searchOpts, QueryError *status) {
   // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
   //        ^
 
@@ -25,27 +25,27 @@ static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RS
   int rc = AC_GetUnsigned(ac, &count, 0);
   if (rc == AC_ERR_NOARG) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Missing LINEAR argument count");
-    return false;
+    return;
   } else if (rc != AC_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid LINEAR argument count");
-    return false;
+    return;
   }
 
   ArgsCursor linear;
   rc = AC_GetSlice(ac, &linear, count);
   if (rc == AC_ERR_NOARG) {
     QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Not enough arguments in LINEAR", ", specified %u but only %u provided", count, AC_NumRemaining(ac));
-    return false;
+    return;
   } else if (rc != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments in LINEAR", ": %s", AC_Strerror(rc));
-    return false;
+    return;
   }
 
   // Create ArgParser for clean argument parsing
   ArgParser *parser = ArgParser_New(&linear, "LINEAR");
   if (!parser) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create LINEAR argument parser");
-    return false;
+    return;
   }
 
   // Define the required arguments
@@ -58,19 +58,19 @@ static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RS
   if (!result.success) {
     QueryError_SetError(status, QUERY_EPARSEARGS, ArgParser_GetErrorString(parser));
     ArgParser_Free(parser);
-    return false;
+    return;
   }
 
   // Check that both required arguments were parsed
   if (!ArgParser_WasParsed(parser, "ALPHA")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for ALPHA");
     ArgParser_Free(parser);
-    return false;
+    return;
   }
   if (!ArgParser_WasParsed(parser, "BETA")) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Missing value for BETA");
     ArgParser_Free(parser);
-    return false;
+    return;
   }
 
   // Store the parsed values
@@ -78,7 +78,6 @@ static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RS
   linearCtx->linearWeights[1] = betaValue;
 
   ArgParser_Free(parser);
-  return true;
 }
 
 static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, RSSearchOptions* searchOpts, QueryError *status) {
@@ -133,7 +132,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
 }
 
 
-static bool parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, RSSearchOptions *searchOpts, QueryError *status) {
+static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, RSSearchOptions *searchOpts, QueryError *status) {
   // RRF 4 CONSTANT 6 WINDOW 20 ...
   //     ^
   // RRF LIMIT
@@ -144,14 +143,14 @@ static bool parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, RSSearchOpt
   bool hasExplicitWindow = false;
 
   if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, searchOpts, status)) {
-    return false;
+    return;
   }
   
   // Store the parsed values
   rrfCtx->constant = constantValue;
   rrfCtx->window = windowValue;
   rrfCtx->hasExplicitWindow = hasExplicitWindow;
-  return true;
+  return;
 }
 
 // COMBINE callback - implements exact ParseCombine behavior from hybrid_args.c
@@ -177,15 +176,11 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
 
   combineCtx->scoringType = parsedScoringType;
   ArgsCursor *ac = parser->cursor;
-  bool parsed = false;
   if (parsedScoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
-    parsed = parseLinearClause(ac, &combineCtx->linearCtx, ctx->searchopts, status);
+    parseLinearClause(ac, &combineCtx->linearCtx, ctx->searchopts, status);
   } else if (parsedScoringType == HYBRID_SCORING_RRF) {
-    parsed = parseRRFClause(ac, &combineCtx->rrfCtx, ctx->searchopts, status);
-  }
-  if (!parsed) {
-    return;
+    parseRRFClause(ac, &combineCtx->rrfCtx, ctx->searchopts, status);
   }
 }
