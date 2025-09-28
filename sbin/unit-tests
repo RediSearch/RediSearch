@@ -290,20 +290,49 @@ parse_cpp_test_results() {
 run_coordinator_tests() {
     print_separator
     start_group "coordinator unit tests"
-    
-    for TESTS_DIR in "$(cd $BINDIR/tests/ctests/coord_tests; pwd)" "$(cd $BINDIR/tests/cpptests; pwd)"; do
+
+    # Define test directories with proper existence checking
+    declare -a TEST_DIRS=()
+
+    # Check C coordinator tests directory
+    C_COORD_TESTS_DIR="$BINDIR/tests/ctests/coord_tests"
+    if [[ -d "$C_COORD_TESTS_DIR" ]]; then
+        TEST_DIRS+=("$C_COORD_TESTS_DIR")
+    fi
+
+    # Check C++ coordinator tests directory (for individual test binaries)
+    CPP_COORD_TESTS_DIR="$BINDIR/tests/cpptests"
+    if [[ -d "$CPP_COORD_TESTS_DIR" ]]; then
+        TEST_DIRS+=("$CPP_COORD_TESTS_DIR")
+    fi
+
+    if [[ ${#TEST_DIRS[@]} -eq 0 ]]; then
+        echo "No coordinator test directories found"
+        end_group
+        return 0
+    fi
+
+    # Track if we found the specific test when TEST is specified
+    local test_found=0
+
+    for TESTS_DIR in "${TEST_DIRS[@]}"; do
         if [[ -z $TEST ]]; then
             # Run all coordinator tests
-            for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
+            for test in $(find "$TESTS_DIR" -maxdepth 1 -name "test_*" -type f -executable -print); do
                 run_single_test "$test" "coord_"
             done
-        elif [[ -f $TESTS_DIR/$TEST ]]; then
+        elif [[ -f "$TESTS_DIR/$TEST" ]]; then
             # Run single coordinator test
             run_single_test "$TESTS_DIR/$TEST" "coord_"
-        else 
-            echo "Coordinator test not found: $TEST in $TESTS_DIR"
+            test_found=1
         fi
     done
+
+    # Only show error if we were looking for a specific test and didn't find it
+    if [[ -n $TEST && $test_found -eq 0 ]]; then
+        echo "Coordinator test not found: $TEST"
+    fi
+
     end_group
 }
 
@@ -313,27 +342,41 @@ run_coordinator_tests() {
 run_cpp_coord_tests() {
     print_separator
     start_group "C++ coordinator unit tests"
-    CPP_COORD_TESTS_DIR="$(cd $BINDIR/tests/cpptests/coord_tests; pwd)"
+
+    CPP_COORD_TESTS_DIR="$BINDIR/tests/cpptests/coord_tests"
+    if [[ ! -d "$CPP_COORD_TESTS_DIR" ]]; then
+        echo "C++ coordinator tests directory not found: $CPP_COORD_TESTS_DIR"
+        end_group
+        return 0
+    fi
+
     cd $ROOT_DIR/tests/cpptests/coord_tests
     TEST_NAME=rstest_coord setup_sanitizer
 
+    # C++ coordinator tests use Google Test framework like regular C++ tests
     if [[ -z $TEST ]]; then
         # Run all C++ coordinator tests
         LOG_FILE="${LOGS_DIR}/rstest_coord.log"
-        echo "Running all C++ coordinator tests (log: $LOG_FILE)"
-        { $CPP_COORD_TESTS_DIR/rstest_coord > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-
-        # Parse and display individual test results
-        parse_cpp_test_results "$LOG_FILE"
+        if [[ $GDB == 1 ]]; then
+            run_with_gdb "rstest_coord (all C++ coordinator tests)" "$CPP_COORD_TESTS_DIR/rstest_coord"
+        else
+            echo "Running all C++ coordinator tests (log: $LOG_FILE)"
+            { $CPP_COORD_TESTS_DIR/rstest_coord > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+            # Parse and display individual test results
+            parse_cpp_test_results "$LOG_FILE"
+        fi
     else
         # Run single C++ coordinator test if requested
         if [[ -f $CPP_COORD_TESTS_DIR/rstest_coord ]]; then
             LOG_FILE="${LOGS_DIR}/rstest_coord_${TEST}.log"
-            echo "Running C++ coordinator test: $TEST (log: $LOG_FILE)"
-            { $CPP_COORD_TESTS_DIR/rstest_coord --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-
-            # Parse and display results
-            parse_cpp_test_results "$LOG_FILE"
+            if [[ $GDB == 1 ]]; then
+                run_with_gdb "rstest_coord --gtest_filter=$TEST" "$CPP_COORD_TESTS_DIR/rstest_coord" "--gtest_filter=$TEST"
+            else
+                echo "Running C++ coordinator test: $TEST (log: $LOG_FILE)"
+                { $CPP_COORD_TESTS_DIR/rstest_coord --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+                # Parse and display results
+                parse_cpp_test_results "$LOG_FILE"
+            fi
         else
             echo "C++ coordinator test binary not found: $CPP_COORD_TESTS_DIR/rstest_coord"
         fi
