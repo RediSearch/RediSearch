@@ -15,6 +15,7 @@ mod bindings {
     #![allow(improper_ctypes)]
     #![allow(dead_code)]
 
+    use ffi::{NumericFilter, t_fieldMask};
     use inverted_index::t_docId;
 
     // Type aliases for C bindings - types without lifetimes for C interop
@@ -27,6 +28,27 @@ mod bindings {
 use bindings::{IteratorStatus, ValidateStatus};
 use ffi::RedisModule_Alloc;
 use inverted_index::RSIndexResult;
+
+// Direct C benchmark functions that eliminate FFI overhead
+// by implementing the benchmark loop entirely in C
+unsafe extern "C" {
+    /// Benchmark wildcard iterator read operations directly in C
+    /// Returns the number of iterations performed and total time in nanoseconds
+    fn benchmark_wildcard_read_direct_c(
+        max_id: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+
+    /// Benchmark wildcard iterator skip_to operations directly in C
+    /// Returns the number of iterations performed and total time in nanoseconds
+    fn benchmark_wildcard_skip_to_direct_c(
+        max_id: u64,
+        step: u64,
+        iterations_out: *mut u64,
+        time_ns_out: *mut u64,
+    );
+}
 
 /// Simple wrapper around the C `QueryIterator` type.
 /// All methods are inlined to avoid the overhead when benchmarking.
@@ -48,6 +70,11 @@ impl QueryIterator {
             std::ptr::copy_nonoverlapping(vec.as_ptr(), data, len);
         }
         Self(unsafe { bindings::NewIdListIterator(data, len as u64, 1f64) })
+    }
+
+    #[inline(always)]
+    pub fn new_wildcard(max_id: u64, num_docs: usize) -> Self {
+        Self(unsafe { bindings::NewWildcardIterator_NonOptimized(max_id, num_docs, 1f64) })
     }
 
     #[inline(always)]
@@ -93,6 +120,41 @@ impl QueryIterator {
     #[inline(always)]
     pub fn current(&self) -> *mut RSIndexResult<'static> {
         unsafe { (*self.0).current }
+    }
+}
+
+/// Direct C benchmark results
+#[derive(Debug, Clone)]
+pub struct DirectBenchmarkResult {
+    pub iterations: u64,
+    pub time_ns: u64,
+}
+
+impl QueryIterator {
+    /// Run direct C benchmark for wildcard read operations
+    pub fn benchmark_wildcard_read_direct(max_id: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_wildcard_read_direct_c(max_id, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
+    }
+
+    /// Run direct C benchmark for wildcard skip_to operations
+    pub fn benchmark_wildcard_skip_to_direct(max_id: u64, step: u64) -> DirectBenchmarkResult {
+        let mut iterations = 0u64;
+        let mut time_ns = 0u64;
+        unsafe {
+            benchmark_wildcard_skip_to_direct_c(max_id, step, &mut iterations, &mut time_ns);
+        }
+        DirectBenchmarkResult {
+            iterations,
+            time_ns,
+        }
     }
 }
 

@@ -40,7 +40,7 @@ typedef struct ParseHybridCommandCtx {
 int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                   RedisSearchCtx *sctx, const char* indexname,
                                   ParseHybridCommandCtx *parsedCmdCtx,
-                                  QueryError *status);
+                                  QueryError *status, bool internal);
 
 #ifdef __cplusplus
 }
