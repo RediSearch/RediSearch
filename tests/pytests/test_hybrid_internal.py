@@ -98,7 +98,9 @@ def read_cursor_completely_resp2(env, index_name, cursor_id, batch_callback=None
         # Extract document keys from cursor results (RESP 2 doesn't include scores)
         for result in batch_results:
             result_dict = dict(zip(result[::2], result[1::2]))
-            all_results.append(result_dict.get('__key'))
+            key = result_dict.get('__key')
+            if key is not None:
+                all_results.append(key)
 
     return sorted(all_results)
 
