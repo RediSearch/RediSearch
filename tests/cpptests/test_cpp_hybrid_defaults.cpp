@@ -185,8 +185,7 @@ TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
 // Flag verification tests
 TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF");
+                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA);
 
   parseCommand(args);
   // Both flags should be false
@@ -197,7 +196,7 @@ TEST_F(HybridDefaultsTest, testFlagTrackingImplicitBoth) {
 TEST_F(HybridDefaultsTest, testFlagTrackingExplicitK) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "COMBINE", "RRF");
+                      "KNN", "2", "K", "8");
 
   parseCommand(args);
   // K explicit, WINDOW implicit
