@@ -43,7 +43,7 @@ static int HybridDispatcher_AddMapping(HybridDispatcher *dispatcher, CursorMappi
         array_append(dispatcher->vsimMappings, mapping);
     }
     // Signal that mappings have been added
-    pthread_cond_signal(&dispatcher->mapping_ready_cond);
+    pthread_cond_broadcast(&dispatcher->mapping_ready_cond);
     pthread_mutex_unlock(&dispatcher->data_mutex);
     return 0; // RS_RESULT_OK
 }

@@ -702,7 +702,7 @@ void iterCursorMappingCb(void *p) {
     it->cbxs[i].cmd.num = 4;
     char buf[128];
     sprintf(buf, "%lld", mappings[i]->cursorId);
-    MRCommand_ReplaceArg(&it->cbxs[i].cmd, 4, buf, strlen(buf));
+    MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
   }
 
   // Send commands to all shards

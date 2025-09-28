@@ -47,7 +47,7 @@ static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
 
   RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: idx=%s", idx);
 
-  MRCommand cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
+  nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
   nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, dispatcher->searchMappings);
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
