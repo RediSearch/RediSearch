@@ -1423,6 +1423,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->reqConfig,
     };
+    req->rootiter = NULL; // Ownership of the root iterator is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params);
     if (status->code != QUERY_OK) {
       return REDISMODULE_ERR;
