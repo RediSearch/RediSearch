@@ -143,7 +143,7 @@ static bool parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, RSSearchOpt
   int windowValue = HYBRID_DEFAULT_WINDOW;
   bool hasExplicitWindow = false;
 
-  if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status)) {
+  if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, searchOpts, status)) {
     return false;
   }
   
@@ -181,9 +181,9 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
   if (parsedScoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
-    parsed = parseLinearClause(ac, &combineCtx->linearCtx, combineCtx->searchopts, status);
+    parsed = parseLinearClause(ac, &combineCtx->linearCtx, ctx->searchopts, status);
   } else if (parsedScoringType == HYBRID_SCORING_RRF) {
-    parsed = parseRRFClause(ac, &combineCtx->rrfCtx, status);
+    parsed = parseRRFClause(ac, &combineCtx->rrfCtx, ctx->searchopts, status);
   }
   if (!parsed) {
     return;
