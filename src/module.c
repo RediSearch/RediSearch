@@ -70,6 +70,7 @@
 #include "search_disk.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
+#include "util/redis_mem_info.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
@@ -156,6 +157,13 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 // Enterprise environments only.
 static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
   return !IsEnterprise() || ACLUserMayAccessIndex(ctx, sp);
+}
+
+// OOM guardrail with heuristics
+// TODO: add heuristics
+// Assumes the GIL is held by the caller
+static bool estimateOOM(RedisModuleCtx *ctx) {
+  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
 }
 
 // Returns true if the current context has permission to execute debug commands
@@ -3176,6 +3184,15 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
 
+  // Check OOM if OOM policy is not ignore
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // No need to hold the GIL since we are not in a background thread
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    }
+  }
+
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
   // Check the ACL key permissions of the user w.r.t the queried index (only if
   // not profiling, as it was already checked earlier).
@@ -3505,6 +3522,15 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     argv++;
     argc--;
     dist_callback = DEBUG_DistSearchCommandHandler;
+  }
+
+  // Check OOM if OOM policy is not ignore
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // No need to hold the GIL since we are not in a background thread
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      return RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_EOOM));
+    }
   }
 
   // Prepare spec ref for the background thread

@@ -27,7 +27,6 @@
 #include "pipeline/pipeline.h"
 #include "util/units.h"
 #include "hybrid/hybrid_request.h"
-#include "util/redis_mem_info.h"
 #include "module.h"
 
 typedef enum {
@@ -43,13 +42,6 @@ typedef struct {
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
 } blockedClientReqCtx;
-
-// OOM guardrail with heuristics
-// TODO: add heuristics
-// Assumes the GIL is held by the caller
-static bool estimateOOM(RedisModuleCtx *ctx) {
-  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
-}
 
 static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num);
 
