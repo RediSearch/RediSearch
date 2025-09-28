@@ -85,7 +85,7 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   ArgParser_Free(parser);
 }
 
-static int parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
+static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
   *hasExplicitWindow = false;
   ArgsCursor rrf = {0};
   if (!getVarArgsForClause(ac, &rrf, "RRF", status)) {

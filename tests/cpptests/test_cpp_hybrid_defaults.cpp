@@ -135,7 +135,7 @@ TEST_F(HybridDefaultsTest, testDefaultValues) {
 TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "LIMIT", "0", "25");
+                      "LIMIT", "0", "25");
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, 25, 25);
@@ -156,7 +156,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackKOnly) {
 TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "8", "COMBINE", "RRF", "LIMIT", "0", "25");
+                      "KNN", "2", "K", "8", "LIMIT", "0", "25");
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, 25, 8);
@@ -176,7 +176,7 @@ TEST_F(HybridDefaultsTest, testExplicitOverridesLimit) {
 TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
                       "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "COMBINE", "RRF", "LIMIT", "0", "10000");
+                      "LIMIT", "0", "10000");
 
   parseCommand(args);
   validateDefaultParams(result, parseCtx, 10000, 10000);
