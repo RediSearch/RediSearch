@@ -750,7 +750,7 @@ def test_with_fields():
                         'SORTBY', 'score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
                         'NOCONTENT')
         dist_range = dimension * qty**2  # distance from query vector to the furthest vector in the index.
-        res_range = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_SCORE_AS:score}',
+        res_range = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:score}',
                                          'SORTBY', 'score', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
                                          'RETURN', 2, 'score', 't')
         env.assertEqual(res[1::2], res_nocontent[1:])
@@ -1957,7 +1957,7 @@ def test_range_query_basic():
 
             # search in an empty index
             query_data = create_np_array_typed([1]*dim, data_type)
-            env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 0.1 $vec_param]=>{$YIELD_SCORE_AS:$score_field}',
+            env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 0.1 $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
                                    'SORTBY', 'score', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'score_field', 'score',
                                    'RETURN', 1, 'score', 'LIMIT', 0, n).equal([0])
 
@@ -1967,7 +1967,7 @@ def test_range_query_basic():
             # Expect to get the `id_diff` docs with the highest ids.
             dist_range = dim * id_diff**2
             query_data = create_np_array_typed([n+1]*dim, data_type)
-            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_SCORE_AS:$score_field}',
+            res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
             'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
             'RETURN', 1, 'score', 'LIMIT', 0, n)
             env.assertEqual(res[0], id_diff, message=msg)
@@ -1998,11 +1998,11 @@ def test_range_query_basic_random_vectors():
     query_data = load_vectors_to_redis(env, n, 0, dim)
 
     radius = 0.23
-    res_default_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_SCORE_AS:dist}',
+    res_default_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
                                'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                                'RETURN', 1, 'dist', 'LIMIT', 0, n)
 
-    res_higher_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_SCORE_AS:dist; $EPSILON: 0.1}',
+    res_higher_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist; $EPSILON: 0.1}',
                                'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                                'RETURN', 1, 'dist', 'LIMIT', 0, n)
 
@@ -2065,7 +2065,7 @@ def test_range_query_complex_queries():
             if i == 5:
                 continue
             expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'text', 'num', str(index_size-i)]])
-        res = env.cmd('FT.SEARCH', 'idx', '@t:text @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_SCORE_AS:dist}',
+        res = env.cmd('FT.SEARCH', 'idx', '@t:text @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
                         'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                         'RETURN', 3, 'dist', 't', 'num', 'LIMIT', 0, index_size)
         env.assertEqual(res, expected_res, message=loop_case)
@@ -2075,7 +2075,7 @@ def test_range_query_complex_queries():
         expected_res = [10]
         for i in range(0, 50, 5):
             expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other', 'num', str(i-index_size)]])
-        res = env.cmd('FT.SEARCH', 'idx', 'other @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_SCORE_AS:dist}',
+        res = env.cmd('FT.SEARCH', 'idx', 'other @v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
                         'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                         'RETURN', 3, 'dist', 't', 'num' ,'LIMIT', 0, index_size)
         env.assertEqual(res, expected_res, message=loop_case)
@@ -2091,14 +2091,14 @@ def test_range_query_complex_queries():
             expected_res.extend([str(index_size-i), ['dist', str(dim * i**2), 't', 'other' if (index_size-i) % 5 == 0 else 'text',
                                 'num', str(i-index_size if (index_size-i) % 5 == 0 else index_size-i)]])
         res = env.cmd('FT.SEARCH', 'idx',
-                f'(@t:other | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_SCORE_AS:dist}}',
+                f'(@t:other | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_DISTANCE_AS:dist}}',
                 'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                 'RETURN', 3, 'dist', 't', 'num', 'LIMIT', 0, index_size)
         env.assertEqual(res, expected_res, message=loop_case)
 
         # Test again with NOT operator - expect to get the same result, since NOT 'text' means that @t contains 'other'
         res = env.cmd('FT.SEARCH', 'idx',
-                f'(-text | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_SCORE_AS:dist}}',
+                f'(-text | @num:[{index_size-60} ({index_size-50}]) @v:[VECTOR_RANGE $r $vec_param]=>{{$YIELD_DISTANCE_AS:dist}}',
                 'SORTBY', 'dist', 'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                 'RETURN', 3, 'dist', 't', 'num', 'LIMIT', 0, index_size)
         env.assertEqual(res, expected_res, message=loop_case)
@@ -2157,8 +2157,8 @@ def test_multiple_range_queries():
     # Run queries over an empty index
     query_vec_flat = create_np_array_typed([n/4]*dim, data_type)
     query_vec_hnsw = create_np_array_typed([n/2]*dim, data_type)
-    intersect_query = '(@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_SCORE_AS:dist_flat} @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_SCORE_AS:dist_hnsw})'
-    union_query = '(@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_SCORE_AS:dist_flat} | @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_SCORE_AS:dist_hnsw})'
+    intersect_query = '(@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw})'
+    union_query = '(@v_flat:[VECTOR_RANGE $r $vec_param_flat]=>{$YIELD_DISTANCE_AS:dist_flat} | @v_hnsw:[VECTOR_RANGE $r $vec_param_hnsw]=>{$YIELD_DISTANCE_AS:dist_hnsw})'
     for query in [intersect_query, union_query]:
         env.expect('FT.SEARCH', 'idx', query, 'SORTBY', 'dist_flat', 'PARAMS', 6, 'vec_param_flat', query_vec_flat.tobytes(),
                     'vec_param_hnsw', query_vec_hnsw.tobytes(), 'r', 1,

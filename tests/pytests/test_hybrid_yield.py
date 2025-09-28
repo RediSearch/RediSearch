@@ -116,31 +116,7 @@ def test_hybrid_vsim_range_yield_score_as():
         returned_distance = float(doc_result['vector_score'])
         expected_distance = calculate_l2_distance_normalized(query_vector, test_data[doc_key]['embedding'])
         env.assertAlmostEqual(returned_distance, expected_distance, delta=1e-6)
-
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
-def test_hybrid_vsim_knn_yield_score_as():
-    """Test VSIM KNN with YIELD_SCORE_AS parameter - should fail as it's no longer supported in VSIM"""
-    env = Env()
-    setup_basic_index(env)
-    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-
-    # YIELD_SCORE_AS is no longer supported in VSIM clauses
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score').error()
-
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
-def test_hybrid_vsim_range_yield_score_as():
-    """Test VSIM RANGE with YIELD_SCORE_AS parameter - should fail as it's no longer supported in VSIM"""
-    env = Env()
-    setup_basic_index(env)
-    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-    radius = 2
-
-    # YIELD_SCORE_AS is no longer supported in VSIM clauses
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score').error()
+        
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -239,19 +215,6 @@ def test_hybrid_yield_score_as_after_combine_error():
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
-def test_hybrid_yield_score_as_after_combine_error():
-    """Test that YIELD_SCORE_AS after COMBINE keyword fails"""
-    env = Env()
-    setup_basic_index(env)
-    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-
-    # This should fail because YIELD_SCORE_AS appears after COMBINE
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'KNN', '4', 'K', '10', 'COMBINE', 'RRF', '2', 'CONSTANT', '60',
-               'YIELD_SCORE_AS', 'vector_score').error()
-
-# TODO: remove once FT.HYBRID for cluster is implemented
-@skip(cluster=True)
 def test_hybrid_search_yield_score_as_after_combine():
     """Test that SEARCH YIELD_SCORE_AS after COMBINE keyword works"""
     env = Env()
@@ -260,7 +223,7 @@ def test_hybrid_search_yield_score_as_after_combine():
 
     # YIELD_SCORE_AS after COMBINE should now work
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score')
+                        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score')
     results = get_results_from_hybrid_response(response)
 
     # Validate the search_score field
@@ -282,5 +245,5 @@ def test_hybrid_multiple_yield_after_combine_error():
 
     # This should fail because both YIELD parameters appear after COMBINE
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'KNN', '4', 'K', '10', 'COMBINE', 'LINEAR', '4', 'ALPHA', '0.5', 'BETA', '0.5',
+               'KNN', '4', 'K', '10', 'COMBINE', 'LINEAR', '8', 'ALPHA', '0.5', 'BETA', '0.5',
                'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
