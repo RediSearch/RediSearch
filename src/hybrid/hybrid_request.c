@@ -106,9 +106,15 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, HybridPipelineParams *p
     RLookup_Init(lookup, IndexSpec_GetSpecCache(req->sctx->spec));
     HybridLookupContext *lookupCtx = InitializeHybridLookupContext(req->requests, lookup);
 
+    const char *scoreAlias = params->aggregationParams.common.scoreAlias;
     const RLookupKey *scoreKey = NULL;
-    if (params->aggregationParams.common.scoreAlias) {
-      scoreKey = RLookup_GetKey_Write(lookup, params->aggregationParams.common.scoreAlias, RLOOKUP_F_NOFLAGS);
+    if (scoreAlias) {
+      scoreKey = RLookup_GetKey_Write(lookup, scoreAlias, RLOOKUP_F_NOFLAGS);
+      if (!scoreKey) {
+        array_free(depleters);
+        QueryError_SetWithUserDataFmt(&req->tailPipelineError, QUERY_EDUPFIELD, "Could not create score alias, name already exists in query", "%s", scoreAlias);
+        return REDISMODULE_ERR;
+      }
     } else {
       scoreKey = RLookup_GetKey_Read(lookup, UNDERSCORE_SCORE, RLOOKUP_F_NOFLAGS);
     }
