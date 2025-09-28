@@ -2797,7 +2797,7 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
   return REDISMODULE_OK;
 }
 
-static bool should_return_error(MRReply *reply) {
+bool should_return_error(MRReply *reply) {
   const char *errStr = MRReply_String(reply, NULL);
   if (!errStr) {
     return true;  // No error string means we should return error

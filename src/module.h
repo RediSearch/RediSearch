@@ -123,6 +123,8 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
+bool should_return_error(MRReply *reply);
+
 #ifdef __cplusplus
 }
 #endif
