@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
- #pragma once
-
  #include "aggregate_exec_common.h"
  #include "util/timeout.h"
  #include "info/global_stats.h"
