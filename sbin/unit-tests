@@ -118,7 +118,7 @@ run_with_gdb() {
     create_gdb_command_file
 
     # Use environment variables to disable paging completely and reduce startup text
-    LINES=50000 COLUMNS=200 PAGER= GDB_COLORS= gdb --quiet -iex "set pagination off" -iex "set height 0" -iex "set width 0" -iex "set startup-quietly on" -iex "set verbose off" -x "$GDB_CMD_FILE" --args "${test_command[@]}" 2>/dev/null
+    LINES=50000 COLUMNS=200 PAGER= GDB_COLORS= gdb --quiet -iex "set pagination off" -iex "set height 0" -iex "set width 0" -iex "set startup-quietly on" -iex "set verbose off" -x "$GDB_CMD_FILE" --args "${test_command[@]}"
     local test_result=$?
     (( EXIT_CODE |= $test_result ))
     echo "----------------------------------------"
@@ -196,7 +196,7 @@ run_c_tests() {
 
     if [[ -z $TEST ]]; then
         # Run all C tests
-        for test in $(find $C_TESTS_DIR -maxdepth 1 -name "test_*" -type f -executable -print); do
+        for test in $(find $C_TESTS_DIR -maxdepth 1 -name "test_*" -type f -perm -u+x -print); do
             run_single_test "$test" ""
         done
     elif [[ -f $C_TESTS_DIR/$TEST ]]; then
@@ -332,7 +332,7 @@ run_coordinator_tests() {
     for TESTS_DIR in "${TEST_DIRS[@]}"; do
         if [[ -z $TEST ]]; then
             # Run all coordinator tests
-            for test in $(find "$TESTS_DIR" -maxdepth 1 -name "test_*" -type f -executable -print); do
+            for test in $(find "$TESTS_DIR" -maxdepth 1 -name "test_*" -type f -perm -u+x -print); do
                 run_single_test "$test" "coord_"
             done
         elif [[ -f "$TESTS_DIR/$TEST" ]]; then
