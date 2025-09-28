@@ -248,7 +248,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     cmd.reqConfig = &hreq->reqConfig;
 
     const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-    int rc = parseHybridCommand(ctx, argv, argc, hreq->sctx, indexname, &cmd, status);
+    int rc = parseHybridCommand(ctx, argv, argc, hreq->sctx, indexname, &cmd, status, false);
     // we only need parse the combine and what comes after it
     // we can manually create the subqueries pipelines (depleter -> sorter(window)-> RPNet(shared dispatcher ))
     if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
