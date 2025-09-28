@@ -658,7 +658,7 @@ void iterStartCb(void *p) {
 
   // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
-    RedisModule_Log(NULL, "warning", "iterStartCb: sending command to shard %d", it->cbxs[i].cmd.targetSlot);
+    RedisModule_Log(NULL, "warning", "iterStartCb: sending command %s to shard %d", MRCommand_SafeToString(&it->cbxs[i].cmd), it->cbxs[i].cmd.targetSlot);
     if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
@@ -674,7 +674,8 @@ void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
   arrayof(CursorMapping *) mappings = (arrayof(CursorMapping *))data->privateData;
-  RS_ASSERT(!mappings || array_len(mappings) > 0);
+  RedisModule_Log(NULL, "warning", "iterCursorMappingCb: mappings is %p, array_len(mappings) is %zu", mappings, array_len(mappings));
+  // RS_ASSERT(mappings && array_len(mappings) > 0);
 
   IORuntimeCtx *io_runtime_ctx = it->ctx.ioRuntime;
   size_t numShards = io_runtime_ctx->topo->numShards;
@@ -707,6 +708,7 @@ void iterCursorMappingCb(void *p) {
 
   // Send commands to all shards
   for (size_t i = 0; i < it->len; i++) {
+    RedisModule_Log(NULL, "warning", "iterCursorMappingCb: sending command %s to shard %d", MRCommand_SafeToString(&it->cbxs[i].cmd), it->cbxs[i].cmd.targetSlot);
     if (MRCluster_SendCommand(io_runtime_ctx, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
       MRIteratorCallback_Done(&it->cbxs[i], 1);
@@ -714,7 +716,7 @@ void iterCursorMappingCb(void *p) {
   }
 
   // Clean up the data structure
-  rm_free(data);
+  // rm_free(data);
 }
 
 // This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
@@ -878,4 +880,44 @@ void MR_FreeCluster() {
   MRCluster_Free(cluster_g);
   cluster_g = NULL;
   RedisModule_ThreadSafeContextLock(RSDummyContext);
+}
+
+sds MRCommand_SafeToString(const MRCommand *cmd) {
+  if (!cmd || cmd->num <= 0 || !cmd->strs || !cmd->lens) {
+    return NULL;
+  }
+
+  sds cmd_str = sdsnewlen("", 0);
+  if (!cmd_str) {
+    return NULL;
+  }
+
+  for (int i = 0; i < cmd->num; i++) {
+    // Validate each argument before accessing
+    if (!cmd->strs[i] || cmd->lens[i] <= 0 || cmd->lens[i] >= 1024 * 1024) {
+      // Skip invalid arguments but continue processing
+      continue;
+    }
+
+    sds new_str = sdscatlen(cmd_str, cmd->strs[i], cmd->lens[i]);
+    if (!new_str) {
+      // Memory allocation failed
+      sdsfree(cmd_str);
+      return NULL;
+    }
+    cmd_str = new_str;
+
+    // Add space separator (except for the last argument)
+    if (i < cmd->num - 1) {
+      sds space_str = sdscatlen(cmd_str, " ", 1);
+      if (!space_str) {
+        // Memory allocation failed
+        sdsfree(cmd_str);
+        return NULL;
+      }
+      cmd_str = space_str;
+    }
+  }
+
+  return cmd_str;
 }

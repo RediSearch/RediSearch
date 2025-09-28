@@ -162,17 +162,44 @@ void rpnetFree(ResultProcessor *rp) {
     array_free(nc->shardsProfile);
   }
 
+  // UPDATED: Free dispatch context
+  if (nc->dispatchCtx) {
+    HybridDispatchContext_Free(nc->dispatchCtx);
+  }
+
   MRReply_Free(nc->current.root);
   MRCommand_Free(&nc->cmd);
 
   rm_free(rp);
 }
 
+// NEW: Create dispatch context
+HybridDispatchContext *HybridDispatchContext_New(StrongRef dispatcher_ref, bool isSearch) {
+    HybridDispatchContext *ctx = rm_calloc(1, sizeof(HybridDispatchContext));
+    ctx->dispatcher_ref = StrongRef_Clone(dispatcher_ref);
+    ctx->isSearch = isSearch;
+    ctx->mappings = NULL; // Will be set when taking ownership
+    return ctx;
+}
+
+void HybridDispatchContext_Free(HybridDispatchContext *ctx) {
+    if (ctx) {
+        StrongRef_Release(ctx->dispatcher_ref);
+        array_free_ex(ctx->mappings, free);
+        rm_free(ctx);
+
+    }
+}
+
+void RPNet_SetDispatchContext(RPNet *nc, StrongRef dispatcher_ref, bool isSearch) {
+    nc->dispatchCtx = HybridDispatchContext_New(dispatcher_ref, isSearch);
+}
+
 RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   RPNet *nc = rm_calloc(1, sizeof(*nc));
   nc->cmd = *cmd; // Take ownership of the command's internal allocations
   nc->areq = NULL;
-  nc->dispatcher = NULL;
+  nc->dispatchCtx = NULL;
   nc->shardsProfile = NULL;
   nc->base.Free = rpnetFree;
   nc->base.Next = nextFunc;
@@ -180,9 +207,7 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
   return nc;
 }
 
-void RPNet_SetDispatcher(RPNet *nc, HybridDispatcher *dispatcher) {
-  nc->dispatcher = dispatcher;
-}
+
 
 void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
@@ -195,6 +220,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   MRReply *root = nc->current.root, *rows = nc->current.rows;
   const bool resp3 = nc->cmd.protocol == 3;
 
+  RedisModule_Log(NULL, "warning", "rpnetNext: beginning");
   // root (array) has similar structure for RESP2/3:
   // [0] array of results (rows) described right below
   // [1] cursor (int)
@@ -286,6 +312,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       nc->curIdx = 1;
     }
   }
+
+  RedisModule_Log(NULL, "warning", "rpnetNext: rows is %s", MRReply_String(rows, NULL));
 
   MRReply *fields = MRReply_ArrayElement(rows, nc->curIdx++);
   if (resp3) {

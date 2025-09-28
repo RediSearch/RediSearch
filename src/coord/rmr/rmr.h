@@ -128,3 +128,5 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
+
+sds MRCommand_SafeToString(const MRCommand *cmd);

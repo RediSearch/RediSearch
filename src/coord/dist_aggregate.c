@@ -342,12 +342,9 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   array_free(tmparr);
 }
 
-static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *), HybridDispatcher *dispatcher) {
+static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us, int (*nextFunc)(ResultProcessor *, SearchResult *)) {
   // Establish our root processor, which is the distributed processor
   RPNet *rpRoot = RPNet_New(xcmd, nextFunc); // This will take ownership of the command
-  if (dispatcher) {
-    RPNet_SetDispatcher(rpRoot, dispatcher);
-  }
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
   rpRoot->lookup = us->lookup;
@@ -466,7 +463,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   xcmd.rootCommand = C_AGG;  // Response is equivalent to a `CURSOR READ` response
 
   // Build the result processor chain
-  buildDistRPChain(r, &xcmd, &us, rpnetNext_Start, NULL);
+  buildDistRPChain(r, &xcmd, &us, rpnetNext_Start);
 
   if (IsProfile(r)) r->profileParseTime = rs_wall_clock_elapsed_ns(&r->initClock);
 

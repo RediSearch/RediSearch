@@ -14,7 +14,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define INTERNAL_HYBRID_RESP3_LENGTH 2
+#define INTERNAL_HYBRID_RESP3_LENGTH 4
 #define INTERNAL_HYBRID_RESP2_LENGTH 4
 
 static void HybridDispatcher_MarkStarted(HybridDispatcher *dispatcher) {
@@ -23,11 +23,13 @@ static void HybridDispatcher_MarkStarted(HybridDispatcher *dispatcher) {
 
 // Unified function for waiting until mappings are complete
 void HybridDispatcher_WaitForMappingsComplete(HybridDispatcher *dispatcher) {
+    RedisModule_Log(NULL, "warning", "HybridDispatcher_WaitForMappingsComplete: waiting for mappings to be complete");
     pthread_mutex_lock(&dispatcher->data_mutex);
     while (array_len(dispatcher->searchMappings) != dispatcher->numShards || array_len(dispatcher->vsimMappings) != dispatcher->numShards) {
         pthread_cond_wait(&dispatcher->mapping_ready_cond, &dispatcher->data_mutex);
     }
     pthread_mutex_unlock(&dispatcher->data_mutex);
+    RedisModule_Log(NULL, "warning", "HybridDispatcher_WaitForMappingsComplete: mappings are complete");
 }
 
 bool HybridDispatcher_IsStarted(const HybridDispatcher *dispatcher) {
@@ -72,6 +74,8 @@ static void processHybridResp2(HybridDispatcher *dispatcher, MRReply *rep, MRCom
             RS_ABORT("Unknown key");
         }
         RedisModule_Log(NULL, "warning", "processHybridResp2: adding mapping for shard %d, cursorId=%lld, isSearch=%d", mapping->targetSlot, mapping->cursorId, isSearch);
+        RedisModule_Log(NULL, "warning", "processHybridResp2: searchMappings is %p, vsimMappings is %p", dispatcher->searchMappings, dispatcher->vsimMappings);
+        RedisModule_Log(NULL, "warning", "processHybridResp2: searchMappings length is %zu, vsimMappings length is %zu", array_len(dispatcher->searchMappings), array_len(dispatcher->vsimMappings));
         HybridDispatcher_AddMapping(dispatcher, mapping, isSearch);
     }
 }
@@ -97,20 +101,16 @@ static void processHybridResp3(HybridDispatcher *dispatcher, MRReply *rep, MRCom
 
 // Callback implementation for processing cursor mappings
 static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
-
+    RedisModule_Log(NULL, "warning", "processCursorMappingCallback: cmd is %s, rep is %s", MRCommand_SafeToString(MRIteratorCallback_GetCommand(ctx)), MRReply_String(rep, NULL));
     // TODO: add response validation (see netCursorCallback)
     // TODO implement error handling
     HybridDispatcher *dispatcher = (HybridDispatcher *)MRIteratorCallback_GetPrivateData(ctx);
     MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
-    char *cmd_str = MRReply_String(rep, NULL);
-    RedisModule_Log(NULL, "warning", "processCursorMappingCallback: cmd=%s", cmd_str);
-    free(cmd_str);
-
     // Detect protocol version based on reply type
     bool isResp3 = MRReply_Type(rep) == MR_REPLY_MAP;
 
-    RedisModule_Log(NULL, "warning", "processCursorMappingCallback: isResp3=%d", isResp3);
+    RedisModule_Log(NULL, "warning", "processCursorMappingCallback: isResp3=%d, reply length is %d", isResp3, MRReply_Length(rep));
     if (isResp3) {
         RS_ASSERT(MRReply_Type(rep) == MR_REPLY_MAP && MRReply_Length(rep) == INTERNAL_HYBRID_RESP3_LENGTH);
         processHybridResp3(dispatcher, rep, cmd);
@@ -124,7 +124,7 @@ static void processCursorMappingCallback(MRIteratorCallbackCtx *ctx, MRReply *re
 }
 
 // Free function for HybridDispatcher
-static void HybridDispatcher_Free(void *obj) {
+void HybridDispatcher_Free(void *obj) {
     HybridDispatcher *dispatcher = (HybridDispatcher *)obj;
 
     // Free command
@@ -136,7 +136,7 @@ static void HybridDispatcher_Free(void *obj) {
     rm_free(dispatcher);
 }
 
-StrongRef HybridDispatcher_New(const MRCommand *cmd,const size_t numShards) {
+HybridDispatcher *HybridDispatcher_New(const MRCommand *cmd, const size_t numShards) {
     HybridDispatcher *dispatcher = rm_calloc(1, sizeof(HybridDispatcher));
 
     dispatcher->numShards = numShards;
@@ -148,10 +148,13 @@ StrongRef HybridDispatcher_New(const MRCommand *cmd,const size_t numShards) {
 
     atomic_init(&dispatcher->started, false);
 
-    // Create self-reference
-    dispatcher->self_ref = StrongRef_New(dispatcher, HybridDispatcher_Free);
+    // NEW: Allocate mapping arrays here
+    dispatcher->searchMappings = array_newlen(CursorMapping*, numShards);
+    dispatcher->vsimMappings = array_newlen(CursorMapping*, numShards);
 
-    return dispatcher->self_ref;
+
+    RedisModule_Log(NULL, "warning", "HybridDispatcher_New: searchMappings is %p, vsimMappings is %p", dispatcher->searchMappings, dispatcher->vsimMappings);
+    return dispatcher;
 }
 
 static MRIterator *HybridDispatcher_ProcessMappings(HybridDispatcher *dispatcher) {
@@ -188,15 +191,20 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher) {
     return 0; // RS_RESULT_OK
 }
 
-void HybridDispatcher_SetMappingArray(HybridDispatcher *dispatcher, arrayof(CursorMapping *) mappings, bool isSearch) {
+
+arrayof(CursorMapping *) HybridDispatcher_TakeMapping(StrongRef dispatcher_ref, bool isSearch) {
+    HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
     pthread_mutex_lock(&dispatcher->data_mutex);
 
+    // Get the mappings and nullify in one step
+    arrayof(CursorMapping *) mappings = isSearch ? dispatcher->searchMappings : dispatcher->vsimMappings;
     if (isSearch) {
-        dispatcher->searchMappings = mappings;
+        dispatcher->searchMappings = NULL;
     } else {
-        dispatcher->vsimMappings = mappings;
+        dispatcher->vsimMappings = NULL;
     }
 
     pthread_mutex_unlock(&dispatcher->data_mutex);
+    return mappings;
 }
 

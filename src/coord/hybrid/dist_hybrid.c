@@ -21,6 +21,8 @@
 
 
 static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
+  RedisModule_Log(NULL, "warning", "nopCallback: cmd is %s, reply type is %d", MRCommand_SafeToString(MRIteratorCallback_GetCommand(ctx)), MRReply_Type(rep));
+  RedisModule_Log(NULL, "warning", "nopCallback: reply length is %d", MRReply_Length(rep));
   MRIteratorCallback_AddReply(ctx, rep);
   MRIteratorCallback_Done(ctx, 0);
 }
@@ -28,27 +30,32 @@ static void nopCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
 static int rpnetNext_StartDispatcher(ResultProcessor *rp, SearchResult *r) {
   RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher");
   RPNet *nc = (RPNet *)rp;
-  HybridDispatcher *dispatcher = nc->dispatcher;
+  HybridDispatcher *dispatcher = StrongRef_Get(nc->dispatchCtx->dispatcher_ref);
 
   if (!HybridDispatcher_IsStarted(dispatcher)) {
-    //TODO:len is number of shards
-    arrayof(CursorMapping *) searchMappings = array_new(CursorMapping* ,10);
-    arrayof(CursorMapping *) vsimMappings = array_new(CursorMapping*, 10);
-    // TODO: better initialization of the mappings (pipeline building flow dependent)
-    HybridDispatcher_SetMappingArray(dispatcher, searchMappings, true);
-    HybridDispatcher_SetMappingArray(dispatcher, vsimMappings, false);
     HybridDispatcher_Dispatch(dispatcher);
   } else {
     // Wait for completion - this can be called from multiple threads
     HybridDispatcher_WaitForMappingsComplete(dispatcher);
   }
+
+  nc->dispatchCtx->mappings = HybridDispatcher_TakeMapping(nc->dispatchCtx->dispatcher_ref, nc->dispatchCtx->isSearch);
+  if (!nc->dispatchCtx->mappings) {
+    RedisModule_Log(NULL, "error", "Failed to take mappings for %s RPNet", nc->dispatchCtx->isSearch ? "search" : "vsim");
+    return REDISMODULE_ERR;
+  }
+  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: taking mappings, isSearch=%d", nc->dispatchCtx->isSearch);
+  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: mappings is %p, array_len(mappings) is %zu", nc->dispatchCtx->mappings, array_len(nc->dispatchCtx->mappings));
+  // NEW: Take ownership of the appropriate mapping array
+
   // for hybrid commands, the index name is at position 1
   const char *idx = MRCommand_ArgStringPtrLen(&dispatcher->cmd, 1, NULL);
+  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: idx=%s, type=%s", idx, nc->dispatchCtx->isSearch ? "search" : "vsim");
 
-  RedisModule_Log(NULL, "warning", "rpnetNext_StartDispatcher: idx=%s", idx);
+  // sleep(60);
 
   nc->cmd = MR_NewCommand(3, "_FT.CURSOR", "READ", idx);
-  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, dispatcher->searchMappings);
+  nc->it = MR_IterateWithPrivateData(&nc->cmd, nopCallback, NULL, iterCursorMappingCb, nc->dispatchCtx->mappings);
   nc->base.Next = rpnetNext;
   return rpnetNext(rp, r);
 }
@@ -128,17 +135,19 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   }
 }
 
-// TODO: Fix this
+// UPDATED: Set RPNet types when creating them
+// NOTE: Caller should clone the dispatcher_ref before calling this function
 static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
                           AREQDIST_UpstreamInfo *us,
                           int (*nextFunc)(ResultProcessor *, SearchResult *),
-                          HybridDispatcher *dispatcher) {
+                          StrongRef dispatcher_ref, bool isSearch) {
   // Establish our root processor, which is the distributed processor
   RedisModule_Log(NULL, "debug", "HybridRequest_buildDistRPChain");
   MRCommand cmd = MRCommand_Copy(xcmd);
 
-  RPNet *rpRoot = RPNet_New(&cmd, rpnetNext_StartDispatcher); // This will take ownership of the command
-  RPNet_SetDispatcher(rpRoot, dispatcher);
+  RPNet *rpRoot = RPNet_New(&cmd, rpnetNext_StartDispatcher);
+
+  RPNet_SetDispatchContext(rpRoot, dispatcher_ref, isSearch);
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(r);
   rpRoot->base.parent = qctx;
@@ -282,29 +291,15 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
     // xcmd.forProfiling = false;  // No profiling support for hybrid yet
     // xcmd.rootCommand = C_AGG;   // Response is equivalent to a `CURSOR READ` response
 
-    // TODO: Build the result processor chain
-    StrongRef dispatcher_ref = HybridDispatcher_New(&xcmd, 3);
-    HybridDispatcher *dispatcher = StrongRef_Get(dispatcher_ref);
+    HybridDispatcher *dispatcher = HybridDispatcher_New(&xcmd, 3);
+    StrongRef dispatcher_ref = StrongRef_New(dispatcher, HybridDispatcher_Free);
 
-    // // Add RPNet to each AREQ
-    // for (size_t i = 0; i < hreq->nrequests; i++) {
-    //     AREQ *areq = hreq->requests[i];
-    //     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
-    //     RPNet *rpNet = RPNet_New(&xcmd, rpnetNext_StartDispatcher);
-    //     RPNet_SetDispatcher(rpNet, dispatcher);
-    //     addResultProcessor(qctx, &rpNet->base);
-    // }
+    // FIXED: Clone references for each RPNet and pass correct parameters
+    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartDispatcher, StrongRef_Clone(dispatcher_ref), true);
+    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartDispatcher, StrongRef_Clone(dispatcher_ref), false);
 
-    // RedisModule_Log(NULL, "warning", "HybridRequest_prepareForExecution: tail RP chain:");
-    // logRPChain(hreq->tailPipeline->qctx.endProc);
-
-    // RedisModule_Log(NULL, "warning", "HybridRequest_prepareForExecution: requests[0] RP chain:");
-    // logRPChain(hreq->requests[0]->pipeline.qctx.endProc);
-    // RedisModule_Log(NULL, "warning", "HybridRequest_prepareForExecution: requests[1] RP chain:");
-    // logRPChain(hreq->requests[1]->pipeline.qctx.endProc);
-
-    HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, &us, rpnetNext_StartDispatcher, dispatcher);
-    HybridRequest_buildDistRPChain(hreq->requests[1], &xcmd, &us, rpnetNext_StartDispatcher, dispatcher);
+    // Release the original reference (RPNet contexts now own their references)
+    StrongRef_Release(dispatcher_ref);
 
 
     // Free the command

@@ -39,18 +39,21 @@ typedef struct HybridDispatcher {
     // State management - using atomics for efficiency
     atomic_bool started;                      // Whether the dispatcher has started processing
 
-    // Reference counting (via StrongRef)
-    StrongRef self_ref;                       // Self-reference for sharing
-
     size_t numShards;
 } HybridDispatcher;
 
 /**
  * Creates a new HybridDispatcher instance
  * @param cmd The MRCommand to execute
- * @return StrongRef to the new HybridDispatcher instance
+ * @return HybridDispatcher pointer
  */
-StrongRef HybridDispatcher_New(const MRCommand *cmd, size_t numShards);
+HybridDispatcher *HybridDispatcher_New(const MRCommand *cmd, size_t numShards);
+
+/**
+ * Free a HybridDispatcher instance
+ * @param dispatcher The dispatcher instance
+ */
+void HybridDispatcher_Free(void *obj);
 
 /**
  * Complete dispatch workflow: start processing, wait for completion, and finish
@@ -67,12 +70,12 @@ int HybridDispatcher_Dispatch(HybridDispatcher *dispatcher);
 bool HybridDispatcher_IsStarted(const HybridDispatcher *dispatcher);
 
 /**
- * Sets the mapping array for search or vector similarity (thread-safe)
- * @param dispatcher The dispatcher instance
- * @param mappings Array of cursor mappings (not OWNED)
+ * Takes ownership of mapping arrays (thread-safe)
+ * @param dispatcher_ref StrongRef to the dispatcher instance
  * @param isSearch Whether this is for search mappings (true) or vsim mappings (false)
+ * @return Array of cursor mappings (caller takes ownership) or NULL if already taken
  */
-void HybridDispatcher_SetMappingArray(HybridDispatcher *dispatcher, arrayof(CursorMapping *) mappings, bool isSearch);
+arrayof(CursorMapping *) HybridDispatcher_TakeMapping(StrongRef dispatcher_ref, bool isSearch);
 
 /**
  * Waits for both search and vsim mappings to be complete (thread-safe)

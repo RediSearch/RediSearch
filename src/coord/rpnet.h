@@ -20,6 +20,13 @@
 extern "C" {
 #endif
 
+// NEW: Dispatch context for hybrid operations
+typedef struct {
+  StrongRef dispatcher_ref;  // Reference to the dispatcher this RPNet is associated with
+  bool isSearch;  // true for search RPNet, false for vsim RPNet
+  arrayof(CursorMapping *) mappings;  // The mappings this RPNet will take ownership of
+} HybridDispatchContext;
+
 typedef struct {
   ResultProcessor base;
   struct {
@@ -33,7 +40,7 @@ typedef struct {
   MRIterator *it;
   MRCommand cmd;
   AREQ *areq;
-  HybridDispatcher *dispatcher;
+  HybridDispatchContext *dispatchCtx;
 
   // profile vars
   arrayof(MRReply *) shardsProfile;
@@ -45,6 +52,11 @@ RPNet *RPNet_New(const MRCommand *cmd, int (*nextFunc)(ResultProcessor *, Search
 void RPNet_SetDispatcher(RPNet *nc, HybridDispatcher *dispatcher);
 void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
+
+// NEW: Dispatch context management functions
+HybridDispatchContext *HybridDispatchContext_New(StrongRef dispatcher_ref, bool isSearch);
+void HybridDispatchContext_Free(HybridDispatchContext *ctx);
+void RPNet_SetDispatchContext(RPNet *nc, StrongRef dispatcher_ref, bool isSearch);
 
 
 #ifdef __cplusplus

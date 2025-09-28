@@ -70,12 +70,6 @@
  void startPipelineCommon(RSTimeoutPolicy timeoutPolicy, struct timespec *timeout,
                                 ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
 
-  RedisModule_Log(NULL, "warning", "startPipelineCommon: rp->type: %s", RPTypeToString(rp->type));
-  for (ResultProcessor *rp = rp; rp; rp = rp->upstream) {
-    RedisModule_Log(NULL, "warning", "startPipelineCommon: next rp->type: %s", RPTypeToString(rp->type));
-  }
-
-
    if (timeoutPolicy == TimeoutPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, rc);
