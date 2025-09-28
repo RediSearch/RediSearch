@@ -81,7 +81,7 @@ def test_hybrid_vector_knn_with_score():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_score')
+                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_score')
     results = get_results_from_hybrid_response(response)
 
     # Validate the vector_score field for all returned results
@@ -103,7 +103,7 @@ def test_hybrid_vector_range_with_score():
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'green', 'VSIM', '@embedding', query_vector,
-                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_DISTANCE_AS', 'vector_score')
+                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_score')
     results = get_results_from_hybrid_response(response)
 
     # Validate the vector_score field for all returned results

@@ -12,7 +12,7 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
-static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
+static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RSSearchOptions* searchOpts, QueryError *status) {
   // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
   //        ^
 
@@ -51,6 +51,7 @@ static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   // Define the required arguments
   ArgParser_AddDouble(parser, "ALPHA", "Alpha weight value", &alphaValue);
   ArgParser_AddDouble(parser, "BETA", "Beta weight value", &betaValue);
+  ArgParser_AddString(parser, "YIELD_SCORE_AS", "Alias for the combined score", &searchOpts->scoreAlias);
 
   // Parse the arguments
   ArgParseResult result = ArgParser_Parse(parser);
@@ -80,7 +81,7 @@ static bool parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   return true;
 }
 
-static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
+static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, RSSearchOptions* searchOpts, QueryError *status) {
   *hasExplicitWindow = false;
   ArgsCursor rrf;
   int rc = AC_GetVarArgs(ac, &rrf);
@@ -117,6 +118,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
                     ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
                     ARG_OPT_RANGE, 1LL, LLONG_MAX,
                     ARG_OPT_END);
+  ArgParser_AddString(parser, "YIELD_SCORE_AS", "Alias for the combined score", &searchOpts->scoreAlias);
 
   // Parse the arguments
   ArgParseResult result = ArgParser_Parse(parser);
@@ -131,7 +133,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
 }
 
 
-static bool parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError *status) {
+static bool parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, RSSearchOptions *searchOpts, QueryError *status) {
   // RRF 4 CONSTANT 6 WINDOW 20 ...
   //     ^
   // RRF LIMIT
@@ -179,32 +181,11 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
   if (parsedScoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
-    parsed = parseLinearClause(ac, &combineCtx->linearCtx, status);
+    parsed = parseLinearClause(ac, &combineCtx->linearCtx, combineCtx->searchopts, status);
   } else if (parsedScoringType == HYBRID_SCORING_RRF) {
     parsed = parseRRFClause(ac, &combineCtx->rrfCtx, status);
   }
   if (!parsed) {
     return;
   }
-
-  ArgParser *postCombineParser = ArgParser_New(ac, "COMBINE");
-  if (!postCombineParser) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create COMBINE argument parser");
-    return;
-  }
-  ArgParser_AddString(postCombineParser, "YIELD_SCORE_AS", "Alias for the combined score", &ctx->searchopts->scoreAlias);
-
-  ArgParseResult result = ArgParser_Parse(postCombineParser);
-  if (!result.success && result.error_code != AC_ERR_ENOENT) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Failed to parse arguments past COMBINE", ": %s", ArgParser_GetErrorString(postCombineParser));
-    ArgParser_Free(postCombineParser);
-    return;
-  }
-  // If we got AC_ERR_ENOENT we can't report an error
-  // few examples:
-  // - COMBINE ... YIELD_SCORE_AS foo - okay
-  // - COMBINE ... YIELD_SCORE_AS foo LOAD 1 goo - me manage to parse yield but stop at LOAD
-  // - COMBINE ... LOAD 1 goo - we stop at LOAD
-  // - COMBINE ... LOAD 1 goo YIELD_SCORE_AS foo - we stop LOAD but don't parse the yield keyword
-  ArgParser_Free(postCombineParser);
 }

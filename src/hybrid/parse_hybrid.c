@@ -166,15 +166,15 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, strlen(value));
       hasEF = true;
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
+    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
       if (pvd->vectorDistanceFieldAlias != NULL) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS argument");
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
         return REDISMODULE_ERR;
       }
-      if (CheckEnd(ac, "YIELD_DISTANCE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_DISTANCE_AS value");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_SCORE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)
@@ -256,15 +256,15 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, strlen(value));
       hasEpsilon = true;
 
-    } else if (AC_AdvanceIfMatch(ac, "YIELD_DISTANCE_AS")) {
+    } else if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
       if (pvd->vectorDistanceFieldAlias != NULL) {
-        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS argument");
+        QueryError_SetError(status, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
         return REDISMODULE_ERR;
       }
-      if (CheckEnd(ac, "YIELD_DISTANCE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
+      if (CheckEnd(ac, "YIELD_SCORE_AS", status) == REDISMODULE_ERR) return REDISMODULE_ERR;
       const char *value;
       if (AC_GetString(ac, &value, NULL, 0) != AC_OK) {
-        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_DISTANCE_AS value");
+        QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_SCORE_AS value");
         return REDISMODULE_ERR;
       }
       // Add as QueryAttribute (for query node processing, not vector-specific)

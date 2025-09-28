@@ -75,13 +75,13 @@ def calculate_l2_distance_raw(vec1_bytes, vec2_bytes):
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_knn_yield_distance_as():
-    """Test VSIM KNN with YIELD_DISTANCE_AS parameter"""
+    """Test VSIM KNN with YIELD_SCORE_AS parameter"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance')
+                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_distance')
     results = get_results_from_hybrid_response(response)
 
     # Validate the vector_distance field for all returned results
@@ -97,14 +97,14 @@ def test_hybrid_vsim_knn_yield_distance_as():
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_range_yield_distance_as():
-    """Test VSIM RANGE with YIELD_DISTANCE_AS parameter"""
+    """Test VSIM RANGE with YIELD_SCORE_AS parameter"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     radius = 2
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_DISTANCE_AS', 'vector_distance')
+                        'RANGE', '4', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_distance')
     results = get_results_from_hybrid_response(response)
 
     # Validate the vector_distance field for all returned results
@@ -166,14 +166,14 @@ def test_hybrid_search_yield_score_as():
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_search_and_vsim_yield_parameters():
-    """Test using SEARCH YIELD_SCORE_AS with VSIM YIELD_DISTANCE_AS together"""
+    """Test using SEARCH YIELD_SCORE_AS with VSIM YIELD_SCORE_AS together"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*', 'YIELD_SCORE_AS', 'search_score',
                         'VSIM', '@embedding', query_vector,
-                        'KNN', '4', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance')
+                        'KNN', '4', 'K', '10', 'YIELD_SCORE_AS', 'vector_distance')
     results = get_results_from_hybrid_response(response)
 
     # Validate both search_score and vector_distance fields
@@ -189,19 +189,19 @@ def test_hybrid_search_and_vsim_yield_parameters():
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_both_yield_distance_and_score():
-    """Test VSIM with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
+    """Test VSIM with both YIELD_SCORE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
     # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'KNN', '6', 'K', '10', 'YIELD_DISTANCE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
+               'KNN', '6', 'K', '10', 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_vsim_range_both_yield_distance_and_score():
-    """Test VSIM RANGE with both YIELD_DISTANCE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
+    """Test VSIM RANGE with both YIELD_SCORE_AS and YIELD_SCORE_AS together - should fail because YIELD_SCORE_AS is not supported in VSIM"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
@@ -209,7 +209,7 @@ def test_hybrid_vsim_range_both_yield_distance_and_score():
 
     # YIELD_SCORE_AS is not supported in VSIM clauses and should return an error
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
-               'RANGE', '6', 'RADIUS', str(radius), 'YIELD_DISTANCE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
+               'RANGE', '6', 'RADIUS', str(radius), 'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -227,15 +227,15 @@ def test_hybrid_yield_with_custom_field_names():
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
 def test_hybrid_yield_distance_as_after_combine_error():
-    """Test that YIELD_DISTANCE_AS after COMBINE keyword fails"""
+    """Test that YIELD_SCORE_AS after COMBINE keyword fails"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
 
-    # This should fail because YIELD_DISTANCE_AS appears after COMBINE
+    # This should fail because YIELD_SCORE_AS appears after COMBINE
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'KNN', '4', 'K', '10', 'COMBINE', 'RRF', '2', 'CONSTANT', '60',
-               'YIELD_DISTANCE_AS', 'vector_distance').error()
+               'YIELD_SCORE_AS', 'vector_distance').error()
 
 # TODO: remove once FT.HYBRID for cluster is implemented
 @skip(cluster=True)
@@ -283,4 +283,4 @@ def test_hybrid_multiple_yield_after_combine_error():
     # This should fail because both YIELD parameters appear after COMBINE
     env.expect('FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', query_vector,
                'KNN', '4', 'K', '10', 'COMBINE', 'LINEAR', '4', 'ALPHA', '0.5', 'BETA', '0.5',
-               'YIELD_DISTANCE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()
+               'YIELD_SCORE_AS', 'vector_distance', 'YIELD_SCORE_AS', 'vector_score').error()

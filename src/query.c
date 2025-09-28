@@ -942,7 +942,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->opts.distField) {
     if (qn->vn.vq->scoreField) {
       // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
-      // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
+      // ...=>[KNN ...]=>{$YIELD_SCORE_AS:<dist_field>), we validate that we got it only once.
       size_t len;
       const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
       char default_score_field[len + 9];  // buffer for __<field>_score

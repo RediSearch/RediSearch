@@ -1204,7 +1204,7 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     // Update AST's numParams since we used a local QueryParseCtx
     ast->numParams += q.numParams;
   }
-  // Handle non-vector-specific attributes (like YIELD_DISTANCE_AS)
+  // Handle non-vector-specific attributes (like YIELD_SCORE_AS)
   if (pvd->attributes) {
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }

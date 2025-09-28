@@ -20,7 +20,7 @@ def testWithVectorRange(env):
 
     # Get vector distance and text score without APPLY
     res = conn.execute_command(
-        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza) | @x==1',
+        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_SCORE_AS: vector_distance} | @t:(pizza) | @x==1',
         'ADDSCORES', 'SCORER', 'BM25STD',
         'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
         'LOAD', '3', '@vector_distance', '@__key', 't',
@@ -58,7 +58,7 @@ def testWithVectorRange(env):
     # Test APPLY with case function and linear combination of vector distance and text score
     for apply_expr, expected_score in apply_expr_and_expected_results:
         res = conn.execute_command(
-            'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza) | @x==1',
+            'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_SCORE_AS: vector_distance} | @t:(pizza) | @x==1',
             'ADDSCORES', 'SCORER', 'BM25STD',
             'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
             'LOAD', '3', '@vector_distance', '@__key', 't',
@@ -111,7 +111,7 @@ def testInvalidApplyFunction(env):
         'case(0, 0, @vector_distance)',
     ]
     env.expect(
-        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza) | @x==1',
+        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_SCORE_AS: vector_distance} | @t:(pizza) | @x==1',
         'ADDSCORES', 'SCORER', 'BM25STD',
         'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
         'LOAD', '3', '@vector_distance', '@__key', 't',
@@ -407,7 +407,7 @@ def testCaseWithFieldsWithNullValue(env):
     conn = getConnectionByEnv(env)
 
     res = conn.execute_command(
-        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza) | @x==1',
+        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_SCORE_AS: vector_distance} | @t:(pizza) | @x==1',
         'ADDSCORES', 'SCORER', 'BM25STD',
         'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
         'LOAD', '3', '@vector_distance', '@__key', 't',
