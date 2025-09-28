@@ -28,7 +28,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
   // If RedisJSON module is loaded after RediSearch need to get the API exported by RedisJSON
 
   if (!GetJSONAPIs(ctx, 0)) {
-    RedisModule_Log(ctx, "warning", "Detected RedisJSON: failed to acquire ReJSON API");
+    RedisModule_Log(ctx, "warning", "Detected RedisJSON: failed to acquire ReJSON API. Minimum required version is %d", RedisJSONAPI_MIN_API_VER);
   }
 }
 
@@ -37,7 +37,7 @@ void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     char ver[128];
     // Obtain the newest version of JSON API
-    for (int i = RedisJSONAPI_LATEST_API_VER; i >= 1; --i) {
+    for (int i = RedisJSONAPI_LATEST_API_VER; i >= RedisJSONAPI_MIN_API_VER; --i) {
       sprintf(ver, "RedisJSON_V%d", i);
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
