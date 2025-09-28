@@ -110,6 +110,7 @@ struct ArgParseResult {
     bool success;
     const char *error_message;
     const char *error_arg;      // Which argument caused the error
+    int error_code;             // ACStatus error code
     int error_position;         // Position in argument list where error occurred
 };
 

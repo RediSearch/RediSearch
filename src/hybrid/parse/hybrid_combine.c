@@ -187,18 +187,24 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
     return;
   }
 
-  ACArgSpec remainingSpec = {.name = "YIELD_SCORE_AS", .type = AC_ARGTYPE_STRING, .target = &ctx->searchopts->scoreAlias};
-  while (!AC_IsAtEnd(ac)) { 
-    int rv = AC_ParseArgSpec(ac, &remainingSpec, NULL);
-    if (rv == AC_OK) {
-      continue;
-    }
-    else if (rv == AC_ERR_ENOENT) {
-      // Could be a keyword like LOAD or something like that, can't fail here.
-      break;
-    } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Bad arguments after COMBINE", ": %s", AC_Strerror(rv));
-      return;
-    }
+  ArgParser *postCombineParser = ArgParser_New(ac, "COMBINE");
+  if (!postCombineParser) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Failed to create COMBINE argument parser");
+    return;
   }
+  ArgParser_AddString(postCombineParser, "YIELD_SCORE_AS", "Alias for the combined score", &ctx->searchopts->scoreAlias);
+
+  ArgParseResult result = ArgParser_Parse(postCombineParser);
+  if (!result.success && result.error_code != AC_ERR_ENOENT) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Failed to parse arguments past COMBINE", ": %s", ArgParser_GetErrorString(postCombineParser));
+    ArgParser_Free(postCombineParser);
+    return;
+  }
+  // If we got AC_ERR_ENOENT we can't report an error
+  // few examples:
+  // - COMBINE ... YIELD_SCORE_AS foo - okay
+  // - COMBINE ... YIELD_SCORE_AS foo LOAD 1 goo - me manage to parse yield but stop at LOAD
+  // - COMBINE ... LOAD 1 goo - we stop at LOAD
+  // - COMBINE ... LOAD 1 goo YIELD_SCORE_AS foo - we stop LOAD but don't parse the yield keyword
+  ArgParser_Free(postCombineParser);
 }

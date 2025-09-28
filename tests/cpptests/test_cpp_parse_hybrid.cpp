@@ -383,7 +383,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNWithFilter) {
   QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
   ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode); // Should be marked as hybrid vector subquery node
-  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_SCORE_AS specified
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
   // Verify parameters
   ASSERT_EQ(QueryNode_NumParams(vn), 1);
@@ -428,7 +428,7 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   // Verify QueryNode structure
   QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
-  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_SCORE_AS specified
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
   // Verify VectorQuery structure
   VectorQuery *vq = vn->vn.vq;
@@ -468,7 +468,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   // Verify QueryNode structure
   QueryNode *vn = vecReq->ast.root;
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
-  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_SCORE_AS specified
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
   // Verify parameters
   ASSERT_EQ(QueryNode_NumParams(vn), 1);
@@ -536,7 +536,7 @@ TEST_F(ParseHybridTest, testVsimRangeBasic) {
   // Verify QueryNode structure
   ASSERT_EQ(vn->opts.flags & QueryNode_YieldsDistance, QueryNode_YieldsDistance); // Vector queries always have this flag
   ASSERT_EQ(vn->opts.flags & QueryNode_HybridVectorSubqueryNode, QueryNode_HybridVectorSubqueryNode); // Should be marked as hybrid vector subquery node
-  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_SCORE_AS specified
+  ASSERT_TRUE(vn->opts.distField == NULL); // No YIELD_DISTANCE_AS specified
 
   // Verify parameters
   ASSERT_EQ(QueryNode_NumParams(vn), 1);
@@ -785,10 +785,10 @@ TEST_F(ParseHybridTest, testVsimKNNDuplicateEFRuntime) {
 }
 
 
-TEST_F(ParseHybridTest, testKNNDuplicateYieldScoreAs) {
-  // Test KNN with duplicate YIELD_SCORE_AS arguments
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
+TEST_F(ParseHybridTest, testKNNDuplicateYieldDistanceAs) {
+  // Test KNN with duplicate YIELD_DISTANCE_AS arguments
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "6", "K", "10", "YIELD_DISTANCE_AS", "dist1", "YIELD_DISTANCE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS argument");
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithEpsilon) {
@@ -840,10 +840,10 @@ TEST_F(ParseHybridTest, testVsimRangeDuplicateEpsilon) {
   testErrorCode(args, QUERY_EDUPPARAM, "Duplicate EPSILON argument");
 }
 
-TEST_F(ParseHybridTest, testRangeDuplicateYieldScoreAs) {
-  // Test RANGE with duplicate YIELD_SCORE_AS arguments
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "YIELD_SCORE_AS", "dist1", "YIELD_SCORE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_SCORE_AS argument");
+TEST_F(ParseHybridTest, testRangeDuplicateYieldDistanceAs) {
+  // Test RANGE with duplicate YIELD_DISTANCE_AS arguments
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "RANGE", "6", "RADIUS", "0.5", "YIELD_DISTANCE_AS", "dist1", "YIELD_DISTANCE_AS", "dist2", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_EDUPPARAM, "Duplicate YIELD_DISTANCE_AS argument");
 }
 
 TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
@@ -965,29 +965,16 @@ TEST_F(ParseHybridTest, testLinearMissingBetaValue) {
   testErrorCode(args, QUERY_ESYNTAX,"Not enough arguments in LINEAR, specified 2 but only 1 provided");
 }
 
-TEST_F(ParseHybridTest, testKNNMissingYieldScoreAsValue) {
+TEST_F(ParseHybridTest, testKNNMissingYieldDistanceAsValue) {
   // Test KNN with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "YIELD_SCORE_AS");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "YIELD_DISTANCE_AS");
+  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_DISTANCE_AS");
 }
 
-TEST_F(ParseHybridTest, testRangeMissingYieldScoreAsValue) {
+TEST_F(ParseHybridTest, testRangeMissingYieldDistanceAsValue) {
   // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS");
-  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
-}
-
-// YIELD_SCORE_AS error tests - No longer supported in VSIM
-TEST_F(ParseHybridTest, testKNNYieldScoreAsNotSupported) {
-  // Test KNN with YIELD_SCORE_AS - should fail as it's no longer supported in VSIM
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "KNN", "4", "K", "10", "YIELD_SCORE_AS", "score_field");
-  testErrorCode(args, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
-}
-
-TEST_F(ParseHybridTest, testRangeYieldScoreAsNotSupported) {
-  // Test RANGE with YIELD_SCORE_AS - should fail as it's no longer supported in VSIM
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_SCORE_AS", "score_field");
-  testErrorCode(args, QUERY_EHYBRID_HYBRID_ALIAS, "Alias is not allowed in FT.HYBRID VSIM");
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "RANGE", "4", "RADIUS", "0.5", "YIELD_DISTANCE_AS");
+  testErrorCode(args, QUERY_EPARSEARGS, "Missing argument value for YIELD_DISTANCE_AS");
 }
 
 // ============================================================================

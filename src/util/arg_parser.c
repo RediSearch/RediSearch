@@ -22,7 +22,7 @@
 static ArgDefinition *find_definition(ArgParser *parser, const char *name);
 static ArgDefinition *find_positional_definition(ArgParser *parser, uint16_t position, const char *name);
 static int parse_single_arg(ArgParser *parser, ArgDefinition *def);
-static void set_error(ArgParser *parser, const char *message, const char *arg_name);
+static void set_error(ArgParser *parser, const char *message, const char *arg_name, int code);
 static void apply_defaults(ArgParser *parser);
 
 
@@ -201,11 +201,12 @@ static ArgDefinition *find_positional_definition(ArgParser *parser, uint16_t pos
 
 
 
-static void set_error(ArgParser *parser, const char *message, const char *arg_name) {
+static void set_error(ArgParser *parser, const char *message, const char *arg_name, int code) {
     parser->last_result.success = false;
     parser->last_result.error_message = message;
     parser->last_result.error_arg = arg_name;
     parser->last_result.error_position = parser->cursor->offset;
+    parser->last_result.error_code = code;
 }
 
 static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
@@ -233,7 +234,7 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
                         *(unsigned char*)def->target |= (unsigned char)def->options.bitflag.mask;
                     break;
                     default:
-                        set_error(parser, "Unsupported target size for bitwise flag", def->name);
+                        set_error(parser, "Unsupported target size for bitwise flag", def->name, AC_ERR_ELIMIT);
                         break;
                 }
             }
@@ -254,7 +255,7 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
                         }
                     }
                     if (!found) {
-                        set_error(parser, "Invalid value for argument", def->name);
+                        set_error(parser, "Invalid value for argument", def->name, AC_ERR_ELIMIT);
                         return AC_ERR_ELIMIT;
                     }
                 }
@@ -269,11 +270,11 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             if (rv == AC_OK && def->target) {
                 // Range validation
                 if (def->options.numeric.has_min && int_val < def->options.numeric.min_val) {
-                    set_error(parser, "Value below minimum", def->name);
+                    set_error(parser, "Value below minimum", def->name, AC_ERR_ELIMIT);
                     return AC_ERR_ELIMIT;
                 }
                 if (def->options.numeric.has_max && int_val > def->options.numeric.max_val) {
-                    set_error(parser, "Value above maximum", def->name);
+                    set_error(parser, "Value above maximum", def->name, AC_ERR_ELIMIT);
                     return AC_ERR_ELIMIT;
                 }
                 *(int*)def->target = int_val;
@@ -287,11 +288,11 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             if (rv == AC_OK && def->target) {
                 // Range validation
                 if (def->options.numeric.has_min && long_val < def->options.numeric.min_val) {
-                    set_error(parser, "Value below minimum", def->name);
+                    set_error(parser, "Value below minimum", def->name, AC_ERR_ELIMIT);
                     return AC_ERR_ELIMIT;
                 }
                 if (def->options.numeric.has_max && long_val > def->options.numeric.max_val) {
-                    set_error(parser, "Value above maximum", def->name);
+                    set_error(parser, "Value above maximum", def->name, AC_ERR_ELIMIT);
                     return AC_ERR_ELIMIT;
                 }
                 *(long long*)def->target = long_val;
@@ -305,7 +306,7 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             if (rv == AC_OK && def->target) {
                 // Range validation (only max makes sense for unsigned)
                 if (def->options.numeric.has_max && ulong_val > (unsigned long long)def->options.numeric.max_val) {
-                    set_error(parser, "Value above maximum", def->name);
+                    set_error(parser, "Value above maximum", def->name, AC_ERR_ELIMIT);
                     return AC_ERR_ELIMIT;
                 }
                 *(unsigned long long*)def->target = ulong_val;
@@ -333,19 +334,19 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
                 notEnoughArgMessage = "Not enough arguments were provided based on argument count";
             }
             if (rv != AC_OK) {
-                set_error(parser, "Failed to parse the argument count", def->name);
+                set_error(parser, "Failed to parse the argument count", def->name, AC_ERR_PARSE);
             } else {
                 // Single argument slice
                 rv = AC_GetSlice(parser->cursor, (ArgsCursor*)def->target, count);
                 if (rv == AC_ERR_NOARG) {
-                    set_error(parser, notEnoughArgMessage, def->name);
+                    set_error(parser, notEnoughArgMessage, def->name, AC_ERR_NOARG);
                 }
             }
             break;
         }
 
         default:
-            set_error(parser, "Unknown argument type", def->name);
+            set_error(parser, "Unknown argument type", def->name, AC_ERR_ELIMIT);
             return AC_ERR_PARSE;
     }
 
@@ -353,7 +354,7 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
     if (rv == AC_OK && def->validator) {
         const char *error_msg = NULL;
         if (def->validator(def->target, &error_msg) != 0) {
-            set_error(parser, error_msg ? error_msg : "Validation failed", def->name);
+            set_error(parser, error_msg ? error_msg : "Validation failed", def->name, AC_ERR_PARSE);
             return AC_ERR_ELIMIT;
         }
     }
@@ -377,6 +378,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
     parser->last_result.error_message = NULL;
     parser->last_result.error_arg = NULL;
     parser->last_result.error_position = -1;
+    parser->last_result.error_code = AC_OK;
 
     // Reset all parsed flags to false for this parse
     for (size_t i = 0; i < array_len(parser->definitions); i++) {
@@ -390,7 +392,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
         const char *def_name;
         int rv = AC_GetString(parser->cursor, &def_name, NULL, AC_F_NOADVANCE);
         if (rv != AC_OK) {
-            set_error(parser, "Failed to read argument", NULL);
+            set_error(parser, "Failed to read argument", NULL, rv);
             break;
         }
 
@@ -411,26 +413,29 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
         // This should be a positional argument value
         // Check if already parsed and not repeatable
         if (pos_def->parsed && !pos_def->repeatable) {
-            set_error(parser, "Argument specified multiple times", pos_def->name);
+            set_error(parser, "Argument specified multiple times", pos_def->name, AC_ERR_ELIMIT);
             break;
         }
 
         // Advance the cursor to the argument value
         rv = AC_Advance(parser->cursor);
         if (rv != AC_OK) {
-            set_error(parser, "Failed to parse past", pos_def->name);
+            set_error(parser, "Failed to parse past", pos_def->name, AC_ERR_PARSE);
             break;
         }
         // Parse the positional argument value directly (no name expected)
         rv = parse_single_arg(parser, pos_def);
         if (rv != AC_OK) {
             if (parser->last_result.success) {
-                set_error(parser, AC_Strerror(rv), pos_def->name);
+                set_error(parser, AC_Strerror(rv), pos_def->name, rv);
             }
             break;
         }
 
         pos_def->parsed = true;
+
+
+        
         current_position++;
     }
 
@@ -442,7 +447,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
 
         if (pos_def->required) {
             if (!pos_def->parsed) {
-                set_error(parser, "Required positional argument missing or out of order", pos_def->name);
+                set_error(parser, "Required positional argument missing or out of order", pos_def->name, AC_ERR_PARSE);
                 break;
             }
         }
@@ -454,7 +459,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
         const char *arg_name;
         int rv = AC_GetString(parser->cursor, &arg_name, NULL, AC_F_NOADVANCE);
         if (rv != AC_OK) {
-            set_error(parser, "Failed to read argument", NULL);
+            set_error(parser, "Failed to read argument", NULL, AC_ERR_PARSE);
             break;
         }
 
@@ -462,7 +467,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
         ArgDefinition *def = find_definition(parser, arg_name);
         if (!def) {
             // Unknown argument
-            set_error(parser, "Unknown argument", arg_name);
+            set_error(parser, "Unknown argument", arg_name, AC_ERR_ENOENT);
             break;
         }
 
@@ -476,14 +481,14 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
 
         // Check if already parsed and not repeatable
         if (def->parsed && !def->repeatable) {
-            set_error(parser, "Argument specified multiple times", def->name);
+            set_error(parser, "Argument specified multiple times", def->name, AC_ERR_ELIMIT);
             break;
         }
 
         // Advance past the argument name
         rv = AC_Advance(parser->cursor);
         if (rv != AC_OK) {
-            set_error(parser, "Failed to parse past", def->name);
+            set_error(parser, "Failed to parse past", def->name, AC_ERR_PARSE);
             break;
         }
 
@@ -491,7 +496,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
         rv = parse_single_arg(parser, def);
         if (rv != AC_OK) {
             if (parser->last_result.success) {
-                set_error(parser, AC_Strerror(rv), def->name);
+                set_error(parser, AC_Strerror(rv), def->name, rv);
             }
             break;
         }
@@ -503,7 +508,7 @@ ArgParseResult ArgParser_Parse(ArgParser *parser) {
     if (parser->last_result.success) {
         for (size_t i = 0; i < array_len(parser->definitions); i++) {
             if (parser->definitions[i].required && !parser->definitions[i].parsed) {
-                set_error(parser, "Required argument missing", parser->definitions[i].name);
+                set_error(parser, "Required argument missing", parser->definitions[i].name, AC_ERR_NOARG);
                 break;
             }
         }
