@@ -514,18 +514,27 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  QueryError status = {0};
+
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError status = {0};
     QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
+    // OOM guardrail
+    if (estimateOOM(ctx)) {
+      RedisModule_Log(ctx, "notice", "Not enough memory available to execute the query");
+      QueryError_SetCode(&status, QUERY_EOOM);
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
   }
 
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
 
-  QueryError status = {0};
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};
