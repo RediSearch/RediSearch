@@ -11,6 +11,7 @@ use core::panic;
 use std::{
     io::{Cursor, Read},
     ptr,
+    sync::atomic,
 };
 
 use crate::{
@@ -65,12 +66,12 @@ impl Encoder for Dummy {
 fn memory_usage() {
     let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 40);
+    assert_eq!(ii.memory_usage(), 48);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 40 + mem_growth);
+    assert_eq!(ii.memory_usage(), 48 + mem_growth);
 }
 
 #[test]
@@ -288,13 +289,13 @@ fn adding_big_delta_makes_new_block() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
 
-    assert_eq!(ii.memory_usage(), 48);
+    assert_eq!(ii.memory_usage(), 56);
     assert_eq!(ii.number_of_entries(), 0);
 
     let record = RSIndexResult::default().doc_id(10);
     let mem_growth = ii.add_record(&record).unwrap();
 
-    assert_eq!(ii.memory_usage(), 48 + mem_growth);
+    assert_eq!(ii.memory_usage(), 56 + mem_growth);
     assert_eq!(ii.number_of_entries(), 1);
 
     let record = RSIndexResult::default().doc_id(10);
@@ -307,7 +308,7 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::new(IndexFlags_Index_StoreFieldFlags, Dummy);
 
-    assert_eq!(ii.memory_usage(), 56);
+    assert_eq!(ii.memory_usage(), 64);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::default().doc_id(10).field_mask(0b101);
@@ -701,13 +702,31 @@ fn reader_reset() {
     assert_eq!(record, RSIndexResult::virt().doc_id(11));
     drop(record);
 
+    assert_eq!(ir.gc_marker, 0);
+    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+
     ir.reset();
+
+    assert_eq!(ir.gc_marker, 1);
 
     let record = ir
         .next_record()
         .expect("to be able to read from the buffer")
         .expect("to get a record");
     assert_eq!(record, RSIndexResult::virt().doc_id(10));
+}
+
+#[test]
+fn reader_needs_revalidation() {
+    let mut ii = InvertedIndex::new(IndexFlags_Index_DocIdsOnly, Dummy);
+    ii.add_record(&RSIndexResult::virt().doc_id(10)).unwrap();
+
+    let ir = ii.reader();
+
+    assert!(!ir.needs_revalidation(), "index was not modified yet");
+
+    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
+    assert!(ir.needs_revalidation(), "index was modified");
 }
 
 #[test]
