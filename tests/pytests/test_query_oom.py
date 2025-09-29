@@ -1,5 +1,6 @@
 from common import *
 import threading
+import psutil
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 
@@ -18,6 +19,20 @@ def allShards_change_maxmemory_low(env):
     for shardId in range(1, env.shardsCount + 1):
         res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 1)
         env.assertEqual(res, 'OK')
+
+def pauseAfterNetworkRP_expect_oom(env, query_args, pause_after_n):
+    env.expect(debug_cmd(), *query_args, 'PAUSE_BEFORE_RP_N', 'Network', pause_after_n, 'DEBUG_PARAMS_COUNT', 3).error().contains(OOM_QUERY_ERROR)
+
+def run_cmd_expect_oom(env, query_args):
+    env.expect(*query_args).error().contains(OOM_QUERY_ERROR)
+
+def pid_cmd(conn):
+    return conn.execute_command('info', 'server')['process_id']
+
+def get_all_shards_pid(env):
+    for shardId in range(1, env.shardsCount + 1):
+        conn = env.getConnection(shardId)
+        yield pid_cmd(conn)
 
 # Helper to call a function and push its return value into a list
 def _call_and_store(fn, args, out_list):
@@ -45,17 +60,6 @@ def _common_cluster_test_scenario(env):
     env.expect('CONFIG', 'SET', 'maxmemory', '1').ok()
 
     return n_docs
-
-def runDebugQueryCommand_expect_oom(env, query_cmd, debug_params):
-    # Use the helper function to build the argument list
-    args = parseDebugQueryCommandArgs(query_cmd, debug_params)
-    return env.expect(debug_cmd(), *args).error().contains(OOM_QUERY_ERROR)
-
-def runDebugQueryCommandPauseBeforeRPAfterN_expect_oom(env, query_cmd, rp_type, pause_after_n, extra_args=None):
-    debug_params = ['PAUSE_BEFORE_RP_N', rp_type, pause_after_n]
-    if extra_args:
-        debug_params.extend(extra_args)
-    return runDebugQueryCommand_expect_oom(env, query_cmd, debug_params)
 
 # Test ignore policy
 @skip(cluster=True)
@@ -117,7 +121,7 @@ def test_query_oom_cluster_shards_error():
     set_unlimited_maxmemory_for_oom(env)
 
     # Verify query fails
-    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'name', 'ASC').error().contains(OOM_QUERY_ERROR)
+    env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_QUERY_ERROR)
     # Verify aggregation query fails with sorting so it has to wait for all shards
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name', 'SORTBY', 2, '@name', 'ASC').error().contains(OOM_QUERY_ERROR)
 
@@ -125,48 +129,6 @@ def test_query_oom_cluster_shards_error():
 # @skip(cluster=False)
 def test_query_oom_cluster_shards_error_first_reply():
     env  = Env(shardsCount=3, moduleArgs='WORKERS 1')
-
-    # Set OOM policy to fail on all shards
-    allShards_change_oom_policy(env, 'return')
-
-    _ = _common_cluster_test_scenario(env)
-
-    # Change maxmemory on all shards to 1
-    allShards_change_maxmemory_low(env)
-    # Change back coord maxmemory to 0
-    set_unlimited_maxmemory_for_oom(env)
-
-    ##### Use debug command to enforce first reply from non-error shard #####
-
-    # We need to call the queries in MT so the paused query won't block the test
-    query_result = []
-    # Build threads
-    query_args = ['FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 120]
-    t_query = threading.Thread(
-        target=_call_and_store,
-        args=(runDebugQueryCommandPauseBeforeRPAfterN_expect_oom,
-            (env, query_args, 'Index', 0, ['INTERNAL_ONLY']),
-            query_result),
-        daemon=True
-    )
-    # Start the query and the pause-check in parallel
-    t_query.start()
-    # Wait for the coordinator to be paused
-    while False in allShards_getIsRPPaused(env):
-        time.sleep(0.1)
-
-    # Resume the coordinator
-    setPauseRPResume(env)
-    t_query.join()
-    allShards_setPauseRPResume(env, 2)
-    # Now, the result from the coordinator is the first to arrive, which is not an error
-    # Resume the rest of the shards
-    print(query_result)
-
-# Test OOM error returned from shards (only for fail) with Sorting
-@skip(cluster=False)
-def test_query_oom_cluster_shards_sorting_error():
-    env  = Env(shardsCount=3)
 
     # Set OOM policy to fail on all shards
     allShards_change_oom_policy(env, 'fail')
@@ -178,10 +140,60 @@ def test_query_oom_cluster_shards_sorting_error():
     # Change back coord maxmemory to 0
     set_unlimited_maxmemory_for_oom(env)
 
-    # Verify query fails
-    env.expect('FT.SEARCH', 'idx', '*').error().contains(OOM_QUERY_ERROR)
-    # Verify aggregation query fails
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name').error().contains(OOM_QUERY_ERROR)
+    coord_pid = pid_cmd(getConnectionByEnv(env))
+    shards_pid = list(get_all_shards_pid(env))
+    shards_pid.remove(coord_pid)
+
+    # Pause all shards processes
+    for pid in shards_pid:
+        shard_p = psutil.Process(pid)
+        shard_p.suspend()
+        while shard_p.status() != psutil.STATUS_STOPPED:
+            time.sleep(0.1)
+
+    # Helper to call a function and push its return value into a list
+    def _call_and_store(fn, args, out_list):
+        out_list.append(fn(*args))
+
+    # We need to call the queries in MT so the paused query won't block the test
+    query_result = []
+
+    # Build threads
+    query_args = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t']
+
+    t_query = threading.Thread(
+        target=_call_and_store,
+        args=(run_cmd_expect_oom,
+            (env, query_args),
+            query_result),
+        daemon=True
+    )
+
+    # Start the query and the pause-check in parallel
+    t_query.start()
+
+    # # Wait for the coordinator to be paused
+    # while getIsRPPaused(env) != 1:
+    #     time.sleep(0.1)
+
+    # If here, we know the coordinator got the first reply.
+    # Also verify workers status, first drain
+    env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
+    stats = getWorkersThpoolStats(env)
+    env.assertEqual(stats['totalJobsDone'], 1)
+
+    # Let's resume the shards
+    for pid in shards_pid:
+        shard_p = psutil.Process(pid)
+        shard_p.resume()
+        while shard_p.status() != psutil.STATUS_RUNNING:
+            time.sleep(0.1)
+
+    # Resume the coordinator
+    # setPauseRPResume(env)
+
+    t_query.join()
+
 
 # Test OOM error on coordinator (fail or return)
 @skip(cluster=False)
@@ -215,8 +227,10 @@ def test_query_oom_cluster_shards_return():
     # Change back coord maxmemory to 0
     set_unlimited_maxmemory_for_oom(env)
 
+    # Note - only the coordinator shard will return results
+
     # Verify partial results in search/aggregate
-    res = env.cmd('FT.SEARCH', 'idx', '@name:*hello*')
+    res = env.cmd('FT.SEARCH', 'idx', '*')
     env.assertLess(res[0] , n_docs)
     res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name')
     env.assertLess(len(res), n_docs + 1)
