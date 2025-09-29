@@ -132,7 +132,7 @@ static void runModifyKNNTest(const char** args, int argCount,
 // expectedResult: 1 for success, 0 for failure
 static void testSingleAttribute(const char* name, const char* value, int expectedResult, double expectedRatio) {
     QueryNode* node = createTestVectorNode();
-    QueryError status = {0};
+    QueryError status = QUERY_ERROR_DEFAULT;
 
     QueryAttribute attr = createTestAttribute(name, value);
     int result = QueryNode_ApplyAttributes(node, &attr, 1, &status);
@@ -256,7 +256,7 @@ void testModifyParameterKInAggregate() {
 // Test error message validation
 void testErrorMessages() {
     QueryNode* node = createTestVectorNode();
-    QueryError status = {0};
+    QueryError status = QUERY_ERROR_DEFAULT;
 
     // Test invalid range error message
     QueryAttribute attr1 = createTestAttribute("shard_k_ratio", "2.0");
@@ -284,7 +284,7 @@ void testErrorMessages() {
 // Test backward compatibility with existing vector queries
 void testBackwardCompatibility() {
     QueryNode* node = createTestVectorNode();
-    QueryError status = {0};
+    QueryError status = QUERY_ERROR_DEFAULT;
 
     // Test that existing vector queries work without shard window ratio
     mu_assert_double_eq(1.0, node->vn.vq->knn.shardWindowRatio);
@@ -305,7 +305,7 @@ void testBackwardCompatibility() {
 // Test multiple attributes together
 void testMultipleAttributes() {
     QueryNode* node = createTestVectorNode();
-    QueryError status = {0};
+    QueryError status = QUERY_ERROR_DEFAULT;
 
     // Test applying multiple attributes including shard k ratio
     QueryAttribute attrs[2];

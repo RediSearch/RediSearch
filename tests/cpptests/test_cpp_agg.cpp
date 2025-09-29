@@ -31,7 +31,7 @@ using RS::addDocument;
 
 TEST_F(AggTest, testBasic) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  QueryError qerr = {QueryErrorCode(0)};
+  QueryError qerr = QUERY_ERROR_DEFAULT;
 
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH",
                       "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
@@ -293,7 +293,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
 
   auto scenario = [&](QEFlags flags, auto... args) -> bool {
-    QueryError qerr = {QueryErrorCode(0)};
+    QueryError qerr = QUERY_ERROR_DEFAULT;
     AREQ *rr = AREQ_New();
     AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);

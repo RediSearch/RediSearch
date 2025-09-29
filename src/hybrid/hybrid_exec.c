@@ -212,7 +212,7 @@ static void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size
     startPipelineHybrid(hreq, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    QueryError err = {0};
+    QueryError err = QUERY_ERROR_DEFAULT;
     HybridRequest_GetError(hreq, &err);
     if (ShouldReplyWithError(&err, hreq->reqConfig.timeoutPolicy, false)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(&err));
@@ -514,7 +514,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError status = {0};
+    QueryError status = QUERY_ERROR_DEFAULT;
     QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -522,7 +522,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
 
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
   StrongRef hybrid_ref = StrongRef_New(hybridRequest, &FreeHybridRequest);
   HybridPipelineParams hybridParams = {0};
@@ -574,7 +574,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCHCtx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {

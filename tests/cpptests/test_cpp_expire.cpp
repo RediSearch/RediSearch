@@ -31,7 +31,7 @@ using RS::addDocument;
 
 TEST_F(ExpireTest, testSkipTo) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  QueryError qerr = {QueryErrorCode(0)};
+  QueryError qerr = QUERY_ERROR_DEFAULT;
 
   RMCK::ArgvList args(ctx, "FT.CREATE", "expire_idx", "ON", "HASH", "SKIPINITIALSCAN",
                       "SCHEMA", "t1", "TAG");

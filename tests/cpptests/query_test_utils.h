@@ -35,7 +35,7 @@ struct SearchOptionsCXX : RSSearchOptions {
  */
 class QASTCXX : public QueryAST {
   SearchOptionsCXX m_opts;
-  QueryError m_status = {QueryErrorCode(0)};
+  QueryError m_status = QUERY_ERROR_DEFAULT;
   RedisSearchCtx *sctx = NULL;
 
  public:

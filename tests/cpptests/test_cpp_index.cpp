@@ -795,7 +795,7 @@ TEST_F(IndexTest, testHybridVector) {
                                   .childIt = NULL,
                                   .filterCtx = &filterCtx
   };
-  QueryError err = {QUERY_OK};
+  QueryError err = QUERY_ERROR_DEFAULT;
   QueryIterator *vecIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
@@ -1129,7 +1129,7 @@ TEST_F(IndexTest, testIndexSpec) {
                         "text",      "weight", "0.1",   body,       "text",   "weight",
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
-  QueryError err = {QUERY_OK};
+  QueryError err = QUERY_ERROR_DEFAULT;
   const char* spec_name = "idx";
   StrongRef ref = IndexSpec_ParseC(spec_name, args, sizeof(args) / sizeof(const char *), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
@@ -1264,7 +1264,7 @@ TEST_F(IndexTest, testHugeSpec) {
   std::vector<char *> args;
   fillSchema(args, N);
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QUERY_ERROR_DEFAULT;
   StrongRef ref = IndexSpec_ParseC("idx", (const char **)&args[0], args.size(), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -1572,7 +1572,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithEmptyChild) {
     .filterCtx = NULL
   };
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QUERY_ERROR_DEFAULT;
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
 
   // Verify the iterator was not created due to NULL child
@@ -1611,7 +1611,7 @@ TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
     .filterCtx = &filterCtx
   };
 
-  QueryError err = {QUERY_OK};
+  QueryError err = QUERY_ERROR_DEFAULT;
   QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
 
   // Verify the iterator was not created due to NULL child

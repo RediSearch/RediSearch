@@ -51,7 +51,7 @@ class ParseHybridTest : public ::testing::Test {
     index_name = std::string("test_index_") + test_info->test_case_name() + "_" + test_info->name();
 
     // Create a simple index for testing
-    QueryError qerr = {QueryErrorCode(0)};
+    QueryError qerr = QUERY_ERROR_DEFAULT;
     RMCK::ArgvList args(ctx, "FT.CREATE", index_name.c_str(), "ON", "HASH",
                         "SCHEMA", "title", "TEXT", "content", "TEXT", "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
     spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
@@ -104,7 +104,8 @@ class ParseHybridTest : public ::testing::Test {
    * @return REDISMODULE_OK if parsing succeeded, REDISMODULE_ERR otherwise
    */
   int parseCommandInternal(RMCK::ArgvList& args) {
-    QueryError status = {QueryErrorCode(0)};
+    QueryError status = QUERY_ERROR_DEFAULT;
+
     int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);
     EXPECT_EQ(status.code, QUERY_OK) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
@@ -647,7 +648,7 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
 
 // Helper function to test error cases with less boilerplate
 void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail) {
-  QueryError status = {QueryErrorCode(0)};
+  QueryError status = QUERY_ERROR_DEFAULT;
 
   // Create a fresh sctx for this test
   int rc = parseHybridCommand(ctx, args, args.size(), hybridRequest->sctx, index_name.c_str(), &result, &status, true);

@@ -35,7 +35,7 @@ protected:
         ::testing::UnitTest::GetInstance()->current_test_info();
       std::string index_name = std::string("test_index_") + test_info->test_case_name() + "_" + test_info->name();
 
-      QueryError err = {};
+      QueryError err = QUERY_ERROR_DEFAULT;
       RedisModuleCtx *ctx = redisContexts[0];
       RMCK::ArgvList argv(ctx, "FT.CREATE", index_name.c_str(), "SKIPINITIALSCAN", "SCHEMA", "field1", "TEXT");
       mockSpec = IndexSpec_CreateNew(ctx, argv, argv.size(), &err);

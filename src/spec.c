@@ -3232,7 +3232,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   size_t nIndexes = LoadUnsigned_IOError(rdb, goto cleanup);
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
   for (size_t i = 0; i < nIndexes; ++i) {
     if (IndexSpec_CreateFromRdb(ctx, rdb, encver, &status) != REDISMODULE_OK) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
@@ -3373,7 +3373,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
-  QueryError status = {0};
+  QueryError status = QUERY_ERROR_DEFAULT;
 
   if(spec->scan_failed_OOM) {
     QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
