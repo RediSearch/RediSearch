@@ -347,7 +347,7 @@ impl IndexBlock {
     /// there is nothing to repair in this block then `None` is returned.
     fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'index self,
-        doc_exist: fn(doc_id: t_docId) -> bool,
+        doc_exist: impl Fn(t_docId) -> bool,
         encoder: E,
     ) -> std::io::Result<Option<RepairType>> {
         let mut cursor: Cursor<&'index [u8]> = Cursor::new(&self.buffer);
@@ -646,7 +646,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc(
         &self,
-        doc_exist: fn(doc_id: t_docId) -> bool,
+        doc_exist: impl Fn(t_docId) -> bool,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 
@@ -661,7 +661,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
             let encoder = self.encoder.clone();
 
-            let repair = block.repair(doc_exist, encoder)?;
+            let repair = block.repair(&doc_exist, encoder)?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
