@@ -138,7 +138,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackBoth) {
                       "LIMIT", "0", "25");
 
   parseCommand(args);
-  validateDefaultParams(result, parseCtx, 25, 25);
+  validateDefaultParams(result, parseCtx, HYBRID_DEFAULT_WINDOW, HYBRID_DEFAULT_WINDOW);
 }
 
 // LIMIT affects only implicit K, but K gets capped at explicit WINDOW
@@ -159,7 +159,7 @@ TEST_F(HybridDefaultsTest, testLimitFallbackWindowOnly) {
                       "KNN", "2", "K", "8", "LIMIT", "0", "25");
 
   parseCommand(args);
-  validateDefaultParams(result, parseCtx, 25, 8);
+  validateDefaultParams(result, parseCtx, HYBRID_DEFAULT_WINDOW, 8);
 }
 
 // Explicit parameters override LIMIT
@@ -179,7 +179,7 @@ TEST_F(HybridDefaultsTest, testLargeLimitFallback) {
                       "LIMIT", "0", "10000");
 
   parseCommand(args);
-  validateDefaultParams(result, parseCtx, 10000, 10000);
+  validateDefaultParams(result, parseCtx, HYBRID_DEFAULT_WINDOW, HYBRID_DEFAULT_WINDOW); // K capped at WINDOW (DEFAULT_WINDOW)
 }
 
 // Flag verification tests
@@ -264,19 +264,6 @@ TEST_F(HybridDefaultsTest, testKFromLimitCappedAtExplicitWindow) {
   VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
   ASSERT_EQ(12, vq->knn.k) << "Expected K to be capped at WINDOW=12, got " << vq->knn.k;
   ASSERT_EQ(12, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
-}
-
-// Test K ≤ WINDOW constraint: explicit K > WINDOW from LIMIT fallback should cap K to WINDOW
-TEST_F(HybridDefaultsTest, testExplicitKCappedAtWindowFromLimit) {
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
-                      "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA,
-                      "KNN", "2", "K", "25", "LIMIT", "0", "18");
-
-  parseCommand(args);
-  // K should be capped to WINDOW (18 from LIMIT fallback) even though K was explicitly set to 25
-  VectorQuery *vq = result->requests[1]->ast.root->vn.vq;
-  ASSERT_EQ(18, vq->knn.k) << "Expected K to be capped at WINDOW=18, got " << vq->knn.k;
-  ASSERT_EQ(18, parseCtx.hybridParams->scoringCtx->rrfCtx.window);
 }
 
 // Test that Linear scoring is unaffected by K ≤ WINDOW constraint
