@@ -32,9 +32,8 @@ void SearchResult_Clear(SearchResult *r) {
     SearchResult_SetScoreExplain(r, NULL);
   }
 
-  RSIndexResult* index_result = SearchResult_GetIndexResultMut(r);
+  RSIndexResult* index_result = SearchResult_GetIndexResult(r);
   if (index_result) {
-    // IndexResult_Free(r->indexResult);
     SearchResult_SetIndexResult(r, NULL);
   }
 

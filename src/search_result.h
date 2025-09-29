@@ -37,7 +37,7 @@ typedef struct {
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make
   // them thread safe
-  RSIndexResult* indexResult;
+  const RSIndexResult* indexResult;
 
   // Row data. Use RLookup_* functions to access
   RLookupRow rowdata;
@@ -141,17 +141,8 @@ static inline void SearchResult_SetDocumentMetadata(SearchResult* res,
 
 /**
  * Returns an immutable pointer to the [RSIndexResult` associated with `res`.
- * If you need to mutate the `RSIndexResult` consider using `SearchResult_GetIndexResultMut` instead.
  */
 static inline const RSIndexResult* SearchResult_GetIndexResult(const SearchResult* res) {
-  return res->indexResult;
-}
-
-/**
- * Returns a mutable pointer to the [RSIndexResult` associated with `res`.
- * If you dont need to mutate the `RSIndexResult` consider using `SearchResult_GetIndexResult` instead.
- */
-static inline RSIndexResult* SearchResult_GetIndexResultMut(SearchResult* res) {
   return res->indexResult;
 }
 
