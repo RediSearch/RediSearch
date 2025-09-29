@@ -434,30 +434,20 @@ static bool tailHasExplicitLimitInPlan(AGGPlan *plan) {
 }
 
 /**
- * Apply LIMIT argument fallback logic to KNN K and WINDOW arguments.
+ * Apply LIMIT argument fallback logic to WINDOW argument.
  *
- * When LIMIT is explicitly provided but KNN K or WINDOW are not explicitly set,
- * this function applies the LIMIT value as a fallback for those arguments instead of their
- * defaults (unless they have been explicitly set).
+ * When LIMIT is explicitly provided but WINDOW is not explicitly set,
+ * this function applies the LIMIT value as a fallback for this argument instead of this
+ * default (unless it has been explicitly set).
  * This ensures consistent behavior where LIMIT acts as a unified size hint
  * for hybrid search operations.
  *
  * @param tailPipeline The pipeline to extract LIMIT from
- * @param pvd The parsed vector data containing KNN arguments
  * @param hybridParams The hybrid parameters containing WINDOW settings
  */
-static void applyLimitParameterFallbacks(AGGPlan *tailPlan,
-                                       ParsedVectorData *pvd,
-                                       HybridPipelineParams *hybridParams) {
+static void applyLimitParameterFallbacks(AGGPlan *tailPlan, HybridPipelineParams *hybridParams) {
   size_t limitValue = getLimitFromPlan(tailPlan);
   bool hasExplicitLimit = tailHasExplicitLimitInPlan(tailPlan);
-
-  // Apply LIMIT → KNN K fallback ONLY if K was not explicitly set AND LIMIT was explicitly provided
-  if (pvd && pvd->query->type == VECSIM_QT_KNN &&
-      !pvd->hasExplicitK &&
-      hasExplicitLimit && limitValue > 0) {
-    pvd->query->knn.k = limitValue;
-  }
 
   // Apply LIMIT → WINDOW fallback ONLY if WINDOW was not explicitly set AND LIMIT was explicitly provided
   if (hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF &&
@@ -646,7 +636,7 @@ int parseHybridCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       goto error;
     }
 
-    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, vectorRequest->parsedVectorData, hybridParams);
+    applyLimitParameterFallbacks(parsedCmdCtx->tailPlan, hybridParams);
   }
 
   // In the search subquery we want the sorter result processor to be in the upstream of the loader
