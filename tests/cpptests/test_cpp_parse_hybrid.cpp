@@ -1077,7 +1077,7 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
 TEST_F(ParseHybridTest, testDialectInSearchSubquery) {
   // Test DIALECT in SEARCH subquery - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "DIALECT", "2", "VSIM", "@vector", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.");
 }
 
 TEST_F(ParseHybridTest, testDialectInVectorKNNSubquery) {
@@ -1095,7 +1095,7 @@ TEST_F(ParseHybridTest, testDialectInVectorRangeSubquery) {
 TEST_F(ParseHybridTest, testDialectInTail) {
   // Test DIALECT in tail (after subqueries) - should fail with specific error
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", TEST_BLOB_DATA, "DIALECT", "2");
-  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+  testErrorCode(args, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.");
 }
 
 // ============================================================================

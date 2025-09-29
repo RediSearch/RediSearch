@@ -19,6 +19,7 @@ extern "C" {
 #endif
 
 #define MIN_HYBRID_DIALECT 2
+#define DIALECT_ERROR_MSG "DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration."
 
 typedef enum {
     SPECIFIED_ARG_NONE = 0,

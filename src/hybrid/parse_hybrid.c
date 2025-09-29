@@ -101,7 +101,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
       return REDISMODULE_OK;
     }
     if (rv == AC_OK && !strcasecmp("DIALECT", cur)) {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+      QueryError_SetError(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
       return REDISMODULE_ERR;
     }
 
@@ -376,7 +376,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
   if (AC_AdvanceIfMatch(ac, "DIALECT")) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+    QueryError_SetError(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
     goto error;
   }
 

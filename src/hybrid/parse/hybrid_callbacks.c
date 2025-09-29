@@ -210,8 +210,7 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
 void handleDialect(ArgParser *parser, const void *value, void *user_data) {
   HybridParseContext *ctx = (HybridParseContext*)user_data;
   QueryError *status = ctx->status;
-  QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS,
-    "DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration");
+  QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, DIALECT_ERROR_MSG);
 }
 
 // FORMAT callback - implements EXACT original logic from lines 359-366

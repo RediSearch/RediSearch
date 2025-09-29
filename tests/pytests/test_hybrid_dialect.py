@@ -184,7 +184,7 @@ def test_hybrid_dialect_errors():
         'FT.HYBRID', 'idx',
         'SEARCH', '@text:(apples)', 'DIALECT', '2',
         'VSIM', '@vector', query_vector
-    ).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration')
+    ).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.')
 
     # Test DIALECT in KNN subquery - should fail
     env.expect(
@@ -207,7 +207,7 @@ def test_hybrid_dialect_errors():
         'VSIM', '@vector', query_vector,
         'DIALECT', '2'
     ]
-    env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration')
+    env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.')
 
     # Test DIALECT with other tail parameters - should fail
     hybrid_cmd = [
@@ -217,4 +217,4 @@ def test_hybrid_dialect_errors():
         'COMBINE', 'RRF', '2', 'CONSTANT', '30',
         'DIALECT', '3'
     ]
-    env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. The dialect in use is controlled by the search-default-dialect configuration')
+    env.expect(*hybrid_cmd).error().contains('DIALECT is not supported in FT.HYBRID or any of its subqueries. Please check the documentation on search-default-dialect configuration.')
