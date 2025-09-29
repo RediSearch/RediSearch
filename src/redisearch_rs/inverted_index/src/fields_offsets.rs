@@ -83,8 +83,7 @@ impl Decoder for FieldsOffsets {
             1,
             offsets_sz,
             result,
-        )?;
-        Ok(())
+        )
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
@@ -192,8 +191,7 @@ impl Decoder for FieldsOffsetsWide {
             1,
             offsets_sz,
             result,
-        )?;
-        Ok(())
+        )
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {

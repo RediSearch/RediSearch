@@ -66,8 +66,7 @@ impl Decoder for OffsetsOnly {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
         let [delta, offsets_sz] = decoded_values;
 
-        decode_term_record_offsets(cursor, base, delta, 0, 1, offsets_sz, result)?;
-        Ok(())
+        decode_term_record_offsets(cursor, base, delta, 0, 1, offsets_sz, result)
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {

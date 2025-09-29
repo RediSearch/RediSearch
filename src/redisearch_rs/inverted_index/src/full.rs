@@ -142,8 +142,7 @@ impl Decoder for Full {
             freq,
             offsets_sz,
             result,
-        )?;
-        Ok(())
+        )
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
@@ -245,8 +244,7 @@ impl Decoder for FullWide {
         let [delta, freq, offsets_sz] = decoded_values;
         let field_mask = t_fieldMask::read_as_varint(cursor)?;
 
-        decode_term_record_offsets(cursor, base, delta, field_mask, freq, offsets_sz, result)?;
-        Ok(())
+        decode_term_record_offsets(cursor, base, delta, field_mask, freq, offsets_sz, result)
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {
