@@ -203,14 +203,13 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let mut record = RSIndexResult::term();
                         if self.wide {
                             let decoder = FieldsOnlyWide::default();
-                            let result = decoder.decode(buffer, 100, &mut record).unwrap();
+                            let result = decoder.decode_new(buffer, 100).unwrap();
                             let _ = black_box(result);
                         } else {
                             let decoder = FieldsOnly::default();
-                            let result = decoder.decode(buffer, 100, &mut record).unwrap();
+                            let result = decoder.decode_new(buffer, 100).unwrap();
                             let _ = black_box(result);
                         }
                     },

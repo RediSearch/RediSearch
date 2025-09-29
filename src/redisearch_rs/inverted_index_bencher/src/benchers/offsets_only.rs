@@ -14,9 +14,7 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
-use inverted_index::{
-    Decoder, Encoder, RSIndexResult, offsets_only::OffsetsOnly, test_utils::TestTermRecord,
-};
+use inverted_index::{Decoder, Encoder, offsets_only::OffsetsOnly, test_utils::TestTermRecord};
 use itertools::Itertools;
 
 use crate::ffi::{TestBuffer, encode_offsets_only, read_offsets_only};
@@ -173,10 +171,7 @@ impl Bencher {
                 b.iter_batched_ref(
                     || Cursor::new(test.encoded.as_ref()),
                     |buffer| {
-                        let mut record = RSIndexResult::term();
-                        let result = OffsetsOnly::default()
-                            .decode(buffer, 100, &mut record)
-                            .unwrap();
+                        let result = OffsetsOnly::default().decode_new(buffer, 100).unwrap();
 
                         let _ = black_box(result);
                     },
