@@ -126,7 +126,7 @@ def test_query_oom_cluster_shards_error():
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@name', 'SORTBY', 2, '@name', 'ASC').error().contains(OOM_QUERY_ERROR)
 
 # Test OOM error returned from shards (only for fail), enforcing first reply from non-error shard
-# @skip(cluster=False)
+@skip(cluster=False)
 def test_query_oom_cluster_shards_error_first_reply():
     env  = Env(shardsCount=3, moduleArgs='WORKERS 1')
 
@@ -172,15 +172,10 @@ def test_query_oom_cluster_shards_error_first_reply():
     # Start the query and the pause-check in parallel
     t_query.start()
 
-    # # Wait for the coordinator to be paused
-    # while getIsRPPaused(env) != 1:
-    #     time.sleep(0.1)
-
-    # If here, we know the coordinator got the first reply.
-    # Also verify workers status, first drain
     env.expect(debug_cmd(), 'WORKERS', 'drain').ok()
     stats = getWorkersThpoolStats(env)
     env.assertEqual(stats['totalJobsDone'], 1)
+    # If here, we know the coordinator got the first reply.
 
     # Let's resume the shards
     for pid in shards_pid:
@@ -188,9 +183,6 @@ def test_query_oom_cluster_shards_error_first_reply():
         shard_p.resume()
         while shard_p.status() != psutil.STATUS_RUNNING:
             time.sleep(0.1)
-
-    # Resume the coordinator
-    # setPauseRPResume(env)
 
     t_query.join()
 
