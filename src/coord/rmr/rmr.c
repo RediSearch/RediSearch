@@ -704,7 +704,7 @@ void iterCursorMappingCb(void *p) {
     it->cbxs[i].cmd.targetSlot = vsimOrSearch->mappings[i].targetSlot;
     it->cbxs[i].cmd.num = 4;
     char buf[128];
-    sprintf(buf, "%lld", vsimOrSearch->mappings[i].targetSlot);
+    sprintf(buf, "%lld", vsimOrSearch->mappings[i].cursorId);
     MRCommand_ReplaceArg(&it->cbxs[i].cmd, 3, buf, strlen(buf));
   }
 

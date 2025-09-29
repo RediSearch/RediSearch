@@ -13,7 +13,7 @@
 #include "../../../deps/rmutil/rm_assert.h"
 #include <string.h>
 
-#define INTERNAL_HYBRID_RESP3_LENGTH 2
+#define INTERNAL_HYBRID_RESP3_LENGTH 4
 #define INTERNAL_HYBRID_RESP2_LENGTH 4
 
 typedef struct {
@@ -59,7 +59,7 @@ static void processHybridResp3(processCursorMappingCallbackContext *ctx, MRReply
     const bool isSearch[] = {true, false};
     const StrongRef* mappings[] = {&ctx->searchMappings, &ctx->vsimMappings};
     pthread_mutex_lock(ctx->mutex);
-    for (int i = 0; i < INTERNAL_HYBRID_RESP3_LENGTH; i++) {
+    for (int i = 0; i < 2; i++) {
         MRReply *cursorId = MRReply_MapElement(rep, keys[i]);
         RS_ASSERT(cursorId);
 
@@ -128,7 +128,7 @@ int ProcessHybridCursorMappings(const MRCommand *cmd, int numShards, StrongRef s
     // Wait for all callbacks to complete
     pthread_mutex_lock(&mutex);
     int expected_total = numShards * 2; // 2 mappings per shard (search + vsim)
-    for (size_t count = 0; count < expected_total; count = 0)
+    for (size_t count = 0; count < expected_total;)
     {
         pthread_cond_wait(&completion_cond, &mutex);
         CursorMappings *searchMappings = StrongRef_Get(ctx.searchMappings);

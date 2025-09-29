@@ -254,7 +254,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq, RedisModuleCtx
 }
 
 static void FreeCursorMappings(void *mappings) {
-  CursorMappings *vsimOrSearch = (CursorMappings *)mappings; 
+  CursorMappings *vsimOrSearch = (CursorMappings *)mappings;
   array_free(vsimOrSearch->mappings);
   rm_free(mappings);
 }
@@ -267,6 +267,12 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     QueryProcessingCtx *vsimQctx = AREQ_QueryProcessingCtx(hreq->requests[1]);
     RPNet *searchRPNet = (RPNet *)searchQctx->rootProc;
     RPNet *vsimRPNet = (RPNet *)vsimQctx->rootProc;
+    RLookup *searchLookup = AGPLN_GetLookup(AREQ_AGGPlan(hreq->requests[0]), NULL, AGPLN_GETLOOKUP_FIRST);
+    RLookup *vsimLookup = AGPLN_GetLookup(AREQ_AGGPlan(hreq->requests[1]), NULL, AGPLN_GETLOOKUP_FIRST);
+    RLookup_Init(searchLookup, NULL);
+    RLookup_Init(vsimLookup, NULL);
+    searchRPNet->lookup = searchLookup;
+    vsimRPNet->lookup = vsimLookup;
 
     CursorMappings *search = rm_calloc(1, sizeof(CursorMappings));
     CursorMappings *vsim = rm_calloc(1, sizeof(CursorMappings));

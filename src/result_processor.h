@@ -127,7 +127,7 @@ typedef struct {
   double score;
   RSScoreExplain *scoreExplain;
 
-  const RSDocumentMetadata *dmd;
+  RSDocumentMetadata *dmd;
 
   // index result should cover what you need for highlighting,
   // but we will add a method to duplicate index results to make

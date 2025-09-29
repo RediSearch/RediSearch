@@ -89,7 +89,6 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   return true;
 }
 
-
 static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
 
