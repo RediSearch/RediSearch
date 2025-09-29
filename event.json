@@ -1,0 +1,15 @@
+{
+  "pull_request": {
+    "head": {
+      "ref": "HEAD"
+    },
+    "base": {
+      "ref": "HEAD"
+    },
+    "labels": [
+      {
+        "name": "enforce:refactor"
+      }
+    ]
+  }
+}
