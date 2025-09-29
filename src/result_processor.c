@@ -1955,7 +1955,6 @@ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
      maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
    } else {
-     // For LINEAR scoring, use a reasonable default for dictionary pre-sizing
      maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
    }
    // Pre-size the dictionary to avoid multiple resizes during accumulation

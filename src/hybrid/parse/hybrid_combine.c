@@ -63,11 +63,13 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   // Define the required arguments
   ArgParser_AddDouble(parser, "ALPHA", "Alpha weight value", &alphaValue);
   ArgParser_AddDouble(parser, "BETA", "Beta weight value", &betaValue);
+  int windowValue = HYBRID_DEFAULT_WINDOW;
   ArgParser_AddIntV(parser, "WINDOW", "LINEAR window size (must be positive)",
-    &linearCtx->window, ARG_OPT_OPTIONAL,
+    &windowValue, ARG_OPT_OPTIONAL,
     ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
-    ARG_OPT_RANGE, 1LL, LLONG_MAX,
+    ARG_OPT_RANGE, 1LL, UINT_MAX,
     ARG_OPT_END);
+    linearCtx->window = windowValue;
 
   // Parse the arguments
   ArgParseResult result = ArgParser_Parse(parser);
