@@ -2742,6 +2742,10 @@ static void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply
 static void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch) {
   for (int i = 0; i < count; ++i) {
     MRReply *current = replies[i];
+    // Check if reply is error
+    if (MRReply_Type(current) == MR_REPLY_ERROR) {
+      continue;
+    }
     if (isSearch) { // On aggregate commands, we get the profile info directly.
       current = MRReply_MapElement(current, PROFILE_STR);
     }
