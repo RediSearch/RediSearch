@@ -446,6 +446,11 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         const char *strErr = MRReply_String(nc->current.root, NULL);
         QueryError_SetError(AREQ_QueryProcessingCtx(nc->areq)->err, QUERY_EGENERIC, strErr);
         return RS_RESULT_ERROR;
+      } else {
+        // Free the error reply before we override it and continue
+        MRReply_Free(nc->current.root);
+        // Set it as NULL avoid another free
+        nc->current.root = NULL;
       }
     }
 
