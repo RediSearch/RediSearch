@@ -28,28 +28,22 @@ static void parseSlots(RedisModuleCallReply *slots, MRClusterShard *sh) {
 static void parseNode(RedisModuleCallReply *node, MRClusterNode *n) {
   const size_t len = RedisModule_CallReplyLength(node);
   RS_ASSERT(len % 2 == 0);
-  n->endpoint.port = -1;
   for (size_t i = 0; i < len / 2; i++) {
     size_t key_len, val_len;
     RedisModuleCallReply *key = RedisModule_CallReplyArrayElement(node, i * 2);
     const char *key_str = RedisModule_CallReplyStringPtr(key, &key_len);
-    RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(node, i * 2 + 1);
-    const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len); // TODO: fix this
 
     if (STR_EQ(key_str, key_len, "id")) {
+      RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(node, i * 2 + 1);
+      const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
       n->id = rm_strndup(val_str, val_len);
     } else if (STR_EQ(key_str, key_len, "endpoint")) {
+      RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(node, i * 2 + 1);
+      const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
       n->endpoint.host = rm_strndup(val_str, val_len);
-    } else if (STR_EQ(key_str, key_len, "port") && n->endpoint.port == -1) {
-  //     // We need to get the port using the `RedisModule_GetClusterNodeInfo` API because on 7.2
-  //     // invoking `cluster slot` from RM_Call will always return the none tls port.
-  //     // For for information refer to: https://github.com/redis/redis/pull/12233
-  //     int port = 0;
-  //     RedisModule_GetClusterNodeInfo(ctx, id_str, NULL, NULL, &port, NULL);
-      n->endpoint.port = (int)RedisModule_CallReplyInteger(val);
-    } else if (STR_EQ(key_str, key_len, "tls-port")) {
-      n->endpoint.port = (int)RedisModule_CallReplyInteger(val);
     } else if (STR_EQ(key_str, key_len, "role")) {
+      RedisModuleCallReply *val = RedisModule_CallReplyArrayElement(node, i * 2 + 1);
+      const char *val_str = RedisModule_CallReplyStringPtr(val, &val_len);
       if (STR_EQ(val_str, val_len, "master")) {
         n->flags |= MRNode_Master;
       }
@@ -139,6 +133,11 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     // parse each node
     for (size_t n = 0; n < topo->shards[i].numNodes; n++) {
       parseNode(RedisModule_CallReplyArrayElement(nodes, n), &topo->shards[i].nodes[n]);
+      // TODO: is this still true? Is this still needed?
+      // We need to get the port using the `RedisModule_GetClusterNodeInfo` API because on 7.2
+      // invoking `cluster slot/shard` from RM_Call will always return the none tls port.
+      // For for information refer to: https://github.com/redis/redis/pull/12233
+      RedisModule_GetClusterNodeInfo(ctx, topo->shards[i].nodes[n].id, NULL, NULL, &topo->shards[i].nodes[n].endpoint.port, NULL);
       // Mark the node as self if its ID matches our ID
       if (STR_EQ(myID, idlen, topo->shards[i].nodes[n].id)) {
         topo->shards[i].nodes[n].flags |= MRNode_Self;
