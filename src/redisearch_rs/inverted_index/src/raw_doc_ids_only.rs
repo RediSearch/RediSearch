@@ -49,13 +49,14 @@ impl Decoder for RawDocIdsOnly {
         &self,
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
-    ) -> std::io::Result<RSIndexResult<'index>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<()> {
         let mut delta_bytes = [0u8; 4];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
 
-        let record = RSIndexResult::term().doc_id(base + delta as t_docId);
-        Ok(record)
+        result.doc_id = base + delta as t_docId;
+        Ok(())
     }
 
     fn base_id(block: &IndexBlock, _last_doc_id: t_docId) -> t_docId {
@@ -67,7 +68,8 @@ impl Decoder for RawDocIdsOnly {
         cursor: &mut Cursor<&'index [u8]>,
         base: t_docId,
         target: t_docId,
-    ) -> std::io::Result<Option<RSIndexResult<'index>>> {
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
         // Check if the very next record is the target before starting a binary search
         let mut delta_bytes = [0u8; 4];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
@@ -75,7 +77,8 @@ impl Decoder for RawDocIdsOnly {
         let mut doc_id = base + delta as t_docId;
 
         if doc_id >= target {
-            return Ok(Some(RSIndexResult::term().doc_id(doc_id)));
+            result.doc_id = doc_id;
+            return Ok(true);
         }
 
         // Start binary search
@@ -100,7 +103,7 @@ impl Decoder for RawDocIdsOnly {
 
         // Make sure we don't go past the end of the encoded input
         if left >= end {
-            return Ok(None);
+            return Ok(false);
         }
 
         // Read the final value
@@ -109,6 +112,11 @@ impl Decoder for RawDocIdsOnly {
         let delta = u32::from_ne_bytes(delta_bytes);
         doc_id = base + delta as t_docId;
 
-        Ok(Some(RSIndexResult::term().doc_id(doc_id)))
+        result.doc_id = doc_id;
+        Ok(true)
+    }
+
+    fn base_result<'index>() -> RSIndexResult<'index> {
+        RSIndexResult::term()
     }
 }
